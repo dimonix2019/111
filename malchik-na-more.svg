@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Boy at the sea</title>
+  <desc id="desc">A stylized illustration of a boy standing by the sea on a sunny day.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8fd3ff" />
+      <stop offset="60%" stop-color="#c7ecff" />
+      <stop offset="100%" stop-color="#ffe2b7" />
+    </linearGradient>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4db8e8" />
+      <stop offset="100%" stop-color="#0c78b7" />
+    </linearGradient>
+    <linearGradient id="sand" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7d598" />
+      <stop offset="100%" stop-color="#e5b96f" />
+    </linearGradient>
+    <radialGradient id="sunGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#fff7c2" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#fff7c2" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="800" fill="url(#sky)" />
+  <circle cx="930" cy="140" r="95" fill="url(#sunGlow)" />
+  <circle cx="930" cy="140" r="54" fill="#ffd45c" />
+
+  <g fill="#ffffff" opacity="0.95">
+    <ellipse cx="210" cy="135" rx="62" ry="28" />
+    <ellipse cx="255" cy="128" rx="52" ry="24" />
+    <ellipse cx="172" cy="128" rx="40" ry="20" />
+
+    <ellipse cx="730" cy="115" rx="54" ry="25" />
+    <ellipse cx="772" cy="108" rx="43" ry="19" />
+    <ellipse cx="695" cy="108" rx="34" ry="17" />
+  </g>
+
+  <rect x="0" y="360" width="1200" height="250" fill="url(#sea)" />
+
+  <g opacity="0.55" fill="none" stroke="#d8f6ff" stroke-width="7" stroke-linecap="round">
+    <path d="M0 405 C80 388, 150 388, 230 405 S380 422, 470 405 S620 388, 710 405 S860 422, 950 405 S1100 388, 1200 405" />
+    <path d="M0 462 C90 444, 150 444, 240 462 S390 480, 480 462 S630 444, 720 462 S870 480, 960 462 S1110 444, 1200 462" />
+    <path d="M0 525 C95 506, 155 506, 250 525 S405 544, 500 525 S655 506, 750 525 S905 544, 1000 525 S1105 506, 1200 525" />
+  </g>
+
+  <path d="M0 560 C150 540, 320 565, 480 590 C640 616, 790 630, 930 612 C1040 598, 1130 580, 1200 565 L1200 800 L0 800 Z" fill="url(#sand)" />
+  <path d="M0 610 C180 582, 322 612, 458 632 C625 656, 835 661, 1200 620 L1200 800 L0 800 Z" fill="#d9aa61" opacity="0.35" />
+
+  <g opacity="0.45">
+    <ellipse cx="710" cy="662" rx="92" ry="22" fill="#b78449" />
+  </g>
+
+  <g transform="translate(690 392)">
+    <ellipse cx="0" cy="272" rx="76" ry="18" fill="#7d5536" opacity="0.26" />
+
+    <path d="M-44 236 L-14 125 L24 125 L50 236 Z" fill="#27a0e0" />
+    <path d="M-44 236 L50 236 L50 244 C25 252 -20 252 -44 244 Z" fill="#1f86bd" />
+
+    <rect x="-7" y="100" width="22" height="34" rx="9" fill="#f3c29a" />
+    <circle cx="4" cy="72" r="34" fill="#f3c29a" />
+    <path d="M-29 69 C-24 37, 6 26, 27 38 C39 45, 44 58, 40 75 C28 64, 15 58, 4 58 C-8 58, -19 62, -29 69 Z" fill="#5a341d" />
+    <path d="M-17 68 C-6 60, 15 60, 27 69 C21 44, -10 43, -17 68 Z" fill="#6d4125" opacity="0.75" />
+
+    <path d="M-44 133 C-60 144, -67 166, -60 191 L-47 186 C-53 168, -48 150, -36 141 Z" fill="#f3c29a" />
+    <path d="M25 134 C44 145, 56 167, 54 190 L40 188 C41 171, 35 152, 18 142 Z" fill="#f3c29a" />
+
+    <path d="M-25 248 L-37 338 L-17 338 L4 257 Z" fill="#f3c29a" />
+    <path d="M30 248 L42 338 L63 338 L40 258 Z" fill="#f3c29a" />
+
+    <ellipse cx="-22" cy="342" rx="24" ry="8" fill="#2e4d63" />
+    <ellipse cx="61" cy="342" rx="24" ry="8" fill="#2e4d63" />
+
+    <path d="M-45 125 C-20 112, 9 112, 28 124 C26 106, 13 95, -7 92 C-29 89, -42 102, -45 125 Z" fill="#ff6b6b" />
+    <path d="M-40 125 C-18 116, 6 117, 22 126" fill="none" stroke="#ff9292" stroke-width="5" stroke-linecap="round" opacity="0.6" />
+  </g>
+
+  <g opacity="0.6" fill="#ffffff">
+    <path d="M140 600 C170 590, 200 590, 235 602 C197 609, 170 609, 140 600 Z" />
+    <path d="M318 645 C349 635, 381 636, 415 647 C380 654, 348 655, 318 645 Z" />
+    <path d="M1015 575 C1042 567, 1075 568, 1106 580 C1074 586, 1044 587, 1015 575 Z" />
+  </g>
+</svg>
