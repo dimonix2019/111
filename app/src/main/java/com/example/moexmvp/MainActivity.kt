@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +49,9 @@ import java.io.IOException
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -235,6 +239,7 @@ private fun PeriodSelector(selected: Period, onSelect: (Period) -> Unit) {
 
 @Composable
 private fun ChartCard(title: String, series: List<ChartSeries>, labels: List<String>) {
+    val axisScale = remember(series, labels) { buildAxisScale(series, labels) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -243,15 +248,50 @@ private fun ChartCard(title: String, series: List<ChartSeries>, labels: List<Str
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(title, fontWeight = FontWeight.Bold)
-        LineChart(series = series, modifier = Modifier.fillMaxWidth().height(180.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier
+                    .height(180.dp)
+                    .width(54.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                axisScale.yTicks
+                    .asReversed()
+                    .forEach { tick ->
+                        Text(
+                            text = formatAxisValue(tick),
+                            fontSize = 10.sp,
+                            color = Color.Gray
+                        )
+                    }
+            }
+            LineChart(
+                series = series,
+                yTicks = axisScale.yTicks,
+                xTickIndices = axisScale.xTicks.map { it.index },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(180.dp)
+            )
+        }
         Legend(series = series)
-        if (labels.isNotEmpty()) {
+        if (axisScale.xTicks.isNotEmpty()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(labels.first(), fontSize = 11.sp, color = Color.Gray)
-                Text(labels.last(), fontSize = 11.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.width(54.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    axisScale.xTicks.forEach { tick ->
+                        Text(tick.label, fontSize = 11.sp, color = Color.Gray)
+                    }
+                }
             }
         }
     }
@@ -275,7 +315,12 @@ private fun Legend(series: List<ChartSeries>) {
 }
 
 @Composable
-private fun LineChart(series: List<ChartSeries>, modifier: Modifier = Modifier) {
+private fun LineChart(
+    series: List<ChartSeries>,
+    yTicks: List<Double>,
+    xTickIndices: List<Int>,
+    modifier: Modifier = Modifier
+) {
     if (series.isEmpty() || series.all { it.values.isEmpty() }) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             Text("No chart data")
@@ -284,26 +329,50 @@ private fun LineChart(series: List<ChartSeries>, modifier: Modifier = Modifier) 
     }
 
     val allValues = series.flatMap { it.values }
-    val min = allValues.minOrNull() ?: 0.0
-    val max = allValues.maxOrNull() ?: 1.0
+    val min = yTicks.minOrNull() ?: allValues.minOrNull() ?: 0.0
+    val max = yTicks.maxOrNull() ?: allValues.maxOrNull() ?: 1.0
     val range = (max - min).takeIf { it > 0.0 } ?: 1.0
 
     Canvas(modifier = modifier.background(Color.White, RoundedCornerShape(8.dp))) {
-        val leftPadding = 20f
-        val rightPadding = 20f
-        val topPadding = 16f
-        val bottomPadding = 20f
+        val leftPadding = 16f
+        val rightPadding = 16f
+        val topPadding = 12f
+        val bottomPadding = 16f
         val w = size.width - leftPadding - rightPadding
         val h = size.height - topPadding - bottomPadding
 
+        val maxIndex = series.maxOfOrNull { it.values.lastIndex }?.coerceAtLeast(0) ?: 0
+
+        yTicks.forEach { tick ->
+            val y = topPadding + h - (((tick - min) / range).toFloat() * h)
+            drawLine(
+                color = Color(0xFFE0E0E0),
+                start = Offset(leftPadding, y),
+                end = Offset(leftPadding + w, y),
+                strokeWidth = 1.5f
+            )
+        }
+
+        if (maxIndex > 0) {
+            xTickIndices.forEach { index ->
+                val x = leftPadding + ((index.toFloat() / maxIndex) * w)
+                drawLine(
+                    color = Color(0xFFEEEEEE),
+                    start = Offset(x, topPadding),
+                    end = Offset(x, topPadding + h),
+                    strokeWidth = 1.5f
+                )
+            }
+        }
+
         drawLine(
-            color = Color.LightGray,
+            color = Color(0xFFBDBDBD),
             start = Offset(leftPadding, topPadding + h),
             end = Offset(leftPadding + w, topPadding + h),
             strokeWidth = 2f
         )
         drawLine(
-            color = Color.LightGray,
+            color = Color(0xFFBDBDBD),
             start = Offset(leftPadding, topPadding),
             end = Offset(leftPadding, topPadding + h),
             strokeWidth = 2f
@@ -323,8 +392,9 @@ private fun LineChart(series: List<ChartSeries>, modifier: Modifier = Modifier) 
             }
 
             val path = Path()
+            val localMaxIndex = values.lastIndex.coerceAtLeast(1)
             values.forEachIndexed { index, value ->
-                val x = leftPadding + (index.toFloat() / (values.lastIndex.coerceAtLeast(1))) * w
+                val x = leftPadding + (index.toFloat() / localMaxIndex) * w
                 val y = topPadding + h - (((value - min) / range).toFloat() * h)
                 if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
@@ -335,6 +405,70 @@ private fun LineChart(series: List<ChartSeries>, modifier: Modifier = Modifier) 
             )
         }
     }
+}
+
+private fun buildAxisScale(series: List<ChartSeries>, labels: List<String>): AxisScale {
+    val allValues = series.flatMap { it.values }
+    if (allValues.isEmpty()) {
+        return AxisScale(
+            yTicks = emptyList(),
+            xTicks = buildXTicks(labels)
+        )
+    }
+
+    val rawMin = allValues.minOrNull() ?: 0.0
+    val rawMax = allValues.maxOrNull() ?: 1.0
+
+    val min: Double
+    val max: Double
+    if (rawMin == rawMax) {
+        val padding = (abs(rawMin) * 0.02).coerceAtLeast(1.0)
+        min = rawMin - padding
+        max = rawMax + padding
+    } else {
+        min = rawMin
+        max = rawMax
+    }
+
+    return AxisScale(
+        yTicks = buildYTicks(min, max, count = 5),
+        xTicks = buildXTicks(labels)
+    )
+}
+
+private fun buildYTicks(min: Double, max: Double, count: Int): List<Double> {
+    if (count <= 1) return listOf(min)
+    val step = (max - min) / (count - 1)
+    return (0 until count).map { index ->
+        min + step * index
+    }
+}
+
+private fun buildXTicks(labels: List<String>, desiredCount: Int = 5): List<XAxisTick> {
+    if (labels.isEmpty()) return emptyList()
+    if (labels.size == 1) return listOf(XAxisTick(index = 0, label = labels.first()))
+
+    val count = minOf(desiredCount, labels.size)
+    val maxIndex = labels.lastIndex
+    val uniqueIndices = linkedSetOf<Int>()
+    for (i in 0 until count) {
+        val index = ((i.toDouble() / (count - 1)) * maxIndex).roundToInt()
+        uniqueIndices += index
+    }
+
+    return uniqueIndices
+        .sorted()
+        .map { index -> XAxisTick(index = index, label = labels[index]) }
+}
+
+private fun formatAxisValue(value: Double): String {
+    val precision = when {
+        abs(value) >= 1000 -> 0
+        abs(value) >= 100 -> 1
+        abs(value) >= 1 -> 2
+        else -> 3
+    }
+    return String.format(Locale.US, "%.${precision}f", value)
 }
 
 private suspend fun loadState(period: Period): UiState = withContext(Dispatchers.IO) {
@@ -430,6 +564,16 @@ private data class ChartSeries(
     val name: String,
     val color: Color,
     val values: List<Double>
+)
+
+private data class AxisScale(
+    val yTicks: List<Double>,
+    val xTicks: List<XAxisTick>
+)
+
+private data class XAxisTick(
+    val index: Int,
+    val label: String
 )
 
 private sealed interface UiState {
