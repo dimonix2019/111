@@ -57,6 +57,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -79,6 +80,8 @@ class MainActivity : ComponentActivity() {
 private val httpClient = OkHttpClient()
 private val tradeDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 private val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+private val candleTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+private val intradayLabelFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 @Composable
 private fun MoexScreen() {
@@ -693,6 +696,10 @@ private fun loadCloseSeries(
 }
 
 private fun fetchData(period: Period): List<DataPoint> {
+    if (period == Period.OneDay) {
+        return fetchIntradayData15m()
+    }
+
     val till = LocalDate.now()
     val from = period.from(till)
 
@@ -715,6 +722,105 @@ private fun fetchData(period: Period): List<DataPoint> {
             diff = diff
         )
     }
+}
+
+private fun fetchIntradayData15m(): List<DataPoint> {
+    val today = LocalDate.now()
+    val from = today.minusDays(1)
+
+    val tatn = loadIntradayCloseSeries("TATN", from, today)
+    val tatnp = loadIntradayCloseSeries("TATNP", from, today)
+    val alignedTimes = (tatn.keys + tatnp.keys).sorted()
+
+    return alignedTimes.mapNotNull { time ->
+        val t1 = tatn[time] ?: return@mapNotNull null
+        val t2 = tatnp[time] ?: return@mapNotNull null
+        if (t2 == 0.0) return@mapNotNull null
+
+        val spread = (t1 / t2 - 1.0) * 100.0
+        val diff = t1 - t2
+        DataPoint(
+            tradeDate = time.toLocalTime().format(intradayLabelFormatter),
+            tatnClose = t1,
+            tatnpClose = t2,
+            spreadPercent = spread,
+            diff = diff
+        )
+    }
+}
+
+private fun loadIntradayCloseSeries(
+    secId: String,
+    from: LocalDate,
+    till: LocalDate
+): Map<LocalDateTime, Double> {
+    val pageSize = 500
+    var start = 0
+    val minuteSeries = linkedMapOf<LocalDateTime, Double>()
+
+    while (true) {
+        val url = buildString {
+            append("https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/")
+            append(secId)
+            append("/candles.json?iss.meta=off&candles.columns=begin,close")
+            append("&interval=1")
+            append("&from=").append(from)
+            append("&till=").append(till)
+            append("&limit=").append(pageSize)
+            append("&start=").append(start)
+        }
+        val request = Request.Builder().url(url).build()
+        val page = httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("HTTP ${response.code} while loading intraday $secId")
+            }
+            val body = response.body?.string().orEmpty()
+            parseCandleCloseSeries(body)
+        }
+        if (page.isEmpty()) break
+        minuteSeries.putAll(page)
+        if (page.size < pageSize) break
+        start += pageSize
+    }
+
+    return aggregateTo15Minutes(minuteSeries)
+}
+
+internal fun parseCandleCloseSeries(body: String): Map<LocalDateTime, Double> {
+    val rows = JSONObject(body)
+        .optJSONObject("candles")
+        ?.optJSONArray("data")
+        ?: JSONArray()
+
+    val result = linkedMapOf<LocalDateTime, Double>()
+    for (i in 0 until rows.length()) {
+        val row = rows.optJSONArray(i) ?: continue
+        val beginAt = runCatching {
+            LocalDateTime.parse(row.optString(0), candleTimeFormatter)
+        }.getOrNull() ?: continue
+
+        val close = when (val rawClose = row.opt(1)) {
+            is Number -> rawClose.toDouble()
+            is String -> rawClose.toDoubleOrNull()
+            else -> null
+        } ?: continue
+
+        result[beginAt] = close
+    }
+    return result
+}
+
+internal fun aggregateTo15Minutes(source: Map<LocalDateTime, Double>): Map<LocalDateTime, Double> {
+    if (source.isEmpty()) return emptyMap()
+
+    val grouped = linkedMapOf<LocalDateTime, Double>()
+    source.toSortedMap().forEach { (ts, close) ->
+        val minuteBucket = (ts.minute / 15) * 15
+        val bucketTime = ts.withMinute(minuteBucket).withSecond(0).withNano(0)
+        // Keep the latest minute close inside each 15-minute bucket.
+        grouped[bucketTime] = close
+    }
+    return grouped
 }
 
 internal fun parseCloseSeries(body: String): Map<LocalDate, Double> {
