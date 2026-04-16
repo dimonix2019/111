@@ -88,6 +88,7 @@ private fun MoexScreen() {
     var selectedPeriod by remember { mutableStateOf(Period.OneMonth) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var realtimeInterval by remember { mutableStateOf(RealtimeInterval.FiveSeconds) }
+    var spreadScaleMode by remember { mutableStateOf(SpreadScaleMode.Auto) }
     var isRefreshing by remember { mutableStateOf(false) }
     var realtimeError by remember { mutableStateOf<String?>(null) }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
@@ -176,6 +177,12 @@ private fun MoexScreen() {
                 onSelectInterval = { realtimeInterval = it }
             )
         }
+        item {
+            SpreadScaleControls(
+                mode = spreadScaleMode,
+                onModeChange = { spreadScaleMode = it }
+            )
+        }
         if (realtimeError != null && state is UiState.Success) {
             item {
                 Text(
@@ -223,7 +230,12 @@ private fun MoexScreen() {
                         series = listOf(
                             ChartSeries("Spread %", Color(0xFF2E7D32), current.points.map { it.spreadPercent })
                         ),
-                        labels = current.points.map { it.tradeDate }
+                        labels = current.points.map { it.tradeDate },
+                        yScale = if (spreadScaleMode == SpreadScaleMode.Fixed) {
+                            YAxisScale.Fixed(min = 0.0, max = 15.0)
+                        } else {
+                            YAxisScale.Auto
+                        }
                     )
                 }
                 item {
@@ -395,8 +407,53 @@ private fun RealtimeControls(
 }
 
 @Composable
-private fun ChartCard(title: String, series: List<ChartSeries>, labels: List<String>) {
-    val axisScale = remember(series, labels) { buildAxisScale(series, labels) }
+private fun SpreadScaleControls(mode: SpreadScaleMode, onModeChange: (SpreadScaleMode) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF5F5F5), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("Spread scale", fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SpreadScaleMode.entries.forEach { candidate ->
+                val active = candidate == mode
+                Button(
+                    onClick = { onModeChange(candidate) },
+                    modifier = Modifier.height(36.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (active) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        contentColor = if (active) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                ) {
+                    Text(candidate.label)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChartCard(
+    title: String,
+    series: List<ChartSeries>,
+    labels: List<String>,
+    yScale: YAxisScale = YAxisScale.Auto
+) {
+    val axisScale = remember(series, labels, yScale) { buildAxisScale(series, labels, yScale) }
+    val stats = remember(series) { buildChartStats(series) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -435,6 +492,11 @@ private fun ChartCard(title: String, series: List<ChartSeries>, labels: List<Str
             )
         }
         Legend(series = series)
+        Text(
+            text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
+            fontSize = 12.sp,
+            color = Color.Gray
+        )
     }
 }
 
@@ -579,7 +641,18 @@ private fun LineChart(
     }
 }
 
-private fun buildAxisScale(series: List<ChartSeries>, labels: List<String>): AxisScale {
+private fun buildChartStats(series: List<ChartSeries>): ChartStats {
+    val allValues = series.flatMap { it.values }
+    if (allValues.isEmpty()) {
+        return ChartStats(min = 0.0, max = 0.0)
+    }
+    return ChartStats(
+        min = allValues.minOrNull() ?: 0.0,
+        max = allValues.maxOrNull() ?: 0.0
+    )
+}
+
+private fun buildAxisScale(series: List<ChartSeries>, labels: List<String>, yScale: YAxisScale): AxisScale {
     val allValues = series.flatMap { it.values }
     if (allValues.isEmpty()) {
         return AxisScale(
@@ -588,18 +661,25 @@ private fun buildAxisScale(series: List<ChartSeries>, labels: List<String>): Axi
         )
     }
 
-    val rawMin = allValues.minOrNull() ?: 0.0
-    val rawMax = allValues.maxOrNull() ?: 1.0
+    val (min, max) = when (yScale) {
+        is YAxisScale.Fixed -> {
+            if (yScale.max > yScale.min) {
+                yScale.min to yScale.max
+            } else {
+                yScale.min to (yScale.min + 1.0)
+            }
+        }
 
-    val min: Double
-    val max: Double
-    if (rawMin == rawMax) {
-        val padding = (abs(rawMin) * 0.02).coerceAtLeast(1.0)
-        min = rawMin - padding
-        max = rawMax + padding
-    } else {
-        min = rawMin
-        max = rawMax
+        YAxisScale.Auto -> {
+            val rawMin = allValues.minOrNull() ?: 0.0
+            val rawMax = allValues.maxOrNull() ?: 1.0
+            if (rawMin == rawMax) {
+                val padding = (abs(rawMin) * 0.02).coerceAtLeast(1.0)
+                (rawMin - padding) to (rawMax + padding)
+            } else {
+                rawMin to rawMax
+            }
+        }
     }
 
     return AxisScale(
@@ -897,10 +977,20 @@ private data class AxisScale(
     val xTicks: List<XAxisTick>
 )
 
+private data class ChartStats(
+    val min: Double,
+    val max: Double
+)
+
 private data class XAxisTick(
     val index: Int,
     val label: String
 )
+
+private sealed interface YAxisScale {
+    data object Auto : YAxisScale
+    data class Fixed(val min: Double, val max: Double) : YAxisScale
+}
 
 internal data class HistoryPage(
     val rows: Map<LocalDate, Double>,
@@ -939,4 +1029,9 @@ private enum class RealtimeInterval(val label: String, val millis: Long) {
     FiveSeconds("5s", 5_000L),
     TenSeconds("10s", 10_000L),
     FifteenSeconds("15s", 15_000L)
+}
+
+private enum class SpreadScaleMode(val label: String) {
+    Auto("Auto"),
+    Fixed("Fixed 0..15%")
 }
