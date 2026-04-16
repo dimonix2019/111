@@ -1,5 +1,6 @@
 package com.example.moexmvp
 
+import android.graphics.Paint
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +49,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -68,6 +71,7 @@ class MainActivity : ComponentActivity() {
 
 private val httpClient = OkHttpClient()
 private val tradeDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+private val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 @Composable
 private fun MoexScreen() {
@@ -118,7 +122,10 @@ private fun MoexScreen() {
 
             is UiState.Success -> {
                 item {
-                    SummaryBlock(current.points)
+                    SummaryBlock(
+                        points = current.points,
+                        loadedAt = current.loadedAt
+                    )
                 }
                 item {
                     ChartCard(
@@ -193,7 +200,7 @@ private fun EmptyState() {
 }
 
 @Composable
-private fun SummaryBlock(points: List<DataPoint>) {
+private fun SummaryBlock(points: List<DataPoint>, loadedAt: String) {
     val latest = points.lastOrNull() ?: return
     Column(
         modifier = Modifier
@@ -203,6 +210,7 @@ private fun SummaryBlock(points: List<DataPoint>) {
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text("Latest: ${latest.tradeDate}", fontWeight = FontWeight.Bold)
+        Text("Updated at: $loadedAt")
         Text("TATN: ${"%.2f".format(latest.tatnClose)}")
         Text("TATNP: ${"%.2f".format(latest.tatnpClose)}")
         Text("Spread: ${"%.2f".format(latest.spreadPercent)}%")
@@ -271,29 +279,13 @@ private fun ChartCard(title: String, series: List<ChartSeries>, labels: List<Str
             LineChart(
                 series = series,
                 yTicks = axisScale.yTicks,
-                xTickIndices = axisScale.xTicks.map { it.index },
+                xTicks = axisScale.xTicks,
                 modifier = Modifier
                     .weight(1f)
                     .height(180.dp)
             )
         }
         Legend(series = series)
-        if (axisScale.xTicks.isNotEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Spacer(modifier = Modifier.width(54.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    axisScale.xTicks.forEach { tick ->
-                        Text(tick.label, fontSize = 11.sp, color = Color.Gray)
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -318,7 +310,7 @@ private fun Legend(series: List<ChartSeries>) {
 private fun LineChart(
     series: List<ChartSeries>,
     yTicks: List<Double>,
-    xTickIndices: List<Int>,
+    xTicks: List<XAxisTick>,
     modifier: Modifier = Modifier
 ) {
     if (series.isEmpty() || series.all { it.values.isEmpty() }) {
@@ -337,11 +329,18 @@ private fun LineChart(
         val leftPadding = 16f
         val rightPadding = 16f
         val topPadding = 12f
-        val bottomPadding = 16f
+        val bottomPadding = 52f
         val w = size.width - leftPadding - rightPadding
         val h = size.height - topPadding - bottomPadding
 
         val maxIndex = series.maxOfOrNull { it.values.lastIndex }?.coerceAtLeast(0) ?: 0
+        fun xForIndex(index: Int): Float {
+            return if (maxIndex == 0) {
+                leftPadding + (w / 2f)
+            } else {
+                leftPadding + ((index.toFloat() / maxIndex) * w)
+            }
+        }
 
         yTicks.forEach { tick ->
             val y = topPadding + h - (((tick - min) / range).toFloat() * h)
@@ -353,16 +352,14 @@ private fun LineChart(
             )
         }
 
-        if (maxIndex > 0) {
-            xTickIndices.forEach { index ->
-                val x = leftPadding + ((index.toFloat() / maxIndex) * w)
-                drawLine(
-                    color = Color(0xFFEEEEEE),
-                    start = Offset(x, topPadding),
-                    end = Offset(x, topPadding + h),
-                    strokeWidth = 1.5f
-                )
-            }
+        xTicks.forEach { tick ->
+            val x = xForIndex(tick.index)
+            drawLine(
+                color = Color(0xFFEEEEEE),
+                start = Offset(x, topPadding),
+                end = Offset(x, topPadding + h),
+                strokeWidth = 1.5f
+            )
         }
 
         drawLine(
@@ -377,6 +374,15 @@ private fun LineChart(
             end = Offset(leftPadding, topPadding + h),
             strokeWidth = 2f
         )
+        xTicks.forEach { tick ->
+            val x = xForIndex(tick.index)
+            drawLine(
+                color = Color(0xFFBDBDBD),
+                start = Offset(x, topPadding + h),
+                end = Offset(x, topPadding + h + 8f),
+                strokeWidth = 1.5f
+            )
+        }
 
         series.forEach { line ->
             val values = line.values
@@ -403,6 +409,23 @@ private fun LineChart(
                 color = line.color,
                 style = Stroke(width = 4f, cap = StrokeCap.Round)
             )
+        }
+
+        if (xTicks.isNotEmpty()) {
+            val labelPaint = Paint().apply {
+                isAntiAlias = true
+                color = android.graphics.Color.GRAY
+                textSize = 10.sp.toPx()
+                textAlign = Paint.Align.RIGHT
+            }
+            xTicks.forEach { tick ->
+                val x = xForIndex(tick.index)
+                val y = topPadding + h + 34f
+                drawContext.canvas.nativeCanvas.save()
+                drawContext.canvas.nativeCanvas.rotate(-40f, x, y)
+                drawContext.canvas.nativeCanvas.drawText(tick.label, x, y, labelPaint)
+                drawContext.canvas.nativeCanvas.restore()
+            }
         }
     }
 }
@@ -474,7 +497,14 @@ private fun formatAxisValue(value: Double): String {
 private suspend fun loadState(period: Period): UiState = withContext(Dispatchers.IO) {
     try {
         val data = fetchData(period)
-        if (data.isEmpty()) UiState.Empty else UiState.Success(data)
+        if (data.isEmpty()) {
+            UiState.Empty
+        } else {
+            UiState.Success(
+                points = data,
+                loadedAt = LocalDateTime.now().format(updatedAtFormatter)
+            )
+        }
     } catch (t: Throwable) {
         UiState.Error(t.message ?: "Unknown error")
     }
@@ -580,7 +610,10 @@ private sealed interface UiState {
     data object Loading : UiState
     data class Error(val message: String) : UiState
     data object Empty : UiState
-    data class Success(val points: List<DataPoint>) : UiState
+    data class Success(
+        val points: List<DataPoint>,
+        val loadedAt: String
+    ) : UiState
 }
 
 private enum class Period(val label: String, private val months: Long) {
