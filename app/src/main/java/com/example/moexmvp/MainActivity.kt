@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -500,7 +499,6 @@ private fun ChartCard(
                     .height(180.dp)
             )
         }
-        XAxisLabels(axisScale.xTicks)
         Legend(series = series)
         selectedIndex?.let { selected ->
             val label = labels.getOrNull(selected)
@@ -570,7 +568,6 @@ private fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
                     .height(180.dp)
             )
         }
-        XAxisLabels(axisScale.xTicks)
         selectedIndex?.let { selected ->
             candles.getOrNull(selected)?.let { candle ->
                 Text(
@@ -587,29 +584,6 @@ private fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
             fontSize = 12.sp,
             color = Color.Gray
         )
-    }
-}
-
-@Composable
-private fun XAxisLabels(ticks: List<XAxisTick>) {
-    if (ticks.isEmpty()) return
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Spacer(modifier = Modifier.width(54.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            ticks.forEach { tick ->
-                Text(
-                    text = tick.label,
-                    fontSize = 10.sp,
-                    color = Color.Gray
-                )
-            }
-        }
     }
 }
 
