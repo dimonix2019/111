@@ -33,14 +33,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,11 +60,12 @@ import org.json.JSONObject
 import java.io.IOException
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
@@ -215,13 +219,15 @@ private fun MoexScreen() {
                     )
                 }
                 item {
-                    ChartCard(
-                        title = "График 1: цены TATN / TATNP",
-                        series = listOf(
-                            ChartSeries("TATN", Color(0xFF1565C0), current.points.map { it.tatnClose }),
-                            ChartSeries("TATNP", Color(0xFFD84315), current.points.map { it.tatnpClose })
-                        ),
-                        labels = current.points.map { it.tradeDate }
+                    CandlestickChartCard(
+                        title = "График 1A: свечи TATN",
+                        candles = current.tatnCandles
+                    )
+                }
+                item {
+                    CandlestickChartCard(
+                        title = "График 1B: свечи TATNP",
+                        candles = current.tatnpCandles
                     )
                 }
                 item {
@@ -454,6 +460,7 @@ private fun ChartCard(
 ) {
     val axisScale = remember(series, labels, yScale) { buildAxisScale(series, labels, yScale) }
     val stats = remember(series) { buildChartStats(series) }
+    var selectedIndex by remember(series, labels) { mutableStateOf<Int?>(null) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -486,12 +493,93 @@ private fun ChartCard(
                 series = series,
                 yTicks = axisScale.yTicks,
                 xTicks = axisScale.xTicks,
+                selectedIndex = selectedIndex,
+                onSelectIndex = { selectedIndex = it },
                 modifier = Modifier
                     .weight(1f)
                     .height(180.dp)
             )
         }
         Legend(series = series)
+        selectedIndex?.let { selected ->
+            val label = labels.getOrNull(selected)
+            val values = series.mapNotNull { chartSeries ->
+                chartSeries.values.getOrNull(selected)?.let { value ->
+                    "${chartSeries.name}: ${formatAxisValue(value)}"
+                }
+            }
+            if (!label.isNullOrBlank() && values.isNotEmpty()) {
+                Text(
+                    text = "↕ $label | ${values.joinToString(" | ")}",
+                    fontSize = 12.sp,
+                    color = Color(0xFF424242)
+                )
+            }
+        }
+        Text(
+            text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
+            fontSize = 12.sp,
+            color = Color.Gray
+        )
+    }
+}
+
+@Composable
+private fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
+    val axisScale = remember(candles) { buildCandleAxisScale(candles) }
+    val stats = remember(candles) { buildCandleStats(candles) }
+    var selectedIndex by remember(candles) { mutableStateOf<Int?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF7F9FC), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(title, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier
+                    .height(180.dp)
+                    .width(54.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                axisScale.yTicks
+                    .asReversed()
+                    .forEach { tick ->
+                        Text(
+                            text = formatAxisValue(tick),
+                            fontSize = 10.sp,
+                            color = Color.Gray
+                        )
+                    }
+            }
+            CandlestickChart(
+                candles = candles,
+                yTicks = axisScale.yTicks,
+                xTicks = axisScale.xTicks,
+                selectedIndex = selectedIndex,
+                onSelectIndex = { selectedIndex = it },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(180.dp)
+            )
+        }
+        selectedIndex?.let { selected ->
+            candles.getOrNull(selected)?.let { candle ->
+                Text(
+                    text = "↕ ${candle.label} | O ${formatAxisValue(candle.open)} | " +
+                        "H ${formatAxisValue(candle.high)} | L ${formatAxisValue(candle.low)} | " +
+                        "C ${formatAxisValue(candle.close)}",
+                    fontSize = 12.sp,
+                    color = Color(0xFF424242)
+                )
+            }
+        }
         Text(
             text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
             fontSize = 12.sp,
@@ -522,6 +610,8 @@ private fun LineChart(
     series: List<ChartSeries>,
     yTicks: List<Double>,
     xTicks: List<XAxisTick>,
+    selectedIndex: Int?,
+    onSelectIndex: (Int?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (series.isEmpty() || series.all { it.values.isEmpty() }) {
@@ -535,12 +625,29 @@ private fun LineChart(
     val min = yTicks.minOrNull() ?: allValues.minOrNull() ?: 0.0
     val max = yTicks.maxOrNull() ?: allValues.maxOrNull() ?: 1.0
     val range = (max - min).takeIf { it > 0.0 } ?: 1.0
+    val leftPadding = 16f
+    val rightPadding = 16f
+    val topPadding = 12f
+    val bottomPadding = 52f
 
-    Canvas(modifier = modifier.background(Color.White, RoundedCornerShape(8.dp))) {
-        val leftPadding = 16f
-        val rightPadding = 16f
-        val topPadding = 12f
-        val bottomPadding = 52f
+    Canvas(
+        modifier = modifier
+            .background(Color.White, RoundedCornerShape(8.dp))
+            .pointerInput(series) {
+                detectTapGestures { tapOffset ->
+                    val maxIndex = series.maxOfOrNull { it.values.lastIndex }?.coerceAtLeast(0) ?: 0
+                    onSelectIndex(
+                        resolveSelectedIndex(
+                            tapX = tapOffset.x,
+                            canvasWidth = size.width.toFloat(),
+                            leftPadding = leftPadding,
+                            rightPadding = rightPadding,
+                            maxIndex = maxIndex
+                        )
+                    )
+                }
+            }
+    ) {
         val w = size.width - leftPadding - rightPadding
         val h = size.height - topPadding - bottomPadding
 
@@ -595,6 +702,17 @@ private fun LineChart(
             )
         }
 
+        val selected = selectedIndex?.coerceIn(0, maxIndex)
+        selected?.let { idx ->
+            val x = xForIndex(idx)
+            drawLine(
+                color = Color(0xFF616161),
+                start = Offset(x, topPadding),
+                end = Offset(x, topPadding + h),
+                strokeWidth = 2f
+            )
+        }
+
         series.forEach { line ->
             val values = line.values
             if (values.isEmpty()) return@forEach
@@ -620,6 +738,18 @@ private fun LineChart(
                 color = line.color,
                 style = Stroke(width = 4f, cap = StrokeCap.Round)
             )
+
+            selected?.let { idx ->
+                if (idx <= values.lastIndex) {
+                    val x = xForIndex(idx)
+                    val y = topPadding + h - (((values[idx] - min) / range).toFloat() * h)
+                    drawCircle(
+                        color = line.color,
+                        radius = 5f,
+                        center = Offset(x, y)
+                    )
+                }
+            }
         }
 
         if (xTicks.isNotEmpty()) {
@@ -641,6 +771,160 @@ private fun LineChart(
     }
 }
 
+@Composable
+private fun CandlestickChart(
+    candles: List<CandlePoint>,
+    yTicks: List<Double>,
+    xTicks: List<XAxisTick>,
+    selectedIndex: Int?,
+    onSelectIndex: (Int?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (candles.isEmpty()) {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            Text("No chart data")
+        }
+        return
+    }
+
+    val min = yTicks.minOrNull() ?: candles.minOfOrNull { it.low } ?: 0.0
+    val max = yTicks.maxOrNull() ?: candles.maxOfOrNull { it.high } ?: 1.0
+    val range = (max - min).takeIf { it > 0.0 } ?: 1.0
+    val leftPadding = 16f
+    val rightPadding = 16f
+    val topPadding = 12f
+    val bottomPadding = 52f
+
+    Canvas(
+        modifier = modifier
+            .background(Color.White, RoundedCornerShape(8.dp))
+            .pointerInput(candles) {
+                detectTapGestures { tapOffset ->
+                    onSelectIndex(
+                        resolveSelectedIndex(
+                            tapX = tapOffset.x,
+                            canvasWidth = size.width.toFloat(),
+                            leftPadding = leftPadding,
+                            rightPadding = rightPadding,
+                            maxIndex = candles.lastIndex.coerceAtLeast(0)
+                        )
+                    )
+                }
+            }
+    ) {
+        val w = size.width - leftPadding - rightPadding
+        val h = size.height - topPadding - bottomPadding
+        val maxIndex = candles.lastIndex.coerceAtLeast(0)
+        fun xForIndex(index: Int): Float {
+            return if (maxIndex == 0) {
+                leftPadding + (w / 2f)
+            } else {
+                leftPadding + ((index.toFloat() / maxIndex) * w)
+            }
+        }
+
+        yTicks.forEach { tick ->
+            val y = topPadding + h - (((tick - min) / range).toFloat() * h)
+            drawLine(
+                color = Color(0xFFE0E0E0),
+                start = Offset(leftPadding, y),
+                end = Offset(leftPadding + w, y),
+                strokeWidth = 1.5f
+            )
+        }
+
+        xTicks.forEach { tick ->
+            val x = xForIndex(tick.index)
+            drawLine(
+                color = Color(0xFFEEEEEE),
+                start = Offset(x, topPadding),
+                end = Offset(x, topPadding + h),
+                strokeWidth = 1.5f
+            )
+        }
+
+        drawLine(
+            color = Color(0xFFBDBDBD),
+            start = Offset(leftPadding, topPadding + h),
+            end = Offset(leftPadding + w, topPadding + h),
+            strokeWidth = 2f
+        )
+        drawLine(
+            color = Color(0xFFBDBDBD),
+            start = Offset(leftPadding, topPadding),
+            end = Offset(leftPadding, topPadding + h),
+            strokeWidth = 2f
+        )
+
+        val candleWidth = max(4f, min(14f, (w / (candles.size + 1)) * 0.7f))
+        candles.forEachIndexed { index, candle ->
+            val x = xForIndex(index)
+            val openY = topPadding + h - (((candle.open - min) / range).toFloat() * h)
+            val highY = topPadding + h - (((candle.high - min) / range).toFloat() * h)
+            val lowY = topPadding + h - (((candle.low - min) / range).toFloat() * h)
+            val closeY = topPadding + h - (((candle.close - min) / range).toFloat() * h)
+            val rising = candle.close >= candle.open
+            val color = if (rising) Color(0xFF2E7D32) else Color(0xFFC62828)
+
+            drawLine(
+                color = color,
+                start = Offset(x, highY),
+                end = Offset(x, lowY),
+                strokeWidth = 2f
+            )
+
+            val bodyTop = min(openY, closeY)
+            val bodyHeight = max(abs(closeY - openY), 2f)
+            drawRect(
+                color = color,
+                topLeft = Offset(x - candleWidth / 2f, bodyTop),
+                size = Size(candleWidth, bodyHeight)
+            )
+        }
+
+        val selected = selectedIndex?.coerceIn(0, maxIndex)
+        selected?.let { idx ->
+            val x = xForIndex(idx)
+            drawLine(
+                color = Color(0xFF616161),
+                start = Offset(x, topPadding),
+                end = Offset(x, topPadding + h),
+                strokeWidth = 2f
+            )
+        }
+
+        if (xTicks.isNotEmpty()) {
+            val labelPaint = Paint().apply {
+                isAntiAlias = true
+                color = android.graphics.Color.GRAY
+                textSize = 10.sp.toPx()
+                textAlign = Paint.Align.RIGHT
+            }
+            xTicks.forEach { tick ->
+                val x = xForIndex(tick.index)
+                val y = topPadding + h + 34f
+                drawContext.canvas.nativeCanvas.save()
+                drawContext.canvas.nativeCanvas.rotate(-40f, x, y)
+                drawContext.canvas.nativeCanvas.drawText(tick.label, x, y, labelPaint)
+                drawContext.canvas.nativeCanvas.restore()
+            }
+        }
+    }
+}
+
+private fun resolveSelectedIndex(
+    tapX: Float,
+    canvasWidth: Float,
+    leftPadding: Float,
+    rightPadding: Float,
+    maxIndex: Int
+): Int {
+    if (maxIndex <= 0) return 0
+    val chartWidth = (canvasWidth - leftPadding - rightPadding).coerceAtLeast(1f)
+    val clamped = (tapX - leftPadding).coerceIn(0f, chartWidth)
+    return ((clamped / chartWidth) * maxIndex).roundToInt().coerceIn(0, maxIndex)
+}
+
 private fun buildChartStats(series: List<ChartSeries>): ChartStats {
     val allValues = series.flatMap { it.values }
     if (allValues.isEmpty()) {
@@ -649,6 +933,32 @@ private fun buildChartStats(series: List<ChartSeries>): ChartStats {
     return ChartStats(
         min = allValues.minOrNull() ?: 0.0,
         max = allValues.maxOrNull() ?: 0.0
+    )
+}
+
+private fun buildCandleStats(candles: List<CandlePoint>): ChartStats {
+    if (candles.isEmpty()) {
+        return ChartStats(min = 0.0, max = 0.0)
+    }
+    return ChartStats(
+        min = candles.minOfOrNull { it.low } ?: 0.0,
+        max = candles.maxOfOrNull { it.high } ?: 0.0
+    )
+}
+
+private fun buildCandleAxisScale(candles: List<CandlePoint>): AxisScale {
+    if (candles.isEmpty()) {
+        return AxisScale(
+            yTicks = emptyList(),
+            xTicks = emptyList()
+        )
+    }
+    val min = candles.minOfOrNull { it.low } ?: 0.0
+    val max = candles.maxOfOrNull { it.high } ?: 1.0
+    val normalizedMax = if (max <= min) min + 1.0 else max
+    return AxisScale(
+        yTicks = buildYTicks(min, normalizedMax, count = 5),
+        xTicks = buildXTicks(candles.map { it.label })
     )
 }
 
@@ -726,12 +1036,14 @@ private fun formatAxisValue(value: Double): String {
 private suspend fun loadState(period: Period): UiState = withContext(Dispatchers.IO) {
     try {
         val data = fetchData(period)
-        if (data.isEmpty()) {
+        if (data.points.isEmpty()) {
             UiState.Empty
         } else {
             UiState.Success(
-                points = data,
-                loadedAt = LocalDateTime.now().format(updatedAtFormatter)
+                points = data.points,
+                loadedAt = LocalDateTime.now().format(updatedAtFormatter),
+                tatnCandles = data.tatnCandles,
+                tatnpCandles = data.tatnpCandles
             )
         }
     } catch (t: Throwable) {
@@ -775,75 +1087,97 @@ private fun loadCloseSeries(
     return result
 }
 
-private fun fetchData(period: Period): List<DataPoint> {
-    if (period == Period.OneDay) {
-        return fetchIntradayData15m()
-    }
-
+private fun fetchData(period: Period): FetchedData {
     val till = LocalDate.now()
     val from = period.from(till)
 
-    val tatn = loadCloseSeries("TATN", from, till)
-    val tatnp = loadCloseSeries("TATNP", from, till)
+    val tatnBars = loadCandleSeries("TATN", period, from, till)
+    val tatnpBars = loadCandleSeries("TATNP", period, from, till)
 
-    val allDates = (tatn.keys + tatnp.keys).sorted()
-    return allDates.mapNotNull { date ->
-        val t1 = tatn[date] ?: return@mapNotNull null
-        val t2 = tatnp[date] ?: return@mapNotNull null
-        if (t2 == 0.0) return@mapNotNull null
+    val tatnByTime = tatnBars.associateBy { it.timestamp }
+    val tatnpByTime = tatnpBars.associateBy { it.timestamp }
+    val alignedTimes = (tatnByTime.keys + tatnpByTime.keys).sorted()
 
-        val spread = (t1 / t2 - 1.0) * 100.0
-        val diff = t1 - t2
+    val points = alignedTimes.mapNotNull { time ->
+        val tatn = tatnByTime[time]?.close ?: return@mapNotNull null
+        val tatnp = tatnpByTime[time]?.close ?: return@mapNotNull null
+        if (tatnp == 0.0) return@mapNotNull null
+
+        val spread = (tatn / tatnp - 1.0) * 100.0
         DataPoint(
-            tradeDate = date.format(tradeDateFormatter),
-            tatnClose = t1,
-            tatnpClose = t2,
+            tradeDate = formatLabelForPeriod(time, period),
+            tatnClose = tatn,
+            tatnpClose = tatnp,
             spreadPercent = spread,
-            diff = diff
+            diff = tatn - tatnp
         )
+    }
+
+    return FetchedData(
+        points = points,
+        tatnCandles = tatnBars.map {
+            CandlePoint(
+                label = formatLabelForPeriod(it.timestamp, period),
+                open = it.open,
+                high = it.high,
+                low = it.low,
+                close = it.close
+            )
+        },
+        tatnpCandles = tatnpBars.map {
+            CandlePoint(
+                label = formatLabelForPeriod(it.timestamp, period),
+                open = it.open,
+                high = it.high,
+                low = it.low,
+                close = it.close
+            )
+        }
+    )
+}
+
+private fun formatLabelForPeriod(timestamp: LocalDateTime, period: Period): String {
+    return if (period == Period.OneDay) {
+        timestamp.toLocalTime().format(intradayLabelFormatter)
+    } else {
+        timestamp.toLocalDate().format(tradeDateFormatter)
     }
 }
 
-private fun fetchIntradayData15m(): List<DataPoint> {
-    val today = LocalDate.now()
-    val from = today.minusDays(1)
-
-    val tatn = loadIntradayCloseSeries("TATN", from, today)
-    val tatnp = loadIntradayCloseSeries("TATNP", from, today)
-    val alignedTimes = (tatn.keys + tatnp.keys).sorted()
-
-    return alignedTimes.mapNotNull { time ->
-        val t1 = tatn[time] ?: return@mapNotNull null
-        val t2 = tatnp[time] ?: return@mapNotNull null
-        if (t2 == 0.0) return@mapNotNull null
-
-        val spread = (t1 / t2 - 1.0) * 100.0
-        val diff = t1 - t2
-        DataPoint(
-            tradeDate = time.toLocalTime().format(intradayLabelFormatter),
-            tatnClose = t1,
-            tatnpClose = t2,
-            spreadPercent = spread,
-            diff = diff
-        )
-    }
-}
-
-private fun loadIntradayCloseSeries(
+private fun loadCandleSeries(
     secId: String,
+    period: Period,
     from: LocalDate,
     till: LocalDate
-): Map<LocalDateTime, Double> {
+): List<CandleBar> {
+    val raw = when (period) {
+        Period.OneDay -> loadCandleBars(secId, from, till, interval = 1)
+        else -> loadCandleBars(secId, from, till, interval = 24)
+    }
+    val transformed = if (period == Period.OneDay) {
+        aggregateTo15MinuteBars(raw)
+    } else {
+        raw
+    }
+    return transformed.sortedBy { it.timestamp }
+}
+
+private fun loadCandleBars(
+    secId: String,
+    from: LocalDate,
+    till: LocalDate,
+    interval: Int
+): List<CandleBar> {
     val pageSize = 500
     var start = 0
-    val minuteSeries = linkedMapOf<LocalDateTime, Double>()
+    val allBars = mutableListOf<CandleBar>()
 
     while (true) {
         val url = buildString {
             append("https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/")
             append(secId)
-            append("/candles.json?iss.meta=off&candles.columns=begin,close")
-            append("&interval=1")
+            append("/candles.json?iss.meta=off&candles.columns=begin,open,high,low,close")
+            append("&interval=").append(interval)
             append("&from=").append(from)
             append("&till=").append(till)
             append("&limit=").append(pageSize)
@@ -852,55 +1186,89 @@ private fun loadIntradayCloseSeries(
         val request = Request.Builder().url(url).build()
         val page = httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IOException("HTTP ${response.code} while loading intraday $secId")
+                throw IOException("HTTP ${response.code} while loading candles for $secId")
             }
-            val body = response.body?.string().orEmpty()
-            parseCandleCloseSeries(body)
+            parseCandleBars(response.body?.string().orEmpty())
         }
         if (page.isEmpty()) break
-        minuteSeries.putAll(page)
+        allBars += page
         if (page.size < pageSize) break
         start += pageSize
     }
 
-    return aggregateTo15Minutes(minuteSeries)
+    return allBars
 }
 
-internal fun parseCandleCloseSeries(body: String): Map<LocalDateTime, Double> {
+internal fun parseCandleBars(body: String): List<CandleBar> {
     val rows = JSONObject(body)
         .optJSONObject("candles")
         ?.optJSONArray("data")
         ?: JSONArray()
 
-    val result = linkedMapOf<LocalDateTime, Double>()
+    val result = mutableListOf<CandleBar>()
     for (i in 0 until rows.length()) {
         val row = rows.optJSONArray(i) ?: continue
         val beginAt = runCatching {
             LocalDateTime.parse(row.optString(0), candleTimeFormatter)
         }.getOrNull() ?: continue
 
-        val close = when (val rawClose = row.opt(1)) {
-            is Number -> rawClose.toDouble()
-            is String -> rawClose.toDoubleOrNull()
-            else -> null
-        } ?: continue
+        val open = toDouble(row.opt(1)) ?: continue
+        val high = toDouble(row.opt(2)) ?: continue
+        val low = toDouble(row.opt(3)) ?: continue
+        val close = toDouble(row.opt(4)) ?: continue
 
-        result[beginAt] = close
+        result += CandleBar(
+            timestamp = beginAt,
+            open = open,
+            high = high,
+            low = low,
+            close = close
+        )
     }
     return result
 }
 
+private fun toDouble(value: Any?): Double? {
+    return when (value) {
+        is Number -> value.toDouble()
+        is String -> value.toDoubleOrNull()
+        else -> null
+    }
+}
+
+internal fun parseCandleCloseSeries(body: String): Map<LocalDateTime, Double> {
+    return parseCandleBars(body).associate { it.timestamp to it.close }
+}
+
 internal fun aggregateTo15Minutes(source: Map<LocalDateTime, Double>): Map<LocalDateTime, Double> {
     if (source.isEmpty()) return emptyMap()
+    val bars = source.entries
+        .sortedBy { it.key }
+        .map { (ts, close) ->
+            CandleBar(timestamp = ts, open = close, high = close, low = close, close = close)
+        }
+    return aggregateTo15MinuteBars(bars).associate { it.timestamp to it.close }
+}
 
-    val grouped = linkedMapOf<LocalDateTime, Double>()
-    source.toSortedMap().forEach { (ts, close) ->
-        val minuteBucket = (ts.minute / 15) * 15
-        val bucketTime = ts.withMinute(minuteBucket).withSecond(0).withNano(0)
-        // Keep the latest minute close inside each 15-minute bucket.
-        grouped[bucketTime] = close
+internal fun aggregateTo15MinuteBars(source: List<CandleBar>): List<CandleBar> {
+    if (source.isEmpty()) return emptyList()
+
+    val grouped = linkedMapOf<LocalDateTime, MutableList<CandleBar>>()
+    source.sortedBy { it.timestamp }.forEach { bar ->
+        val minuteBucket = (bar.timestamp.minute / 15) * 15
+        val bucketTime = bar.timestamp.withMinute(minuteBucket).withSecond(0).withNano(0)
+        grouped.getOrPut(bucketTime) { mutableListOf() }.add(bar)
     }
-    return grouped
+
+    return grouped.map { (bucketTime, bars) ->
+        CandleBar(
+            timestamp = bucketTime,
+            open = bars.first().open,
+            high = bars.maxOf { it.high },
+            low = bars.minOf { it.low },
+            close = bars.last().close
+        )
+    }
 }
 
 internal fun parseCloseSeries(body: String): Map<LocalDate, Double> {
@@ -966,6 +1334,20 @@ private data class DataPoint(
     val diff: Double
 )
 
+private data class CandlePoint(
+    val label: String,
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double
+)
+
+private data class FetchedData(
+    val points: List<DataPoint>,
+    val tatnCandles: List<CandlePoint>,
+    val tatnpCandles: List<CandlePoint>
+)
+
 private data class ChartSeries(
     val name: String,
     val color: Color,
@@ -997,13 +1379,23 @@ internal data class HistoryPage(
     val total: Int?
 )
 
+internal data class CandleBar(
+    val timestamp: LocalDateTime,
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double
+)
+
 private sealed interface UiState {
     data object Loading : UiState
     data class Error(val message: String) : UiState
     data object Empty : UiState
     data class Success(
         val points: List<DataPoint>,
-        val loadedAt: String
+        val loadedAt: String,
+        val tatnCandles: List<CandlePoint>,
+        val tatnpCandles: List<CandlePoint>
     ) : UiState
 }
 

@@ -98,38 +98,63 @@ class MoexParsingTest {
     }
 
     @Test
-    fun parseCandleCloseSeries_parsesMinuteCandles() {
+    fun parseCandleBars_parsesMinuteCandles() {
         val body = """
             {
               "candles": {
-                "columns": ["begin", "close"],
+                "columns": ["begin", "open", "high", "low", "close"],
                 "data": [
-                  ["2026-04-16 10:01:00", 603.2],
-                  ["2026-04-16 10:02:00", "603.5"],
-                  ["bad-time", 603.7]
+                  ["2026-04-16 10:01:00", 603.0, 603.4, 602.8, 603.2],
+                  ["2026-04-16 10:02:00", "603.2", "603.8", "603.0", "603.5"],
+                  ["bad-time", 603.0, 603.4, 602.8, 603.2]
                 ]
               }
             }
         """.trimIndent()
 
-        val parsed = parseCandleCloseSeries(body)
+        val parsed = parseCandleBars(body)
         assertEquals(2, parsed.size)
-        assertEquals(603.2, parsed[LocalDateTime.parse("2026-04-16T10:01:00")]!!, 0.0001)
-        assertEquals(603.5, parsed[LocalDateTime.parse("2026-04-16T10:02:00")]!!, 0.0001)
+        assertEquals(603.2, parsed[0].close, 0.0001)
+        assertEquals(603.5, parsed[1].close, 0.0001)
+        assertEquals(LocalDateTime.parse("2026-04-16T10:01:00"), parsed[0].timestamp)
+        assertEquals(LocalDateTime.parse("2026-04-16T10:02:00"), parsed[1].timestamp)
     }
 
     @Test
-    fun aggregateTo15Minutes_keepsLastValueInEachBucket() {
-        val source = linkedMapOf(
-            LocalDateTime.parse("2026-04-16T10:01:00") to 600.1,
-            LocalDateTime.parse("2026-04-16T10:14:00") to 601.4,
-            LocalDateTime.parse("2026-04-16T10:16:00") to 602.2,
-            LocalDateTime.parse("2026-04-16T10:29:00") to 603.9
+    fun aggregateTo15MinuteBars_buildsOhlcPerBucket() {
+        val source = listOf(
+            CandleBar(
+                timestamp = LocalDateTime.parse("2026-04-16T10:01:00"),
+                open = 600.1, high = 600.8, low = 599.9, close = 600.4
+            ),
+            CandleBar(
+                timestamp = LocalDateTime.parse("2026-04-16T10:14:00"),
+                open = 600.4, high = 601.6, low = 600.2, close = 601.4
+            ),
+            CandleBar(
+                timestamp = LocalDateTime.parse("2026-04-16T10:16:00"),
+                open = 602.2, high = 602.7, low = 601.9, close = 602.3
+            ),
+            CandleBar(
+                timestamp = LocalDateTime.parse("2026-04-16T10:29:00"),
+                open = 602.3, high = 604.1, low = 602.0, close = 603.9
+            )
         )
 
-        val aggregated = aggregateTo15Minutes(source)
+        val aggregated = aggregateTo15MinuteBars(source)
         assertEquals(2, aggregated.size)
-        assertEquals(601.4, aggregated[LocalDateTime.parse("2026-04-16T10:00:00")]!!, 0.0001)
-        assertEquals(603.9, aggregated[LocalDateTime.parse("2026-04-16T10:15:00")]!!, 0.0001)
+        val first = aggregated[0]
+        assertEquals(LocalDateTime.parse("2026-04-16T10:00:00"), first.timestamp)
+        assertEquals(600.1, first.open, 0.0001)
+        assertEquals(601.6, first.high, 0.0001)
+        assertEquals(599.9, first.low, 0.0001)
+        assertEquals(601.4, first.close, 0.0001)
+
+        val second = aggregated[1]
+        assertEquals(LocalDateTime.parse("2026-04-16T10:15:00"), second.timestamp)
+        assertEquals(602.2, second.open, 0.0001)
+        assertEquals(604.1, second.high, 0.0001)
+        assertEquals(601.9, second.low, 0.0001)
+        assertEquals(603.9, second.close, 0.0001)
     }
 }
