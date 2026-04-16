@@ -656,22 +656,35 @@ private fun loadCloseSeries(
     from: LocalDate,
     till: LocalDate
 ): Map<LocalDate, Double> {
-    val url = buildString {
-        append("https://iss.moex.com/iss/history/engines/stock/markets/shares/boards/TQBR/securities/")
-        append(secId)
-        append(".json?iss.meta=off&history.columns=TRADEDATE,CLOSE")
-        append("&from=").append(from)
-        append("&till=").append(till)
-        append("&limit=100")
-    }
-    val request = Request.Builder().url(url).build()
-    httpClient.newCall(request).execute().use { response ->
-        if (!response.isSuccessful) {
-            throw IOException("HTTP ${response.code} while loading $secId")
+    val pageSize = 100
+    var start = 0
+    val result = linkedMapOf<LocalDate, Double>()
+
+    while (true) {
+        val url = buildString {
+            append("https://iss.moex.com/iss/history/engines/stock/markets/shares/boards/TQBR/securities/")
+            append(secId)
+            append(".json?iss.meta=off&history.columns=TRADEDATE,CLOSE")
+            append("&from=").append(from)
+            append("&till=").append(till)
+            append("&limit=").append(pageSize)
+            append("&start=").append(start)
         }
-        val body = response.body?.string().orEmpty()
-        return parseCloseSeries(body)
+        val request = Request.Builder().url(url).build()
+        val page = httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("HTTP ${response.code} while loading $secId")
+            }
+            val body = response.body?.string().orEmpty()
+            parseCloseSeries(body)
+        }
+        if (page.isEmpty()) break
+        result.putAll(page)
+        if (page.size < pageSize) break
+        start += pageSize
     }
+
+    return result
 }
 
 private fun fetchData(period: Period): List<DataPoint> {
