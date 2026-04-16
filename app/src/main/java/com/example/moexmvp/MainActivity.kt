@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -295,7 +297,10 @@ private fun SummaryBlock(points: List<DataPoint>, loadedAt: String) {
 
 @Composable
 private fun PeriodSelector(selected: Period, onSelect: (Period) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         Period.entries.forEach { period ->
             val active = period == selected
             Button(
@@ -807,13 +812,20 @@ private sealed interface UiState {
 }
 
 private enum class Period(val label: String, private val months: Long) {
+    OneDay("1D", 0),
+    OneWeek("1W", 0),
     OneMonth("1M", 1),
     ThreeMonths("3M", 3),
     SixMonths("6M", 6),
     OneYear("1Y", 12);
 
     fun from(till: LocalDate): LocalDate {
-        return if (this == OneYear) till.minus(365, ChronoUnit.DAYS) else till.minusMonths(months)
+        return when (this) {
+            OneDay -> till.minus(1, ChronoUnit.DAYS)
+            OneWeek -> till.minus(7, ChronoUnit.DAYS)
+            OneYear -> till.minus(365, ChronoUnit.DAYS)
+            else -> till.minusMonths(months)
+        }
     }
 }
 
