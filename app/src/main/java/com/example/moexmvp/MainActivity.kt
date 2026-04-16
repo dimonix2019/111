@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +43,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -76,12 +81,58 @@ private val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:s
 @Composable
 private fun MoexScreen() {
     var selectedPeriod by remember { mutableStateOf(Period.OneMonth) }
-    var refreshToken by remember { mutableStateOf(0) }
+    var realtimeEnabled by remember { mutableStateOf(true) }
+    var realtimeInterval by remember { mutableStateOf(RealtimeInterval.FiveSeconds) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var realtimeError by remember { mutableStateOf<String?>(null) }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
+    val refreshMutex = remember { Mutex() }
+    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(selectedPeriod, refreshToken) {
-        state = UiState.Loading
-        state = loadState(selectedPeriod)
+    suspend fun refreshData(showLoading: Boolean) {
+        refreshMutex.withLock {
+            if (showLoading) {
+                state = UiState.Loading
+            } else {
+                isRefreshing = true
+            }
+
+            when (val next = loadState(selectedPeriod)) {
+                is UiState.Success -> {
+                    state = next
+                    realtimeError = null
+                }
+
+                is UiState.Empty -> {
+                    state = UiState.Empty
+                    realtimeError = null
+                }
+
+                is UiState.Error -> {
+                    // Do not wipe an already visible chart on background realtime refresh.
+                    if (showLoading || state !is UiState.Success) {
+                        state = next
+                    } else {
+                        realtimeError = next.message
+                    }
+                }
+
+                UiState.Loading -> Unit
+            }
+            isRefreshing = false
+        }
+    }
+
+    LaunchedEffect(selectedPeriod) {
+        refreshData(showLoading = true)
+    }
+
+    LaunchedEffect(realtimeEnabled, realtimeInterval, selectedPeriod) {
+        if (!realtimeEnabled) return@LaunchedEffect
+        while (true) {
+            delay(realtimeInterval.millis)
+            refreshData(showLoading = false)
+        }
     }
 
     LazyColumn(
@@ -103,8 +154,30 @@ private fun MoexScreen() {
             )
         }
         item {
-            Button(onClick = { refreshToken += 1 }) {
+            Button(onClick = {
+                scope.launch {
+                    refreshData(showLoading = state !is UiState.Success)
+                }
+            }) {
                 Text("Refresh")
+            }
+        }
+        item {
+            RealtimeControls(
+                enabled = realtimeEnabled,
+                selectedInterval = realtimeInterval,
+                isRefreshing = isRefreshing,
+                onToggle = { realtimeEnabled = !realtimeEnabled },
+                onSelectInterval = { realtimeInterval = it }
+            )
+        }
+        if (realtimeError != null && state is UiState.Success) {
+            item {
+                Text(
+                    text = "Realtime warning: $realtimeError",
+                    color = Color(0xFFB71C1C),
+                    fontSize = 12.sp
+                )
             }
         }
         when (val current = state) {
@@ -113,7 +186,9 @@ private fun MoexScreen() {
             }
 
             is UiState.Error -> item {
-                ErrorState(current.message) { refreshToken += 1 }
+                ErrorState(current.message) {
+                    scope.launch { refreshData(showLoading = true) }
+                }
             }
 
             is UiState.Empty -> item {
@@ -242,6 +317,72 @@ private fun PeriodSelector(selected: Period, onSelect: (Period) -> Unit) {
                 Text(text = period.label)
             }
         }
+    }
+}
+
+@Composable
+private fun RealtimeControls(
+    enabled: Boolean,
+    selectedInterval: RealtimeInterval,
+    isRefreshing: Boolean,
+    onToggle: () -> Unit,
+    onSelectInterval: (RealtimeInterval) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF5F5F5), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Realtime", fontWeight = FontWeight.Bold)
+            Button(
+                onClick = onToggle,
+                modifier = Modifier.height(36.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (enabled) Color(0xFF2E7D32) else Color(0xFF616161),
+                    contentColor = Color.White
+                )
+            ) {
+                Text(if (enabled) "ON" else "OFF")
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            RealtimeInterval.entries.forEach { interval ->
+                val active = interval == selectedInterval
+                Button(
+                    onClick = { onSelectInterval(interval) },
+                    modifier = Modifier.height(36.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (active) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        contentColor = if (active) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                ) {
+                    Text(interval.label)
+                }
+            }
+        }
+        Text(
+            text = if (isRefreshing) "Status: updating..." else "Status: up to date",
+            fontSize = 12.sp,
+            color = if (isRefreshing) Color(0xFF1565C0) else Color(0xFF2E7D32)
+        )
     }
 }
 
@@ -625,4 +766,10 @@ private enum class Period(val label: String, private val months: Long) {
     fun from(till: LocalDate): LocalDate {
         return if (this == OneYear) till.minus(365, ChronoUnit.DAYS) else till.minusMonths(months)
     }
+}
+
+private enum class RealtimeInterval(val label: String, val millis: Long) {
+    FiveSeconds("5s", 5_000L),
+    TenSeconds("10s", 10_000L),
+    FifteenSeconds("15s", 15_000L)
 }
