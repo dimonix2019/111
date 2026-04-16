@@ -676,11 +676,11 @@ private fun loadCloseSeries(
                 throw IOException("HTTP ${response.code} while loading $secId")
             }
             val body = response.body?.string().orEmpty()
-            parseCloseSeries(body)
+            parseHistoryPage(body)
         }
-        if (page.isEmpty()) break
-        result.putAll(page)
-        if (page.size < pageSize) break
+        if (page.rows.isEmpty()) break
+        result.putAll(page.rows)
+        if (!shouldContinuePagination(start, pageSize, page.rows.size, page.total)) break
         start += pageSize
     }
 
@@ -712,7 +712,7 @@ private fun fetchData(period: Period): List<DataPoint> {
     }
 }
 
-private fun parseCloseSeries(body: String): Map<LocalDate, Double> {
+internal fun parseCloseSeries(body: String): Map<LocalDate, Double> {
     val rows = JSONObject(body)
         .optJSONObject("history")
         ?.optJSONArray("data")
@@ -734,6 +734,37 @@ private fun parseCloseSeries(body: String): Map<LocalDate, Double> {
         result[date] = close
     }
     return result
+}
+
+internal fun parseHistoryPage(body: String): HistoryPage {
+    val root = JSONObject(body)
+    val total = root
+        .optJSONObject("history.cursor")
+        ?.optJSONArray("data")
+        ?.optJSONArray(0)
+        ?.let { cursorRow ->
+            if (cursorRow.length() > 1) cursorRow.optInt(1, -1) else -1
+        }
+        ?.takeIf { it > 0 }
+
+    return HistoryPage(
+        rows = parseCloseSeries(body),
+        total = total
+    )
+}
+
+internal fun shouldContinuePagination(
+    start: Int,
+    pageSize: Int,
+    pageRows: Int,
+    total: Int?
+): Boolean {
+    if (total != null) {
+        val nextStart = start + pageRows
+        return nextStart < total
+    }
+    // Fallback when cursor total is absent.
+    return pageRows >= pageSize
 }
 
 private data class DataPoint(
@@ -758,6 +789,11 @@ private data class AxisScale(
 private data class XAxisTick(
     val index: Int,
     val label: String
+)
+
+internal data class HistoryPage(
+    val rows: Map<LocalDate, Double>,
+    val total: Int?
 )
 
 private sealed interface UiState {
