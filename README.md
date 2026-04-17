@@ -10,7 +10,14 @@ It fetches latest MOEX prices for `TATN` and `TATNP`, computes:
 
 `spread = (TATN / TATNP - 1) * 100`
 
-and sends a Telegram alert when the spread zone changes:
+and can send Telegram alerts in two modes:
+
+1) **Target levels mode** (recommended for reminders at 6%, 5%, 4%):
+- set `SPREAD_LEVELS=6,5,4` (or `SPREAD_TARGET_LEVELS=6,5,4`)
+- alert is sent when spread crosses a target up/down
+- state prevents duplicate spam between runs
+
+2) **Upper/lower zone mode** (legacy):
 
 - `NORMAL` -> `ABOVE_UPPER`
 - `NORMAL` -> `BELOW_LOWER`
@@ -22,7 +29,7 @@ This prevents duplicate spam every run.
 
 Required:
 
-- `SPREAD_UPPER` or `SPREAD_LOWER` (at least one)
+- `SPREAD_LEVELS` (or `SPREAD_TARGET_LEVELS`) **OR** at least one of `SPREAD_UPPER`/`SPREAD_LOWER`
 - `TELEGRAM_BOT_TOKEN` (unless `--dry-run`)
 - `TELEGRAM_CHAT_ID` (unless `--dry-run`)
 
@@ -30,6 +37,8 @@ Optional:
 
 - `SPREAD_BASE` (default: `TATN`)
 - `SPREAD_QUOTE` (default: `TATNP`)
+- `SPREAD_LEVELS` (example: `6,5,4`)
+- `SPREAD_TARGET_LEVELS` (alias of `SPREAD_LEVELS`)
 - `MOEX_BOARD` (default: `TQBR`)
 - `HTTP_TIMEOUT_SECONDS` (default: `20`)
 - `SPREAD_STATE_FILE` (default: `automation/.state/spread_state.json`)
@@ -38,8 +47,7 @@ Optional:
 ### Local dry run
 
 ```bash
-SPREAD_UPPER=9.5 \
-SPREAD_LOWER=8.2 \
+SPREAD_LEVELS=6,5,4 \
 python3 automation/spread_alert.py --dry-run
 ```
 
@@ -55,5 +63,4 @@ Configure these secrets in Automation:
 
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
-- `SPREAD_UPPER`
-- `SPREAD_LOWER`
+- `SPREAD_LEVELS` (recommended: `6,5,4`)
