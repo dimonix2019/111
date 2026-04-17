@@ -88,7 +88,7 @@ private val intradayLabelFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 @Composable
 private fun MoexScreen() {
-    var selectedPeriod by remember { mutableStateOf(Period.OneMonth) }
+    var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var realtimeInterval by remember { mutableStateOf(RealtimeInterval.FiveSeconds) }
     var spreadScaleMode by remember { mutableStateOf(SpreadScaleMode.Auto) }
