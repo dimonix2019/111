@@ -627,7 +627,7 @@ private fun LineChart(
     val leftPadding = 16f
     val rightPadding = 16f
     val topPadding = 12f
-    val bottomPadding = 52f
+    val bottomPadding = 60f
 
     Canvas(
         modifier = modifier
@@ -762,7 +762,7 @@ private fun LineChart(
                 val x = xForIndex(tick.index)
                 val y = topPadding + h + 34f
                 drawContext.canvas.nativeCanvas.save()
-                drawContext.canvas.nativeCanvas.rotate(-40f, x, y)
+                drawContext.canvas.nativeCanvas.rotate(-55f, x, y)
                 drawContext.canvas.nativeCanvas.drawText(tick.label, x, y, labelPaint)
                 drawContext.canvas.nativeCanvas.restore()
             }
@@ -792,7 +792,7 @@ private fun CandlestickChart(
     val leftPadding = 16f
     val rightPadding = 16f
     val topPadding = 12f
-    val bottomPadding = 52f
+    val bottomPadding = 60f
 
     Canvas(
         modifier = modifier
@@ -903,7 +903,7 @@ private fun CandlestickChart(
                 val x = xForIndex(tick.index)
                 val y = topPadding + h + 34f
                 drawContext.canvas.nativeCanvas.save()
-                drawContext.canvas.nativeCanvas.rotate(-40f, x, y)
+                drawContext.canvas.nativeCanvas.rotate(-55f, x, y)
                 drawContext.canvas.nativeCanvas.drawText(tick.label, x, y, labelPaint)
                 drawContext.canvas.nativeCanvas.restore()
             }
