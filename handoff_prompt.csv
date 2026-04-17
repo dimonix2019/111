@@ -1,0 +1,33 @@
+name,prompt
+"android_moex_handoff","Продолжаем работу по Android проекту в репозитории.
+Текущая ветка: cursor/moex-android-mvp-0b1a.
+
+Что уже реализовано:
+- 1 экран Android (Kotlin + Compose), данные MOEX ISS.
+- Периоды: 1D / 1W / 1M / 3M / 6M / 1Y.
+- Realtime refresh (ON/OFF, 5s/10s/15s).
+- 3 аналитических графика: spread, diff, плюс цена.
+- Графики цен переделаны в свечные:
+  - График 1A: свечи TATN
+  - График 1B: свечи TATNP
+- Для 1D используется intraday с агрегацией 15 минут.
+- Для остальных периодов — дневные свечи.
+- Добавлены состояния loading/error/empty, refresh, min/max.
+- Добавлен tap crosshair (вертикальная линия + значения выбранной точки).
+- Исправляли проблему пагинации MOEX для консистентных данных.
+- Добавлен Telegram automation script: automation/spread_alert.py.
+- APK артефакт: artifacts/moex-mvp-debug.apk.
+
+Последний фикс:
+- Убраны дублирующиеся горизонтальные подписи оси X (должны остаться только наклонные).
+
+Что нужно от тебя сейчас:
+1) Проверь текущий UI графиков на предмет остаточных наложений.
+2) Если есть наложения — исправь точечно минимальными изменениями.
+3) Запусти:
+   - ./gradlew testDebugUnitTest
+   - ./gradlew assembleDebug
+4) Обнови artifacts/moex-mvp-debug.apk.
+5) Сделай commit + push в ту же ветку.
+
+Пиши коротко и по делу. Не сканируй лишние файлы, работай только с app/src/main/java/com/example/moexmvp/MainActivity.kt и тестами при необходимости."
