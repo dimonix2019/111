@@ -1,8 +1,13 @@
 package com.example.moexmvp
 
+import android.Manifest
 import android.graphics.Paint
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -48,6 +53,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -71,8 +79,17 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermissionRequester = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        Log.d(PUSH_LOG_TAG, "POST_NOTIFICATIONS granted=$granted")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        createPushNotificationChannel(this)
+        requestPushPermissionIfNeeded()
+        initPushMessaging()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -80,6 +97,39 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun requestPushPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            notificationPermissionRequester.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun initPushMessaging() {
+        val firebaseApp = FirebaseApp.initializeApp(this)
+        if (firebaseApp == null) {
+            Log.w(PUSH_LOG_TAG, "Firebase is not configured. Add google-services.json to enable push.")
+            return
+        }
+        FirebaseMessaging.getInstance().subscribeToTopic(PUSH_TOPIC).addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                Log.d(PUSH_LOG_TAG, "Subscribed to topic: $PUSH_TOPIC")
+            } else {
+                Log.e(PUSH_LOG_TAG, "Failed to subscribe to topic: $PUSH_TOPIC", task.exception)
+            }
+        }
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { token ->
+                Log.d(PUSH_LOG_TAG, "FCM token: $token")
+            }
+            .addOnFailureListener { error ->
+                Log.e(PUSH_LOG_TAG, "Failed to get FCM token", error)
+            }
     }
 }
 
