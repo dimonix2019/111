@@ -24,6 +24,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +34,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -62,6 +64,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import android.widget.Toast
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -85,15 +88,19 @@ private val tradeDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 private val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 private val candleTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 private val intradayLabelFormatter = DateTimeFormatter.ofPattern("HH:mm")
+private const val SPREAD_ALERT_LEVEL = 5.0
 
 @Composable
 private fun MoexScreen() {
+    val context = LocalContext.current
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var realtimeInterval by remember { mutableStateOf(RealtimeInterval.FiveSeconds) }
     var spreadScaleMode by remember { mutableStateOf(SpreadScaleMode.Auto) }
     var isRefreshing by remember { mutableStateOf(false) }
     var realtimeError by remember { mutableStateOf<String?>(null) }
+    var spreadAlertText by remember { mutableStateOf<String?>(null) }
+    var previousSpreadForAlert by remember { mutableStateOf<Double?>(null) }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
@@ -110,6 +117,16 @@ private fun MoexScreen() {
                 is UiState.Success -> {
                     state = next
                     realtimeError = null
+                    val latestSpread = next.points.lastOrNull()?.spreadPercent
+                    if (latestSpread != null) {
+                        val prev = previousSpreadForAlert
+                        if (prev != null && prev <= SPREAD_ALERT_LEVEL && latestSpread > SPREAD_ALERT_LEVEL) {
+                            val message = "Spread crossed above 5%: ${"%.2f".format(latestSpread)}%"
+                            spreadAlertText = message
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                        previousSpreadForAlert = latestSpread
+                    }
                 }
 
                 is UiState.Empty -> {
@@ -159,8 +176,20 @@ private fun MoexScreen() {
         item {
             PeriodSelector(
                 selected = selectedPeriod,
-                onSelect = { selectedPeriod = it }
+                onSelect = {
+                    selectedPeriod = it
+                    previousSpreadForAlert = null
+                }
             )
+        }
+        if (spreadAlertText != null) {
+            item {
+                Text(
+                    text = "Alert: $spreadAlertText",
+                    color = Color(0xFFB71C1C),
+                    fontSize = 12.sp
+                )
+            }
         }
         item {
             Button(onClick = {
