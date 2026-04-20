@@ -201,6 +201,15 @@ private fun MoexScreen() {
             }
         }
         item {
+            Button(onClick = {
+                val message = "Test alert: spread crossed above 5%"
+                spreadAlertText = message
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }) {
+                Text("Test alert")
+            }
+        }
+        item {
             RealtimeControls(
                 enabled = realtimeEnabled,
                 selectedInterval = realtimeInterval,
