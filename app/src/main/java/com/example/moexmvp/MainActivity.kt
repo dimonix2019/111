@@ -313,7 +313,7 @@ private fun MoexScreen() {
                         ),
                         labels = current.points.map { it.tradeDate },
                         chartHeightDp = 150,
-                        rightAxisPercentBase = current.points.firstOrNull()?.spreadPercent,
+                        rightAxisPercentBase = current.points.minOfOrNull { it.spreadPercent },
                         yScale = if (spreadScaleMode == SpreadScaleMode.Fixed) {
                             YAxisScale.Fixed(min = 0.0, max = 15.0)
                         } else {
