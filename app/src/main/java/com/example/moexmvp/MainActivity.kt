@@ -306,24 +306,14 @@ private fun MoexScreen() {
                     )
                 }
                 item {
-                    CandlestickChartCard(
-                        title = "График 1A: свечи TATN",
-                        candles = current.tatnCandles
-                    )
-                }
-                item {
-                    CandlestickChartCard(
-                        title = "График 1B: свечи TATNP",
-                        candles = current.tatnpCandles
-                    )
-                }
-                item {
                     ChartCard(
                         title = "График 2: spread = (TATN / TATNP - 1) * 100",
                         series = listOf(
                             ChartSeries("Spread %", Color(0xFF2E7D32), current.points.map { it.spreadPercent })
                         ),
                         labels = current.points.map { it.tradeDate },
+                        chartHeightDp = 150,
+                        rightAxisPercentBase = current.points.firstOrNull()?.spreadPercent,
                         yScale = if (spreadScaleMode == SpreadScaleMode.Fixed) {
                             YAxisScale.Fixed(min = 0.0, max = 15.0)
                         } else {
@@ -337,7 +327,30 @@ private fun MoexScreen() {
                         series = listOf(
                             ChartSeries("Diff", Color(0xFF6A1B9A), current.points.map { it.diff })
                         ),
-                        labels = current.points.map { it.tradeDate }
+                        labels = current.points.map { it.tradeDate },
+                        chartHeightDp = 150
+                    )
+                }
+                item {
+                    ChartCard(
+                        title = "График 4: Z-score спрэда",
+                        series = listOf(
+                            ChartSeries("Z-score", Color(0xFF37474F), current.points.map { it.zScore })
+                        ),
+                        labels = current.points.map { it.tradeDate },
+                        chartHeightDp = 150
+                    )
+                }
+                item {
+                    CandlestickChartCard(
+                        title = "График 1A: свечи TATN",
+                        candles = current.tatnCandles
+                    )
+                }
+                item {
+                    CandlestickChartCard(
+                        title = "График 1B: свечи TATNP",
+                        candles = current.tatnpCandles
                     )
                 }
             }
@@ -543,6 +556,8 @@ private fun ChartCard(
     title: String,
     series: List<ChartSeries>,
     labels: List<String>,
+    chartHeightDp: Int = 180,
+    rightAxisPercentBase: Double? = null,
     yScale: YAxisScale = YAxisScale.Auto
 ) {
     val axisScale = remember(series, labels, yScale) { buildAxisScale(series, labels, yScale) }
@@ -562,7 +577,7 @@ private fun ChartCard(
         ) {
             Column(
                 modifier = Modifier
-                    .height(180.dp)
+                    .height(chartHeightDp.dp)
                     .width(54.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
@@ -584,8 +599,27 @@ private fun ChartCard(
                 onSelectIndex = { selectedIndex = it },
                 modifier = Modifier
                     .weight(1f)
-                    .height(180.dp)
+                    .height(chartHeightDp.dp)
             )
+            if (rightAxisPercentBase != null && rightAxisPercentBase != 0.0) {
+                Column(
+                    modifier = Modifier
+                        .height(chartHeightDp.dp)
+                        .width(64.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                    horizontalAlignment = Alignment.End
+                ) {
+                    axisScale.yTicks
+                        .asReversed()
+                        .forEach { tick ->
+                            Text(
+                                text = formatPercentDeltaFromBase(tick, rightAxisPercentBase),
+                                fontSize = 10.sp,
+                                color = Color.Gray
+                            )
+                        }
+                }
+            }
         }
         Legend(series = series)
         selectedIndex?.let { selected ->
@@ -1120,6 +1154,13 @@ private fun formatAxisValue(value: Double): String {
     return String.format(Locale.US, "%.${precision}f", value)
 }
 
+private fun formatPercentDeltaFromBase(value: Double, base: Double): String {
+    if (base == 0.0) return "0.00%"
+    val deltaPercent = ((value / base) - 1.0) * 100.0
+    val sign = if (deltaPercent > 0) "+" else ""
+    return sign + String.format(Locale.US, "%.2f%%", deltaPercent)
+}
+
 private suspend fun loadState(period: Period): UiState = withContext(Dispatchers.IO) {
     try {
         val data = fetchData(period)
@@ -1196,12 +1237,14 @@ private fun fetchData(period: Period): FetchedData {
             tatnClose = tatn,
             tatnpClose = tatnp,
             spreadPercent = spread,
-            diff = tatn - tatnp
+            diff = tatn - tatnp,
+            zScore = 0.0
         )
     }
+    val pointsWithZ = applyZScores(points)
 
     return FetchedData(
-        points = points,
+        points = pointsWithZ,
         tatnCandles = tatnBars.map {
             CandlePoint(
                 label = formatLabelForPeriod(it.timestamp, period),
@@ -1221,6 +1264,19 @@ private fun fetchData(period: Period): FetchedData {
             )
         }
     )
+}
+
+private fun applyZScores(points: List<DataPoint>): List<DataPoint> {
+    if (points.isEmpty()) return points
+    val spreads = points.map { it.spreadPercent }
+    val mean = spreads.average()
+    val variance = spreads
+        .map { (it - mean) * (it - mean) }
+        .average()
+    val stdDev = kotlin.math.sqrt(variance).takeIf { it > 0.0 } ?: 1.0
+    return points.map {
+        it.copy(zScore = (it.spreadPercent - mean) / stdDev)
+    }
 }
 
 private fun formatLabelForPeriod(timestamp: LocalDateTime, period: Period): String {
@@ -1418,7 +1474,8 @@ private data class DataPoint(
     val tatnClose: Double,
     val tatnpClose: Double,
     val spreadPercent: Double,
-    val diff: Double
+    val diff: Double,
+    val zScore: Double
 )
 
 private data class CandlePoint(
