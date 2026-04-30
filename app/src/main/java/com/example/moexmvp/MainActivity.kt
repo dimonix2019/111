@@ -72,7 +72,6 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
-import android.widget.Toast
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -149,7 +148,6 @@ private fun MoexScreen() {
     var spreadScaleMode by remember { mutableStateOf(SpreadScaleMode.Auto) }
     var isRefreshing by remember { mutableStateOf(false) }
     var realtimeError by remember { mutableStateOf<String?>(null) }
-    var spreadAlertText by remember { mutableStateOf<String?>(null) }
     var previousSpreadForAlert by remember { mutableStateOf<Double?>(null) }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
     val refreshMutex = remember { Mutex() }
@@ -171,9 +169,7 @@ private fun MoexScreen() {
                     if (latestSpread != null) {
                         val prev = previousSpreadForAlert
                         if (prev != null && prev <= SPREAD_ALERT_LEVEL && latestSpread > SPREAD_ALERT_LEVEL) {
-                            val message = "Spread crossed above 5%: ${"%.2f".format(latestSpread)}%"
-                            spreadAlertText = message
-                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            showSpreadCrossPushNotification(context, latestSpread)
                         }
                         previousSpreadForAlert = latestSpread
                     }
@@ -232,15 +228,6 @@ private fun MoexScreen() {
                 }
             )
         }
-        if (spreadAlertText != null) {
-            item {
-                Text(
-                    text = "Alert: $spreadAlertText",
-                    color = Color(0xFFB71C1C),
-                    fontSize = 12.sp
-                )
-            }
-        }
         item {
             Button(onClick = {
                 scope.launch {
@@ -252,9 +239,11 @@ private fun MoexScreen() {
         }
         item {
             Button(onClick = {
-                val message = "Test alert: spread crossed above 5%"
-                spreadAlertText = message
-                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                showPushNotification(
+                    context = context,
+                    title = "MOEX alert",
+                    body = "Test alert: spread crossed above 5%"
+                )
             }) {
                 Text("Test alert")
             }
