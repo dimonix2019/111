@@ -82,6 +82,26 @@ internal fun showSpreadCrossPushNotification(context: Context, spreadPercent: Do
     )
 }
 
+internal fun showZScoreCrossPushNotification(
+    context: Context,
+    zScore: Double,
+    level: Double,
+    direction: String
+) {
+    val body = String.format(
+        Locale.US,
+        "Z-score crossed %.1f %s: %.2f",
+        level,
+        direction,
+        zScore
+    )
+    showPushNotification(
+        context = context,
+        title = "MOEX Z-score alert",
+        body = body
+    )
+}
+
 class PushMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {

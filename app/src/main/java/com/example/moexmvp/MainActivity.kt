@@ -138,6 +138,8 @@ private val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:s
 private val candleTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 private val intradayLabelFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private const val SPREAD_ALERT_LEVEL = 5.0
+private const val Z_SCORE_LOWER_ALERT_LEVEL = -2.0
+private const val Z_SCORE_UPPER_ALERT_LEVEL = 2.0
 
 @Composable
 private fun MoexScreen() {
@@ -149,6 +151,7 @@ private fun MoexScreen() {
     var isRefreshing by remember { mutableStateOf(false) }
     var realtimeError by remember { mutableStateOf<String?>(null) }
     var previousSpreadForAlert by remember { mutableStateOf<Double?>(null) }
+    var previousZScoreForAlert by remember { mutableStateOf<Double?>(null) }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
@@ -172,6 +175,35 @@ private fun MoexScreen() {
                             showSpreadCrossPushNotification(context, latestSpread)
                         }
                         previousSpreadForAlert = latestSpread
+                    }
+                    val latestZScore = next.points.lastOrNull()?.zScore
+                    if (latestZScore != null) {
+                        val prevZ = previousZScoreForAlert
+                        if (
+                            prevZ != null &&
+                            prevZ <= Z_SCORE_LOWER_ALERT_LEVEL &&
+                            latestZScore > Z_SCORE_LOWER_ALERT_LEVEL
+                        ) {
+                            showZScoreCrossPushNotification(
+                                context = context,
+                                zScore = latestZScore,
+                                level = Z_SCORE_LOWER_ALERT_LEVEL,
+                                direction = "upward"
+                            )
+                        }
+                        if (
+                            prevZ != null &&
+                            prevZ >= Z_SCORE_UPPER_ALERT_LEVEL &&
+                            latestZScore < Z_SCORE_UPPER_ALERT_LEVEL
+                        ) {
+                            showZScoreCrossPushNotification(
+                                context = context,
+                                zScore = latestZScore,
+                                level = Z_SCORE_UPPER_ALERT_LEVEL,
+                                direction = "downward"
+                            )
+                        }
+                        previousZScoreForAlert = latestZScore
                     }
                 }
 
@@ -225,6 +257,7 @@ private fun MoexScreen() {
                 onSelect = {
                     selectedPeriod = it
                     previousSpreadForAlert = null
+                    previousZScoreForAlert = null
                 }
             )
         }
