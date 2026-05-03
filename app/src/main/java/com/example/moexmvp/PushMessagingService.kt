@@ -102,6 +102,47 @@ internal fun showZScoreCrossPushNotification(
     )
 }
 
+internal fun showZStrategySignalPushNotification(
+    context: Context,
+    title: String,
+    zScore: Double,
+    threshold: Double,
+    comparator: String
+) {
+    val body = String.format(
+        Locale.US,
+        "Z=%.2f %s %.1f",
+        zScore,
+        comparator,
+        threshold
+    )
+    showPushNotification(
+        context = context,
+        title = title,
+        body = body
+    )
+}
+
+internal fun showDynamicZThresholdsPushNotification(
+    context: Context,
+    entry: Double,
+    exit: Double,
+    dateText: String
+) {
+    val body = String.format(
+        Locale.US,
+        "Daily Z thresholds %s: entry %.1f / exit %.1f",
+        dateText,
+        entry,
+        exit
+    )
+    showPushNotification(
+        context = context,
+        title = "MOEX Z-score setup",
+        body = body
+    )
+}
+
 class PushMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {

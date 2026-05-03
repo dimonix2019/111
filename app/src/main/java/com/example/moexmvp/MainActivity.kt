@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import android.Manifest
+import android.content.Context
 import android.graphics.Paint
 import android.content.pm.PackageManager
 import android.os.Build
@@ -140,6 +141,19 @@ private val intradayLabelFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private const val SPREAD_ALERT_LEVEL = 5.0
 private const val Z_SCORE_LOWER_ALERT_LEVEL = -2.0
 private const val Z_SCORE_UPPER_ALERT_LEVEL = 2.0
+private const val DYNAMIC_Z_RECALC_HOUR = 9
+private const val DEFAULT_DYNAMIC_Z_ENTRY = 1.3
+private const val DEFAULT_DYNAMIC_Z_EXIT = 1.2
+private const val Z_STRATEGY_ENTRY_MIN_TENTHS = 8
+private const val Z_STRATEGY_ENTRY_MAX_TENTHS = 35
+private const val Z_STRATEGY_EXIT_MIN_TENTHS = 0
+private const val Z_STRATEGY_EXIT_MAX_TENTHS = 25
+private const val Z_STRATEGY_MIN_TRADES = 4
+private const val ALERT_PREFS_NAME = "moex_alert_prefs"
+private const val PREF_DYNAMIC_Z_ENTRY = "dynamic_z_entry"
+private const val PREF_DYNAMIC_Z_EXIT = "dynamic_z_exit"
+private const val PREF_DYNAMIC_Z_DATE = "dynamic_z_date"
+private const val PREF_Z_STRATEGY_POSITION = "z_strategy_position"
 
 @Composable
 private fun MoexScreen() {
@@ -152,6 +166,17 @@ private fun MoexScreen() {
     var realtimeError by remember { mutableStateOf<String?>(null) }
     var previousSpreadForAlert by remember { mutableStateOf<Double?>(null) }
     var previousZScoreForAlert by remember { mutableStateOf<Double?>(null) }
+    var dynamicThresholds by remember(context) {
+        mutableStateOf(
+            loadSavedDynamicThresholds(context)
+                ?: DynamicThresholds(
+                    entry = DEFAULT_DYNAMIC_Z_ENTRY,
+                    exit = DEFAULT_DYNAMIC_Z_EXIT,
+                    calculatedDate = null
+                )
+        )
+    }
+    var zStrategyPosition by remember(context) { mutableStateOf(loadSavedStrategyPosition(context)) }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
@@ -168,6 +193,20 @@ private fun MoexScreen() {
                 is UiState.Success -> {
                     state = next
                     realtimeError = null
+                    val thresholdUpdate = ensureDynamicThresholds(context)
+                    dynamicThresholds = thresholdUpdate.thresholds
+                    if (thresholdUpdate.recalculated) {
+                        showPushNotification(
+                            context = context,
+                            title = "MOEX Z-strategy thresholds",
+                            body = String.format(
+                                Locale.US,
+                                "Updated: entry +/-%.1f, exit +/-%.1f",
+                                dynamicThresholds.entry,
+                                dynamicThresholds.exit
+                            )
+                        )
+                    }
                     val latestSpread = next.points.lastOrNull()?.spreadPercent
                     if (latestSpread != null) {
                         val prev = previousSpreadForAlert
@@ -202,6 +241,76 @@ private fun MoexScreen() {
                                 level = Z_SCORE_UPPER_ALERT_LEVEL,
                                 direction = "downward"
                             )
+                        }
+                        when (
+                            determineZStrategySignal(
+                                previousZ = prevZ,
+                                currentZ = latestZScore,
+                                position = zStrategyPosition,
+                                thresholds = dynamicThresholds
+                            )
+                        ) {
+                            ZStrategySignal.EnterLong -> {
+                                zStrategyPosition = ZStrategyPosition.Long
+                                saveStrategyPosition(context, zStrategyPosition)
+                                showPushNotification(
+                                    context = context,
+                                    title = "MOEX Z-strategy: entry LONG",
+                                    body = String.format(
+                                        Locale.US,
+                                        "Z=%.2f <= -%.1f",
+                                        latestZScore,
+                                        dynamicThresholds.entry
+                                    )
+                                )
+                            }
+
+                            ZStrategySignal.EnterShort -> {
+                                zStrategyPosition = ZStrategyPosition.Short
+                                saveStrategyPosition(context, zStrategyPosition)
+                                showPushNotification(
+                                    context = context,
+                                    title = "MOEX Z-strategy: entry SHORT",
+                                    body = String.format(
+                                        Locale.US,
+                                        "Z=%.2f >= +%.1f",
+                                        latestZScore,
+                                        dynamicThresholds.entry
+                                    )
+                                )
+                            }
+
+                            ZStrategySignal.ExitLong -> {
+                                zStrategyPosition = ZStrategyPosition.Flat
+                                saveStrategyPosition(context, zStrategyPosition)
+                                showPushNotification(
+                                    context = context,
+                                    title = "MOEX Z-strategy: exit LONG",
+                                    body = String.format(
+                                        Locale.US,
+                                        "Z=%.2f >= -%.1f",
+                                        latestZScore,
+                                        dynamicThresholds.exit
+                                    )
+                                )
+                            }
+
+                            ZStrategySignal.ExitShort -> {
+                                zStrategyPosition = ZStrategyPosition.Flat
+                                saveStrategyPosition(context, zStrategyPosition)
+                                showPushNotification(
+                                    context = context,
+                                    title = "MOEX Z-strategy: exit SHORT",
+                                    body = String.format(
+                                        Locale.US,
+                                        "Z=%.2f <= +%.1f",
+                                        latestZScore,
+                                        dynamicThresholds.exit
+                                    )
+                                )
+                            }
+
+                            ZStrategySignal.None -> Unit
                         }
                         previousZScoreForAlert = latestZScore
                     }
@@ -259,6 +368,19 @@ private fun MoexScreen() {
                     previousSpreadForAlert = null
                     previousZScoreForAlert = null
                 }
+            )
+        }
+        item {
+            Text(
+                text = String.format(
+                    Locale.US,
+                    "Z-strategy thresholds: entry +/-%.1f, exit +/-%.1f%s",
+                    dynamicThresholds.entry,
+                    dynamicThresholds.exit,
+                    dynamicThresholds.calculatedDate?.let { " (updated $it)" } ?: ""
+                ),
+                color = Color(0xFF616161),
+                fontSize = 12.sp
             )
         }
         item {
@@ -1183,6 +1305,217 @@ private fun formatPercentDeltaFromBase(value: Double, base: Double): String {
     return sign + String.format(Locale.US, "%.2f%%", deltaPercent)
 }
 
+private fun ensureDynamicThresholds(context: Context): DynamicThresholdUpdate {
+    val saved = loadSavedDynamicThresholds(context)
+    val now = LocalDateTime.now()
+    val today = now.toLocalDate()
+    val todayIso = today.toString()
+    val fallback = saved ?: DynamicThresholds(
+        entry = DEFAULT_DYNAMIC_Z_ENTRY,
+        exit = DEFAULT_DYNAMIC_Z_EXIT,
+        calculatedDate = null
+    )
+    if (saved?.calculatedDate == todayIso) {
+        return DynamicThresholdUpdate(thresholds = saved, recalculated = false)
+    }
+    if (now.hour < DYNAMIC_Z_RECALC_HOUR) {
+        return DynamicThresholdUpdate(thresholds = fallback, recalculated = false)
+    }
+    val calculated = runCatching {
+        calculateBestDynamicThresholds(
+            from = today.minusDays(30),
+            till = today
+        )
+    }.getOrNull() ?: return DynamicThresholdUpdate(thresholds = fallback, recalculated = false)
+    saveDynamicThresholds(context, calculated)
+    return DynamicThresholdUpdate(thresholds = calculated, recalculated = true)
+}
+
+private fun loadSavedDynamicThresholds(context: Context): DynamicThresholds? {
+    val prefs = context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+    if (!prefs.contains(PREF_DYNAMIC_Z_ENTRY) || !prefs.contains(PREF_DYNAMIC_Z_EXIT)) {
+        return null
+    }
+    val entry = prefs.getFloat(PREF_DYNAMIC_Z_ENTRY, DEFAULT_DYNAMIC_Z_ENTRY.toFloat()).toDouble()
+    val exit = prefs.getFloat(PREF_DYNAMIC_Z_EXIT, DEFAULT_DYNAMIC_Z_EXIT.toFloat()).toDouble()
+    val date = prefs.getString(PREF_DYNAMIC_Z_DATE, null)
+    if (entry <= 0.0 || exit < 0.0 || exit >= entry) {
+        return null
+    }
+    return DynamicThresholds(
+        entry = entry,
+        exit = exit,
+        calculatedDate = date
+    )
+}
+
+private fun saveDynamicThresholds(context: Context, thresholds: DynamicThresholds) {
+    context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putFloat(PREF_DYNAMIC_Z_ENTRY, thresholds.entry.toFloat())
+        .putFloat(PREF_DYNAMIC_Z_EXIT, thresholds.exit.toFloat())
+        .putString(PREF_DYNAMIC_Z_DATE, thresholds.calculatedDate)
+        .apply()
+}
+
+private fun loadSavedStrategyPosition(context: Context): ZStrategyPosition {
+    val raw = context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .getString(PREF_Z_STRATEGY_POSITION, ZStrategyPosition.Flat.name)
+    return runCatching { ZStrategyPosition.valueOf(raw ?: ZStrategyPosition.Flat.name) }
+        .getOrDefault(ZStrategyPosition.Flat)
+}
+
+private fun saveStrategyPosition(context: Context, position: ZStrategyPosition) {
+    context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(PREF_Z_STRATEGY_POSITION, position.name)
+        .apply()
+}
+
+private fun calculateBestDynamicThresholds(from: LocalDate, till: LocalDate): DynamicThresholds? {
+    val tatnBars = aggregateTo15MinuteBars(
+        loadCandleBars("TATN", from, till, interval = 1)
+    ).associateBy { it.timestamp }
+    val tatnpBars = aggregateTo15MinuteBars(
+        loadCandleBars("TATNP", from, till, interval = 1)
+    ).associateBy { it.timestamp }
+    val alignedTimes = tatnBars.keys.intersect(tatnpBars.keys).sorted()
+    if (alignedTimes.size < 20) return null
+
+    val spreads = alignedTimes.mapNotNull { timestamp ->
+        val tatnClose = tatnBars[timestamp]?.close ?: return@mapNotNull null
+        val tatnpClose = tatnpBars[timestamp]?.close ?: return@mapNotNull null
+        if (tatnpClose == 0.0) return@mapNotNull null
+        (tatnClose / tatnpClose - 1.0) * 100.0
+    }
+    if (spreads.size < 20) return null
+
+    val mean = spreads.average()
+    val variance = spreads
+        .map { (it - mean) * (it - mean) }
+        .average()
+    val stdDev = kotlin.math.sqrt(variance).takeIf { it > 0.0 } ?: 1.0
+    val points = spreads.map { spread ->
+        BacktestPoint(
+            spread = spread,
+            z = (spread - mean) / stdDev
+        )
+    }
+    if (points.size < 20) return null
+
+    var best: BacktestResult? = null
+    for (entryTenths in Z_STRATEGY_ENTRY_MIN_TENTHS..Z_STRATEGY_ENTRY_MAX_TENTHS) {
+        val entry = entryTenths / 10.0
+        for (exitTenths in Z_STRATEGY_EXIT_MIN_TENTHS..Z_STRATEGY_EXIT_MAX_TENTHS) {
+            val exit = exitTenths / 10.0
+            if (exit >= entry) continue
+            val result = backtestZStrategy(points, entry, exit)
+            if (result.trades < Z_STRATEGY_MIN_TRADES) continue
+            if (best == null || result.pnl > best.pnl) {
+                best = result
+            }
+        }
+    }
+
+    val winner = best ?: return null
+    return DynamicThresholds(
+        entry = winner.entry,
+        exit = winner.exit,
+        calculatedDate = till.toString()
+    )
+}
+
+private fun backtestZStrategy(points: List<BacktestPoint>, entry: Double, exit: Double): BacktestResult {
+    var position = ZStrategyPosition.Flat
+    var entrySpread = 0.0
+    var pnl = 0.0
+    var trades = 0
+
+    for (index in 1 until points.size) {
+        val prev = points[index - 1]
+        val current = points[index]
+        when (position) {
+            ZStrategyPosition.Long -> {
+                if (prev.z < -exit && current.z >= -exit) {
+                    pnl += current.spread - entrySpread
+                    position = ZStrategyPosition.Flat
+                    trades += 1
+                }
+            }
+
+            ZStrategyPosition.Short -> {
+                if (prev.z > exit && current.z <= exit) {
+                    pnl += entrySpread - current.spread
+                    position = ZStrategyPosition.Flat
+                    trades += 1
+                }
+            }
+
+            ZStrategyPosition.Flat -> Unit
+        }
+        if (position == ZStrategyPosition.Flat) {
+            if (prev.z > -entry && current.z <= -entry) {
+                position = ZStrategyPosition.Long
+                entrySpread = current.spread
+            } else if (prev.z < entry && current.z >= entry) {
+                position = ZStrategyPosition.Short
+                entrySpread = current.spread
+            }
+        }
+    }
+
+    if (position != ZStrategyPosition.Flat) {
+        val lastSpread = points.last().spread
+        pnl += if (position == ZStrategyPosition.Long) {
+            lastSpread - entrySpread
+        } else {
+            entrySpread - lastSpread
+        }
+        trades += 1
+    }
+
+    return BacktestResult(
+        pnl = pnl,
+        trades = trades,
+        entry = entry,
+        exit = exit
+    )
+}
+
+private fun determineZStrategySignal(
+    previousZ: Double?,
+    currentZ: Double,
+    position: ZStrategyPosition,
+    thresholds: DynamicThresholds
+): ZStrategySignal {
+    val prev = previousZ ?: return ZStrategySignal.None
+    return when (position) {
+        ZStrategyPosition.Flat -> {
+            when {
+                prev > -thresholds.entry && currentZ <= -thresholds.entry -> ZStrategySignal.EnterLong
+                prev < thresholds.entry && currentZ >= thresholds.entry -> ZStrategySignal.EnterShort
+                else -> ZStrategySignal.None
+            }
+        }
+
+        ZStrategyPosition.Long -> {
+            if (prev < -thresholds.exit && currentZ >= -thresholds.exit) {
+                ZStrategySignal.ExitLong
+            } else {
+                ZStrategySignal.None
+            }
+        }
+
+        ZStrategyPosition.Short -> {
+            if (prev > thresholds.exit && currentZ <= thresholds.exit) {
+                ZStrategySignal.ExitShort
+            } else {
+                ZStrategySignal.None
+            }
+        }
+    }
+}
+
 private suspend fun loadState(period: Period): UiState = withContext(Dispatchers.IO) {
     try {
         val data = fetchData(period)
@@ -1552,6 +1885,43 @@ internal data class CandleBar(
     val low: Double,
     val close: Double
 )
+
+private data class DynamicThresholds(
+    val entry: Double,
+    val exit: Double,
+    val calculatedDate: String?
+)
+
+private data class DynamicThresholdUpdate(
+    val thresholds: DynamicThresholds,
+    val recalculated: Boolean
+)
+
+private data class BacktestPoint(
+    val spread: Double,
+    val z: Double
+)
+
+private data class BacktestResult(
+    val pnl: Double,
+    val trades: Int,
+    val entry: Double,
+    val exit: Double
+)
+
+private enum class ZStrategyPosition {
+    Flat,
+    Long,
+    Short
+}
+
+private enum class ZStrategySignal {
+    None,
+    EnterLong,
+    EnterShort,
+    ExitLong,
+    ExitShort
+}
 
 private sealed interface UiState {
     data object Loading : UiState
