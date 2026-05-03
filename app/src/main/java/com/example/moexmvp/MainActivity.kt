@@ -139,8 +139,6 @@ private val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:s
 private val candleTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 private val intradayLabelFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private const val SPREAD_ALERT_LEVEL = 5.0
-private const val Z_SCORE_LOWER_ALERT_LEVEL = -2.0
-private const val Z_SCORE_UPPER_ALERT_LEVEL = 2.0
 private const val DYNAMIC_Z_RECALC_HOUR = 9
 private const val DEFAULT_DYNAMIC_Z_ENTRY = 1.3
 private const val DEFAULT_DYNAMIC_Z_EXIT = 1.2
@@ -154,6 +152,9 @@ private const val PREF_DYNAMIC_Z_ENTRY = "dynamic_z_entry"
 private const val PREF_DYNAMIC_Z_EXIT = "dynamic_z_exit"
 private const val PREF_DYNAMIC_Z_DATE = "dynamic_z_date"
 private const val PREF_Z_STRATEGY_POSITION = "z_strategy_position"
+private const val PREF_Z_DAILY_SIGNAL_DATE = "z_daily_signal_date"
+private const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry"
+private const val PREF_Z_DAILY_SIGNAL_EXIT = "z_daily_signal_exit"
 
 @Composable
 private fun MoexScreen() {
@@ -177,6 +178,9 @@ private fun MoexScreen() {
         )
     }
     var zStrategyPosition by remember(context) { mutableStateOf(loadSavedStrategyPosition(context)) }
+    var dailySignalLimit by remember(context) {
+        mutableStateOf(loadDailySignalLimit(context, LocalDate.now()))
+    }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
@@ -196,17 +200,14 @@ private fun MoexScreen() {
                     val thresholdUpdate = ensureDynamicThresholds(context)
                     dynamicThresholds = thresholdUpdate.thresholds
                     if (thresholdUpdate.recalculated) {
-                        showPushNotification(
+                        showDynamicZThresholdsPushNotification(
                             context = context,
-                            title = "MOEX Z-strategy thresholds",
-                            body = String.format(
-                                Locale.US,
-                                "Updated: entry +/-%.1f, exit +/-%.1f",
-                                dynamicThresholds.entry,
-                                dynamicThresholds.exit
-                            )
+                            entry = dynamicThresholds.entry,
+                            exit = dynamicThresholds.exit,
+                            dateText = dynamicThresholds.calculatedDate ?: LocalDate.now().toString()
                         )
                     }
+                    dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
                     val latestSpread = next.points.lastOrNull()?.spreadPercent
                     if (latestSpread != null) {
                         val prev = previousSpreadForAlert
@@ -218,30 +219,6 @@ private fun MoexScreen() {
                     val latestZScore = next.points.lastOrNull()?.zScore
                     if (latestZScore != null) {
                         val prevZ = previousZScoreForAlert
-                        if (
-                            prevZ != null &&
-                            prevZ <= Z_SCORE_LOWER_ALERT_LEVEL &&
-                            latestZScore > Z_SCORE_LOWER_ALERT_LEVEL
-                        ) {
-                            showZScoreCrossPushNotification(
-                                context = context,
-                                zScore = latestZScore,
-                                level = Z_SCORE_LOWER_ALERT_LEVEL,
-                                direction = "upward"
-                            )
-                        }
-                        if (
-                            prevZ != null &&
-                            prevZ >= Z_SCORE_UPPER_ALERT_LEVEL &&
-                            latestZScore < Z_SCORE_UPPER_ALERT_LEVEL
-                        ) {
-                            showZScoreCrossPushNotification(
-                                context = context,
-                                zScore = latestZScore,
-                                level = Z_SCORE_UPPER_ALERT_LEVEL,
-                                direction = "downward"
-                            )
-                        }
                         when (
                             determineZStrategySignal(
                                 previousZ = prevZ,
@@ -253,61 +230,77 @@ private fun MoexScreen() {
                             ZStrategySignal.EnterLong -> {
                                 zStrategyPosition = ZStrategyPosition.Long
                                 saveStrategyPosition(context, zStrategyPosition)
-                                showPushNotification(
-                                    context = context,
-                                    title = "MOEX Z-strategy: entry LONG",
-                                    body = String.format(
-                                        Locale.US,
-                                        "Z=%.2f <= -%.1f",
-                                        latestZScore,
-                                        dynamicThresholds.entry
+                                if (!dailySignalLimit.entrySent) {
+                                    showZStrategySignalPushNotification(
+                                        context = context,
+                                        title = "Вход: LONG TATN / SHORT TATNP",
+                                        body = String.format(
+                                            Locale.US,
+                                            "Z <= -%.1f (текущий Z=%.2f)",
+                                            dynamicThresholds.entry,
+                                            latestZScore
+                                        )
                                     )
-                                )
+                                    dailySignalLimit = dailySignalLimit.copy(entrySent = true)
+                                    saveDailySignalLimit(context, dailySignalLimit)
+                                }
                             }
 
                             ZStrategySignal.EnterShort -> {
                                 zStrategyPosition = ZStrategyPosition.Short
                                 saveStrategyPosition(context, zStrategyPosition)
-                                showPushNotification(
-                                    context = context,
-                                    title = "MOEX Z-strategy: entry SHORT",
-                                    body = String.format(
-                                        Locale.US,
-                                        "Z=%.2f >= +%.1f",
-                                        latestZScore,
-                                        dynamicThresholds.entry
+                                if (!dailySignalLimit.entrySent) {
+                                    showZStrategySignalPushNotification(
+                                        context = context,
+                                        title = "Вход: LONG TATNP / SHORT TATN",
+                                        body = String.format(
+                                            Locale.US,
+                                            "Z >= +%.1f (текущий Z=%.2f)",
+                                            dynamicThresholds.entry,
+                                            latestZScore
+                                        )
                                     )
-                                )
+                                    dailySignalLimit = dailySignalLimit.copy(entrySent = true)
+                                    saveDailySignalLimit(context, dailySignalLimit)
+                                }
                             }
 
                             ZStrategySignal.ExitLong -> {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
-                                showPushNotification(
-                                    context = context,
-                                    title = "MOEX Z-strategy: exit LONG",
-                                    body = String.format(
-                                        Locale.US,
-                                        "Z=%.2f >= -%.1f",
-                                        latestZScore,
-                                        dynamicThresholds.exit
+                                if (dailySignalLimit.entrySent && !dailySignalLimit.exitSent) {
+                                    showZStrategySignalPushNotification(
+                                        context = context,
+                                        title = "Выход: закрыть LONG TATN / SHORT TATNP",
+                                        body = String.format(
+                                            Locale.US,
+                                            "Z >= -%.1f (текущий Z=%.2f)",
+                                            dynamicThresholds.exit,
+                                            latestZScore
+                                        )
                                     )
-                                )
+                                    dailySignalLimit = dailySignalLimit.copy(exitSent = true)
+                                    saveDailySignalLimit(context, dailySignalLimit)
+                                }
                             }
 
                             ZStrategySignal.ExitShort -> {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
-                                showPushNotification(
-                                    context = context,
-                                    title = "MOEX Z-strategy: exit SHORT",
-                                    body = String.format(
-                                        Locale.US,
-                                        "Z=%.2f <= +%.1f",
-                                        latestZScore,
-                                        dynamicThresholds.exit
+                                if (dailySignalLimit.entrySent && !dailySignalLimit.exitSent) {
+                                    showZStrategySignalPushNotification(
+                                        context = context,
+                                        title = "Выход: закрыть LONG TATNP / SHORT TATN",
+                                        body = String.format(
+                                            Locale.US,
+                                            "Z <= +%.1f (текущий Z=%.2f)",
+                                            dynamicThresholds.exit,
+                                            latestZScore
+                                        )
                                     )
-                                )
+                                    dailySignalLimit = dailySignalLimit.copy(exitSent = true)
+                                    saveDailySignalLimit(context, dailySignalLimit)
+                                }
                             }
 
                             ZStrategySignal.None -> Unit
@@ -394,10 +387,17 @@ private fun MoexScreen() {
         }
         item {
             Button(onClick = {
-                showPushNotification(
+                val message = String.format(
+                    Locale.US,
+                    "Пороги: вход +/-%.1f, выход +/-%.1f, spread > %.1f%%",
+                    dynamicThresholds.entry,
+                    dynamicThresholds.exit,
+                    SPREAD_ALERT_LEVEL
+                )
+                showZStrategySignalPushNotification(
                     context = context,
-                    title = "MOEX alert",
-                    body = "Test alert: spread crossed above 5%"
+                    title = "Тест уведомления",
+                    body = message
                 )
             }) {
                 Text("Test alert")
@@ -1372,6 +1372,29 @@ private fun saveStrategyPosition(context: Context, position: ZStrategyPosition) 
         .apply()
 }
 
+private fun loadDailySignalLimit(context: Context, day: LocalDate): DailySignalLimit {
+    val prefs = context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+    val savedDay = prefs.getString(PREF_Z_DAILY_SIGNAL_DATE, null)
+    val dayText = day.toString()
+    if (savedDay != dayText) {
+        return DailySignalLimit(date = dayText, entrySent = false, exitSent = false)
+    }
+    return DailySignalLimit(
+        date = dayText,
+        entrySent = prefs.getBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, false),
+        exitSent = prefs.getBoolean(PREF_Z_DAILY_SIGNAL_EXIT, false)
+    )
+}
+
+private fun saveDailySignalLimit(context: Context, limit: DailySignalLimit) {
+    context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(PREF_Z_DAILY_SIGNAL_DATE, limit.date)
+        .putBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, limit.entrySent)
+        .putBoolean(PREF_Z_DAILY_SIGNAL_EXIT, limit.exitSent)
+        .apply()
+}
+
 private fun calculateBestDynamicThresholds(from: LocalDate, till: LocalDate): DynamicThresholds? {
     val tatnBars = aggregateTo15MinuteBars(
         loadCandleBars("TATN", from, till, interval = 1)
@@ -1907,6 +1930,12 @@ private data class BacktestResult(
     val trades: Int,
     val entry: Double,
     val exit: Double
+)
+
+private data class DailySignalLimit(
+    val date: String,
+    val entrySent: Boolean,
+    val exitSent: Boolean
 )
 
 private enum class ZStrategyPosition {

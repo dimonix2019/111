@@ -105,17 +105,8 @@ internal fun showZScoreCrossPushNotification(
 internal fun showZStrategySignalPushNotification(
     context: Context,
     title: String,
-    zScore: Double,
-    threshold: Double,
-    comparator: String
+    body: String
 ) {
-    val body = String.format(
-        Locale.US,
-        "Z=%.2f %s %.1f",
-        zScore,
-        comparator,
-        threshold
-    )
     showPushNotification(
         context = context,
         title = title,
