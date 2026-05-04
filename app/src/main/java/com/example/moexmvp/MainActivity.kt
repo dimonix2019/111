@@ -93,7 +93,11 @@ class MainActivity : ComponentActivity() {
         initPushMessaging()
         setContent {
             MaterialTheme(
-                colorScheme = darkColorScheme()
+                colorScheme = darkColorScheme(
+                    primary = Color(0xFF2196F3),
+                    secondary = Color(0xFF64B5F6),
+                    tertiary = Color(0xFF90CAF9)
+                )
             ) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     MoexScreen()
@@ -158,13 +162,13 @@ private const val PREF_Z_STRATEGY_POSITION = "z_strategy_position"
 private const val PREF_Z_DAILY_SIGNAL_DATE = "z_daily_signal_date"
 private const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry"
 private const val PREF_Z_DAILY_SIGNAL_EXIT = "z_daily_signal_exit"
+private const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 
 @Composable
 private fun MoexScreen() {
     val context = LocalContext.current
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
-    var realtimeInterval by remember { mutableStateOf(RealtimeInterval.FiveSeconds) }
     var isRefreshing by remember { mutableStateOf(false) }
     var realtimeError by remember { mutableStateOf<String?>(null) }
     var previousSpreadForAlert by remember { mutableStateOf<Double?>(null) }
@@ -335,10 +339,10 @@ private fun MoexScreen() {
         refreshData(showLoading = true)
     }
 
-    LaunchedEffect(realtimeEnabled, realtimeInterval, selectedPeriod) {
+    LaunchedEffect(realtimeEnabled, selectedPeriod) {
         if (!realtimeEnabled) return@LaunchedEffect
         while (true) {
-            delay(realtimeInterval.millis)
+            delay(FIXED_REALTIME_INTERVAL_MS)
             refreshData(showLoading = false)
         }
     }
@@ -376,7 +380,7 @@ private fun MoexScreen() {
                     dynamicThresholds.exit,
                     dynamicThresholds.calculatedDate?.let { " (updated $it)" } ?: ""
                 ),
-                color = Color(0xFF616161),
+                color = Color(0xFFE0E0E0),
                 fontSize = 12.sp
             )
         }
@@ -423,7 +427,11 @@ private fun MoexScreen() {
                             SignalForegroundService.start(context)
                         }
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (monitorEnabled) Color(0xFF2E7D32) else Color(0xFF2196F3),
+                        contentColor = Color.White
+                    )
                 ) {
                     Text(if (monitorEnabled) "BG ON" else "BG OFF")
                 }
@@ -432,10 +440,8 @@ private fun MoexScreen() {
         item {
             RealtimeControls(
                 enabled = realtimeEnabled,
-                selectedInterval = realtimeInterval,
                 isRefreshing = isRefreshing,
-                onToggle = { realtimeEnabled = !realtimeEnabled },
-                onSelectInterval = { realtimeInterval = it }
+                onToggle = { realtimeEnabled = !realtimeEnabled }
             )
         }
         if (realtimeError != null && state is UiState.Success) {
@@ -473,7 +479,7 @@ private fun MoexScreen() {
                     ChartCard(
                         title = "График 4: Z-score спрэда",
                         series = listOf(
-                            ChartSeries("Z-score", Color(0xFFB0BEC5), current.points.map { it.zScore })
+                            ChartSeries("Z-score", Color(0xFF80D8FF), current.points.map { it.zScore })
                         ),
                         labels = current.points.map { it.tradeDate },
                         chartHeightDp = 130
@@ -483,7 +489,7 @@ private fun MoexScreen() {
                     ChartCard(
                         title = "График 2: spread = (TATN / TATNP - 1) * 100",
                         series = listOf(
-                            ChartSeries("Spread %", Color(0xFF2E7D32), current.points.map { it.spreadPercent })
+                            ChartSeries("Spread %", Color(0xFF69F0AE), current.points.map { it.spreadPercent })
                         ),
                         labels = current.points.map { it.tradeDate },
                         chartHeightDp = 130,
@@ -495,7 +501,7 @@ private fun MoexScreen() {
                     ChartCard(
                         title = "График 3: diff = TATN - TATNP",
                         series = listOf(
-                            ChartSeries("Diff", Color(0xFF6A1B9A), current.points.map { it.diff })
+                            ChartSeries("Diff", Color(0xFFE1BEE7), current.points.map { it.diff })
                         ),
                         labels = current.points.map { it.tradeDate },
                         chartHeightDp = 130
@@ -593,14 +599,14 @@ private fun PeriodSelector(selected: Period, onSelect: (Period) -> Unit) {
                 modifier = Modifier.height(40.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (active) {
-                        MaterialTheme.colorScheme.primary
+                        Color(0xFF1565C0)
                     } else {
-                        MaterialTheme.colorScheme.surfaceVariant
+                        Color(0xFF2196F3)
                     },
                     contentColor = if (active) {
-                        MaterialTheme.colorScheme.onPrimary
+                        Color.White
                     } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                        Color.White
                     }
                 )
             ) {
@@ -613,10 +619,8 @@ private fun PeriodSelector(selected: Period, onSelect: (Period) -> Unit) {
 @Composable
 private fun RealtimeControls(
     enabled: Boolean,
-    selectedInterval: RealtimeInterval,
     isRefreshing: Boolean,
-    onToggle: () -> Unit,
-    onSelectInterval: (RealtimeInterval) -> Unit
+    onToggle: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -630,44 +634,19 @@ private fun RealtimeControls(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Realtime", fontWeight = FontWeight.Bold)
+            Text("Realtime", fontWeight = FontWeight.Bold, color = Color.White)
             Button(
                 onClick = onToggle,
                 modifier = Modifier.height(36.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (enabled) Color(0xFF2E7D32) else Color(0xFF616161),
+                    containerColor = if (enabled) Color(0xFF2E7D32) else Color(0xFF2196F3),
                     contentColor = Color.White
                 )
             ) {
                 Text(if (enabled) "ON" else "OFF")
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            RealtimeInterval.entries.forEach { interval ->
-                val active = interval == selectedInterval
-                Button(
-                    onClick = { onSelectInterval(interval) },
-                    modifier = Modifier.height(36.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (active) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        },
-                        contentColor = if (active) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                ) {
-                    Text(interval.label)
-                }
-            }
-        }
+        Text("Interval: 5s (fixed)", color = Color(0xFFB3E5FC), fontSize = 12.sp)
         Text(
             text = if (isRefreshing) "Status: updating..." else "Status: up to date",
             fontSize = 12.sp,
@@ -751,7 +730,7 @@ private fun ChartCard(
                         Text(
                             text = formatAxisValue(tick),
                             fontSize = 10.sp,
-                            color = Color(0xFFBDBDBD)
+                            color = Color(0xFFD7E3F4)
                         )
                     }
             }
@@ -779,7 +758,7 @@ private fun ChartCard(
                             Text(
                                 text = formatPercentDeltaFromBase(tick, rightAxisPercentBase),
                                 fontSize = 10.sp,
-                                color = Color(0xFFBDBDBD)
+                                color = Color(0xFFD7E3F4)
                             )
                         }
                 }
@@ -797,14 +776,14 @@ private fun ChartCard(
                 Text(
                     text = "↕ $label | ${values.joinToString(" | ")}",
                     fontSize = 12.sp,
-                    color = Color(0xFFE0E0E0)
+                    color = Color(0xFFF1F8FF)
                 )
             }
         }
         Text(
             text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
             fontSize = 12.sp,
-            color = Color(0xFFBDBDBD)
+            color = Color(0xFFD7E3F4)
         )
     }
 }
@@ -839,7 +818,7 @@ private fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
                         Text(
                             text = formatAxisValue(tick),
                             fontSize = 10.sp,
-                            color = Color(0xFFBDBDBD)
+                            color = Color(0xFFD7E3F4)
                         )
                     }
             }
@@ -861,14 +840,14 @@ private fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
                         "H ${formatAxisValue(candle.high)} | L ${formatAxisValue(candle.low)} | " +
                         "C ${formatAxisValue(candle.close)}",
                     fontSize = 12.sp,
-                    color = Color(0xFFE0E0E0)
+                    color = Color(0xFFF1F8FF)
                 )
             }
         }
         Text(
             text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
             fontSize = 12.sp,
-            color = Color(0xFFBDBDBD)
+            color = Color(0xFFD7E3F4)
         )
     }
 }
@@ -884,7 +863,7 @@ private fun Legend(series: List<ChartSeries>) {
                         .height(14.dp)
                         .background(it.color, RoundedCornerShape(3.dp))
                 )
-                Text("  ${it.name}")
+                Text("  ${it.name}", color = Color(0xFFF1F8FF))
             }
         }
     }
@@ -901,7 +880,7 @@ private fun LineChart(
 ) {
     if (series.isEmpty() || series.all { it.values.isEmpty() }) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
-            Text("No chart data")
+            Text("No chart data", color = Color(0xFFD7E3F4))
         }
         return
     }
@@ -917,7 +896,7 @@ private fun LineChart(
 
     Canvas(
         modifier = modifier
-            .background(Color.White, RoundedCornerShape(8.dp))
+            .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
             .pointerInput(series) {
                 detectTapGestures { tapOffset ->
                     val maxIndex = series.maxOfOrNull { it.values.lastIndex }?.coerceAtLeast(0) ?: 0
@@ -948,7 +927,7 @@ private fun LineChart(
         yTicks.forEach { tick ->
             val y = topPadding + h - (((tick - min) / range).toFloat() * h)
             drawLine(
-                color = Color(0xFFE0E0E0),
+                color = Color(0xFF30455A),
                 start = Offset(leftPadding, y),
                 end = Offset(leftPadding + w, y),
                 strokeWidth = 1.5f
@@ -958,7 +937,7 @@ private fun LineChart(
         xTicks.forEach { tick ->
             val x = xForIndex(tick.index)
             drawLine(
-                color = Color(0xFFEEEEEE),
+                color = Color(0xFF2A3D50),
                 start = Offset(x, topPadding),
                 end = Offset(x, topPadding + h),
                 strokeWidth = 1.5f
@@ -966,13 +945,13 @@ private fun LineChart(
         }
 
         drawLine(
-            color = Color(0xFFBDBDBD),
+            color = Color(0xFF8AA6C1),
             start = Offset(leftPadding, topPadding + h),
             end = Offset(leftPadding + w, topPadding + h),
             strokeWidth = 2f
         )
         drawLine(
-            color = Color(0xFFBDBDBD),
+            color = Color(0xFF8AA6C1),
             start = Offset(leftPadding, topPadding),
             end = Offset(leftPadding, topPadding + h),
             strokeWidth = 2f
@@ -980,7 +959,7 @@ private fun LineChart(
         xTicks.forEach { tick ->
             val x = xForIndex(tick.index)
             drawLine(
-                color = Color(0xFFBDBDBD),
+                color = Color(0xFF8AA6C1),
                 start = Offset(x, topPadding + h),
                 end = Offset(x, topPadding + h + 8f),
                 strokeWidth = 1.5f
@@ -991,7 +970,7 @@ private fun LineChart(
         selected?.let { idx ->
             val x = xForIndex(idx)
             drawLine(
-                color = Color(0xFF616161),
+                color = Color(0xFF90CAF9),
                 start = Offset(x, topPadding),
                 end = Offset(x, topPadding + h),
                 strokeWidth = 2f
@@ -1040,7 +1019,7 @@ private fun LineChart(
         if (xTicks.isNotEmpty()) {
             val labelPaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.GRAY
+                color = android.graphics.Color.rgb(221, 236, 255)
                 textSize = 10.sp.toPx()
                 textAlign = Paint.Align.RIGHT
             }
@@ -1067,7 +1046,7 @@ private fun CandlestickChart(
 ) {
     if (candles.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
-            Text("No chart data")
+            Text("No chart data", color = Color(0xFFD7E3F4))
         }
         return
     }
@@ -1082,7 +1061,7 @@ private fun CandlestickChart(
 
     Canvas(
         modifier = modifier
-            .background(Color.White, RoundedCornerShape(8.dp))
+            .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
             .pointerInput(candles) {
                 detectTapGestures { tapOffset ->
                     onSelectIndex(
@@ -1111,7 +1090,7 @@ private fun CandlestickChart(
         yTicks.forEach { tick ->
             val y = topPadding + h - (((tick - min) / range).toFloat() * h)
             drawLine(
-                color = Color(0xFFE0E0E0),
+                color = Color(0xFF30455A),
                 start = Offset(leftPadding, y),
                 end = Offset(leftPadding + w, y),
                 strokeWidth = 1.5f
@@ -1121,7 +1100,7 @@ private fun CandlestickChart(
         xTicks.forEach { tick ->
             val x = xForIndex(tick.index)
             drawLine(
-                color = Color(0xFFEEEEEE),
+                color = Color(0xFF2A3D50),
                 start = Offset(x, topPadding),
                 end = Offset(x, topPadding + h),
                 strokeWidth = 1.5f
@@ -1129,13 +1108,13 @@ private fun CandlestickChart(
         }
 
         drawLine(
-            color = Color(0xFFBDBDBD),
+            color = Color(0xFF8AA6C1),
             start = Offset(leftPadding, topPadding + h),
             end = Offset(leftPadding + w, topPadding + h),
             strokeWidth = 2f
         )
         drawLine(
-            color = Color(0xFFBDBDBD),
+            color = Color(0xFF8AA6C1),
             start = Offset(leftPadding, topPadding),
             end = Offset(leftPadding, topPadding + h),
             strokeWidth = 2f
@@ -1149,7 +1128,7 @@ private fun CandlestickChart(
             val lowY = topPadding + h - (((candle.low - min) / range).toFloat() * h)
             val closeY = topPadding + h - (((candle.close - min) / range).toFloat() * h)
             val rising = candle.close >= candle.open
-            val color = if (rising) Color(0xFF2E7D32) else Color(0xFFC62828)
+            val color = if (rising) Color(0xFF69F0AE) else Color(0xFFFF5252)
 
             drawLine(
                 color = color,
@@ -1171,7 +1150,7 @@ private fun CandlestickChart(
         selected?.let { idx ->
             val x = xForIndex(idx)
             drawLine(
-                color = Color(0xFF616161),
+                color = Color(0xFF90CAF9),
                 start = Offset(x, topPadding),
                 end = Offset(x, topPadding + h),
                 strokeWidth = 2f
@@ -1181,7 +1160,7 @@ private fun CandlestickChart(
         if (xTicks.isNotEmpty()) {
             val labelPaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.GRAY
+                color = android.graphics.Color.rgb(221, 236, 255)
                 textSize = 10.sp.toPx()
                 textAlign = Paint.Align.RIGHT
             }
