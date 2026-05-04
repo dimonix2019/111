@@ -31,7 +31,6 @@ internal const val SIGNAL_MONITOR_CHANNEL_ID = "moex_signal_monitor_channel"
 internal const val SIGNAL_MONITOR_NOTIFICATION_ID = 11001
 internal const val SIGNAL_MONITOR_INTERVAL_MS = 15_000L
 
-private const val SPREAD_ALERT_LEVEL_BG = 5.0
 private const val DEFAULT_DYNAMIC_Z_ENTRY_BG = 1.3
 private const val DEFAULT_DYNAMIC_Z_EXIT_BG = 1.2
 private const val DYNAMIC_Z_RECALC_HOUR_BG = 9
@@ -98,12 +97,6 @@ class SignalForegroundService : Service() {
     private fun performSignalMonitorTick() {
         val snapshot = computeSignalSnapshot() ?: return
         val prefs = getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
-
-        val prevSpread = prefs.getString(PREF_BACKGROUND_LAST_SPREAD, null)?.toDoubleOrNull()
-        if (prevSpread != null && prevSpread <= SPREAD_ALERT_LEVEL_BG && snapshot.latestSpread > SPREAD_ALERT_LEVEL_BG) {
-            showSpreadCrossPushNotification(this, snapshot.latestSpread)
-        }
-        prefs.edit().putString(PREF_BACKGROUND_LAST_SPREAD, snapshot.latestSpread.toString()).apply()
 
         val thresholdUpdate = ensureDynamicThresholds()
         if (thresholdUpdate.recalculated) {
@@ -223,7 +216,6 @@ class SignalForegroundService : Service() {
         val stdDev = kotlin.math.sqrt(variance).takeIf { it > 0.0 } ?: 1.0
         val latestSpread = spreads.last()
         return BgSnapshot(
-            latestSpread = latestSpread,
             latestZ = (latestSpread - mean) / stdDev
         )
     }
@@ -438,7 +430,6 @@ class SignalForegroundService : Service() {
     companion object {
         private const val MONITOR_PREFS_NAME = "moex_alert_prefs"
         private const val PREF_BACKGROUND_SIGNAL_ENABLED = "background_signal_enabled"
-        private const val PREF_BACKGROUND_LAST_SPREAD = "bg_last_spread"
         private const val PREF_BACKGROUND_LAST_Z = "bg_last_z"
         private const val PREF_BACKGROUND_POSITION = "bg_position"
         private const val PREF_DYNAMIC_Z_ENTRY = "dynamic_z_entry"
@@ -497,7 +488,6 @@ class SignalForegroundService : Service() {
 }
 
 private data class BgSnapshot(
-    val latestSpread: Double,
     val latestZ: Double
 )
 

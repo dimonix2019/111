@@ -145,7 +145,6 @@ private val tradeDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 private val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 private val candleTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 private val intradayLabelFormatter = DateTimeFormatter.ofPattern("HH:mm")
-private const val SPREAD_ALERT_LEVEL = 5.0
 private const val DYNAMIC_Z_RECALC_HOUR = 9
 private const val DEFAULT_DYNAMIC_Z_ENTRY = 1.3
 private const val DEFAULT_DYNAMIC_Z_EXIT = 1.2
@@ -171,7 +170,6 @@ private fun MoexScreen() {
     var realtimeEnabled by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var realtimeError by remember { mutableStateOf<String?>(null) }
-    var previousSpreadForAlert by remember { mutableStateOf<Double?>(null) }
     var previousZScoreForAlert by remember { mutableStateOf<Double?>(null) }
     var dynamicThresholds by remember(context) {
         mutableStateOf(
@@ -214,14 +212,6 @@ private fun MoexScreen() {
                         )
                     }
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
-                    val latestSpread = next.points.lastOrNull()?.spreadPercent
-                    if (latestSpread != null) {
-                        val prev = previousSpreadForAlert
-                        if (prev != null && prev <= SPREAD_ALERT_LEVEL && latestSpread > SPREAD_ALERT_LEVEL) {
-                            showSpreadCrossPushNotification(context, latestSpread)
-                        }
-                        previousSpreadForAlert = latestSpread
-                    }
                     val latestZScore = next.points.lastOrNull()?.zScore
                     if (latestZScore != null) {
                         val prevZ = previousZScoreForAlert
@@ -366,7 +356,6 @@ private fun MoexScreen() {
                 selected = selectedPeriod,
                 onSelect = {
                     selectedPeriod = it
-                    previousSpreadForAlert = null
                     previousZScoreForAlert = null
                 }
             )
@@ -403,10 +392,9 @@ private fun MoexScreen() {
                     onClick = {
                         val message = String.format(
                             Locale.US,
-                            "Пороги: вход +/-%.1f, выход +/-%.1f, spread > %.1f%%",
+                            "Пороги: вход +/-%.1f, выход +/-%.1f",
                             dynamicThresholds.entry,
-                            dynamicThresholds.exit,
-                            SPREAD_ALERT_LEVEL
+                            dynamicThresholds.exit
                         )
                         showZStrategySignalPushNotification(
                             context = context,
