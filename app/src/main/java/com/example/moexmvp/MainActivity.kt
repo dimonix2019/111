@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -91,7 +92,9 @@ class MainActivity : ComponentActivity() {
         requestPushPermissionIfNeeded()
         initPushMessaging()
         setContent {
-            MaterialTheme {
+            MaterialTheme(
+                colorScheme = darkColorScheme()
+            ) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     MoexScreen()
                 }
@@ -162,7 +165,6 @@ private fun MoexScreen() {
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var realtimeInterval by remember { mutableStateOf(RealtimeInterval.FiveSeconds) }
-    var spreadScaleMode by remember { mutableStateOf(SpreadScaleMode.Auto) }
     var isRefreshing by remember { mutableStateOf(false) }
     var realtimeError by remember { mutableStateOf<String?>(null) }
     var previousSpreadForAlert by remember { mutableStateOf<Double?>(null) }
@@ -344,13 +346,15 @@ private fun MoexScreen() {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .background(Color.Black)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
             Text(
                 text = "TATN / TATNP (MOEX ISS)",
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                color = Color.White
             )
         }
         item {
@@ -377,42 +381,52 @@ private fun MoexScreen() {
             )
         }
         item {
-            Button(onClick = {
-                scope.launch {
-                    refreshData(showLoading = state !is UiState.Success)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            refreshData(showLoading = state !is UiState.Success)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Refresh")
                 }
-            }) {
-                Text("Refresh")
-            }
-        }
-        item {
-            Button(onClick = {
-                val message = String.format(
-                    Locale.US,
-                    "Пороги: вход +/-%.1f, выход +/-%.1f, spread > %.1f%%",
-                    dynamicThresholds.entry,
-                    dynamicThresholds.exit,
-                    SPREAD_ALERT_LEVEL
-                )
-                showZStrategySignalPushNotification(
-                    context = context,
-                    title = "Тест уведомления",
-                    body = message
-                )
-            }) {
-                Text("Test alert")
-            }
-        }
-        item {
-            val monitorEnabled = SignalForegroundService.isBackgroundMonitorEnabled(context)
-            Button(onClick = {
-                if (monitorEnabled) {
-                    SignalForegroundService.stop(context)
-                } else {
-                    SignalForegroundService.start(context)
+                Button(
+                    onClick = {
+                        val message = String.format(
+                            Locale.US,
+                            "Пороги: вход +/-%.1f, выход +/-%.1f, spread > %.1f%%",
+                            dynamicThresholds.entry,
+                            dynamicThresholds.exit,
+                            SPREAD_ALERT_LEVEL
+                        )
+                        showZStrategySignalPushNotification(
+                            context = context,
+                            title = "Тест уведомления",
+                            body = message
+                        )
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Test")
                 }
-            }) {
-                Text(if (monitorEnabled) "Background monitor: ON" else "Background monitor: OFF")
+                val monitorEnabled = SignalForegroundService.isBackgroundMonitorEnabled(context)
+                Button(
+                    onClick = {
+                        if (monitorEnabled) {
+                            SignalForegroundService.stop(context)
+                        } else {
+                            SignalForegroundService.start(context)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (monitorEnabled) "BG ON" else "BG OFF")
+                }
             }
         }
         item {
@@ -424,17 +438,11 @@ private fun MoexScreen() {
                 onSelectInterval = { realtimeInterval = it }
             )
         }
-        item {
-            SpreadScaleControls(
-                mode = spreadScaleMode,
-                onModeChange = { spreadScaleMode = it }
-            )
-        }
         if (realtimeError != null && state is UiState.Success) {
             item {
                 Text(
                     text = "Realtime warning: $realtimeError",
-                    color = Color(0xFFB71C1C),
+                    color = Color(0xFFEF9A9A),
                     fontSize = 12.sp
                 )
             }
@@ -463,18 +471,24 @@ private fun MoexScreen() {
                 }
                 item {
                     ChartCard(
+                        title = "График 4: Z-score спрэда",
+                        series = listOf(
+                            ChartSeries("Z-score", Color(0xFFB0BEC5), current.points.map { it.zScore })
+                        ),
+                        labels = current.points.map { it.tradeDate },
+                        chartHeightDp = 130
+                    )
+                }
+                item {
+                    ChartCard(
                         title = "График 2: spread = (TATN / TATNP - 1) * 100",
                         series = listOf(
                             ChartSeries("Spread %", Color(0xFF2E7D32), current.points.map { it.spreadPercent })
                         ),
                         labels = current.points.map { it.tradeDate },
-                        chartHeightDp = 150,
+                        chartHeightDp = 130,
                         rightAxisPercentBase = current.points.minOfOrNull { it.spreadPercent },
-                        yScale = if (spreadScaleMode == SpreadScaleMode.Fixed) {
-                            YAxisScale.Fixed(min = 0.0, max = 15.0)
-                        } else {
-                            YAxisScale.Auto
-                        }
+                        yScale = YAxisScale.Auto
                     )
                 }
                 item {
@@ -484,17 +498,7 @@ private fun MoexScreen() {
                             ChartSeries("Diff", Color(0xFF6A1B9A), current.points.map { it.diff })
                         ),
                         labels = current.points.map { it.tradeDate },
-                        chartHeightDp = 150
-                    )
-                }
-                item {
-                    ChartCard(
-                        title = "График 4: Z-score спрэда",
-                        series = listOf(
-                            ChartSeries("Z-score", Color(0xFF37474F), current.points.map { it.zScore })
-                        ),
-                        labels = current.points.map { it.tradeDate },
-                        chartHeightDp = 150
+                        chartHeightDp = 130
                     )
                 }
                 item {
@@ -559,16 +563,20 @@ private fun SummaryBlock(points: List<DataPoint>, loadedAt: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFFF5F5F5), RoundedCornerShape(12.dp))
-            .padding(12.dp),
+            .background(Color(0xFF171717), RoundedCornerShape(12.dp))
+            .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("Latest: ${latest.tradeDate}", fontWeight = FontWeight.Bold)
-        Text("Updated at: $loadedAt")
-        Text("TATN: ${"%.2f".format(latest.tatnClose)}")
-        Text("TATNP: ${"%.2f".format(latest.tatnpClose)}")
-        Text("Spread: ${"%.2f".format(latest.spreadPercent)}%")
-        Text("Diff: ${"%.2f".format(latest.diff)}")
+        Text("Latest: ${latest.tradeDate}", fontWeight = FontWeight.Bold, color = Color.White)
+        Text("Updated: $loadedAt", color = Color(0xFFBDBDBD), fontSize = 12.sp)
+        Text(
+            text = "TATN ${"%.2f".format(latest.tatnClose)}   |   TATNP ${"%.2f".format(latest.tatnpClose)}",
+            color = Color.White
+        )
+        Text(
+            text = "Spread ${"%.2f".format(latest.spreadPercent)}%   |   Diff ${"%.2f".format(latest.diff)}",
+            color = Color.White
+        )
     }
 }
 
@@ -613,8 +621,8 @@ private fun RealtimeControls(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFFF5F5F5), RoundedCornerShape(12.dp))
-            .padding(12.dp),
+            .background(Color(0xFF171717), RoundedCornerShape(12.dp))
+            .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
@@ -663,7 +671,7 @@ private fun RealtimeControls(
         Text(
             text = if (isRefreshing) "Status: updating..." else "Status: up to date",
             fontSize = 12.sp,
-            color = if (isRefreshing) Color(0xFF1565C0) else Color(0xFF2E7D32)
+            color = if (isRefreshing) Color(0xFF90CAF9) else Color(0xFFA5D6A7)
         )
     }
 }
@@ -722,11 +730,11 @@ private fun ChartCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFFF7F9FC), RoundedCornerShape(12.dp))
-            .padding(12.dp),
+            .background(Color(0xFF171717), RoundedCornerShape(12.dp))
+            .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(title, fontWeight = FontWeight.Bold)
+        Text(title, fontWeight = FontWeight.Bold, color = Color.White)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -743,7 +751,7 @@ private fun ChartCard(
                         Text(
                             text = formatAxisValue(tick),
                             fontSize = 10.sp,
-                            color = Color.Gray
+                            color = Color(0xFFBDBDBD)
                         )
                     }
             }
@@ -771,7 +779,7 @@ private fun ChartCard(
                             Text(
                                 text = formatPercentDeltaFromBase(tick, rightAxisPercentBase),
                                 fontSize = 10.sp,
-                                color = Color.Gray
+                                color = Color(0xFFBDBDBD)
                             )
                         }
                 }
@@ -789,14 +797,14 @@ private fun ChartCard(
                 Text(
                     text = "↕ $label | ${values.joinToString(" | ")}",
                     fontSize = 12.sp,
-                    color = Color(0xFF424242)
+                    color = Color(0xFFE0E0E0)
                 )
             }
         }
         Text(
             text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
             fontSize = 12.sp,
-            color = Color.Gray
+            color = Color(0xFFBDBDBD)
         )
     }
 }
@@ -810,11 +818,11 @@ private fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFFF7F9FC), RoundedCornerShape(12.dp))
-            .padding(12.dp),
+            .background(Color(0xFF171717), RoundedCornerShape(12.dp))
+            .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(title, fontWeight = FontWeight.Bold)
+        Text(title, fontWeight = FontWeight.Bold, color = Color.White)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -831,7 +839,7 @@ private fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
                         Text(
                             text = formatAxisValue(tick),
                             fontSize = 10.sp,
-                            color = Color.Gray
+                            color = Color(0xFFBDBDBD)
                         )
                     }
             }
@@ -853,14 +861,14 @@ private fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
                         "H ${formatAxisValue(candle.high)} | L ${formatAxisValue(candle.low)} | " +
                         "C ${formatAxisValue(candle.close)}",
                     fontSize = 12.sp,
-                    color = Color(0xFF424242)
+                    color = Color(0xFFE0E0E0)
                 )
             }
         }
         Text(
             text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
             fontSize = 12.sp,
-            color = Color.Gray
+            color = Color(0xFFBDBDBD)
         )
     }
 }
