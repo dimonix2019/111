@@ -580,7 +580,7 @@ private fun SummaryBlock(points: List<DataPoint>, loadedAt: String) {
             color = Color.White
         )
         Text(
-            text = "Spread ${"%.2f".format(latest.spreadPercent)}%   |   Diff ${"%.2f".format(latest.diff)}",
+            text = "Z-score ${"%.2f".format(latest.zScore)}   |   Spread ${"%.2f".format(latest.spreadPercent)}%   |   Diff ${"%.2f".format(latest.diff)}",
             color = Color.White
         )
     }
