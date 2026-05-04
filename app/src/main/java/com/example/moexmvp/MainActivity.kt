@@ -404,6 +404,18 @@ private fun MoexScreen() {
             }
         }
         item {
+            val monitorEnabled = SignalForegroundService.isBackgroundMonitorEnabled(context)
+            Button(onClick = {
+                if (monitorEnabled) {
+                    SignalForegroundService.stop(context)
+                } else {
+                    SignalForegroundService.start(context)
+                }
+            }) {
+                Text(if (monitorEnabled) "Background monitor: ON" else "Background monitor: OFF")
+            }
+        }
+        item {
             RealtimeControls(
                 enabled = realtimeEnabled,
                 selectedInterval = realtimeInterval,
