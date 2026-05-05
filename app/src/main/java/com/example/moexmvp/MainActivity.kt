@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -48,6 +49,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
@@ -472,7 +474,12 @@ private fun MoexScreen() {
                             ChartSeries("Z-score", Color(0xFF80D8FF), current.points.map { it.zScore })
                         ),
                         labels = current.points.map { it.tradeDate },
-                        chartHeightDp = 130
+                        chartHeightDp = 130,
+                        referenceLines = buildZScoreReferenceLines(dynamicThresholds),
+                        pointMarkers = buildZScoreSignalMarkers(
+                            points = current.points,
+                            thresholds = dynamicThresholds
+                        )
                     )
                 }
                 item {
@@ -691,9 +698,18 @@ private fun ChartCard(
     labels: List<String>,
     chartHeightDp: Int = 180,
     rightAxisPercentBase: Double? = null,
-    yScale: YAxisScale = YAxisScale.Auto
+    yScale: YAxisScale = YAxisScale.Auto,
+    referenceLines: List<ChartReferenceLine> = emptyList(),
+    pointMarkers: List<ChartPointMarker> = emptyList()
 ) {
-    val axisScale = remember(series, labels, yScale) { buildAxisScale(series, labels, yScale) }
+    val axisScale = remember(series, labels, yScale, referenceLines) {
+        buildAxisScale(
+            series = series,
+            labels = labels,
+            yScale = yScale,
+            valueHints = referenceLines.map { it.value }
+        )
+    }
     val stats = remember(series) { buildChartStats(series) }
     var selectedIndex by remember(series, labels) { mutableStateOf<Int?>(null) }
     Column(
@@ -730,6 +746,8 @@ private fun ChartCard(
                 xTicks = axisScale.xTicks,
                 selectedIndex = selectedIndex,
                 onSelectIndex = { selectedIndex = it },
+                referenceLines = referenceLines,
+                pointMarkers = pointMarkers,
                 modifier = Modifier
                     .weight(1f)
                     .height(chartHeightDp.dp)
@@ -754,7 +772,11 @@ private fun ChartCard(
                 }
             }
         }
-        Legend(series = series)
+        Legend(
+            series = series,
+            referenceLines = referenceLines,
+            pointMarkers = pointMarkers
+        )
         selectedIndex?.let { selected ->
             val label = labels.getOrNull(selected)
             val values = series.mapNotNull { chartSeries ->
@@ -843,7 +865,11 @@ private fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
 }
 
 @Composable
-private fun Legend(series: List<ChartSeries>) {
+private fun Legend(
+    series: List<ChartSeries>,
+    referenceLines: List<ChartReferenceLine> = emptyList(),
+    pointMarkers: List<ChartPointMarker> = emptyList()
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         series.forEach {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -856,6 +882,30 @@ private fun Legend(series: List<ChartSeries>) {
                 Text("  ${it.name}", color = Color(0xFFF1F8FF))
             }
         }
+        referenceLines.forEach { reference ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .width(14.dp)
+                        .height(4.dp)
+                        .background(reference.color, RoundedCornerShape(2.dp))
+                )
+                Text("  ${reference.label}", color = Color(0xFFF1F8FF))
+            }
+        }
+        pointMarkers
+            .distinctBy { it.label }
+            .forEach { marker ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .width(14.dp)
+                            .height(14.dp)
+                            .background(marker.color, CircleShape)
+                    )
+                    Text("  ${marker.label}", color = Color(0xFFF1F8FF))
+                }
+            }
     }
 }
 
@@ -866,6 +916,8 @@ private fun LineChart(
     xTicks: List<XAxisTick>,
     selectedIndex: Int?,
     onSelectIndex: (Int?) -> Unit,
+    referenceLines: List<ChartReferenceLine> = emptyList(),
+    pointMarkers: List<ChartPointMarker> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     if (series.isEmpty() || series.all { it.values.isEmpty() }) {
@@ -921,6 +973,18 @@ private fun LineChart(
                 start = Offset(leftPadding, y),
                 end = Offset(leftPadding + w, y),
                 strokeWidth = 1.5f
+            )
+        }
+        referenceLines.forEach { reference ->
+            val y = topPadding + h - (((reference.value - min) / range).toFloat() * h)
+            drawLine(
+                color = reference.color,
+                start = Offset(leftPadding, y),
+                end = Offset(leftPadding + w, y),
+                strokeWidth = 2f,
+                pathEffect = PathEffect.dashPathEffect(
+                    intervals = floatArrayOf(reference.dashOnPx, reference.dashOffPx)
+                )
             )
         }
 
@@ -1005,6 +1069,16 @@ private fun LineChart(
                 }
             }
         }
+        pointMarkers.forEach { marker ->
+            if (marker.index < 0 || marker.index > maxIndex) return@forEach
+            val x = xForIndex(marker.index)
+            val y = topPadding + h - (((marker.value - min) / range).toFloat() * h)
+            drawMarkerShape(
+                shape = marker.shape,
+                center = Offset(x, y),
+                color = marker.color
+            )
+        }
 
         if (xTicks.isNotEmpty()) {
             val labelPaint = Paint().apply {
@@ -1021,6 +1095,44 @@ private fun LineChart(
                 drawContext.canvas.nativeCanvas.drawText(tick.label, x, y, labelPaint)
                 drawContext.canvas.nativeCanvas.restore()
             }
+        }
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMarkerShape(
+    shape: ChartMarkerShape,
+    center: Offset,
+    color: Color
+) {
+    when (shape) {
+        ChartMarkerShape.Circle -> drawCircle(color = color, radius = 6f, center = center)
+        ChartMarkerShape.TriangleUp -> {
+            val path = Path().apply {
+                moveTo(center.x, center.y - 7f)
+                lineTo(center.x - 6f, center.y + 6f)
+                lineTo(center.x + 6f, center.y + 6f)
+                close()
+            }
+            drawPath(path = path, color = color)
+        }
+        ChartMarkerShape.TriangleDown -> {
+            val path = Path().apply {
+                moveTo(center.x, center.y + 7f)
+                lineTo(center.x - 6f, center.y - 6f)
+                lineTo(center.x + 6f, center.y - 6f)
+                close()
+            }
+            drawPath(path = path, color = color)
+        }
+        ChartMarkerShape.Diamond -> {
+            val path = Path().apply {
+                moveTo(center.x, center.y - 7f)
+                lineTo(center.x - 6f, center.y)
+                lineTo(center.x, center.y + 7f)
+                lineTo(center.x + 6f, center.y)
+                close()
+            }
+            drawPath(path = path, color = color)
         }
     }
 }
@@ -1179,6 +1291,99 @@ private fun resolveSelectedIndex(
     return ((clamped / chartWidth) * maxIndex).roundToInt().coerceIn(0, maxIndex)
 }
 
+private fun buildZScoreReferenceLines(thresholds: DynamicThresholds): List<ChartReferenceLine> {
+    return listOf(
+        ChartReferenceLine(
+            value = thresholds.entry,
+            color = Color(0xFFFFB74D),
+            label = String.format(Locale.US, "Entry +%.1f", thresholds.entry)
+        ),
+        ChartReferenceLine(
+            value = -thresholds.entry,
+            color = Color(0xFFFFB74D),
+            label = String.format(Locale.US, "Entry -%.1f", thresholds.entry)
+        ),
+        ChartReferenceLine(
+            value = thresholds.exit,
+            color = Color(0xFFA5D6A7),
+            label = String.format(Locale.US, "Exit +%.1f", thresholds.exit)
+        ),
+        ChartReferenceLine(
+            value = -thresholds.exit,
+            color = Color(0xFFA5D6A7),
+            label = String.format(Locale.US, "Exit -%.1f", thresholds.exit)
+        )
+    )
+}
+
+private fun buildZScoreSignalMarkers(
+    points: List<DataPoint>,
+    thresholds: DynamicThresholds
+): List<ChartPointMarker> {
+    if (points.size < 2) return emptyList()
+    val markers = mutableListOf<ChartPointMarker>()
+    var position = ZStrategyPosition.Flat
+    for (index in 1..points.lastIndex) {
+        val previous = points[index - 1].zScore
+        val current = points[index].zScore
+        when (
+            determineZStrategySignal(
+                previousZ = previous,
+                currentZ = current,
+                position = position,
+                thresholds = thresholds
+            )
+        ) {
+            ZStrategySignal.EnterLong -> {
+                markers += ChartPointMarker(
+                    index = index,
+                    value = current,
+                    color = Color(0xFF69F0AE),
+                    label = "Enter LONG",
+                    shape = ChartMarkerShape.TriangleUp
+                )
+                position = ZStrategyPosition.Long
+            }
+
+            ZStrategySignal.EnterShort -> {
+                markers += ChartPointMarker(
+                    index = index,
+                    value = current,
+                    color = Color(0xFFFF8A80),
+                    label = "Enter SHORT",
+                    shape = ChartMarkerShape.TriangleDown
+                )
+                position = ZStrategyPosition.Short
+            }
+
+            ZStrategySignal.ExitLong -> {
+                markers += ChartPointMarker(
+                    index = index,
+                    value = current,
+                    color = Color(0xFF90CAF9),
+                    label = "Exit LONG",
+                    shape = ChartMarkerShape.Diamond
+                )
+                position = ZStrategyPosition.Flat
+            }
+
+            ZStrategySignal.ExitShort -> {
+                markers += ChartPointMarker(
+                    index = index,
+                    value = current,
+                    color = Color(0xFFFFCC80),
+                    label = "Exit SHORT",
+                    shape = ChartMarkerShape.Diamond
+                )
+                position = ZStrategyPosition.Flat
+            }
+
+            ZStrategySignal.None -> Unit
+        }
+    }
+    return markers
+}
+
 private fun buildChartStats(series: List<ChartSeries>): ChartStats {
     val allValues = series.flatMap { it.values }
     if (allValues.isEmpty()) {
@@ -1216,8 +1421,13 @@ private fun buildCandleAxisScale(candles: List<CandlePoint>): AxisScale {
     )
 }
 
-private fun buildAxisScale(series: List<ChartSeries>, labels: List<String>, yScale: YAxisScale): AxisScale {
-    val allValues = series.flatMap { it.values }
+private fun buildAxisScale(
+    series: List<ChartSeries>,
+    labels: List<String>,
+    yScale: YAxisScale,
+    valueHints: List<Double> = emptyList()
+): AxisScale {
+    val allValues = series.flatMap { it.values } + valueHints
     if (allValues.isEmpty()) {
         return AxisScale(
             yTicks = emptyList(),
@@ -1868,6 +2078,29 @@ private data class ChartSeries(
     val color: Color,
     val values: List<Double>
 )
+
+private data class ChartReferenceLine(
+    val value: Double,
+    val color: Color,
+    val label: String,
+    val dashOnPx: Float = 10f,
+    val dashOffPx: Float = 8f
+)
+
+private data class ChartPointMarker(
+    val index: Int,
+    val value: Double,
+    val color: Color,
+    val label: String,
+    val shape: ChartMarkerShape
+)
+
+private enum class ChartMarkerShape {
+    Circle,
+    TriangleUp,
+    TriangleDown,
+    Diamond
+}
 
 private data class AxisScale(
     val yTicks: List<Double>,
