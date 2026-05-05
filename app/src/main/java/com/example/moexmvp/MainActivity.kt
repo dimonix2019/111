@@ -159,8 +159,10 @@ private const val PREF_DYNAMIC_Z_EXIT = "dynamic_z_exit"
 private const val PREF_DYNAMIC_Z_DATE = "dynamic_z_date"
 private const val PREF_Z_STRATEGY_POSITION = "z_strategy_position"
 private const val PREF_Z_DAILY_SIGNAL_DATE = "z_daily_signal_date"
-private const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry"
-private const val PREF_Z_DAILY_SIGNAL_EXIT = "z_daily_signal_exit"
+private const val PREF_Z_DAILY_SIGNAL_COUNT = "z_daily_signal_count"
+private const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry_legacy"
+private const val PREF_Z_DAILY_SIGNAL_EXIT = "z_daily_signal_exit_legacy"
+private const val DAILY_SIGNAL_MAX_PER_DAY = 20
 private const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 
 @Composable
@@ -226,7 +228,7 @@ private fun MoexScreen() {
                             ZStrategySignal.EnterLong -> {
                                 zStrategyPosition = ZStrategyPosition.Long
                                 saveStrategyPosition(context, zStrategyPosition)
-                                if (!dailySignalLimit.entrySent) {
+                                if (dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATN / SHORT TATNP",
@@ -237,7 +239,7 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(entrySent = true)
+                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                     saveDailySignalLimit(context, dailySignalLimit)
                                 }
                             }
@@ -245,7 +247,7 @@ private fun MoexScreen() {
                             ZStrategySignal.EnterShort -> {
                                 zStrategyPosition = ZStrategyPosition.Short
                                 saveStrategyPosition(context, zStrategyPosition)
-                                if (!dailySignalLimit.entrySent) {
+                                if (dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATNP / SHORT TATN",
@@ -256,7 +258,7 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(entrySent = true)
+                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                     saveDailySignalLimit(context, dailySignalLimit)
                                 }
                             }
@@ -264,7 +266,7 @@ private fun MoexScreen() {
                             ZStrategySignal.ExitLong -> {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
-                                if (dailySignalLimit.entrySent && !dailySignalLimit.exitSent) {
+                                if (dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATN / SHORT TATNP",
@@ -275,7 +277,7 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(exitSent = true)
+                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                     saveDailySignalLimit(context, dailySignalLimit)
                                 }
                             }
@@ -283,7 +285,7 @@ private fun MoexScreen() {
                             ZStrategySignal.ExitShort -> {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
-                                if (dailySignalLimit.entrySent && !dailySignalLimit.exitSent) {
+                                if (dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATNP / SHORT TATN",
@@ -294,7 +296,7 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(exitSent = true)
+                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                     saveDailySignalLimit(context, dailySignalLimit)
                                 }
                             }
@@ -1364,12 +1366,15 @@ private fun loadDailySignalLimit(context: Context, day: LocalDate): DailySignalL
     val savedDay = prefs.getString(PREF_Z_DAILY_SIGNAL_DATE, null)
     val dayText = day.toString()
     if (savedDay != dayText) {
-        return DailySignalLimit(date = dayText, entrySent = false, exitSent = false)
+        return DailySignalLimit(date = dayText, sentCount = 0)
     }
+    val legacyCount = listOf(
+        prefs.getBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, false),
+        prefs.getBoolean(PREF_Z_DAILY_SIGNAL_EXIT, false)
+    ).count { it }
     return DailySignalLimit(
         date = dayText,
-        entrySent = prefs.getBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, false),
-        exitSent = prefs.getBoolean(PREF_Z_DAILY_SIGNAL_EXIT, false)
+        sentCount = prefs.getInt(PREF_Z_DAILY_SIGNAL_COUNT, legacyCount)
     )
 }
 
@@ -1377,8 +1382,9 @@ private fun saveDailySignalLimit(context: Context, limit: DailySignalLimit) {
     context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
         .edit()
         .putString(PREF_Z_DAILY_SIGNAL_DATE, limit.date)
-        .putBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, limit.entrySent)
-        .putBoolean(PREF_Z_DAILY_SIGNAL_EXIT, limit.exitSent)
+        .putInt(PREF_Z_DAILY_SIGNAL_COUNT, limit.sentCount)
+        .remove(PREF_Z_DAILY_SIGNAL_ENTRY)
+        .remove(PREF_Z_DAILY_SIGNAL_EXIT)
         .apply()
 }
 
@@ -1921,8 +1927,7 @@ private data class BacktestResult(
 
 private data class DailySignalLimit(
     val date: String,
-    val entrySent: Boolean,
-    val exitSent: Boolean
+    val sentCount: Int
 )
 
 private enum class ZStrategyPosition {

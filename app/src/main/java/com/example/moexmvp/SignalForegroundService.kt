@@ -39,6 +39,7 @@ private const val Z_STRATEGY_ENTRY_MIN_TENTHS_BG = 8
 private const val Z_STRATEGY_ENTRY_MAX_TENTHS_BG = 35
 private const val Z_STRATEGY_EXIT_MIN_TENTHS_BG = 0
 private const val Z_STRATEGY_EXIT_MAX_TENTHS_BG = 25
+private const val MAX_SIGNAL_NOTIFICATIONS_PER_DAY = 20
 
 class SignalForegroundService : Service() {
     private val scope = CoroutineScope(Dispatchers.Default + Job())
@@ -121,7 +122,7 @@ class SignalForegroundService : Service() {
         when (determineSignal(prevZ, snapshot.latestZ, currentPosition, thresholdUpdate.thresholds)) {
             BgSignal.EnterLong -> {
                 nextPosition = BgPosition.Long
-                if (!dayLimit.entrySent) {
+                if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     showZStrategySignalPushNotification(
                         context = this,
                         title = "Вход: LONG TATN / SHORT TATNP",
@@ -132,13 +133,13 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(entrySent = true)
+                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                 }
             }
 
             BgSignal.EnterShort -> {
                 nextPosition = BgPosition.Short
-                if (!dayLimit.entrySent) {
+                if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     showZStrategySignalPushNotification(
                         context = this,
                         title = "Вход: LONG TATNP / SHORT TATN",
@@ -149,13 +150,13 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(entrySent = true)
+                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                 }
             }
 
             BgSignal.ExitLong -> {
                 nextPosition = BgPosition.Flat
-                if (dayLimit.entrySent && !dayLimit.exitSent) {
+                if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     showZStrategySignalPushNotification(
                         context = this,
                         title = "Выход: закрыть LONG TATN / SHORT TATNP",
@@ -166,13 +167,13 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(exitSent = true)
+                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                 }
             }
 
             BgSignal.ExitShort -> {
                 nextPosition = BgPosition.Flat
-                if (dayLimit.entrySent && !dayLimit.exitSent) {
+                if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     showZStrategySignalPushNotification(
                         context = this,
                         title = "Выход: закрыть LONG TATNP / SHORT TATN",
@@ -183,7 +184,7 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(exitSent = true)
+                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                 }
             }
 
@@ -409,12 +410,11 @@ class SignalForegroundService : Service() {
         val dayText = day.toString()
         val savedDay = prefs.getString(PREF_Z_DAILY_SIGNAL_DATE, null)
         if (savedDay != dayText) {
-            return BgDailyLimit(dayText, entrySent = false, exitSent = false)
+            return BgDailyLimit(dayText, sentCount = 0)
         }
         return BgDailyLimit(
             dayText,
-            entrySent = prefs.getBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, false),
-            exitSent = prefs.getBoolean(PREF_Z_DAILY_SIGNAL_EXIT, false)
+            sentCount = prefs.getInt(PREF_Z_DAILY_SIGNAL_COUNT, 0)
         )
     }
 
@@ -422,8 +422,7 @@ class SignalForegroundService : Service() {
         getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(PREF_Z_DAILY_SIGNAL_DATE, limit.date)
-            .putBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, limit.entrySent)
-            .putBoolean(PREF_Z_DAILY_SIGNAL_EXIT, limit.exitSent)
+            .putInt(PREF_Z_DAILY_SIGNAL_COUNT, limit.sentCount)
             .apply()
     }
 
@@ -436,8 +435,7 @@ class SignalForegroundService : Service() {
         private const val PREF_DYNAMIC_Z_EXIT = "dynamic_z_exit"
         private const val PREF_DYNAMIC_Z_DATE = "dynamic_z_date"
         private const val PREF_Z_DAILY_SIGNAL_DATE = "z_daily_signal_date"
-        private const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry"
-        private const val PREF_Z_DAILY_SIGNAL_EXIT = "z_daily_signal_exit"
+        private const val PREF_Z_DAILY_SIGNAL_COUNT = "z_daily_signal_count"
 
         const val ACTION_START_SIGNAL_MONITOR = "com.example.moexmvp.action.START_SIGNAL_MONITOR"
         const val ACTION_STOP_SIGNAL_MONITOR = "com.example.moexmvp.action.STOP_SIGNAL_MONITOR"
@@ -504,8 +502,7 @@ private data class BgThresholdUpdate(
 
 private data class BgDailyLimit(
     val date: String,
-    val entrySent: Boolean,
-    val exitSent: Boolean
+    val sentCount: Int
 )
 
 private enum class BgPosition {
