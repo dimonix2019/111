@@ -870,42 +870,54 @@ private fun Legend(
     referenceLines: List<ChartReferenceLine> = emptyList(),
     pointMarkers: List<ChartPointMarker> = emptyList()
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        series.forEach {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .width(14.dp)
-                        .height(14.dp)
-                        .background(it.color, RoundedCornerShape(3.dp))
-                )
-                Text("  ${it.name}", color = Color(0xFFF1F8FF))
-            }
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        series.forEach { item ->
+            LegendItem(
+                color = item.color,
+                label = item.name,
+                square = true
+            )
         }
         referenceLines.forEach { reference ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .width(14.dp)
-                        .height(4.dp)
-                        .background(reference.color, RoundedCornerShape(2.dp))
-                )
-                Text("  ${reference.label}", color = Color(0xFFF1F8FF))
-            }
+            LegendItem(
+                color = reference.color,
+                label = reference.label,
+                square = false
+            )
         }
         pointMarkers
             .distinctBy { it.label }
             .forEach { marker ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .width(14.dp)
-                            .height(14.dp)
-                            .background(marker.color, CircleShape)
-                    )
-                    Text("  ${marker.label}", color = Color(0xFFF1F8FF))
-                }
+                LegendItem(
+                    color = marker.color,
+                    label = marker.label,
+                    square = true
+                )
             }
+    }
+}
+
+@Composable
+private fun LegendItem(
+    color: Color,
+    label: String,
+    square: Boolean
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .width(14.dp)
+                .height(if (square) 14.dp else 4.dp)
+                .background(
+                    color = color,
+                    shape = if (square) CircleShape else RoundedCornerShape(2.dp)
+                )
+        )
+        Text("  $label", color = Color(0xFFF1F8FF))
     }
 }
 
