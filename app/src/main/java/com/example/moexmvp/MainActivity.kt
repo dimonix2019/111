@@ -471,7 +471,12 @@ private fun MoexScreen() {
                     ChartCard(
                         title = "График 4: Z-score спрэда",
                         series = listOf(
-                            ChartSeries("Z-score", Color(0xFF80D8FF), current.points.map { it.zScore })
+                            ChartSeries(
+                                name = "Z-score",
+                                color = Color(0xFF80D8FF),
+                                values = current.points.map { it.zScore },
+                                lineWidth = 2.4f
+                            )
                         ),
                         labels = current.points.map { it.tradeDate },
                         chartHeightDp = 130,
@@ -1066,7 +1071,7 @@ private fun LineChart(
             drawPath(
                 path = path,
                 color = line.color,
-                style = Stroke(width = 4f, cap = StrokeCap.Round)
+                style = Stroke(width = line.lineWidth, cap = StrokeCap.Round)
             )
 
             selected?.let { idx ->
@@ -1116,32 +1121,35 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMarkerShape(
     center: Offset,
     color: Color
 ) {
+    val radius = 9f
+    val halfBase = 8f
+    val halfHeight = 9f
     when (shape) {
-        ChartMarkerShape.Circle -> drawCircle(color = color, radius = 6f, center = center)
+        ChartMarkerShape.Circle -> drawCircle(color = color, radius = radius, center = center)
         ChartMarkerShape.TriangleUp -> {
             val path = Path().apply {
-                moveTo(center.x, center.y - 7f)
-                lineTo(center.x - 6f, center.y + 6f)
-                lineTo(center.x + 6f, center.y + 6f)
+                moveTo(center.x, center.y - halfHeight)
+                lineTo(center.x - halfBase, center.y + halfHeight)
+                lineTo(center.x + halfBase, center.y + halfHeight)
                 close()
             }
             drawPath(path = path, color = color)
         }
         ChartMarkerShape.TriangleDown -> {
             val path = Path().apply {
-                moveTo(center.x, center.y + 7f)
-                lineTo(center.x - 6f, center.y - 6f)
-                lineTo(center.x + 6f, center.y - 6f)
+                moveTo(center.x, center.y + halfHeight)
+                lineTo(center.x - halfBase, center.y - halfHeight)
+                lineTo(center.x + halfBase, center.y - halfHeight)
                 close()
             }
             drawPath(path = path, color = color)
         }
         ChartMarkerShape.Diamond -> {
             val path = Path().apply {
-                moveTo(center.x, center.y - 7f)
-                lineTo(center.x - 6f, center.y)
-                lineTo(center.x, center.y + 7f)
-                lineTo(center.x + 6f, center.y)
+                moveTo(center.x, center.y - halfHeight)
+                lineTo(center.x - halfBase, center.y)
+                lineTo(center.x, center.y + halfHeight)
+                lineTo(center.x + halfBase, center.y)
                 close()
             }
             drawPath(path = path, color = color)
@@ -2088,7 +2096,8 @@ private data class FetchedData(
 private data class ChartSeries(
     val name: String,
     val color: Color,
-    val values: List<Double>
+    val values: List<Double>,
+    val lineWidth: Float = 4f
 )
 
 private data class ChartReferenceLine(
