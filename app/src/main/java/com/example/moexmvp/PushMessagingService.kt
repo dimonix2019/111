@@ -19,6 +19,11 @@ import java.util.Locale
 internal const val PUSH_CHANNEL_ID = "moex_push_channel"
 internal const val PUSH_TOPIC = "moex_updates"
 internal const val PUSH_LOG_TAG = "MoexPush"
+private const val PUSH_DEDUP_PREFS_NAME = "moex_push_dedup"
+private const val PREF_PUSH_LAST_SIGNATURE = "push_last_signature"
+private const val PREF_PUSH_LAST_TIMESTAMP_MS = "push_last_timestamp_ms"
+private const val PUSH_DEDUP_WINDOW_MS = 10_000L
+private val pushDedupLock = Any()
 
 internal fun createPushNotificationChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -49,6 +54,10 @@ internal fun showPushNotification(
             return
         }
     }
+    if (shouldSkipDuplicatePush(context, title, body)) {
+        Log.d(PUSH_LOG_TAG, "Skipping duplicate notification: $title | $body")
+        return
+    }
 
     createPushNotificationChannel(context)
     val intent = Intent(context, MainActivity::class.java).apply {
@@ -71,6 +80,24 @@ internal fun showPushNotification(
         .build()
 
     NotificationManagerCompat.from(context).notify(notificationId, notification)
+}
+
+private fun shouldSkipDuplicatePush(context: Context, title: String, body: String): Boolean {
+    val signature = "$title|$body"
+    val nowMs = System.currentTimeMillis()
+    synchronized(pushDedupLock) {
+        val prefs = context.getSharedPreferences(PUSH_DEDUP_PREFS_NAME, Context.MODE_PRIVATE)
+        val lastSignature = prefs.getString(PREF_PUSH_LAST_SIGNATURE, null)
+        val lastTimestampMs = prefs.getLong(PREF_PUSH_LAST_TIMESTAMP_MS, 0L)
+        val isDuplicate = signature == lastSignature && (nowMs - lastTimestampMs) in 0 until PUSH_DEDUP_WINDOW_MS
+        if (!isDuplicate) {
+            prefs.edit()
+                .putString(PREF_PUSH_LAST_SIGNATURE, signature)
+                .putLong(PREF_PUSH_LAST_TIMESTAMP_MS, nowMs)
+                .apply()
+        }
+        return isDuplicate
+    }
 }
 
 internal fun showSpreadCrossPushNotification(context: Context, spreadPercent: Double) {

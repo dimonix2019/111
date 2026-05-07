@@ -207,7 +207,8 @@ private fun MoexScreen() {
                     realtimeError = null
                     val thresholdUpdate = ensureDynamicThresholds(context)
                     dynamicThresholds = thresholdUpdate.thresholds
-                    if (thresholdUpdate.recalculated) {
+                    val backgroundMonitorEnabled = SignalForegroundService.isBackgroundMonitorEnabled(context)
+                    if (thresholdUpdate.recalculated && !backgroundMonitorEnabled) {
                         showDynamicZThresholdsPushNotification(
                             context = context,
                             entry = dynamicThresholds.entry,
@@ -230,7 +231,7 @@ private fun MoexScreen() {
                             ZStrategySignal.EnterLong -> {
                                 zStrategyPosition = ZStrategyPosition.Long
                                 saveStrategyPosition(context, zStrategyPosition)
-                                if (dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATN / SHORT TATNP",
@@ -249,7 +250,7 @@ private fun MoexScreen() {
                             ZStrategySignal.EnterShort -> {
                                 zStrategyPosition = ZStrategyPosition.Short
                                 saveStrategyPosition(context, zStrategyPosition)
-                                if (dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATNP / SHORT TATN",
@@ -268,7 +269,7 @@ private fun MoexScreen() {
                             ZStrategySignal.ExitLong -> {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
-                                if (dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATN / SHORT TATNP",
@@ -287,7 +288,7 @@ private fun MoexScreen() {
                             ZStrategySignal.ExitShort -> {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
-                                if (dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATNP / SHORT TATN",
