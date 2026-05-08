@@ -523,7 +523,8 @@ private fun MoexScreen() {
                         referenceLines = buildZScoreReferenceLines(dynamicThresholds),
                         pointMarkers = buildZScoreSignalMarkers(
                             points = current.points,
-                            events = signalEvents
+                            events = signalEvents,
+                            thresholds = dynamicThresholds
                         )
                     )
                 }
@@ -1378,13 +1379,14 @@ private fun buildZScoreReferenceLines(thresholds: DynamicThresholds): List<Chart
 
 private fun buildZScoreSignalMarkers(
     points: List<DataPoint>,
-    events: List<StrategySignalEvent>
+    events: List<StrategySignalEvent>,
+    thresholds: DynamicThresholds
 ): List<ChartPointMarker> {
-    if (points.isEmpty() || events.isEmpty()) return emptyList()
+    if (points.isEmpty()) return emptyList()
     val rangeStart = points.first().timestampMillis
     val rangeEnd = points.last().timestampMillis
     val bucketMs = 15 * 60 * 1000L
-    return events
+    val fromEvents = events
         .asSequence()
         .filter { it.timestampMillis in (rangeStart - bucketMs)..(rangeEnd + bucketMs) }
         .distinctBy { "${it.signalType}:${it.timestampMillis}" }
@@ -1409,6 +1411,57 @@ private fun buildZScoreSignalMarkers(
             )
         }
         .toList()
+    return if (fromEvents.isNotEmpty()) {
+        fromEvents
+    } else {
+        // Fallback for older installs with empty event log:
+        // keep markers visible by reconstructing from current chart crossings.
+        buildZScoreSignalMarkersFromCrossings(points, thresholds)
+    }
+}
+
+private fun buildZScoreSignalMarkersFromCrossings(
+    points: List<DataPoint>,
+    thresholds: DynamicThresholds
+): List<ChartPointMarker> {
+    if (points.size < 2) return emptyList()
+    val markers = mutableListOf<ChartPointMarker>()
+    var position = ZStrategyPosition.Flat
+    for (index in 1..points.lastIndex) {
+        val previous = points[index - 1].zScore
+        val current = points[index].zScore
+        when (
+            determineZStrategySignal(
+                previousZ = previous,
+                currentZ = current,
+                position = position,
+                thresholds = thresholds
+            )
+        ) {
+            ZStrategySignal.EnterLong -> {
+                markers += ChartPointMarker(index, current, Color(0xFF69F0AE), "Enter LONG", ChartMarkerShape.TriangleUp)
+                position = ZStrategyPosition.Long
+            }
+
+            ZStrategySignal.EnterShort -> {
+                markers += ChartPointMarker(index, current, Color(0xFFFF8A80), "Enter SHORT", ChartMarkerShape.TriangleDown)
+                position = ZStrategyPosition.Short
+            }
+
+            ZStrategySignal.ExitLong -> {
+                markers += ChartPointMarker(index, current, Color(0xFF90CAF9), "Exit LONG", ChartMarkerShape.Diamond)
+                position = ZStrategyPosition.Flat
+            }
+
+            ZStrategySignal.ExitShort -> {
+                markers += ChartPointMarker(index, current, Color(0xFFFFCC80), "Exit SHORT", ChartMarkerShape.Diamond)
+                position = ZStrategyPosition.Flat
+            }
+
+            ZStrategySignal.None -> Unit
+        }
+    }
+    return markers
 }
 
 private fun buildChartStats(series: List<ChartSeries>): ChartStats {
