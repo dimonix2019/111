@@ -123,7 +123,7 @@ class SignalForegroundService : Service() {
             BgSignal.EnterLong -> {
                 nextPosition = BgPosition.Long
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
-                    showZStrategySignalPushNotification(
+                    val sent = showZStrategySignalPushNotification(
                         context = this,
                         title = "Вход: LONG TATN / SHORT TATNP",
                         body = String.format(
@@ -133,14 +133,22 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    if (sent) {
+                        recordStrategySignalEvent(
+                            context = this,
+                            signalType = StrategySignalType.EnterLong,
+                            zScore = snapshot.latestZ,
+                            timestampMillis = snapshot.latestTimestampMillis
+                        )
+                        nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    }
                 }
             }
 
             BgSignal.EnterShort -> {
                 nextPosition = BgPosition.Short
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
-                    showZStrategySignalPushNotification(
+                    val sent = showZStrategySignalPushNotification(
                         context = this,
                         title = "Вход: LONG TATNP / SHORT TATN",
                         body = String.format(
@@ -150,14 +158,22 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    if (sent) {
+                        recordStrategySignalEvent(
+                            context = this,
+                            signalType = StrategySignalType.EnterShort,
+                            zScore = snapshot.latestZ,
+                            timestampMillis = snapshot.latestTimestampMillis
+                        )
+                        nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    }
                 }
             }
 
             BgSignal.ExitLong -> {
                 nextPosition = BgPosition.Flat
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
-                    showZStrategySignalPushNotification(
+                    val sent = showZStrategySignalPushNotification(
                         context = this,
                         title = "Выход: закрыть LONG TATN / SHORT TATNP",
                         body = String.format(
@@ -167,14 +183,22 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    if (sent) {
+                        recordStrategySignalEvent(
+                            context = this,
+                            signalType = StrategySignalType.ExitLong,
+                            zScore = snapshot.latestZ,
+                            timestampMillis = snapshot.latestTimestampMillis
+                        )
+                        nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    }
                 }
             }
 
             BgSignal.ExitShort -> {
                 nextPosition = BgPosition.Flat
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
-                    showZStrategySignalPushNotification(
+                    val sent = showZStrategySignalPushNotification(
                         context = this,
                         title = "Выход: закрыть LONG TATNP / SHORT TATN",
                         body = String.format(
@@ -184,7 +208,15 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    if (sent) {
+                        recordStrategySignalEvent(
+                            context = this,
+                            signalType = StrategySignalType.ExitShort,
+                            zScore = snapshot.latestZ,
+                            timestampMillis = snapshot.latestTimestampMillis
+                        )
+                        nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    }
                 }
             }
 
@@ -207,19 +239,25 @@ class SignalForegroundService : Service() {
         val tatnp = fetch15mCloseSeries("TATNP", from, till)
         val alignedTimes = tatn.keys.intersect(tatnp.keys).sorted()
         if (alignedTimes.isEmpty()) return null
-        val spreads = alignedTimes.mapNotNull { ts ->
+        val spreadSeries = alignedTimes.mapNotNull { ts ->
             val t = tatn[ts] ?: return@mapNotNull null
             val p = tatnp[ts] ?: return@mapNotNull null
             if (p == 0.0) return@mapNotNull null
-            (t / p - 1.0) * 100.0
+            ts to ((t / p - 1.0) * 100.0)
         }
-        if (spreads.isEmpty()) return null
+        if (spreadSeries.isEmpty()) return null
+        val spreads = spreadSeries.map { it.second }
         val mean = spreads.average()
         val variance = spreads.map { (it - mean) * (it - mean) }.average()
         val stdDev = kotlin.math.sqrt(variance).takeIf { it > 0.0 } ?: 1.0
         val latestSpread = spreads.last()
+        val latestTimestampMillis = spreadSeries.last().first
+            .atZone(java.time.ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
         return BgSnapshot(
-            latestZ = (latestSpread - mean) / stdDev
+            latestZ = (latestSpread - mean) / stdDev,
+            latestTimestampMillis = latestTimestampMillis
         )
     }
 
@@ -489,7 +527,8 @@ class SignalForegroundService : Service() {
 }
 
 private data class BgSnapshot(
-    val latestZ: Double
+    val latestZ: Double,
+    val latestTimestampMillis: Long
 )
 
 private data class BgThresholds(

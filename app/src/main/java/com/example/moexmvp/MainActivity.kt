@@ -73,6 +73,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -189,6 +190,9 @@ private fun MoexScreen() {
     var dailySignalLimit by remember(context) {
         mutableStateOf(loadDailySignalLimit(context, LocalDate.now()))
     }
+    var signalEvents by remember(context) {
+        mutableStateOf(loadStrategySignalEvents(context))
+    }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
@@ -217,8 +221,10 @@ private fun MoexScreen() {
                         )
                     }
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
-                    val latestZScore = next.points.lastOrNull()?.zScore
+                    val latestPoint = next.points.lastOrNull()
+                    val latestZScore = latestPoint?.zScore
                     if (latestZScore != null) {
+                        val latestTimestampMillis = latestPoint.timestampMillis
                         val prevZ = previousZScoreForAlert
                         when (
                             determineZStrategySignal(
@@ -232,7 +238,7 @@ private fun MoexScreen() {
                                 zStrategyPosition = ZStrategyPosition.Long
                                 saveStrategyPosition(context, zStrategyPosition)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
-                                    showZStrategySignalPushNotification(
+                                    val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATN / SHORT TATNP",
                                         body = String.format(
@@ -242,8 +248,16 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
-                                    saveDailySignalLimit(context, dailySignalLimit)
+                                    if (sent) {
+                                        recordStrategySignalEvent(
+                                            context = context,
+                                            signalType = StrategySignalType.EnterLong,
+                                            zScore = latestZScore,
+                                            timestampMillis = latestTimestampMillis
+                                        )
+                                        dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
+                                        saveDailySignalLimit(context, dailySignalLimit)
+                                    }
                                 }
                             }
 
@@ -251,7 +265,7 @@ private fun MoexScreen() {
                                 zStrategyPosition = ZStrategyPosition.Short
                                 saveStrategyPosition(context, zStrategyPosition)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
-                                    showZStrategySignalPushNotification(
+                                    val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATNP / SHORT TATN",
                                         body = String.format(
@@ -261,8 +275,16 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
-                                    saveDailySignalLimit(context, dailySignalLimit)
+                                    if (sent) {
+                                        recordStrategySignalEvent(
+                                            context = context,
+                                            signalType = StrategySignalType.EnterShort,
+                                            zScore = latestZScore,
+                                            timestampMillis = latestTimestampMillis
+                                        )
+                                        dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
+                                        saveDailySignalLimit(context, dailySignalLimit)
+                                    }
                                 }
                             }
 
@@ -270,7 +292,7 @@ private fun MoexScreen() {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
-                                    showZStrategySignalPushNotification(
+                                    val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATN / SHORT TATNP",
                                         body = String.format(
@@ -280,8 +302,16 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
-                                    saveDailySignalLimit(context, dailySignalLimit)
+                                    if (sent) {
+                                        recordStrategySignalEvent(
+                                            context = context,
+                                            signalType = StrategySignalType.ExitLong,
+                                            zScore = latestZScore,
+                                            timestampMillis = latestTimestampMillis
+                                        )
+                                        dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
+                                        saveDailySignalLimit(context, dailySignalLimit)
+                                    }
                                 }
                             }
 
@@ -289,7 +319,7 @@ private fun MoexScreen() {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
-                                    showZStrategySignalPushNotification(
+                                    val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATNP / SHORT TATN",
                                         body = String.format(
@@ -299,8 +329,16 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
-                                    saveDailySignalLimit(context, dailySignalLimit)
+                                    if (sent) {
+                                        recordStrategySignalEvent(
+                                            context = context,
+                                            signalType = StrategySignalType.ExitShort,
+                                            zScore = latestZScore,
+                                            timestampMillis = latestTimestampMillis
+                                        )
+                                        dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
+                                        saveDailySignalLimit(context, dailySignalLimit)
+                                    }
                                 }
                             }
 
@@ -308,6 +346,7 @@ private fun MoexScreen() {
                         }
                         previousZScoreForAlert = latestZScore
                     }
+                    signalEvents = loadStrategySignalEvents(context)
                 }
 
                 is UiState.Empty -> {
@@ -484,7 +523,7 @@ private fun MoexScreen() {
                         referenceLines = buildZScoreReferenceLines(dynamicThresholds),
                         pointMarkers = buildZScoreSignalMarkers(
                             points = current.points,
-                            thresholds = dynamicThresholds
+                            events = signalEvents
                         )
                     )
                 }
@@ -1339,70 +1378,37 @@ private fun buildZScoreReferenceLines(thresholds: DynamicThresholds): List<Chart
 
 private fun buildZScoreSignalMarkers(
     points: List<DataPoint>,
-    thresholds: DynamicThresholds
+    events: List<StrategySignalEvent>
 ): List<ChartPointMarker> {
-    if (points.size < 2) return emptyList()
-    val markers = mutableListOf<ChartPointMarker>()
-    var position = ZStrategyPosition.Flat
-    for (index in 1..points.lastIndex) {
-        val previous = points[index - 1].zScore
-        val current = points[index].zScore
-        when (
-            determineZStrategySignal(
-                previousZ = previous,
-                currentZ = current,
-                position = position,
-                thresholds = thresholds
+    if (points.isEmpty() || events.isEmpty()) return emptyList()
+    val rangeStart = points.first().timestampMillis
+    val rangeEnd = points.last().timestampMillis
+    val bucketMs = 15 * 60 * 1000L
+    return events
+        .asSequence()
+        .filter { it.timestampMillis in (rangeStart - bucketMs)..(rangeEnd + bucketMs) }
+        .distinctBy { "${it.signalType}:${it.timestampMillis}" }
+        .mapNotNull { event ->
+            val idx = points.indices.minByOrNull { index ->
+                abs(points[index].timestampMillis - event.timestampMillis)
+            } ?: return@mapNotNull null
+            val diff = abs(points[idx].timestampMillis - event.timestampMillis)
+            if (diff > bucketMs) return@mapNotNull null
+            val (color, label, shape) = when (event.signalType) {
+                StrategySignalType.EnterLong -> Triple(Color(0xFF69F0AE), "Enter LONG", ChartMarkerShape.TriangleUp)
+                StrategySignalType.EnterShort -> Triple(Color(0xFFFF8A80), "Enter SHORT", ChartMarkerShape.TriangleDown)
+                StrategySignalType.ExitLong -> Triple(Color(0xFF90CAF9), "Exit LONG", ChartMarkerShape.Diamond)
+                StrategySignalType.ExitShort -> Triple(Color(0xFFFFCC80), "Exit SHORT", ChartMarkerShape.Diamond)
+            }
+            ChartPointMarker(
+                index = idx,
+                value = points[idx].zScore,
+                color = color,
+                label = label,
+                shape = shape
             )
-        ) {
-            ZStrategySignal.EnterLong -> {
-                markers += ChartPointMarker(
-                    index = index,
-                    value = current,
-                    color = Color(0xFF69F0AE),
-                    label = "Enter LONG",
-                    shape = ChartMarkerShape.TriangleUp
-                )
-                position = ZStrategyPosition.Long
-            }
-
-            ZStrategySignal.EnterShort -> {
-                markers += ChartPointMarker(
-                    index = index,
-                    value = current,
-                    color = Color(0xFFFF8A80),
-                    label = "Enter SHORT",
-                    shape = ChartMarkerShape.TriangleDown
-                )
-                position = ZStrategyPosition.Short
-            }
-
-            ZStrategySignal.ExitLong -> {
-                markers += ChartPointMarker(
-                    index = index,
-                    value = current,
-                    color = Color(0xFF90CAF9),
-                    label = "Exit LONG",
-                    shape = ChartMarkerShape.Diamond
-                )
-                position = ZStrategyPosition.Flat
-            }
-
-            ZStrategySignal.ExitShort -> {
-                markers += ChartPointMarker(
-                    index = index,
-                    value = current,
-                    color = Color(0xFFFFCC80),
-                    label = "Exit SHORT",
-                    shape = ChartMarkerShape.Diamond
-                )
-                position = ZStrategyPosition.Flat
-            }
-
-            ZStrategySignal.None -> Unit
         }
-    }
-    return markers
+        .toList()
 }
 
 private fun buildChartStats(series: List<ChartSeries>): ChartStats {
@@ -1835,6 +1841,7 @@ private fun fetchData(period: Period): FetchedData {
 
         val spread = (tatn / tatnp - 1.0) * 100.0
         DataPoint(
+            timestampMillis = time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
             tradeDate = formatLabelForPeriod(time, period),
             tatnClose = tatn,
             tatnpClose = tatnp,
@@ -2072,6 +2079,7 @@ internal fun shouldContinuePagination(
 }
 
 private data class DataPoint(
+    val timestampMillis: Long,
     val tradeDate: String,
     val tatnClose: Double,
     val tatnpClose: Double,

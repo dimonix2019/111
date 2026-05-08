@@ -14,6 +14,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Locale
 
 internal const val PUSH_CHANNEL_ID = "moex_push_channel"
@@ -23,7 +25,24 @@ private const val PUSH_DEDUP_PREFS_NAME = "moex_push_dedup"
 private const val PREF_PUSH_LAST_SIGNATURE = "push_last_signature"
 private const val PREF_PUSH_LAST_TIMESTAMP_MS = "push_last_timestamp_ms"
 private const val PUSH_DEDUP_WINDOW_MS = 10_000L
+private const val SIGNAL_EVENTS_PREFS_NAME = "moex_signal_events"
+private const val PREF_SIGNAL_EVENTS_JSON = "strategy_signal_events_json"
+private const val MAX_SIGNAL_EVENTS = 800
 private val pushDedupLock = Any()
+private val signalEventsLock = Any()
+
+internal enum class StrategySignalType {
+    EnterLong,
+    EnterShort,
+    ExitLong,
+    ExitShort
+}
+
+internal data class StrategySignalEvent(
+    val timestampMillis: Long,
+    val signalType: StrategySignalType,
+    val zScore: Double
+)
 
 internal fun createPushNotificationChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -43,7 +62,7 @@ internal fun showPushNotification(
     title: String,
     body: String,
     notificationId: Int = System.currentTimeMillis().toInt()
-) {
+): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         val granted = ContextCompat.checkSelfPermission(
             context,
@@ -51,12 +70,12 @@ internal fun showPushNotification(
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) {
             Log.w(PUSH_LOG_TAG, "Skipping notification: POST_NOTIFICATIONS is not granted")
-            return
+            return false
         }
     }
     if (shouldSkipDuplicatePush(context, title, body)) {
         Log.d(PUSH_LOG_TAG, "Skipping duplicate notification: $title | $body")
-        return
+        return false
     }
 
     createPushNotificationChannel(context)
@@ -80,6 +99,7 @@ internal fun showPushNotification(
         .build()
 
     NotificationManagerCompat.from(context).notify(notificationId, notification)
+    return true
 }
 
 private fun shouldSkipDuplicatePush(context: Context, title: String, body: String): Boolean {
@@ -133,12 +153,82 @@ internal fun showZStrategySignalPushNotification(
     context: Context,
     title: String,
     body: String
-) {
-    showPushNotification(
+): Boolean {
+    return showPushNotification(
         context = context,
         title = title,
         body = body
     )
+}
+
+internal fun recordStrategySignalEvent(
+    context: Context,
+    signalType: StrategySignalType,
+    zScore: Double,
+    timestampMillis: Long
+) {
+    synchronized(signalEventsLock) {
+        val prefs = context.getSharedPreferences(SIGNAL_EVENTS_PREFS_NAME, Context.MODE_PRIVATE)
+        val existing = prefs.getString(PREF_SIGNAL_EVENTS_JSON, null).orEmpty()
+        val source = runCatching { JSONArray(existing) }.getOrElse { JSONArray() }
+        val events = mutableListOf<StrategySignalEvent>()
+        for (index in 0 until source.length()) {
+            val item = source.optJSONObject(index) ?: continue
+            val typeName = item.optString("signalType")
+            val type = runCatching { StrategySignalType.valueOf(typeName) }.getOrNull() ?: continue
+            events += StrategySignalEvent(
+                timestampMillis = item.optLong("timestampMillis", 0L),
+                signalType = type,
+                zScore = item.optDouble("zScore", 0.0)
+            )
+        }
+        events += StrategySignalEvent(
+            timestampMillis = timestampMillis,
+            signalType = signalType,
+            zScore = zScore
+        )
+        val trimmed = events
+            .sortedBy { it.timestampMillis }
+            .takeLast(MAX_SIGNAL_EVENTS)
+        val output = JSONArray()
+        trimmed.forEach { event ->
+            output.put(
+                JSONObject()
+                    .put("timestampMillis", event.timestampMillis)
+                    .put("signalType", event.signalType.name)
+                    .put("zScore", event.zScore)
+            )
+        }
+        prefs.edit().putString(PREF_SIGNAL_EVENTS_JSON, output.toString()).apply()
+    }
+}
+
+internal fun loadStrategySignalEvents(
+    context: Context,
+    fromTimestampMillis: Long? = null
+): List<StrategySignalEvent> {
+    synchronized(signalEventsLock) {
+        val raw = context.getSharedPreferences(SIGNAL_EVENTS_PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(PREF_SIGNAL_EVENTS_JSON, null)
+            .orEmpty()
+        val source = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
+        return buildList {
+            for (index in 0 until source.length()) {
+                val item = source.optJSONObject(index) ?: continue
+                val typeName = item.optString("signalType")
+                val type = runCatching { StrategySignalType.valueOf(typeName) }.getOrNull() ?: continue
+                val timestampMillis = item.optLong("timestampMillis", 0L)
+                if (fromTimestampMillis != null && timestampMillis < fromTimestampMillis) continue
+                add(
+                    StrategySignalEvent(
+                        timestampMillis = timestampMillis,
+                        signalType = type,
+                        zScore = item.optDouble("zScore", 0.0)
+                    )
+                )
+            }
+        }.sortedBy { it.timestampMillis }
+    }
 }
 
 internal fun showDynamicZThresholdsPushNotification(
