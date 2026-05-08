@@ -290,6 +290,13 @@ internal fun MoexScreen() {
             )
         }
         item {
+            Text(
+                text = "Signal markers: event log + fallback",
+                fontSize = 11.sp,
+                color = Color(0xFFBDBDBD)
+            )
+        }
+        item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
