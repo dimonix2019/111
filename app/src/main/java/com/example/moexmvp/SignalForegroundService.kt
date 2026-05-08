@@ -112,9 +112,9 @@ class SignalForegroundService : Service() {
         val dayLimit = loadDailySignalLimit(LocalDate.now())
         val prevZ = prefs.getString(PREF_BACKGROUND_LAST_Z, null)?.toDoubleOrNull()
         val currentPosition = runCatching {
-            BgPosition.valueOf(
-                prefs.getString(PREF_BACKGROUND_POSITION, BgPosition.Flat.name) ?: BgPosition.Flat.name
-            )
+            val sharedRaw = prefs.getString(PREF_SHARED_STRATEGY_POSITION, null)
+            val legacyRaw = prefs.getString(PREF_BACKGROUND_POSITION_LEGACY, null)
+            BgPosition.valueOf(sharedRaw ?: legacyRaw ?: BgPosition.Flat.name)
         }.getOrDefault(BgPosition.Flat)
 
         var nextPosition = currentPosition
@@ -194,7 +194,9 @@ class SignalForegroundService : Service() {
         saveDailySignalLimit(nextLimit)
         prefs.edit()
             .putString(PREF_BACKGROUND_LAST_Z, snapshot.latestZ.toString())
-            .putString(PREF_BACKGROUND_POSITION, nextPosition.name)
+            // Keep strategy position in one shared key with MainActivity to avoid drift.
+            .putString(PREF_SHARED_STRATEGY_POSITION, nextPosition.name)
+            .remove(PREF_BACKGROUND_POSITION_LEGACY)
             .apply()
     }
 
@@ -430,7 +432,8 @@ class SignalForegroundService : Service() {
         private const val MONITOR_PREFS_NAME = "moex_alert_prefs"
         private const val PREF_BACKGROUND_SIGNAL_ENABLED = "background_signal_enabled"
         private const val PREF_BACKGROUND_LAST_Z = "bg_last_z"
-        private const val PREF_BACKGROUND_POSITION = "bg_position"
+        private const val PREF_BACKGROUND_POSITION_LEGACY = "bg_position"
+        private const val PREF_SHARED_STRATEGY_POSITION = "z_strategy_position"
         private const val PREF_DYNAMIC_Z_ENTRY = "dynamic_z_entry"
         private const val PREF_DYNAMIC_Z_EXIT = "dynamic_z_exit"
         private const val PREF_DYNAMIC_Z_DATE = "dynamic_z_date"
