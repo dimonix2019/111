@@ -210,6 +210,7 @@ internal data class PortfolioMetrics(
     val leverage: Double,
     val commissionPercentPerSide: Double,
     val totalCommissionRub: Double,
+    val totalOvernightRub: Double,
     val closedTrades: List<PortfolioClosedTrade>,
     val openPosition: PortfolioOpenPosition?,
     val cumulativeRealizedSpread: Double,
