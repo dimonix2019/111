@@ -36,6 +36,8 @@ internal fun buildZStrategyPortfolioMetrics(
     points: List<DataPoint>,
     thresholds: DynamicThresholds,
     notionalRub: Double,
+    leverage: Double,
+    commissionPercentPerSide: Double,
     periodDescription: String
 ): PortfolioMetrics? {
     if (points.size < 2) return null
@@ -47,8 +49,13 @@ internal fun buildZStrategyPortfolioMetrics(
     var entrySpread = 0.0
     var entryDate = ""
     var realizedSpread = 0.0
+    var realizedRub = 0.0
+    var totalCommissionRub = 0.0
     val closed = mutableListOf<PortfolioClosedTrade>()
     val equityRubSeries = mutableListOf<Double>()
+    val effectiveNotionalRub = notionalRub * leverage
+    val commissionPerSideRub = effectiveNotionalRub * (commissionPercentPerSide / 100.0)
+    var entryCommissionRub = 0.0
 
     fun pushEquitySnapshot(atIndex: Int) {
         val bar = points[atIndex]
@@ -57,8 +64,8 @@ internal fun buildZStrategyPortfolioMetrics(
             ZStrategyPosition.Long -> bar.spreadPercent - entrySpread
             ZStrategyPosition.Short -> entrySpread - bar.spreadPercent
         }
-        val totalSpread = realizedSpread + mtm
-        equityRubSeries += spreadPnlToRubApprox(totalSpread, notionalRub)
+        val mtmRub = spreadPnlToRubApprox(mtm, effectiveNotionalRub)
+        equityRubSeries += realizedRub + mtmRub
     }
 
     for (index in 1 until points.size) {
@@ -68,7 +75,11 @@ internal fun buildZStrategyPortfolioMetrics(
             ZStrategyPosition.Long -> {
                 if (prev.zScore < -exit && current.zScore >= -exit) {
                     val pnl = current.spreadPercent - entrySpread
+                    val grossPnlRub = spreadPnlToRubApprox(pnl, effectiveNotionalRub)
+                    val netTradeRub = grossPnlRub - entryCommissionRub - commissionPerSideRub
                     realizedSpread += pnl
+                    realizedRub += grossPnlRub - commissionPerSideRub
+                    totalCommissionRub += commissionPerSideRub
                     closed += PortfolioClosedTrade(
                         direction = ZStrategyPosition.Long,
                         entryDate = entryDate,
@@ -76,16 +87,21 @@ internal fun buildZStrategyPortfolioMetrics(
                         entrySpreadPercent = entrySpread,
                         exitSpreadPercent = current.spreadPercent,
                         pnlSpreadPoints = pnl,
-                        pnlRubApprox = spreadPnlToRubApprox(pnl, notionalRub)
+                        pnlRubApprox = netTradeRub
                     )
                     position = ZStrategyPosition.Flat
+                    entryCommissionRub = 0.0
                 }
             }
 
             ZStrategyPosition.Short -> {
                 if (prev.zScore > exit && current.zScore <= exit) {
                     val pnl = entrySpread - current.spreadPercent
+                    val grossPnlRub = spreadPnlToRubApprox(pnl, effectiveNotionalRub)
+                    val netTradeRub = grossPnlRub - entryCommissionRub - commissionPerSideRub
                     realizedSpread += pnl
+                    realizedRub += grossPnlRub - commissionPerSideRub
+                    totalCommissionRub += commissionPerSideRub
                     closed += PortfolioClosedTrade(
                         direction = ZStrategyPosition.Short,
                         entryDate = entryDate,
@@ -93,9 +109,10 @@ internal fun buildZStrategyPortfolioMetrics(
                         entrySpreadPercent = entrySpread,
                         exitSpreadPercent = current.spreadPercent,
                         pnlSpreadPoints = pnl,
-                        pnlRubApprox = spreadPnlToRubApprox(pnl, notionalRub)
+                        pnlRubApprox = netTradeRub
                     )
                     position = ZStrategyPosition.Flat
+                    entryCommissionRub = 0.0
                 }
             }
 
@@ -106,10 +123,16 @@ internal fun buildZStrategyPortfolioMetrics(
                 position = ZStrategyPosition.Long
                 entrySpread = current.spreadPercent
                 entryDate = current.tradeDate
+                entryCommissionRub = commissionPerSideRub
+                totalCommissionRub += commissionPerSideRub
+                realizedRub -= commissionPerSideRub
             } else if (prev.zScore < entry && current.zScore >= entry) {
                 position = ZStrategyPosition.Short
                 entrySpread = current.spreadPercent
                 entryDate = current.tradeDate
+                entryCommissionRub = commissionPerSideRub
+                totalCommissionRub += commissionPerSideRub
+                realizedRub -= commissionPerSideRub
             }
         }
         pushEquitySnapshot(index)
@@ -119,18 +142,21 @@ internal fun buildZStrategyPortfolioMetrics(
     val open: PortfolioOpenPosition?
     val unrealizedSpread: Double
     if (position != ZStrategyPosition.Flat) {
-        unrealizedSpread = when (position) {
+        val grossUnrealizedSpread = when (position) {
             ZStrategyPosition.Long -> last.spreadPercent - entrySpread
             ZStrategyPosition.Short -> entrySpread - last.spreadPercent
             ZStrategyPosition.Flat -> 0.0
         }
+        unrealizedSpread = grossUnrealizedSpread
+        val grossUnrealizedRub = spreadPnlToRubApprox(grossUnrealizedSpread, effectiveNotionalRub)
+        val netUnrealizedRub = grossUnrealizedRub - commissionPerSideRub
         open = PortfolioOpenPosition(
             direction = position,
             entryDate = entryDate,
             entrySpreadPercent = entrySpread,
             lastSpreadPercent = last.spreadPercent,
             unrealizedPnlSpread = unrealizedSpread,
-            unrealizedRubApprox = spreadPnlToRubApprox(unrealizedSpread, notionalRub)
+            unrealizedRubApprox = netUnrealizedRub
         )
     } else {
         unrealizedSpread = 0.0
@@ -138,7 +164,7 @@ internal fun buildZStrategyPortfolioMetrics(
     }
 
     val totalSpread = realizedSpread + unrealizedSpread
-    val totalRub = spreadPnlToRubApprox(totalSpread, notionalRub)
+    val totalRub = realizedRub + (open?.unrealizedRubApprox ?: 0.0)
 
     var peak = doubleArrayOf(0.0)
     var maxDdRub = 0.0
@@ -172,11 +198,14 @@ internal fun buildZStrategyPortfolioMetrics(
     return PortfolioMetrics(
         periodDescription = fullDescription,
         notionalRub = notionalRub,
+        leverage = leverage,
+        commissionPercentPerSide = commissionPercentPerSide,
+        totalCommissionRub = totalCommissionRub,
         closedTrades = closed,
         openPosition = open,
         cumulativeRealizedSpread = realizedSpread,
-        cumulativeRealizedRubApprox = spreadPnlToRubApprox(realizedSpread, notionalRub),
-        unrealizedRubApprox = spreadPnlToRubApprox(unrealizedSpread, notionalRub),
+        cumulativeRealizedRubApprox = realizedRub,
+        unrealizedRubApprox = open?.unrealizedRubApprox ?: 0.0,
         totalPnlSpread = totalSpread,
         totalPnlRubApprox = totalRub,
         totalReturnPercent = if (notionalRub > 0) totalRub / notionalRub * 100.0 else 0.0,
@@ -225,7 +254,11 @@ internal fun PortfolioTabContent(
     metrics: PortfolioMetrics?,
     portfolioLoading: Boolean,
     portfolioError: String?,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    leverage: Double,
+    commissionPercentPerSide: Double,
+    onLeverageChange: (Double) -> Unit,
+    onCommissionChange: (Double) -> Unit
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -252,9 +285,15 @@ internal fun PortfolioTabContent(
             }
         }
         Text(
-            text = "Оценка в ₽: условный капитал ${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽, PnL ∝ движению спрэда в п.п. (не учёт комиссий и плеча).",
+            text = "Оценка в ₽: капитал ${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽, плечо x${String.format(Locale.US, "%.1f", leverage)}, комиссия ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% за сторону.",
             color = Color(0xFFBDBDBD),
             fontSize = 11.sp
+        )
+        PortfolioParamsControls(
+            leverage = leverage,
+            commissionPercentPerSide = commissionPercentPerSide,
+            onLeverageChange = onLeverageChange,
+            onCommissionChange = onCommissionChange
         )
 
         if (portfolioLoading) {
@@ -320,6 +359,10 @@ private fun PortfolioMetricGrid(m: PortfolioMetrics) {
             "${formatRubSigned(m.cumulativeRealizedRubApprox)} / ${formatRubSigned(m.unrealizedRubApprox)}"
         )
         PortfolioStatCard(
+            "Комиссии (сумма)",
+            "${formatRubSigned(-m.totalCommissionRub)} · ${String.format(Locale.US, "%.3f", m.commissionPercentPerSide)}% за сторону"
+        )
+        PortfolioStatCard(
             "Макс. просадка",
             "${formatRubSigned(-m.maxDrawdownRubApprox)} (~ ${String.format(Locale.US, "%.1f", m.maxDrawdownRubApprox / m.notionalRub * 100.0)}% от капитала, по эквити-пику ${String.format(Locale.US, "%.1f", m.maxDrawdownPercent)}%)"
         )
@@ -348,6 +391,58 @@ private fun PortfolioMetricGrid(m: PortfolioMetrics) {
             )
             PortfolioStatCard("Нереализ. PnL", formatRubSigned(o.unrealizedRubApprox))
         } ?: PortfolioStatCard("Открытая позиция", "Нет")
+    }
+}
+
+@Composable
+private fun PortfolioParamsControls(
+    leverage: Double,
+    commissionPercentPerSide: Double,
+    onLeverageChange: (Double) -> Unit,
+    onCommissionChange: (Double) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        ParamStepper(
+            title = "Плечо",
+            valueLabel = "x${String.format(Locale.US, "%.1f", leverage)}",
+            onMinus = { onLeverageChange((leverage - 0.5).coerceAtLeast(1.0)) },
+            onPlus = { onLeverageChange((leverage + 0.5).coerceAtMost(30.0)) },
+            modifier = Modifier.weight(1f)
+        )
+        ParamStepper(
+            title = "Комиссия / сторона",
+            valueLabel = "${String.format(Locale.US, "%.3f", commissionPercentPerSide)}%",
+            onMinus = { onCommissionChange((commissionPercentPerSide - 0.005).coerceAtLeast(0.0)) },
+            onPlus = { onCommissionChange((commissionPercentPerSide + 0.005).coerceAtMost(1.0)) },
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun ParamStepper(
+    title: String,
+    valueLabel: String,
+    onMinus: () -> Unit,
+    onPlus: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier
+            .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(title, color = Color(0xFF9E9E9E), fontSize = 11.sp)
+        Text(valueLabel, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button(onClick = onMinus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
+                Text("−")
+            }
+            Button(onClick = onPlus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
+                Text("+")
+            }
+        }
     }
 }
 

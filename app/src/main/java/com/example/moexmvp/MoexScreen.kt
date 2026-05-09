@@ -47,6 +47,8 @@ internal fun MoexScreen() {
     var portfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     var portfolioLoading by remember { mutableStateOf(false) }
     var portfolioError by remember { mutableStateOf<String?>(null) }
+    var portfolioLeverage by remember { mutableStateOf(7.0) }
+    var portfolioCommissionPercent by remember { mutableStateOf(0.04) }
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -86,6 +88,8 @@ internal fun MoexScreen() {
                         points = s.points,
                         thresholds = dynamicThresholds,
                         notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                        leverage = portfolioLeverage,
+                        commissionPercentPerSide = portfolioCommissionPercent,
                         periodDescription = desc
                     )
                     if (portfolioMetrics == null) {
@@ -108,7 +112,13 @@ internal fun MoexScreen() {
         }
     }
 
-    LaunchedEffect(selectedTab, dynamicThresholds.entry, dynamicThresholds.exit) {
+    LaunchedEffect(
+        selectedTab,
+        dynamicThresholds.entry,
+        dynamicThresholds.exit,
+        portfolioLeverage,
+        portfolioCommissionPercent
+    ) {
         if (selectedTab == MainTab.Portfolio) {
             refreshPortfolio()
         }
@@ -318,7 +328,11 @@ internal fun MoexScreen() {
                     metrics = portfolioMetrics,
                     portfolioLoading = portfolioLoading,
                     portfolioError = portfolioError,
-                    onRefresh = { scope.launch { refreshPortfolio() } }
+                    onRefresh = { scope.launch { refreshPortfolio() } },
+                    leverage = portfolioLeverage,
+                    commissionPercentPerSide = portfolioCommissionPercent,
+                    onLeverageChange = { portfolioLeverage = it },
+                    onCommissionChange = { portfolioCommissionPercent = it }
                 )
             }
             return@LazyColumn
