@@ -1,17 +1,10 @@
-# Builds a debug APK on every push and PR. Uploads artifact "moexmvp-debug".
+# Debug APK on every push / PR. On push to the branches below, also publishes
+# to GitHub Releases as the *latest* release so this URL always downloads the
+# newest build (direct .apk, no zip, no login):
 #
-# Direct download in the phone browser (no GitHub login), always latest
-# successful run for this repo + workflow + branch — use nightly.link:
-#   https://nightly.link/dimonix2019/111/workflows/build-apk/<branch>/moexmvp-debug.zip
+#   https://github.com/dimonix2019/111/releases/latest/download/moexmvp-debug.apk
 #
-# Replace <branch> with the Git branch name. Slashes in branch names must be
-# URL-encoded as %2F, e.g. cursor%2Fsignal-threshold-markers-8ccb
-#
-# Permalink for this feature branch (while development stays here):
-#   https://nightly.link/dimonix2019/111/workflows/build-apk/cursor%2Fsignal-threshold-markers-8ccb/moexmvp-debug.zip
-#
-# Optional: install the nightly.link GitHub App on your repo to reduce rate limits:
-#   https://github.com/apps/nightly-link
+# PRs only build and upload a CI artifact (no release).
 
 name: Build APK
 
@@ -27,6 +20,8 @@ concurrency:
 jobs:
   debug-apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,3 +44,34 @@ jobs:
           name: moexmvp-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  publish-latest-apk:
+    needs: debug-apk
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/cursor/signal-threshold-markers-8ccb' ||
+       github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download built APK
+        uses: actions/download-artifact@v4
+        with:
+          name: moexmvp-debug
+          path: apk-out
+
+      - name: Stable filename for direct download URL
+        run: cp apk-out/app-debug.apk moexmvp-debug.apk
+
+      - name: Publish as latest GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_id }}
+          name: moexmvp debug (build ${{ github.run_number }})
+          generate_release_notes: true
+          files: moexmvp-debug.apk
+          fail_on_unmatched_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
