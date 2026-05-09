@@ -300,8 +300,8 @@ internal fun PortfolioTabContent(
         if (recent.isEmpty()) {
             Text("Закрытых сделок за период нет.", color = Color(0xFF9E9E9E), fontSize = 12.sp)
         } else {
-            recent.forEach { t ->
-                PortfolioTradeRow(t)
+            recent.forEachIndexed { index, t ->
+                PortfolioTradeRow(index = index + 1, t = t)
             }
         }
     }
@@ -365,7 +365,7 @@ private fun PortfolioStatCard(title: String, value: String) {
 }
 
 @Composable
-private fun PortfolioTradeRow(t: PortfolioClosedTrade) {
+private fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
     val dir = when (t.direction) {
         ZStrategyPosition.Long -> "LONG"
         ZStrategyPosition.Short -> "SHORT"
@@ -387,7 +387,7 @@ private fun PortfolioTradeRow(t: PortfolioClosedTrade) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("$dir ${t.entryDate} → ${t.exitDate}", color = Color(0xFFE0E0E0), fontSize = 12.sp)
+            Text("#$index  $dir ${t.entryDate} → ${t.exitDate}", color = Color(0xFFE0E0E0), fontSize = 12.sp)
             Text(formatRubSigned(t.pnlRubApprox), color = pnlColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
         Text(
