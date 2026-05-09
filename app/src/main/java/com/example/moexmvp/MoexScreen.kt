@@ -483,28 +483,6 @@ internal fun MoexScreen() {
                         yScale = YAxisScale.Auto
                     )
                 }
-                item {
-                    ChartCard(
-                        title = "График 3: diff = TATN - TATNP",
-                        series = listOf(
-                            ChartSeries("Diff", Color(0xFFE1BEE7), current.points.map { it.diff })
-                        ),
-                        labels = current.points.map { it.tradeDate },
-                        chartHeightDp = 130
-                    )
-                }
-                item {
-                    CandlestickChartCard(
-                        title = "График 1A: свечи TATN",
-                        candles = current.tatnCandles
-                    )
-                }
-                item {
-                    CandlestickChartCard(
-                        title = "График 1B: свечи TATNP",
-                        candles = current.tatnpCandles
-                    )
-                }
             }
         }
     }
