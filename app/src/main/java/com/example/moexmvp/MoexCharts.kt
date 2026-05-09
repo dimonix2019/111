@@ -861,11 +861,25 @@ internal fun buildZScoreSignalMarkers(
     events: List<StrategySignalEvent>,
     thresholds: DynamicThresholds
 ): List<ChartPointMarker> {
+    val fromEvents = buildZScoreSignalMarkersFromEvents(points, events)
+    return if (fromEvents.isNotEmpty()) {
+        fromEvents
+    } else {
+        // Fallback for older installs with empty event log:
+        // keep markers visible by reconstructing from current chart crossings.
+        buildZScoreSignalMarkersFromCrossings(points, thresholds)
+    }
+}
+
+internal fun buildZScoreSignalMarkersFromEvents(
+    points: List<DataPoint>,
+    events: List<StrategySignalEvent>
+): List<ChartPointMarker> {
     if (points.isEmpty()) return emptyList()
     val rangeStart = points.first().timestampMillis
     val rangeEnd = points.last().timestampMillis
     val bucketMs = 15 * 60 * 1000L
-    val fromEvents = events
+    return events
         .asSequence()
         .filter { it.timestampMillis in (rangeStart - bucketMs)..(rangeEnd + bucketMs) }
         .distinctBy { "${it.signalType}:${it.timestampMillis}" }
@@ -890,13 +904,6 @@ internal fun buildZScoreSignalMarkers(
             )
         }
         .toList()
-    return if (fromEvents.isNotEmpty()) {
-        fromEvents
-    } else {
-        // Fallback for older installs with empty event log:
-        // keep markers visible by reconstructing from current chart crossings.
-        buildZScoreSignalMarkersFromCrossings(points, thresholds)
-    }
 }
 
 internal fun buildZScoreSignalMarkersFromCrossings(

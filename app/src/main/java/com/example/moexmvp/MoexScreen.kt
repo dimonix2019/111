@@ -47,6 +47,7 @@ internal fun MoexScreen() {
     var portfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     var portfolioLoading by remember { mutableStateOf(false) }
     var portfolioError by remember { mutableStateOf<String?>(null) }
+    var strategyViewMode by remember { mutableStateOf(StrategyViewMode.Executed) }
     var portfolioLeverage by remember { mutableStateOf(7.0) }
     var portfolioCommissionPercent by remember { mutableStateOf(0.04) }
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
@@ -84,16 +85,38 @@ internal fun MoexScreen() {
                     val from = s.points.firstOrNull()?.tradeDate.orEmpty()
                     val till = s.points.lastOrNull()?.tradeDate.orEmpty()
                     val desc = "${Period.OneYear.label} ($from…$till)"
-                    portfolioMetrics = buildZStrategyPortfolioMetrics(
-                        points = s.points,
-                        thresholds = dynamicThresholds,
-                        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                        leverage = portfolioLeverage,
-                        commissionPercentPerSide = portfolioCommissionPercent,
-                        periodDescription = desc
-                    )
+                    val modeSpecific = when (strategyViewMode) {
+                        StrategyViewMode.Executed -> {
+                            val events = loadStrategySignalEvents(
+                                context = context,
+                                fromTimestampMillis = s.points.firstOrNull()?.timestampMillis
+                            )
+                            buildExecutedPortfolioMetrics(
+                                points = s.points,
+                                events = events,
+                                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                                leverage = portfolioLeverage,
+                                commissionPercentPerSide = portfolioCommissionPercent,
+                                periodDescription = desc
+                            )
+                        }
+
+                        StrategyViewMode.CurrentModel -> buildZStrategyPortfolioMetrics(
+                            points = s.points,
+                            thresholds = dynamicThresholds,
+                            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                            leverage = portfolioLeverage,
+                            commissionPercentPerSide = portfolioCommissionPercent,
+                            periodDescription = desc
+                        )
+                    }
+                    portfolioMetrics = modeSpecific
                     if (portfolioMetrics == null) {
-                        portfolioError = "Недостаточно точек для расчёта портфеля."
+                        portfolioError = if (strategyViewMode == StrategyViewMode.Executed) {
+                            "Нет сигналов за период для режима 'Реальные сигналы'."
+                        } else {
+                            "Недостаточно точек для расчёта портфеля."
+                        }
                     }
                 }
 
@@ -117,7 +140,8 @@ internal fun MoexScreen() {
         dynamicThresholds.entry,
         dynamicThresholds.exit,
         portfolioLeverage,
-        portfolioCommissionPercent
+        portfolioCommissionPercent,
+        strategyViewMode
     ) {
         if (selectedTab == MainTab.Portfolio) {
             refreshPortfolio()
@@ -321,6 +345,12 @@ internal fun MoexScreen() {
                 onSelect = { selectedTab = it }
             )
         }
+        item {
+            StrategyViewModeSelector(
+                mode = strategyViewMode,
+                onModeChange = { strategyViewMode = it }
+            )
+        }
 
         if (selectedTab == MainTab.Portfolio) {
             item {
@@ -369,7 +399,11 @@ internal fun MoexScreen() {
         }
         item {
             Text(
-                text = "Signal markers: event log + fallback",
+                text = if (strategyViewMode == StrategyViewMode.Executed) {
+                    "Маркеры/портфель: реальные сигналы"
+                } else {
+                    "Маркеры/портфель: текущая модель порогов"
+                },
                 fontSize = 11.sp,
                 color = Color(0xFFBDBDBD)
             )
@@ -478,11 +512,17 @@ internal fun MoexScreen() {
                         labels = current.points.map { it.tradeDate },
                         chartHeightDp = 130,
                         referenceLines = buildZScoreReferenceLines(dynamicThresholds),
-                        pointMarkers = buildZScoreSignalMarkers(
-                            points = current.points,
-                            events = signalEvents,
-                            thresholds = dynamicThresholds
-                        )
+                        pointMarkers = if (strategyViewMode == StrategyViewMode.Executed) {
+                            buildZScoreSignalMarkersFromEvents(
+                                points = current.points,
+                                events = signalEvents
+                            )
+                        } else {
+                            buildZScoreSignalMarkersFromCrossings(
+                                points = current.points,
+                                thresholds = dynamicThresholds
+                            )
+                        }
                     )
                 }
                 item {

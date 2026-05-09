@@ -180,6 +180,11 @@ internal enum class MainTab(val label: String) {
     Portfolio("Портфель")
 }
 
+internal enum class StrategyViewMode(val label: String) {
+    Executed("Реальные сигналы"),
+    CurrentModel("Текущая модель")
+}
+
 internal data class PortfolioClosedTrade(
     val direction: ZStrategyPosition,
     val entryDate: String,

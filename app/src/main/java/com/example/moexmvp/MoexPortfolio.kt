@@ -222,6 +222,191 @@ internal fun buildZStrategyPortfolioMetrics(
     )
 }
 
+internal fun buildExecutedPortfolioMetrics(
+    points: List<DataPoint>,
+    events: List<StrategySignalEvent>,
+    notionalRub: Double,
+    leverage: Double,
+    commissionPercentPerSide: Double,
+    periodDescription: String
+): PortfolioMetrics? {
+    if (points.size < 2) return null
+    val markers = buildZScoreSignalMarkersFromEvents(points, events)
+    if (markers.isEmpty()) return null
+
+    val effectiveNotionalRub = notionalRub * leverage
+    val commissionPerSideRub = effectiveNotionalRub * (commissionPercentPerSide / 100.0)
+
+    var realizedSpread = 0.0
+    var realizedRub = 0.0
+    var totalCommissionRub = 0.0
+    var currentPosition = ZStrategyPosition.Flat
+    var entrySpread = 0.0
+    var entryDate = ""
+    val closed = mutableListOf<PortfolioClosedTrade>()
+    val equityRubSeries = mutableListOf<Double>()
+
+    val eventsWithBar = markers
+        .mapNotNull { marker ->
+            val point = points.getOrNull(marker.index) ?: return@mapNotNull null
+            Triple(point, marker.label, marker.index)
+        }
+        .sortedBy { it.third }
+
+    var eventCursor = 0
+    for (index in points.indices) {
+        while (eventCursor < eventsWithBar.size && eventsWithBar[eventCursor].third == index) {
+            val (point, label) = eventsWithBar[eventCursor].let { it.first to it.second }
+            when (label) {
+                "Enter LONG" -> {
+                    if (currentPosition == ZStrategyPosition.Flat) {
+                        currentPosition = ZStrategyPosition.Long
+                        entrySpread = point.spreadPercent
+                        entryDate = point.tradeDate
+                        totalCommissionRub += commissionPerSideRub
+                        realizedRub -= commissionPerSideRub
+                    }
+                }
+
+                "Enter SHORT" -> {
+                    if (currentPosition == ZStrategyPosition.Flat) {
+                        currentPosition = ZStrategyPosition.Short
+                        entrySpread = point.spreadPercent
+                        entryDate = point.tradeDate
+                        totalCommissionRub += commissionPerSideRub
+                        realizedRub -= commissionPerSideRub
+                    }
+                }
+
+                "Exit LONG" -> {
+                    if (currentPosition == ZStrategyPosition.Long) {
+                        val pnlSpread = point.spreadPercent - entrySpread
+                        val grossPnlRub = spreadPnlToRubApprox(pnlSpread, effectiveNotionalRub)
+                        val netPnlRub = grossPnlRub - commissionPerSideRub
+                        realizedSpread += pnlSpread
+                        realizedRub += netPnlRub
+                        totalCommissionRub += commissionPerSideRub
+                        closed += PortfolioClosedTrade(
+                            direction = ZStrategyPosition.Long,
+                            entryDate = entryDate,
+                            exitDate = point.tradeDate,
+                            entrySpreadPercent = entrySpread,
+                            exitSpreadPercent = point.spreadPercent,
+                            pnlSpreadPoints = pnlSpread,
+                            pnlRubApprox = grossPnlRub - (2 * commissionPerSideRub)
+                        )
+                        currentPosition = ZStrategyPosition.Flat
+                    }
+                }
+
+                "Exit SHORT" -> {
+                    if (currentPosition == ZStrategyPosition.Short) {
+                        val pnlSpread = entrySpread - point.spreadPercent
+                        val grossPnlRub = spreadPnlToRubApprox(pnlSpread, effectiveNotionalRub)
+                        val netPnlRub = grossPnlRub - commissionPerSideRub
+                        realizedSpread += pnlSpread
+                        realizedRub += netPnlRub
+                        totalCommissionRub += commissionPerSideRub
+                        closed += PortfolioClosedTrade(
+                            direction = ZStrategyPosition.Short,
+                            entryDate = entryDate,
+                            exitDate = point.tradeDate,
+                            entrySpreadPercent = entrySpread,
+                            exitSpreadPercent = point.spreadPercent,
+                            pnlSpreadPoints = pnlSpread,
+                            pnlRubApprox = grossPnlRub - (2 * commissionPerSideRub)
+                        )
+                        currentPosition = ZStrategyPosition.Flat
+                    }
+                }
+            }
+            eventCursor += 1
+        }
+
+        val point = points[index]
+        val mtmSpread = when (currentPosition) {
+            ZStrategyPosition.Flat -> 0.0
+            ZStrategyPosition.Long -> point.spreadPercent - entrySpread
+            ZStrategyPosition.Short -> entrySpread - point.spreadPercent
+        }
+        equityRubSeries += realizedRub + spreadPnlToRubApprox(mtmSpread, effectiveNotionalRub)
+    }
+
+    val last = points.last()
+    val openPosition = when (currentPosition) {
+        ZStrategyPosition.Flat -> null
+        ZStrategyPosition.Long, ZStrategyPosition.Short -> {
+            val grossSpread = if (currentPosition == ZStrategyPosition.Long) {
+                last.spreadPercent - entrySpread
+            } else {
+                entrySpread - last.spreadPercent
+            }
+            PortfolioOpenPosition(
+                direction = currentPosition,
+                entryDate = entryDate,
+                entrySpreadPercent = entrySpread,
+                lastSpreadPercent = last.spreadPercent,
+                unrealizedPnlSpread = grossSpread,
+                unrealizedRubApprox = spreadPnlToRubApprox(grossSpread, effectiveNotionalRub) - commissionPerSideRub
+            )
+        }
+    }
+
+    var peak = 0.0
+    var maxDdRub = 0.0
+    var maxDdPct = 0.0
+    for (eq in equityRubSeries) {
+        peak = max(peak, eq)
+        val dd = peak - eq
+        if (dd > maxDdRub) maxDdRub = dd
+        if (peak != 0.0) {
+            val pct = dd / abs(peak) * 100.0
+            if (pct > maxDdPct) maxDdPct = pct
+        }
+    }
+
+    val totalSpread = realizedSpread + (openPosition?.unrealizedPnlSpread ?: 0.0)
+    val totalRub = realizedRub + (openPosition?.unrealizedRubApprox ?: 0.0)
+    val wins = closed.count { it.pnlRubApprox > 0.0 }
+    val losses = closed.count { it.pnlRubApprox < 0.0 }
+    val winRate = if (closed.isEmpty()) 0.0 else wins * 100.0 / closed.size
+    val grossWin = closed.filter { it.pnlRubApprox > 0 }.sumOf { it.pnlRubApprox }
+    val grossLoss = closed.filter { it.pnlRubApprox < 0 }.sumOf { -it.pnlRubApprox }
+    val profitFactor = if (grossLoss > 0) grossWin / grossLoss else null
+    val winRubList = closed.mapNotNull { if (it.pnlRubApprox > 0) it.pnlRubApprox else null }
+    val lossRubList = closed.mapNotNull { if (it.pnlRubApprox < 0) it.pnlRubApprox else null }
+    val avgWin = if (winRubList.isEmpty()) 0.0 else winRubList.average()
+    val avgLoss = if (lossRubList.isEmpty()) 0.0 else lossRubList.average()
+    val largestWin = winRubList.maxOrNull() ?: 0.0
+    val largestLoss = lossRubList.minOrNull() ?: 0.0
+
+    return PortfolioMetrics(
+        periodDescription = "$periodDescription · режим: реальные сигналы",
+        notionalRub = notionalRub,
+        leverage = leverage,
+        commissionPercentPerSide = commissionPercentPerSide,
+        totalCommissionRub = totalCommissionRub,
+        closedTrades = closed,
+        openPosition = openPosition,
+        cumulativeRealizedSpread = realizedSpread,
+        cumulativeRealizedRubApprox = realizedRub,
+        unrealizedRubApprox = openPosition?.unrealizedRubApprox ?: 0.0,
+        totalPnlSpread = totalSpread,
+        totalPnlRubApprox = totalRub,
+        totalReturnPercent = if (notionalRub > 0) totalRub / notionalRub * 100.0 else 0.0,
+        maxDrawdownRubApprox = maxDdRub,
+        maxDrawdownPercent = maxDdPct,
+        winCount = wins,
+        lossCount = losses,
+        winRate = winRate,
+        profitFactor = profitFactor,
+        avgWinRub = avgWin,
+        avgLossRub = avgLoss,
+        largestWinRub = largestWin,
+        largestLossRub = largestLoss
+    )
+}
+
 @Composable
 internal fun MainTabSelector(
     selected: MainTab,
@@ -244,6 +429,29 @@ internal fun MainTabSelector(
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Text(tab.label, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun StrategyViewModeSelector(
+    mode: StrategyViewMode,
+    onModeChange: (StrategyViewMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        StrategyViewMode.entries.forEach { candidate ->
+            val selected = candidate == mode
+            Button(
+                onClick = { onModeChange(candidate) },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (selected) Color(0xFF00897B) else Color(0xFF424242),
+                    contentColor = Color.White
+                )
+            ) {
+                Text(candidate.label, fontSize = 12.sp)
             }
         }
     }
