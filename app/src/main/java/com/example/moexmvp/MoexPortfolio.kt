@@ -495,8 +495,13 @@ internal fun PortfolioTabContent(
     onRefresh: () -> Unit,
     leverage: Double,
     commissionPercentPerSide: Double,
+    entryThreshold: Double,
+    exitThreshold: Double,
+    strategyViewMode: StrategyViewMode,
     onLeverageChange: (Double) -> Unit,
-    onCommissionChange: (Double) -> Unit
+    onCommissionChange: (Double) -> Unit,
+    onEntryThresholdChange: (Double) -> Unit,
+    onExitThresholdChange: (Double) -> Unit
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -530,8 +535,13 @@ internal fun PortfolioTabContent(
         PortfolioParamsControls(
             leverage = leverage,
             commissionPercentPerSide = commissionPercentPerSide,
+            entryThreshold = entryThreshold,
+            exitThreshold = exitThreshold,
+            strategyViewMode = strategyViewMode,
             onLeverageChange = onLeverageChange,
-            onCommissionChange = onCommissionChange
+            onCommissionChange = onCommissionChange,
+            onEntryThresholdChange = onEntryThresholdChange,
+            onExitThresholdChange = onExitThresholdChange
         )
 
         if (portfolioLoading) {
@@ -640,24 +650,60 @@ private fun PortfolioMetricGrid(m: PortfolioMetrics) {
 private fun PortfolioParamsControls(
     leverage: Double,
     commissionPercentPerSide: Double,
+    entryThreshold: Double,
+    exitThreshold: Double,
+    strategyViewMode: StrategyViewMode,
     onLeverageChange: (Double) -> Unit,
-    onCommissionChange: (Double) -> Unit
+    onCommissionChange: (Double) -> Unit,
+    onEntryThresholdChange: (Double) -> Unit,
+    onExitThresholdChange: (Double) -> Unit
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        ParamStepper(
-            title = "Плечо",
-            valueLabel = "x${String.format(Locale.US, "%.1f", leverage)}",
-            onMinus = { onLeverageChange((leverage - 0.5).coerceAtLeast(1.0)) },
-            onPlus = { onLeverageChange((leverage + 0.5).coerceAtMost(30.0)) },
-            modifier = Modifier.weight(1f)
-        )
-        ParamStepper(
-            title = "Комиссия / сторона",
-            valueLabel = "${String.format(Locale.US, "%.3f", commissionPercentPerSide)}%",
-            onMinus = { onCommissionChange((commissionPercentPerSide - 0.005).coerceAtLeast(0.0)) },
-            onPlus = { onCommissionChange((commissionPercentPerSide + 0.005).coerceAtMost(1.0)) },
-            modifier = Modifier.weight(1f)
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ParamStepper(
+                title = "Плечо",
+                valueLabel = "x${String.format(Locale.US, "%.1f", leverage)}",
+                onMinus = { onLeverageChange((leverage - 0.5).coerceAtLeast(1.0)) },
+                onPlus = { onLeverageChange((leverage + 0.5).coerceAtMost(30.0)) },
+                modifier = Modifier.weight(1f)
+            )
+            ParamStepper(
+                title = "Комиссия / сторона",
+                valueLabel = "${String.format(Locale.US, "%.3f", commissionPercentPerSide)}%",
+                onMinus = { onCommissionChange((commissionPercentPerSide - 0.005).coerceAtLeast(0.0)) },
+                onPlus = { onCommissionChange((commissionPercentPerSide + 0.005).coerceAtMost(1.0)) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ParamStepper(
+                title = "Порог входа |Z|",
+                valueLabel = String.format(Locale.US, "%.2f", entryThreshold),
+                onMinus = { onEntryThresholdChange((entryThreshold - 0.1).coerceAtLeast(0.2)) },
+                onPlus = {
+                    val next = (entryThreshold + 0.1).coerceAtMost(6.0)
+                    onEntryThresholdChange(next)
+                },
+                modifier = Modifier.weight(1f)
+            )
+            ParamStepper(
+                title = "Порог выхода |Z|",
+                valueLabel = String.format(Locale.US, "%.2f", exitThreshold),
+                onMinus = { onExitThresholdChange((exitThreshold - 0.1).coerceAtLeast(0.0)) },
+                onPlus = {
+                    val maxExit = (entryThreshold - 0.1).coerceAtLeast(0.0)
+                    onExitThresholdChange((exitThreshold + 0.1).coerceAtMost(maxExit))
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        if (strategyViewMode == StrategyViewMode.Executed) {
+            Text(
+                text = "В режиме 'Реальные сигналы' пороги не влияют на сигналы, но сохраняются для режима 'Текущая модель'.",
+                color = Color(0xFF9E9E9E),
+                fontSize = 10.sp
+            )
+        }
     }
 }
 

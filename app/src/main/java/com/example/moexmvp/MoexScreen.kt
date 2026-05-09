@@ -50,6 +50,8 @@ internal fun MoexScreen() {
     var strategyViewMode by remember { mutableStateOf(StrategyViewMode.Executed) }
     var portfolioLeverage by remember { mutableStateOf(7.0) }
     var portfolioCommissionPercent by remember { mutableStateOf(0.04) }
+    var portfolioEntryThreshold by remember { mutableStateOf<Double?>(null) }
+    var portfolioExitThreshold by remember { mutableStateOf<Double?>(null) }
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -85,6 +87,16 @@ internal fun MoexScreen() {
                     val from = s.points.firstOrNull()?.tradeDate.orEmpty()
                     val till = s.points.lastOrNull()?.tradeDate.orEmpty()
                     val desc = "${Period.OneYear.label} ($from…$till)"
+                    val entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry).coerceAtLeast(0.2)
+                    val exitThresholdRaw = portfolioExitThreshold ?: dynamicThresholds.exit
+                    val exitThreshold = exitThresholdRaw.coerceAtLeast(0.0).coerceAtMost((entryThreshold - 0.1).coerceAtLeast(0.0))
+                    if (portfolioEntryThreshold == null) portfolioEntryThreshold = entryThreshold
+                    if (portfolioExitThreshold == null) portfolioExitThreshold = exitThreshold
+                    val portfolioThresholds = DynamicThresholds(
+                        entry = entryThreshold,
+                        exit = exitThreshold,
+                        calculatedDate = dynamicThresholds.calculatedDate
+                    )
                     val modeSpecific = when (strategyViewMode) {
                         StrategyViewMode.Executed -> {
                             val events = loadStrategySignalEvents(
@@ -103,7 +115,7 @@ internal fun MoexScreen() {
 
                         StrategyViewMode.CurrentModel -> buildZStrategyPortfolioMetrics(
                             points = s.points,
-                            thresholds = dynamicThresholds,
+                            thresholds = portfolioThresholds,
                             notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                             leverage = portfolioLeverage,
                             commissionPercentPerSide = portfolioCommissionPercent,
@@ -141,6 +153,8 @@ internal fun MoexScreen() {
         dynamicThresholds.exit,
         portfolioLeverage,
         portfolioCommissionPercent,
+        portfolioEntryThreshold,
+        portfolioExitThreshold,
         strategyViewMode
     ) {
         if (selectedTab == MainTab.Portfolio) {
@@ -361,8 +375,22 @@ internal fun MoexScreen() {
                     onRefresh = { scope.launch { refreshPortfolio() } },
                     leverage = portfolioLeverage,
                     commissionPercentPerSide = portfolioCommissionPercent,
+                    entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry).coerceAtLeast(0.2),
+                    exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                        .coerceAtLeast(0.0)
+                        .coerceAtMost(((portfolioEntryThreshold ?: dynamicThresholds.entry) - 0.1).coerceAtLeast(0.0)),
+                    strategyViewMode = strategyViewMode,
                     onLeverageChange = { portfolioLeverage = it },
-                    onCommissionChange = { portfolioCommissionPercent = it }
+                    onCommissionChange = { portfolioCommissionPercent = it },
+                    onEntryThresholdChange = { newEntry ->
+                        portfolioEntryThreshold = newEntry
+                        portfolioExitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                            .coerceAtMost((newEntry - 0.1).coerceAtLeast(0.0))
+                    },
+                    onExitThresholdChange = { newExit ->
+                        val maxExit = ((portfolioEntryThreshold ?: dynamicThresholds.entry) - 0.1).coerceAtLeast(0.0)
+                        portfolioExitThreshold = newExit.coerceIn(0.0, maxExit)
+                    }
                 )
             }
             return@LazyColumn
