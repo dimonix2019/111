@@ -322,6 +322,41 @@ internal suspend fun loadState(period: Period): UiState = withContext(Dispatcher
         UiState.Error(t.message ?: "Unknown error")
     }
 }
+
+/**
+ * Portfolio backtest series: 1-minute MOEX candles aggregated to 15-minute bars,
+ * same pipeline as intraday charts. Z-score is rolling mean/std over the loaded window.
+ */
+internal suspend fun loadPortfolio15mDataPoints(
+    from: LocalDate,
+    till: LocalDate
+): List<DataPoint> = withContext(Dispatchers.IO) {
+    val zone = ZoneId.of("Europe/Moscow")
+    val tatn15 = aggregateTo15MinuteBars(
+        loadCandleBars("TATN", from, till, interval = 1)
+    ).associateBy { it.timestamp }
+    val tatnp15 = aggregateTo15MinuteBars(
+        loadCandleBars("TATNP", from, till, interval = 1)
+    ).associateBy { it.timestamp }
+    val times = tatn15.keys.intersect(tatnp15.keys).sorted()
+    if (times.isEmpty()) return@withContext emptyList()
+    val points = times.mapNotNull { ts ->
+        val c1 = tatn15[ts]?.close ?: return@mapNotNull null
+        val c2 = tatnp15[ts]?.close ?: return@mapNotNull null
+        if (c2 == 0.0) return@mapNotNull null
+        val spread = (c1 / c2 - 1.0) * 100.0
+        DataPoint(
+            timestampMillis = ts.atZone(zone).toInstant().toEpochMilli(),
+            tradeDate = ts.format(portfolio15mLabelFormatter),
+            tatnClose = c1,
+            tatnpClose = c2,
+            spreadPercent = spread,
+            diff = c1 - c2,
+            zScore = 0.0
+        )
+    }
+    applyZScores(points)
+}
 internal fun ensureDynamicThresholds(context: Context): DynamicThresholdUpdate {
     val saved = loadSavedDynamicThresholds(context)
     val now = LocalDateTime.now()

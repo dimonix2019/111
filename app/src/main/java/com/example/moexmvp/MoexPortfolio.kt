@@ -465,6 +465,30 @@ internal fun MainTabSelector(
 }
 
 @Composable
+internal fun PortfolioTimeframeSelector(
+    selected: PortfolioTimeframe,
+    onSelect: (PortfolioTimeframe) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        PortfolioTimeframe.entries.forEach { candidate ->
+            val isSel = candidate == selected
+            Button(
+                onClick = { onSelect(candidate) },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isSel) Color(0xFF6A1B9A) else Color(0xFF424242),
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(candidate.label, fontSize = 11.sp, maxLines = 2)
+            }
+        }
+    }
+}
+
+@Composable
 internal fun StrategyViewModeSelector(
     mode: StrategyViewMode,
     onModeChange: (StrategyViewMode) -> Unit,
@@ -493,6 +517,8 @@ internal fun PortfolioTabContent(
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
+    timeframe: PortfolioTimeframe,
+    onTimeframeChange: (PortfolioTimeframe) -> Unit,
     leverage: Double,
     commissionPercentPerSide: Double,
     entryThreshold: Double,
@@ -531,6 +557,17 @@ internal fun PortfolioTabContent(
             text = "Оценка в ₽: капитал ${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽, плечо x${String.format(Locale.US, "%.1f", leverage)}, комиссия ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% за сторону.",
             color = Color(0xFFBDBDBD),
             fontSize = 11.sp
+        )
+        PortfolioTimeframeSelector(selected = timeframe, onSelect = onTimeframeChange)
+        Text(
+            text = when (timeframe) {
+                PortfolioTimeframe.FifteenMinuteYear ->
+                    "Интервал портфеля: 1-мин свечи ISS → 15 мин; Z по всему окну. Первый запрос может занять время."
+                PortfolioTimeframe.DailyOneYear ->
+                    "Интервал портфеля: дневные закрытия (как график Рынок · 1Y)."
+            },
+            color = Color(0xFF9E9E9E),
+            fontSize = 10.sp
         )
         PortfolioParamsControls(
             leverage = leverage,

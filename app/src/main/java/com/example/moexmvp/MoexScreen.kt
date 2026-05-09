@@ -52,6 +52,7 @@ internal fun MoexScreen() {
     var portfolioCommissionPercent by remember { mutableStateOf(0.04) }
     var portfolioEntryThreshold by remember { mutableStateOf<Double?>(null) }
     var portfolioExitThreshold by remember { mutableStateOf<Double?>(null) }
+    var portfolioTimeframe by remember { mutableStateOf(PortfolioTimeframe.FifteenMinuteYear) }
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -82,64 +83,90 @@ internal fun MoexScreen() {
         portfolioLoading = true
         portfolioError = null
         try {
-            when (val s = loadState(Period.OneYear)) {
-                is UiState.Success -> {
-                    val from = s.points.firstOrNull()?.tradeDate.orEmpty()
-                    val till = s.points.lastOrNull()?.tradeDate.orEmpty()
-                    val desc = "${Period.OneYear.label} ($from…$till)"
-                    val entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry).coerceAtLeast(0.2)
-                    val exitThresholdRaw = portfolioExitThreshold ?: dynamicThresholds.exit
-                    val exitThreshold = exitThresholdRaw.coerceAtLeast(0.0).coerceAtMost((entryThreshold - 0.1).coerceAtLeast(0.0))
-                    if (portfolioEntryThreshold == null) portfolioEntryThreshold = entryThreshold
-                    if (portfolioExitThreshold == null) portfolioExitThreshold = exitThreshold
-                    val portfolioThresholds = DynamicThresholds(
-                        entry = entryThreshold,
-                        exit = exitThreshold,
-                        calculatedDate = dynamicThresholds.calculatedDate
+            val points: List<DataPoint>
+            val desc: String
+            when (portfolioTimeframe) {
+                PortfolioTimeframe.DailyOneYear -> {
+                    when (val s = loadState(Period.OneYear)) {
+                        is UiState.Success -> {
+                            if (s.points.isEmpty()) {
+                                portfolioMetrics = null
+                                portfolioError = "Нет данных за год."
+                                return@refreshPortfolio
+                            }
+                            points = s.points
+                            desc = "${Period.OneYear.label} (${points.first().tradeDate}…${points.last().tradeDate})"
+                        }
+
+                        is UiState.Error -> {
+                            portfolioMetrics = null
+                            portfolioError = s.message
+                            return@refreshPortfolio
+                        }
+
+                        else -> {
+                            portfolioMetrics = null
+                            portfolioError = "Нет данных за год."
+                            return@refreshPortfolio
+                        }
+                    }
+                }
+
+                PortfolioTimeframe.FifteenMinuteYear -> {
+                    val till = LocalDate.now()
+                    val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
+                    val loaded = loadPortfolio15mDataPoints(from, till)
+                    if (loaded.size < 2) {
+                        portfolioMetrics = null
+                        portfolioError = "Нет 15-мин данных за период (ISS/сеть)."
+                        return@refreshPortfolio
+                    }
+                    points = loaded
+                    desc = "15 мин · $PORTFOLIO_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
+                }
+            }
+
+            val entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry).coerceAtLeast(0.2)
+            val exitThresholdRaw = portfolioExitThreshold ?: dynamicThresholds.exit
+            val exitThreshold = exitThresholdRaw.coerceAtLeast(0.0).coerceAtMost((entryThreshold - 0.1).coerceAtLeast(0.0))
+            if (portfolioEntryThreshold == null) portfolioEntryThreshold = entryThreshold
+            if (portfolioExitThreshold == null) portfolioExitThreshold = exitThreshold
+            val portfolioThresholds = DynamicThresholds(
+                entry = entryThreshold,
+                exit = exitThreshold,
+                calculatedDate = dynamicThresholds.calculatedDate
+            )
+            val modeSpecific = when (strategyViewMode) {
+                StrategyViewMode.Executed -> {
+                    val events = loadStrategySignalEvents(
+                        context = context,
+                        fromTimestampMillis = points.firstOrNull()?.timestampMillis
                     )
-                    val modeSpecific = when (strategyViewMode) {
-                        StrategyViewMode.Executed -> {
-                            val events = loadStrategySignalEvents(
-                                context = context,
-                                fromTimestampMillis = s.points.firstOrNull()?.timestampMillis
-                            )
-                            buildExecutedPortfolioMetrics(
-                                points = s.points,
-                                events = events,
-                                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                                leverage = portfolioLeverage,
-                                commissionPercentPerSide = portfolioCommissionPercent,
-                                periodDescription = desc
-                            )
-                        }
-
-                        StrategyViewMode.CurrentModel -> buildZStrategyPortfolioMetrics(
-                            points = s.points,
-                            thresholds = portfolioThresholds,
-                            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                            leverage = portfolioLeverage,
-                            commissionPercentPerSide = portfolioCommissionPercent,
-                            periodDescription = desc
-                        )
-                    }
-                    portfolioMetrics = modeSpecific
-                    if (portfolioMetrics == null) {
-                        portfolioError = if (strategyViewMode == StrategyViewMode.Executed) {
-                            "Нет сигналов за период для режима 'Реальные сигналы'."
-                        } else {
-                            "Недостаточно точек для расчёта портфеля."
-                        }
-                    }
+                    buildExecutedPortfolioMetrics(
+                        points = points,
+                        events = events,
+                        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                        leverage = portfolioLeverage,
+                        commissionPercentPerSide = portfolioCommissionPercent,
+                        periodDescription = desc
+                    )
                 }
 
-                is UiState.Error -> {
-                    portfolioMetrics = null
-                    portfolioError = s.message
-                }
-
-                else -> {
-                    portfolioMetrics = null
-                    portfolioError = "Нет данных за год."
+                StrategyViewMode.CurrentModel -> buildZStrategyPortfolioMetrics(
+                    points = points,
+                    thresholds = portfolioThresholds,
+                    notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                    leverage = portfolioLeverage,
+                    commissionPercentPerSide = portfolioCommissionPercent,
+                    periodDescription = desc
+                )
+            }
+            portfolioMetrics = modeSpecific
+            if (portfolioMetrics == null) {
+                portfolioError = if (strategyViewMode == StrategyViewMode.Executed) {
+                    "Нет сигналов за период для режима 'Реальные сигналы'."
+                } else {
+                    "Недостаточно точек для расчёта портфеля."
                 }
             }
         } finally {
@@ -155,7 +182,8 @@ internal fun MoexScreen() {
         portfolioCommissionPercent,
         portfolioEntryThreshold,
         portfolioExitThreshold,
-        strategyViewMode
+        strategyViewMode,
+        portfolioTimeframe
     ) {
         if (selectedTab == MainTab.Portfolio) {
             refreshPortfolio()
@@ -373,6 +401,8 @@ internal fun MoexScreen() {
                     portfolioLoading = portfolioLoading,
                     portfolioError = portfolioError,
                     onRefresh = { scope.launch { refreshPortfolio() } },
+                    timeframe = portfolioTimeframe,
+                    onTimeframeChange = { portfolioTimeframe = it },
                     leverage = portfolioLeverage,
                     commissionPercentPerSide = portfolioCommissionPercent,
                     entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry).coerceAtLeast(0.2),

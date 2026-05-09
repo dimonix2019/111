@@ -185,6 +185,11 @@ internal enum class StrategyViewMode(val label: String) {
     CurrentModel("Текущая модель")
 }
 
+internal enum class PortfolioTimeframe(val label: String) {
+    DailyOneYear("День · год"),
+    FifteenMinuteYear("15 мин · год")
+}
+
 internal data class PortfolioClosedTrade(
     val direction: ZStrategyPosition,
     val entryDate: String,
