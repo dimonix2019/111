@@ -43,6 +43,10 @@ import java.util.Locale
 @Composable
 internal fun MoexScreen() {
     val context = LocalContext.current
+    var selectedTab by remember { mutableStateOf(MainTab.Markets) }
+    var portfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
+    var portfolioLoading by remember { mutableStateOf(false) }
+    var portfolioError by remember { mutableStateOf<String?>(null) }
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -68,6 +72,47 @@ internal fun MoexScreen() {
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
+
+    suspend fun refreshPortfolio() {
+        portfolioLoading = true
+        portfolioError = null
+        try {
+            when (val s = loadState(Period.OneYear)) {
+                is UiState.Success -> {
+                    val from = s.points.firstOrNull()?.tradeDate.orEmpty()
+                    val till = s.points.lastOrNull()?.tradeDate.orEmpty()
+                    val desc = "${Period.OneYear.label} ($from…$till)"
+                    portfolioMetrics = buildZStrategyPortfolioMetrics(
+                        points = s.points,
+                        thresholds = dynamicThresholds,
+                        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                        periodDescription = desc
+                    )
+                    if (portfolioMetrics == null) {
+                        portfolioError = "Недостаточно точек для расчёта портфеля."
+                    }
+                }
+
+                is UiState.Error -> {
+                    portfolioMetrics = null
+                    portfolioError = s.message
+                }
+
+                else -> {
+                    portfolioMetrics = null
+                    portfolioError = "Нет данных за год."
+                }
+            }
+        } finally {
+            portfolioLoading = false
+        }
+    }
+
+    LaunchedEffect(selectedTab, dynamicThresholds.entry, dynamicThresholds.exit) {
+        if (selectedTab == MainTab.Portfolio) {
+            refreshPortfolio()
+        }
+    }
 
     suspend fun refreshData(showLoading: Boolean) {
         refreshMutex.withLock {
@@ -260,6 +305,25 @@ internal fun MoexScreen() {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        item {
+            MainTabSelector(
+                selected = selectedTab,
+                onSelect = { selectedTab = it }
+            )
+        }
+
+        if (selectedTab == MainTab.Portfolio) {
+            item {
+                PortfolioTabContent(
+                    metrics = portfolioMetrics,
+                    portfolioLoading = portfolioLoading,
+                    portfolioError = portfolioError,
+                    onRefresh = { scope.launch { refreshPortfolio() } }
+                )
+            }
+            return@LazyColumn
+        }
+
         item {
             Text(
                 text = "TATN / TATNP (MOEX ISS)",

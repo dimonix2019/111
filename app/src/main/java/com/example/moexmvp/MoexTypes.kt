@@ -174,3 +174,50 @@ internal enum class SpreadScaleMode(val label: String) {
     Auto("Auto"),
     Fixed("Fixed 0..15%")
 }
+
+internal enum class MainTab(val label: String) {
+    Markets("Рынок"),
+    Portfolio("Портфель")
+}
+
+internal data class PortfolioClosedTrade(
+    val direction: ZStrategyPosition,
+    val entryDate: String,
+    val exitDate: String,
+    val entrySpreadPercent: Double,
+    val exitSpreadPercent: Double,
+    val pnlSpreadPoints: Double,
+    val pnlRubApprox: Double
+)
+
+internal data class PortfolioOpenPosition(
+    val direction: ZStrategyPosition,
+    val entryDate: String,
+    val entrySpreadPercent: Double,
+    val lastSpreadPercent: Double,
+    val unrealizedPnlSpread: Double,
+    val unrealizedRubApprox: Double
+)
+
+internal data class PortfolioMetrics(
+    val periodDescription: String,
+    val notionalRub: Double,
+    val closedTrades: List<PortfolioClosedTrade>,
+    val openPosition: PortfolioOpenPosition?,
+    val cumulativeRealizedSpread: Double,
+    val cumulativeRealizedRubApprox: Double,
+    val unrealizedRubApprox: Double,
+    val totalPnlSpread: Double,
+    val totalPnlRubApprox: Double,
+    val totalReturnPercent: Double,
+    val maxDrawdownRubApprox: Double,
+    val maxDrawdownPercent: Double,
+    val winCount: Int,
+    val lossCount: Int,
+    val winRate: Double,
+    val profitFactor: Double?,
+    val avgWinRub: Double,
+    val avgLossRub: Double,
+    val largestWinRub: Double,
+    val largestLossRub: Double
+)

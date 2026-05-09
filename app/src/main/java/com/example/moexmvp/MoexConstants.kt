@@ -27,3 +27,4 @@ internal const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry_legacy"
 internal const val PREF_Z_DAILY_SIGNAL_EXIT = "z_daily_signal_exit_legacy"
 internal const val DAILY_SIGNAL_MAX_PER_DAY = 20
 internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
+internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
