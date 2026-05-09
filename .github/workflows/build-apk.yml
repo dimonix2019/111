@@ -1,0 +1,51 @@
+# Builds a debug APK on every push and PR. Uploads artifact "moexmvp-debug".
+#
+# Direct download in the phone browser (no GitHub login), always latest
+# successful run for this repo + workflow + branch — use nightly.link:
+#   https://nightly.link/dimonix2019/111/workflows/build-apk/<branch>/moexmvp-debug.zip
+#
+# Replace <branch> with the Git branch name. Slashes in branch names must be
+# URL-encoded as %2F, e.g. cursor%2Fsignal-threshold-markers-8ccb
+#
+# Permalink for this feature branch (while development stays here):
+#   https://nightly.link/dimonix2019/111/workflows/build-apk/cursor%2Fsignal-threshold-markers-8ccb/moexmvp-debug.zip
+#
+# Optional: install the nightly.link GitHub App on your repo to reduce rate limits:
+#   https://github.com/apps/nightly-link
+
+name: Build APK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: apk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  debug-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble Debug
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moexmvp-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
