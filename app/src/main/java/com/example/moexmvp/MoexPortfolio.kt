@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -31,9 +32,19 @@ internal fun spreadPnlToRubApprox(pnlSpreadPoints: Double, notionalRub: Double):
 }
 
 private fun overnightDays(entryDate: String, endDate: String): Long {
-    val entry = runCatching { LocalDate.parse(entryDate) }.getOrNull() ?: return 0L
-    val end = runCatching { LocalDate.parse(endDate) }.getOrNull() ?: return 0L
+    val entry = parseChartDateLabel(entryDate) ?: return 0L
+    val end = parseChartDateLabel(endDate) ?: return 0L
     return kotlin.math.max(0L, java.time.temporal.ChronoUnit.DAYS.between(entry, end))
+}
+
+/** Daily labels `yyyy-MM-dd` or 15m labels `yyyy-MM-dd HH:mm` from [portfolio15mLabelFormatter]. */
+private fun parseChartDateLabel(label: String): LocalDate? {
+    val trimmed = label.trim()
+    if (trimmed.length >= 10) {
+        runCatching { return LocalDate.parse(trimmed.take(10)) }.getOrNull()
+    }
+    return runCatching { LocalDateTime.parse(trimmed, portfolio15mLabelFormatter).toLocalDate() }
+        .getOrNull()
 }
 
 /**
