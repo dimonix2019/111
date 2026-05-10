@@ -11,14 +11,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,7 +75,12 @@ internal fun ErrorState(message: String, onRetry: () -> Unit) {
     ) {
         Text("Error", color = Color(0xFFB71C1C), fontWeight = FontWeight.Bold)
         Text(message)
-        Button(onClick = onRetry) { Text("Retry") }
+        Button(onClick = onRetry) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("Retry", modifier = Modifier.padding(start = 6.dp))
+            }
+        }
     }
 }
 
@@ -165,7 +176,14 @@ internal fun RealtimeControls(
                     contentColor = Color.White
                 )
             ) {
-                Text(if (enabled) "ON" else "OFF")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (enabled) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(if (enabled) "ON" else "OFF", modifier = Modifier.padding(start = 4.dp))
+                }
             }
         }
         Text("Interval: 5s (fixed)", color = Color(0xFFB3E5FC), fontSize = 12.sp)

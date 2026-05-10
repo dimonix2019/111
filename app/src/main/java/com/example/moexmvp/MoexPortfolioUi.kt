@@ -6,15 +6,30 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoGraph
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -49,6 +64,12 @@ internal fun MainTabSelector(
     ) {
         MainTab.entries.forEach { tab ->
             val isSel = tab == selected
+            val icon = when (tab) {
+                MainTab.Markets -> Icons.Filled.ShowChart
+                MainTab.Portfolio -> Icons.Filled.Savings
+                MainTab.Journal -> Icons.Filled.FormatListBulleted
+                MainTab.About -> Icons.Filled.Info
+            }
             Button(
                 onClick = { onSelect(tab) },
                 colors = ButtonDefaults.buttonColors(
@@ -56,14 +77,18 @@ internal fun MainTabSelector(
                     contentColor = Color.White
                 ),
                 shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                Text(
-                    tab.label,
-                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                    fontSize = 11.sp,
-                    maxLines = 1
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        tab.label,
+                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                        fontSize = 11.sp,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
@@ -78,15 +103,24 @@ internal fun StrategyViewModeSelector(
     Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StrategyViewMode.entries.forEach { candidate ->
             val selected = candidate == mode
+            val icon = when (candidate) {
+                StrategyViewMode.Executed -> Icons.Filled.History
+                StrategyViewMode.CurrentModel -> Icons.Filled.Tune
+            }
             Button(
                 onClick = { onModeChange(candidate) },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (selected) Color(0xFF00897B) else Color(0xFF424242),
                     contentColor = Color.White
-                )
+                ),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
             ) {
-                Text(candidate.label, fontSize = 11.sp, maxLines = 2)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(candidate.label, fontSize = 10.sp, maxLines = 2)
+                }
             }
         }
     }
@@ -222,15 +256,23 @@ internal fun PortfolioTabContent(
                 Button(
                     onClick = onRefresh,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Text("Обновить", fontSize = 11.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Обновить", fontSize = 11.sp)
+                    }
                 }
                 OutlinedButton(
                     onClick = onMoex15mFullReload,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
                 ) {
-                    Text("MOEX заново", fontSize = 10.sp, color = Color(0xFFB3E5FC))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFB3E5FC))
+                        Spacer(Modifier.width(4.dp))
+                        Text("MOEX заново", fontSize = 10.sp, color = Color(0xFFB3E5FC))
+                    }
                 }
             }
         }
@@ -266,9 +308,13 @@ internal fun PortfolioTabContent(
             OutlinedButton(
                 onClick = onWalkForward,
                 enabled = !walkForwardBusy,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
             ) {
-                Text("Walk-forward", fontSize = 10.sp, color = Color(0xFFFFCC80))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.AutoGraph, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFFFCC80))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Walk-forward", fontSize = 10.sp, color = Color(0xFFFFCC80))
+                }
             }
             if (walkForwardBusy) {
                 CircularProgressIndicator(
@@ -287,8 +333,12 @@ internal fun PortfolioTabContent(
 
         if (portfolioError != null) {
             Text(portfolioError, color = Color(0xFFEF9A9A), fontSize = 11.sp)
-            Button(onClick = onRefresh, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-                Text("Повторить", fontSize = 11.sp)
+            Button(onClick = onRefresh, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Повторить", fontSize = 11.sp)
+                }
             }
         } else if (!portfolioLoading && metrics == null) {
             Text("Недостаточно данных для расчёта.", color = Color(0xFFBDBDBD), fontSize = 11.sp)
@@ -528,10 +578,10 @@ private fun ParamStepper(
         Text(valueLabel, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(onClick = onMinus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
-                Text("−", fontSize = 14.sp)
+                Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(20.dp))
             }
             Button(onClick = onPlus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
-                Text("+", fontSize = 14.sp)
+                Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(20.dp))
             }
         }
     }

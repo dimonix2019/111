@@ -201,6 +201,14 @@ internal fun recordStrategySignalEvent(
         }
         prefs.edit().putString(PREF_SIGNAL_EVENTS_JSON, output.toString()).apply()
     }
+    if (signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort) {
+        savePendingVirtualTradeProposal(
+            context = context,
+            signalType = signalType,
+            zScore = zScore,
+            timestampMillis = timestampMillis
+        )
+    }
 }
 
 internal fun loadStrategySignalEvents(
