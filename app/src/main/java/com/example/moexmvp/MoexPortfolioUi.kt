@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -69,30 +70,6 @@ internal fun MainTabSelector(
 }
 
 @Composable
-internal fun PortfolioTimeframeSelector(
-    selected: PortfolioTimeframe,
-    onSelect: (PortfolioTimeframe) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        PortfolioTimeframe.entries.forEach { candidate ->
-            val isSel = candidate == selected
-            Button(
-                onClick = { onSelect(candidate) },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isSel) Color(0xFF6A1B9A) else Color(0xFF424242),
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(candidate.label, fontSize = 11.sp, maxLines = 2)
-            }
-        }
-    }
-}
-
-@Composable
 internal fun StrategyViewModeSelector(
     mode: StrategyViewMode,
     onModeChange: (StrategyViewMode) -> Unit,
@@ -109,7 +86,7 @@ internal fun StrategyViewModeSelector(
                     contentColor = Color.White
                 )
             ) {
-                Text(candidate.label, fontSize = 12.sp)
+                Text(candidate.label, fontSize = 11.sp, maxLines = 2)
             }
         }
     }
@@ -126,7 +103,7 @@ private fun PortfolioPresetSection(
     var name by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
-            text = "Пресеты (плечо / комиссия / пороги)",
+            text = "Пресеты",
             color = Color.White,
             fontWeight = FontWeight.Medium,
             fontSize = 13.sp
@@ -198,9 +175,6 @@ internal fun PortfolioTabContent(
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
-    onMoex15mFullReload: () -> Unit,
-    timeframe: PortfolioTimeframe,
-    onTimeframeChange: (PortfolioTimeframe) -> Unit,
     leverage: Double,
     commissionPercentPerSide: Double,
     entryThreshold: Double,
@@ -218,7 +192,7 @@ internal fun PortfolioTabContent(
     walkForwardBusy: Boolean
 ) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -227,45 +201,37 @@ internal fun PortfolioTabContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Портфель Z-стратегии (TATN/TATNP)",
-                style = MaterialTheme.typography.titleMedium,
+                text = "Портфель · TATN/TATNP",
+                style = MaterialTheme.typography.titleSmall,
                 color = Color.White,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (portfolioLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = Color(0xFF64B5F6),
+                        strokeWidth = 2.dp
+                    )
+                }
                 Button(
                     onClick = onRefresh,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     Text("Обновить", fontSize = 11.sp)
-                }
-                if (timeframe == PortfolioTimeframe.FifteenMinuteYear) {
-                    OutlinedButton(
-                        onClick = onMoex15mFullReload,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                    ) {
-                        Text("MOEX заново", fontSize = 11.sp, color = Color(0xFFB3E5FC))
-                    }
                 }
             }
         }
         Text(
-            text = "Оценка в ₽: капитал ${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽, плечо x${String.format(Locale.US, "%.1f", leverage)}, комиссия ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% за сторону.",
-            color = Color(0xFFBDBDBD),
-            fontSize = 11.sp
-        )
-        PortfolioTimeframeSelector(selected = timeframe, onSelect = onTimeframeChange)
-        Text(
-            text = when (timeframe) {
-                PortfolioTimeframe.FifteenMinuteYear ->
-                    "Интервал портфеля: ISS 10-мин → 15 мин; Z по окну (~$PORTFOLIO_M15_LOOKBACK_DAYS дн.). Ряд кэшируется в SQLite на телефоне; «Обновить» — догрузка хвоста с MOEX."
-                PortfolioTimeframe.DailyOneYear ->
-                    "Интервал портфеля: дневные закрытия (как график Рынок · 1Y)."
-            },
+            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · дневные · 1Y",
             color = Color(0xFF9E9E9E),
-            fontSize = 10.sp
+            fontSize = 10.sp,
+            maxLines = 2
         )
         PortfolioParamsControls(
             leverage = leverage,
@@ -278,6 +244,7 @@ internal fun PortfolioTabContent(
             onEntryThresholdChange = onEntryThresholdChange,
             onExitThresholdChange = onExitThresholdChange
         )
+        PortfolioHeroMetricsRow(metrics = metrics)
         PortfolioPresetSection(
             presets = presets,
             onApply = onApplyPreset,
@@ -286,88 +253,139 @@ internal fun PortfolioTabContent(
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedButton(
                 onClick = onWalkForward,
                 enabled = !walkForwardBusy,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
             ) {
-                Text("Walk-forward пороги", fontSize = 11.sp, color = Color(0xFFFFCC80))
+                Text("Walk-forward", fontSize = 10.sp, color = Color(0xFFFFCC80))
             }
             if (walkForwardBusy) {
                 CircularProgressIndicator(
-                    modifier = Modifier.padding(4.dp),
+                    modifier = Modifier.size(16.dp),
                     color = Color(0xFF64B5F6),
                     strokeWidth = 2.dp
                 )
             }
-        }
-        Text(
-            text = "Подбор по кварталам (OOS) с штрафом за число сделок; пороги можно применить к авто-модели.",
-            color = Color(0xFF757575),
-            fontSize = 10.sp
-        )
-
-        if (portfolioLoading) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                CircularProgressIndicator(color = Color(0xFF64B5F6))
-            }
-            return@Column
+            Text(
+                text = "OOS по кварталам, штраф за сделки",
+                color = Color(0xFF616161),
+                fontSize = 9.sp,
+                modifier = Modifier.weight(1f)
+            )
         }
 
         if (portfolioError != null) {
-            Text(portfolioError, color = Color(0xFFEF9A9A), fontSize = 12.sp)
-            Button(onClick = onRefresh) { Text("Повторить") }
-            return@Column
-        }
-
-        if (metrics == null) {
-            Text("Недостаточно данных для расчёта.", color = Color(0xFFBDBDBD), fontSize = 12.sp)
-            return@Column
-        }
-
-        Text(
-            text = metrics.periodDescription,
-            color = Color(0xFF9E9E9E),
-            fontSize = 11.sp
-        )
-
-        PortfolioMetricGrid(metrics)
-
-        Text(
-            text = "Сделки (${metrics.closedTrades.size} закрытых)",
-            color = Color(0xFFE0E0E0),
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-
-        val recent = metrics.closedTrades.takeLast(25).asReversed()
-        if (recent.isEmpty()) {
-            Text("Закрытых сделок за период нет.", color = Color(0xFF9E9E9E), fontSize = 12.sp)
+            Text(portfolioError, color = Color(0xFFEF9A9A), fontSize = 11.sp)
+            Button(onClick = onRefresh, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                Text("Повторить", fontSize = 11.sp)
+            }
+        } else if (!portfolioLoading && metrics == null) {
+            Text("Недостаточно данных для расчёта.", color = Color(0xFFBDBDBD), fontSize = 11.sp)
         } else {
-            recent.forEachIndexed { index, t ->
-                PortfolioTradeRow(index = index + 1, t = t)
+            metrics?.let { m ->
+                Text(
+                    text = m.periodDescription,
+                    color = Color(0xFF757575),
+                    fontSize = 10.sp
+                )
+                PortfolioMetricGrid(m, showHeroDuplicate = false)
+                Text(
+                    text = "Сделки (${m.closedTrades.size})",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                val recent = m.closedTrades.takeLast(25).asReversed()
+                if (recent.isEmpty()) {
+                    Text("Закрытых сделок нет.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
+                } else {
+                    recent.forEachIndexed { index, t ->
+                        PortfolioTradeRow(index = index + 1, t = t)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun PortfolioMetricGrid(m: PortfolioMetrics) {
+private fun PortfolioHeroMetricsRow(metrics: PortfolioMetrics?) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        PortfolioHeroHalfCard(
+            title = "Итого PnL",
+            subtitle = "оценка",
+            value = metrics?.let {
+                "${formatRubSigned(it.totalPnlRubApprox)}\n${formatPercentSigned(it.totalReturnPercent)}"
+            } ?: "—",
+            valueColor = run {
+                val pnl = metrics?.totalPnlRubApprox
+                when {
+                    pnl == null -> Color(0xFFBDBDBD)
+                    pnl > 0 -> Color(0xFF81C784)
+                    pnl < 0 -> Color(0xFFE57373)
+                    else -> Color(0xFFBDBDBD)
+                }
+            },
+            modifier = Modifier.weight(1f)
+        )
+        PortfolioHeroHalfCard(
+            title = "Макс. просадка",
+            subtitle = "по эквити",
+            value = metrics?.let { m ->
+                "${formatRubSigned(-m.maxDrawdownRubApprox)}\n${String.format(Locale.US, "%.1f%%", m.maxDrawdownPercent)}"
+            } ?: "—",
+            valueColor = Color(0xFFFFB74D),
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun PortfolioHeroHalfCard(
+    title: String,
+    subtitle: String,
+    value: String,
+    valueColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier
+            .background(Color(0xFF1A1A1A), RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = Color(0xFFB0BEC5), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            Text(subtitle, color = Color(0xFF616161), fontSize = 9.sp)
+        }
+        Text(
+            text = value,
+            color = valueColor,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            lineHeight = 16.sp,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+    }
+}
+
+@Composable
+private fun PortfolioMetricGrid(m: PortfolioMetrics, showHeroDuplicate: Boolean = true) {
     val pf = m.profitFactor?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        PortfolioStatCard(
-            "Итого PnL (оценка)",
-            "${formatRubSigned(m.totalPnlRubApprox)} (${formatPercentSigned(m.totalReturnPercent)})"
-        )
+        if (showHeroDuplicate) {
+            PortfolioStatCard(
+                "Итого PnL (оценка)",
+                "${formatRubSigned(m.totalPnlRubApprox)} (${formatPercentSigned(m.totalReturnPercent)})"
+            )
+        }
         PortfolioStatCard(
             "Реализовано / нереализ.",
             "${formatRubSigned(m.cumulativeRealizedRubApprox)} / ${formatRubSigned(m.unrealizedRubApprox)}"
@@ -380,10 +398,12 @@ private fun PortfolioMetricGrid(m: PortfolioMetrics) {
             "Овернайт (Тинькофф)",
             "${formatRubSigned(-m.totalOvernightRub)} · ${String.format(Locale.US, "%.3f", TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY)}%/день на заёмную часть"
         )
-        PortfolioStatCard(
-            "Макс. просадка",
-            "${formatRubSigned(-m.maxDrawdownRubApprox)} (~ ${String.format(Locale.US, "%.1f", m.maxDrawdownRubApprox / m.notionalRub * 100.0)}% от капитала, по эквити-пику ${String.format(Locale.US, "%.1f", m.maxDrawdownPercent)}%)"
-        )
+        if (showHeroDuplicate) {
+            PortfolioStatCard(
+                "Макс. просадка",
+                "${formatRubSigned(-m.maxDrawdownRubApprox)} (~ ${String.format(Locale.US, "%.1f", m.maxDrawdownRubApprox / m.notionalRub * 100.0)}% от капитала, по эквити-пику ${String.format(Locale.US, "%.1f", m.maxDrawdownPercent)}%)"
+            )
+        }
         PortfolioStatCard(
             "Сделки / винрейт",
             "${m.winCount}W / ${m.lossCount}L · ${String.format(Locale.US, "%.0f", m.winRate)}%"
@@ -424,8 +444,8 @@ private fun PortfolioParamsControls(
     onEntryThresholdChange: (Double) -> Unit,
     onExitThresholdChange: (Double) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             ParamStepper(
                 title = "Плечо",
                 valueLabel = "x${String.format(Locale.US, "%.1f", leverage)}",
@@ -441,7 +461,7 @@ private fun PortfolioParamsControls(
                 modifier = Modifier.weight(1f)
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             ParamStepper(
                 title = "Порог входа |Z|",
                 valueLabel = String.format(Locale.US, "%.2f", entryThreshold),
@@ -494,17 +514,17 @@ private fun ParamStepper(
     Column(
         modifier
             .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(horizontal = 6.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(title, color = Color(0xFF9E9E9E), fontSize = 11.sp)
-        Text(valueLabel, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, color = Color(0xFF9E9E9E), fontSize = 10.sp)
+        Text(valueLabel, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(onClick = onMinus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
-                Text("−")
+                Text("−", fontSize = 14.sp)
             }
             Button(onClick = onPlus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
-                Text("+")
+                Text("+", fontSize = 14.sp)
             }
         }
     }
@@ -516,10 +536,10 @@ private fun PortfolioStatCard(title: String, value: String) {
         Modifier
             .fillMaxWidth()
             .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-            .padding(10.dp)
+            .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
-        Text(title, color = Color(0xFF9E9E9E), fontSize = 11.sp)
-        Text(value, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Text(title, color = Color(0xFF9E9E9E), fontSize = 10.sp)
+        Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }
 

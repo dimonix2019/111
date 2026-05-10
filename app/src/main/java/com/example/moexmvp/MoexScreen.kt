@@ -49,7 +49,6 @@ internal fun MoexScreen() {
     var portfolioCommissionPercent by remember { mutableStateOf(0.04) }
     var portfolioEntryThreshold by remember { mutableStateOf<Double?>(null) }
     var portfolioExitThreshold by remember { mutableStateOf<Double?>(null) }
-    var portfolioTimeframe by remember { mutableStateOf(PortfolioTimeframe.DailyOneYear) }
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -95,59 +94,33 @@ internal fun MoexScreen() {
         }
     }
 
-    suspend fun refreshPortfolio(m15LoadHint: PortfolioM15LoadMode? = null) {
+    suspend fun refreshPortfolio() {
         portfolioLoading = true
         portfolioError = null
         try {
             val points: List<DataPoint>
             val desc: String
-            when (portfolioTimeframe) {
-                PortfolioTimeframe.DailyOneYear -> {
-                    when (val s = loadState(Period.OneYear)) {
-                        is UiState.Success -> {
-                            if (s.points.isEmpty()) {
-                                portfolioMetrics = null
-                                portfolioError = "Нет данных за год."
-                                return@refreshPortfolio
-                            }
-                            points = s.points
-                            desc = "${Period.OneYear.label} (${points.first().tradeDate}…${points.last().tradeDate})"
-                        }
-
-                        is UiState.Error -> {
-                            portfolioMetrics = null
-                            portfolioError = s.message
-                            return@refreshPortfolio
-                        }
-
-                        else -> {
-                            portfolioMetrics = null
-                            portfolioError = "Нет данных за год."
-                            return@refreshPortfolio
-                        }
-                    }
-                }
-
-                PortfolioTimeframe.FifteenMinuteYear -> {
-                    val till = LocalDate.now()
-                    val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
-                    val m15Mode = m15LoadHint ?: run {
-                        val cnt = PortfolioM15Database.get(context).dao().count()
-                        if (cnt > 0) PortfolioM15LoadMode.CACHE_ONLY else PortfolioM15LoadMode.INCREMENTAL
-                    }
-                    val loaded = loadPortfolio15mDataPoints(context, from, till, m15Mode)
-                    if (loaded.size < 2) {
+            when (val s = loadState(Period.OneYear)) {
+                is UiState.Success -> {
+                    if (s.points.isEmpty()) {
                         portfolioMetrics = null
-                        portfolioError = when (m15Mode) {
-                            PortfolioM15LoadMode.CACHE_ONLY ->
-                                "Нет данных в локальном кэше (15 мин). Нажмите «Обновить» для загрузки с MOEX."
-                            else ->
-                                "Нет 15-мин данных (ISS / сеть). Попробуйте «MOEX заново»."
-                        }
+                        portfolioError = "Нет данных за год."
                         return@refreshPortfolio
                     }
-                    points = loaded
-                    desc = "15 мин (ISS 10m→15m) · $PORTFOLIO_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
+                    points = s.points
+                    desc = "${Period.OneYear.label} (${points.first().tradeDate}…${points.last().tradeDate})"
+                }
+
+                is UiState.Error -> {
+                    portfolioMetrics = null
+                    portfolioError = s.message
+                    return@refreshPortfolio
+                }
+
+                else -> {
+                    portfolioMetrics = null
+                    portfolioError = "Нет данных за год."
+                    return@refreshPortfolio
                 }
             }
 
@@ -208,11 +181,10 @@ internal fun MoexScreen() {
         portfolioCommissionPercent,
         portfolioEntryThreshold,
         portfolioExitThreshold,
-        strategyViewMode,
-        portfolioTimeframe
+        strategyViewMode
     ) {
         if (selectedTab == MainTab.Portfolio) {
-            refreshPortfolio(null)
+            refreshPortfolio()
         }
     }
 
@@ -484,10 +456,7 @@ internal fun MoexScreen() {
                             metrics = portfolioMetrics,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,
-                            onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
-                            onMoex15mFullReload = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.FULL_REFRESH) } },
-                            timeframe = portfolioTimeframe,
-                            onTimeframeChange = { portfolioTimeframe = it },
+                            onRefresh = { scope.launch { refreshPortfolio() } },
                             leverage = portfolioLeverage,
                             commissionPercentPerSide = portfolioCommissionPercent,
                             entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
