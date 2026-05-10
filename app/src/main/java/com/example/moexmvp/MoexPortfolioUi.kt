@@ -175,6 +175,7 @@ internal fun PortfolioTabContent(
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
+    onMoex15mFullReload: () -> Unit,
     leverage: Double,
     commissionPercentPerSide: Double,
     entryThreshold: Double,
@@ -221,14 +222,20 @@ internal fun PortfolioTabContent(
                 Button(
                     onClick = onRefresh,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text("Обновить", fontSize = 11.sp)
+                }
+                OutlinedButton(
+                    onClick = onMoex15mFullReload,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("MOEX заново", fontSize = 10.sp, color = Color(0xFFB3E5FC))
                 }
             }
         }
         Text(
-            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · дневные · 1Y",
+            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · 15 мин · ISS→кэш",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
             maxLines = 2

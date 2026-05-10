@@ -94,35 +94,30 @@ internal fun MoexScreen() {
         }
     }
 
-    suspend fun refreshPortfolio() {
+    suspend fun refreshPortfolio(m15LoadHint: PortfolioM15LoadMode? = null) {
         portfolioLoading = true
         portfolioError = null
         try {
-            val points: List<DataPoint>
-            val desc: String
-            when (val s = loadState(Period.OneYear)) {
-                is UiState.Success -> {
-                    if (s.points.isEmpty()) {
-                        portfolioMetrics = null
-                        portfolioError = "Нет данных за год."
-                        return@refreshPortfolio
-                    }
-                    points = s.points
-                    desc = "${Period.OneYear.label} (${points.first().tradeDate}…${points.last().tradeDate})"
-                }
-
-                is UiState.Error -> {
-                    portfolioMetrics = null
-                    portfolioError = s.message
-                    return@refreshPortfolio
-                }
-
-                else -> {
-                    portfolioMetrics = null
-                    portfolioError = "Нет данных за год."
-                    return@refreshPortfolio
-                }
+            val till = LocalDate.now()
+            val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
+            val m15Mode = m15LoadHint ?: run {
+                val cnt = PortfolioM15Database.get(context).dao().count()
+                if (cnt > 0) PortfolioM15LoadMode.CACHE_ONLY else PortfolioM15LoadMode.INCREMENTAL
             }
+            val loaded = loadPortfolio15mDataPoints(context, from, till, m15Mode)
+            if (loaded.size < 2) {
+                portfolioMetrics = null
+                portfolioError = when (m15Mode) {
+                    PortfolioM15LoadMode.CACHE_ONLY ->
+                        "Нет 15-мин данных в кэше. Нажмите «Обновить» для загрузки с MOEX."
+                    else ->
+                        "Нет 15-мин данных (ISS / сеть). Попробуйте «MOEX заново»."
+                }
+                return@refreshPortfolio
+            }
+            val points = loaded
+            val desc =
+                "15 мин (ISS 10m→15m) · $PORTFOLIO_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
 
             val entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
@@ -184,7 +179,7 @@ internal fun MoexScreen() {
         strategyViewMode
     ) {
         if (selectedTab == MainTab.Portfolio) {
-            refreshPortfolio()
+            refreshPortfolio(null)
         }
     }
 
@@ -456,7 +451,8 @@ internal fun MoexScreen() {
                             metrics = portfolioMetrics,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,
-                            onRefresh = { scope.launch { refreshPortfolio() } },
+                            onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
+                            onMoex15mFullReload = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.FULL_REFRESH) } },
                             leverage = portfolioLeverage,
                             commissionPercentPerSide = portfolioCommissionPercent,
                             entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
@@ -504,10 +500,19 @@ internal fun MoexScreen() {
                                 scope.launch {
                                     walkForwardBusy = true
                                     try {
-                                        val yr = withContext(Dispatchers.IO) { loadState(Period.OneYear) }
-                                        val th = if (yr is UiState.Success && yr.points.size >= 80) {
+                                        val till = LocalDate.now()
+                                        val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
+                                        val pts = withContext(Dispatchers.IO) {
+                                            loadPortfolio15mDataPoints(
+                                                context,
+                                                from,
+                                                till,
+                                                PortfolioM15LoadMode.INCREMENTAL
+                                            )
+                                        }
+                                        val th = if (pts.size >= 80) {
                                             withContext(Dispatchers.Default) {
-                                                calculateWalkForwardRobustThresholds(yr.points)
+                                                calculateWalkForwardRobustThresholds(pts)
                                             }
                                         } else {
                                             null

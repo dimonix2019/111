@@ -202,11 +202,6 @@ internal enum class StrategyViewMode(val label: String) {
     CurrentModel("Текущая модель")
 }
 
-internal enum class PortfolioTimeframe(val label: String) {
-    DailyOneYear("День · год"),
-    FifteenMinuteYear("15 мин · ISS")
-}
-
 internal enum class PortfolioM15LoadMode {
     /** Read SQLite only; no network. */
     CACHE_ONLY,
