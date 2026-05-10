@@ -29,6 +29,11 @@ internal const val PREF_Z_DAILY_SIGNAL_EXIT = "z_daily_signal_exit_legacy"
 internal const val DAILY_SIGNAL_MAX_PER_DAY = 20
 internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
+
+/** Portfolio tab: entry/exit |Z| limits are independent (UI steppers). */
+internal const val PORTFOLIO_Z_THRESHOLD_MIN = 0.0
+internal const val PORTFOLIO_Z_THRESHOLD_MAX = 8.0
+internal const val PORTFOLIO_Z_THRESHOLD_STEP = 0.05
 /** Calendar days of history for 15m-style portfolio (10m ISS → 15m bars). ~1y; smaller than 365*1m traffic. */
 internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 252L
 

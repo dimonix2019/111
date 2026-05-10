@@ -135,9 +135,10 @@ internal fun MoexScreen() {
                 }
             }
 
-            val entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry).coerceAtLeast(0.2)
-            val exitThresholdRaw = portfolioExitThreshold ?: dynamicThresholds.exit
-            val exitThreshold = exitThresholdRaw.coerceAtLeast(0.0).coerceAtMost((entryThreshold - 0.1).coerceAtLeast(0.0))
+            val entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            val exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
             if (portfolioEntryThreshold == null) portfolioEntryThreshold = entryThreshold
             if (portfolioExitThreshold == null) portfolioExitThreshold = exitThreshold
             val portfolioThresholds = DynamicThresholds(
@@ -415,21 +416,24 @@ internal fun MoexScreen() {
                     onTimeframeChange = { portfolioTimeframe = it },
                     leverage = portfolioLeverage,
                     commissionPercentPerSide = portfolioCommissionPercent,
-                    entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry).coerceAtLeast(0.2),
+                    entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                     exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
-                        .coerceAtLeast(0.0)
-                        .coerceAtMost(((portfolioEntryThreshold ?: dynamicThresholds.entry) - 0.1).coerceAtLeast(0.0)),
+                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                     strategyViewMode = strategyViewMode,
                     onLeverageChange = { portfolioLeverage = it },
                     onCommissionChange = { portfolioCommissionPercent = it },
                     onEntryThresholdChange = { newEntry ->
-                        portfolioEntryThreshold = newEntry
-                        portfolioExitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
-                            .coerceAtMost((newEntry - 0.1).coerceAtLeast(0.0))
+                        portfolioEntryThreshold = newEntry.coerceIn(
+                            PORTFOLIO_Z_THRESHOLD_MIN,
+                            PORTFOLIO_Z_THRESHOLD_MAX
+                        )
                     },
                     onExitThresholdChange = { newExit ->
-                        val maxExit = ((portfolioEntryThreshold ?: dynamicThresholds.entry) - 0.1).coerceAtLeast(0.0)
-                        portfolioExitThreshold = newExit.coerceIn(0.0, maxExit)
+                        portfolioExitThreshold = newExit.coerceIn(
+                            PORTFOLIO_Z_THRESHOLD_MIN,
+                            PORTFOLIO_Z_THRESHOLD_MAX
+                        )
                     }
                 )
             }

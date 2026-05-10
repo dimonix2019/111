@@ -728,20 +728,30 @@ private fun PortfolioParamsControls(
             ParamStepper(
                 title = "Порог входа |Z|",
                 valueLabel = String.format(Locale.US, "%.2f", entryThreshold),
-                onMinus = { onEntryThresholdChange((entryThreshold - 0.1).coerceAtLeast(0.2)) },
+                onMinus = {
+                    onEntryThresholdChange(
+                        (entryThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
+                    )
+                },
                 onPlus = {
-                    val next = (entryThreshold + 0.1).coerceAtMost(6.0)
-                    onEntryThresholdChange(next)
+                    onEntryThresholdChange(
+                        (entryThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
+                    )
                 },
                 modifier = Modifier.weight(1f)
             )
             ParamStepper(
                 title = "Порог выхода |Z|",
                 valueLabel = String.format(Locale.US, "%.2f", exitThreshold),
-                onMinus = { onExitThresholdChange((exitThreshold - 0.1).coerceAtLeast(0.0)) },
+                onMinus = {
+                    onExitThresholdChange(
+                        (exitThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
+                    )
+                },
                 onPlus = {
-                    val maxExit = (entryThreshold - 0.1).coerceAtLeast(0.0)
-                    onExitThresholdChange((exitThreshold + 0.1).coerceAtMost(maxExit))
+                    onExitThresholdChange(
+                        (exitThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
+                    )
                 },
                 modifier = Modifier.weight(1f)
             )
