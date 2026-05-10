@@ -187,7 +187,7 @@ internal enum class StrategyViewMode(val label: String) {
 
 internal enum class PortfolioTimeframe(val label: String) {
     DailyOneYear("День · год"),
-    FifteenMinuteYear("15 мин · год")
+    FifteenMinuteYear("15 мин · ISS")
 }
 
 internal data class PortfolioClosedTrade(

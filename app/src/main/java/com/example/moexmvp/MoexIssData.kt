@@ -2,6 +2,8 @@ package com.example.moexmvp
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -324,20 +326,23 @@ internal suspend fun loadState(period: Period): UiState = withContext(Dispatcher
 }
 
 /**
- * Portfolio backtest series: 1-minute MOEX candles aggregated to 15-minute bars,
- * same pipeline as intraday charts. Z-score is rolling mean/std over the loaded window.
+ * Portfolio intraday series: **10-minute** MOEX ISS candles (native `interval=10`),
+ * then aggregated to **15-minute** bars (same helper as 1D intraday path).
+ * Using 1-minute for a full year would require hundreds of thousands of rows and is too slow on device.
+ * Z-score is mean/std over the loaded window.
  */
 internal suspend fun loadPortfolio15mDataPoints(
     from: LocalDate,
     till: LocalDate
 ): List<DataPoint> = withContext(Dispatchers.IO) {
     val zone = ZoneId.of("Europe/Moscow")
-    val tatn15 = aggregateTo15MinuteBars(
-        loadCandleBars("TATN", from, till, interval = 1)
-    ).associateBy { it.timestamp }
-    val tatnp15 = aggregateTo15MinuteBars(
-        loadCandleBars("TATNP", from, till, interval = 1)
-    ).associateBy { it.timestamp }
+    val (tatnBars, tatnpBars) = coroutineScope {
+        val d1 = async { loadCandleBars("TATN", from, till, interval = 10) }
+        val d2 = async { loadCandleBars("TATNP", from, till, interval = 10) }
+        Pair(d1.await(), d2.await())
+    }
+    val tatn15 = aggregateTo15MinuteBars(tatnBars).associateBy { it.timestamp }
+    val tatnp15 = aggregateTo15MinuteBars(tatnpBars).associateBy { it.timestamp }
     val times = tatn15.keys.intersect(tatnp15.keys).sorted()
     if (times.isEmpty()) return@withContext emptyList()
     val points = times.mapNotNull { ts ->

@@ -562,7 +562,7 @@ internal fun PortfolioTabContent(
         Text(
             text = when (timeframe) {
                 PortfolioTimeframe.FifteenMinuteYear ->
-                    "Интервал портфеля: 1-мин свечи ISS → 15 мин; Z по всему окну. Первый запрос может занять время."
+                    "Интервал портфеля: ISS 10-мин свечи → 15 мин (быстрее, чем 1 мин); Z по окну. Окно ≈ $PORTFOLIO_M15_LOOKBACK_DAYS календарных дней."
                 PortfolioTimeframe.DailyOneYear ->
                     "Интервал портфеля: дневные закрытия (как график Рынок · 1Y)."
             },

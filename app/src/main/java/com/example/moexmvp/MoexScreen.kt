@@ -52,7 +52,7 @@ internal fun MoexScreen() {
     var portfolioCommissionPercent by remember { mutableStateOf(0.04) }
     var portfolioEntryThreshold by remember { mutableStateOf<Double?>(null) }
     var portfolioExitThreshold by remember { mutableStateOf<Double?>(null) }
-    var portfolioTimeframe by remember { mutableStateOf(PortfolioTimeframe.FifteenMinuteYear) }
+    var portfolioTimeframe by remember { mutableStateOf(PortfolioTimeframe.DailyOneYear) }
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -122,7 +122,7 @@ internal fun MoexScreen() {
                         return@refreshPortfolio
                     }
                     points = loaded
-                    desc = "15 мин · $PORTFOLIO_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
+                    desc = "15 мин (ISS 10m→15m) · $PORTFOLIO_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
                 }
             }
 
