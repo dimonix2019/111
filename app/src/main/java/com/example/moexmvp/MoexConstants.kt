@@ -40,3 +40,10 @@ internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 252L
 /** When refreshing from MOEX, re-fetch this many calendar days before last cached bar (overlap for ISS corrections). */
 internal const val PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS = 3L
 internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
+
+/** Shown on the About tab (keep short; dates are illustrative). */
+internal const val APP_CHANGELOG = """
+1.4.0 — Сводка на «Рынке», pull-to-refresh, статус данных, журнал сигналов, пресеты портфеля, walk-forward пороги, офлайн-снимок, экран «О приложении».
+1.3.0 — Сплит файлов, .cursorignore, кэш 15м SQLite.
+1.2.x — Портфель: плечо, комиссия, овернайт Тинькофф, режимы сигналов, пороги вручную.
+"""

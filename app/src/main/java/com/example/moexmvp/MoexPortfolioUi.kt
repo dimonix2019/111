@@ -1,20 +1,29 @@
 package com.example.moexmvp
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,21 +41,28 @@ internal fun MainTabSelector(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         MainTab.entries.forEach { tab ->
             val isSel = tab == selected
             Button(
                 onClick = { onSelect(tab) },
-                modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isSel) Color(0xFF1565C0) else Color(0xFF424242),
                     contentColor = Color.White
                 ),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
             ) {
-                Text(tab.label, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)
+                Text(
+                    tab.label,
+                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                    fontSize = 11.sp,
+                    maxLines = 1
+                )
             }
         }
     }
@@ -100,6 +116,83 @@ internal fun StrategyViewModeSelector(
 }
 
 @Composable
+private fun PortfolioPresetSection(
+    presets: List<PortfolioPreset>,
+    onApply: (PortfolioPreset) -> Unit,
+    onDelete: (String) -> Unit,
+    onSave: (String) -> Unit
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = "Пресеты (плечо / комиссия / пороги)",
+            color = Color.White,
+            fontWeight = FontWeight.Medium,
+            fontSize = 13.sp
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            presets.forEach { p ->
+                OutlinedButton(
+                    onClick = { onApply(p) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(p.name, fontSize = 10.sp, maxLines = 1, color = Color(0xFFB3E5FC))
+                }
+                TextButton(onClick = { onDelete(p.id) }, contentPadding = PaddingValues(4.dp)) {
+                    Text("×", color = Color(0xFFEF9A9A), fontSize = 16.sp)
+                }
+            }
+            OutlinedButton(
+                onClick = {
+                    name = ""
+                    showDialog = true
+                },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text("+ сохранить", fontSize = 10.sp, color = Color(0xFFE0E0E0))
+            }
+        }
+    }
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Имя пресета", color = Color.White) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    label = { Text("Название") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onSave(name)
+                        showDialog = false
+                    }
+                ) {
+                    Text("Сохранить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Отмена")
+                }
+            },
+            containerColor = Color(0xFF263238)
+        )
+    }
+}
+
+@Composable
 internal fun PortfolioTabContent(
     metrics: PortfolioMetrics?,
     portfolioLoading: Boolean,
@@ -116,7 +209,13 @@ internal fun PortfolioTabContent(
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
-    onExitThresholdChange: (Double) -> Unit
+    onExitThresholdChange: (Double) -> Unit,
+    presets: List<PortfolioPreset>,
+    onApplyPreset: (PortfolioPreset) -> Unit,
+    onDeletePreset: (String) -> Unit,
+    onSavePreset: (String) -> Unit,
+    onWalkForward: () -> Unit,
+    walkForwardBusy: Boolean
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -178,6 +277,37 @@ internal fun PortfolioTabContent(
             onCommissionChange = onCommissionChange,
             onEntryThresholdChange = onEntryThresholdChange,
             onExitThresholdChange = onExitThresholdChange
+        )
+        PortfolioPresetSection(
+            presets = presets,
+            onApply = onApplyPreset,
+            onDelete = onDeletePreset,
+            onSave = onSavePreset
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = onWalkForward,
+                enabled = !walkForwardBusy,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text("Walk-forward пороги", fontSize = 11.sp, color = Color(0xFFFFCC80))
+            }
+            if (walkForwardBusy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.padding(4.dp),
+                    color = Color(0xFF64B5F6),
+                    strokeWidth = 2.dp
+                )
+            }
+        }
+        Text(
+            text = "Подбор по кварталам (OOS) с штрафом за число сделок; пороги можно применить к авто-модели.",
+            color = Color(0xFF757575),
+            fontSize = 10.sp
         )
 
         if (portfolioLoading) {

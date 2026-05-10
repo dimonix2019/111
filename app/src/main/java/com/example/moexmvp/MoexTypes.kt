@@ -177,8 +177,25 @@ internal enum class SpreadScaleMode(val label: String) {
 
 internal enum class MainTab(val label: String) {
     Markets("Рынок"),
-    Portfolio("Портфель")
+    Portfolio("Портфель"),
+    Journal("Журнал"),
+    About("О приложении")
 }
+
+internal enum class MarketsDataSource(val labelRu: String) {
+    Network("MOEX (сеть)"),
+    FifteenMinuteCache("Кэш 15м"),
+    OfflineStale("Не актуально (последний снимок)")
+}
+
+internal data class PortfolioPreset(
+    val id: String,
+    val name: String,
+    val leverage: Double,
+    val commissionPercentPerSide: Double,
+    val entryThreshold: Double,
+    val exitThreshold: Double
+)
 
 internal enum class StrategyViewMode(val label: String) {
     Executed("Реальные сигналы"),

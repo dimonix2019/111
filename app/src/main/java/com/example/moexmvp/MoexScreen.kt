@@ -1,23 +1,20 @@
 package com.example.moexmvp
 
-import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,19 +22,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
-import java.time.LocalDateTime
 import java.util.Locale
 
 @Composable
@@ -76,8 +73,27 @@ internal fun MoexScreen() {
         mutableStateOf(loadStrategySignalEvents(context))
     }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
+    var lastGoodMarkets by remember { mutableStateOf<UiState.Success?>(null) }
+    var marketsStale by remember { mutableStateOf(false) }
+    var portfolioPresets by remember { mutableStateOf(loadPortfolioPresets(context)) }
+    var robustCandidate by remember { mutableStateOf<DynamicThresholds?>(null) }
+    var walkForwardBusy by remember { mutableStateOf(false) }
+    var todayPnlHint by remember { mutableStateOf<String?>(null) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
+
+    val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
+    val staleMarkets = marketsStale || (realtimeError != null && chartSuccess != null)
+
+    LaunchedEffect(chartSuccess?.points, signalEvents) {
+        val pts = chartSuccess?.points
+        if (pts != null && pts.isNotEmpty()) {
+            val est = estimateTodaySpreadPnlFromEvents(signalEvents, pts)
+            todayPnlHint = est?.let { String.format(Locale.US, "%.2f п.п. спрэда", it) }
+        } else {
+            todayPnlHint = null
+        }
+    }
 
     suspend fun refreshPortfolio(m15LoadHint: PortfolioM15LoadMode? = null) {
         portfolioLoading = true
@@ -210,6 +226,8 @@ internal fun MoexScreen() {
 
             when (val next = loadState(selectedPeriod)) {
                 is UiState.Success -> {
+                    lastGoodMarkets = next
+                    marketsStale = false
                     state = next
                     realtimeError = null
                     val thresholdUpdate = ensureDynamicThresholds(context)
@@ -358,11 +376,13 @@ internal fun MoexScreen() {
                 }
 
                 is UiState.Error -> {
-                    // Do not wipe an already visible chart on background realtime refresh.
-                    if (showLoading || state !is UiState.Success) {
-                        state = next
+                    realtimeError = next.message
+                    if (lastGoodMarkets != null) {
+                        marketsStale = true
+                        state = lastGoodMarkets!!
                     } else {
-                        realtimeError = next.message
+                        state = next
+                        marketsStale = false
                     }
                 }
 
@@ -384,230 +404,349 @@ internal fun MoexScreen() {
         }
     }
 
-    LazyColumn(
+    val dataSourceLabel = if (staleMarkets) {
+        MarketsDataSource.OfflineStale
+    } else {
+        MarketsDataSource.Network
+    }
+
+    robustCandidate?.let { cand ->
+        AlertDialog(
+            onDismissRequest = { robustCandidate = null },
+            title = { Text("Walk-forward пороги", color = Color.White) },
+            text = {
+                Text(
+                    String.format(
+                        Locale.US,
+                        "Вход ±%.2f, выход ±%.2f\n%s",
+                        cand.entry,
+                        cand.exit,
+                        cand.calculatedDate ?: ""
+                    ),
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        saveDynamicThresholds(context, cand)
+                        dynamicThresholds = cand
+                        robustCandidate = null
+                        Toast.makeText(context, "Пороги применены", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Применить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { robustCandidate = null }) {
+                    Text("Закрыть")
+                }
+            },
+            containerColor = Color(0xFF263238)
+        )
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(12.dp)
     ) {
-        item {
-            MainTabSelector(
-                selected = selectedTab,
-                onSelect = { selectedTab = it }
-            )
-        }
-        item {
+        MainTabSelector(
+            selected = selectedTab,
+            onSelect = { selectedTab = it }
+        )
+        if (selectedTab == MainTab.Markets || selectedTab == MainTab.Portfolio) {
             StrategyViewModeSelector(
                 mode = strategyViewMode,
                 onModeChange = { strategyViewMode = it }
             )
         }
 
-        if (selectedTab == MainTab.Portfolio) {
-            item {
-                PortfolioTabContent(
-                    metrics = portfolioMetrics,
-                    portfolioLoading = portfolioLoading,
-                    portfolioError = portfolioError,
-                    onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
-                    onMoex15mFullReload = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.FULL_REFRESH) } },
-                    timeframe = portfolioTimeframe,
-                    onTimeframeChange = { portfolioTimeframe = it },
-                    leverage = portfolioLeverage,
-                    commissionPercentPerSide = portfolioCommissionPercent,
-                    entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
-                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                    exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
-                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                    strategyViewMode = strategyViewMode,
-                    onLeverageChange = { portfolioLeverage = it },
-                    onCommissionChange = { portfolioCommissionPercent = it },
-                    onEntryThresholdChange = { newEntry ->
-                        portfolioEntryThreshold = newEntry.coerceIn(
-                            PORTFOLIO_Z_THRESHOLD_MIN,
-                            PORTFOLIO_Z_THRESHOLD_MAX
-                        )
-                    },
-                    onExitThresholdChange = { newExit ->
-                        portfolioExitThreshold = newExit.coerceIn(
-                            PORTFOLIO_Z_THRESHOLD_MIN,
-                            PORTFOLIO_Z_THRESHOLD_MAX
+        when (selectedTab) {
+            MainTab.Journal -> {
+                JournalTabContent(events = signalEvents)
+            }
+
+            MainTab.About -> {
+                AboutTabContent()
+            }
+
+            MainTab.Portfolio -> {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        PortfolioTabContent(
+                            metrics = portfolioMetrics,
+                            portfolioLoading = portfolioLoading,
+                            portfolioError = portfolioError,
+                            onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
+                            onMoex15mFullReload = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.FULL_REFRESH) } },
+                            timeframe = portfolioTimeframe,
+                            onTimeframeChange = { portfolioTimeframe = it },
+                            leverage = portfolioLeverage,
+                            commissionPercentPerSide = portfolioCommissionPercent,
+                            entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            strategyViewMode = strategyViewMode,
+                            onLeverageChange = { portfolioLeverage = it },
+                            onCommissionChange = { portfolioCommissionPercent = it },
+                            onEntryThresholdChange = { newEntry ->
+                                portfolioEntryThreshold = newEntry.coerceIn(
+                                    PORTFOLIO_Z_THRESHOLD_MIN,
+                                    PORTFOLIO_Z_THRESHOLD_MAX
+                                )
+                            },
+                            onExitThresholdChange = { newExit ->
+                                portfolioExitThreshold = newExit.coerceIn(
+                                    PORTFOLIO_Z_THRESHOLD_MIN,
+                                    PORTFOLIO_Z_THRESHOLD_MAX
+                                )
+                            },
+                            presets = portfolioPresets,
+                            onApplyPreset = { p ->
+                                portfolioLeverage = p.leverage
+                                portfolioCommissionPercent = p.commissionPercentPerSide
+                                portfolioEntryThreshold = p.entryThreshold
+                                portfolioExitThreshold = p.exitThreshold
+                            },
+                            onDeletePreset = { id ->
+                                portfolioPresets = deletePortfolioPreset(context, id)
+                            },
+                            onSavePreset = { name ->
+                                portfolioPresets = addPortfolioPreset(
+                                    context = context,
+                                    name = name,
+                                    leverage = portfolioLeverage,
+                                    commissionPercentPerSide = portfolioCommissionPercent,
+                                    entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+                                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                                    exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+                                )
+                            },
+                            onWalkForward = {
+                                scope.launch {
+                                    walkForwardBusy = true
+                                    try {
+                                        val yr = withContext(Dispatchers.IO) { loadState(Period.OneYear) }
+                                        val th = if (yr is UiState.Success && yr.points.size >= 80) {
+                                            withContext(Dispatchers.Default) {
+                                                calculateWalkForwardRobustThresholds(yr.points)
+                                            }
+                                        } else {
+                                            null
+                                        }
+                                        if (th == null) {
+                                            Toast.makeText(
+                                                context,
+                                                "Недостаточно данных для walk-forward.",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            robustCandidate = th
+                                        }
+                                    } finally {
+                                        walkForwardBusy = false
+                                    }
+                                }
+                            },
+                            walkForwardBusy = walkForwardBusy
                         )
                     }
-                )
+                }
             }
-            return@LazyColumn
-        }
 
-        item {
-            Text(
-                text = "TATN / TATNP (MOEX ISS)",
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                color = Color.White
-            )
-        }
-        item {
-            PeriodSelector(
-                selected = selectedPeriod,
-                onSelect = {
-                    selectedPeriod = it
-                    previousZScoreForAlert = null
-                }
-            )
-        }
-        item {
-            Text(
-                text = String.format(
-                    Locale.US,
-                    "Z-strategy thresholds: entry +/-%.1f, exit +/-%.1f%s",
-                    dynamicThresholds.entry,
-                    dynamicThresholds.exit,
-                    dynamicThresholds.calculatedDate?.let { " (updated $it)" } ?: ""
-                ),
-                color = Color(0xFFE0E0E0),
-                fontSize = 12.sp
-            )
-        }
-        item {
-            Text(
-                text = if (strategyViewMode == StrategyViewMode.Executed) {
-                    "Маркеры/портфель: реальные сигналы"
-                } else {
-                    "Маркеры/портфель: текущая модель порогов"
-                },
-                fontSize = 11.sp,
-                color = Color(0xFFBDBDBD)
-            )
-        }
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            refreshData(showLoading = state !is UiState.Success)
+            MainTab.Markets -> {
+                Column(Modifier.weight(1f)) {
+                    val last = chartSuccess?.points?.lastOrNull()
+                    MarketsSummaryStrip(
+                        z = last?.zScore,
+                        spread = last?.spreadPercent,
+                        position = zStrategyPosition,
+                        signalsToday = dailySignalLimit.sentCount,
+                        signalsMax = DAILY_SIGNAL_MAX_PER_DAY,
+                        todayPnlSpreadHint = todayPnlHint,
+                        lastLoadedAt = chartSuccess?.loadedAt ?: "—",
+                        dataSource = dataSourceLabel,
+                        stale = staleMarkets,
+                        onMoexRefresh = {
+                            scope.launch { refreshData(showLoading = state !is UiState.Success) }
                         }
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Refresh")
-                }
-                Button(
-                    onClick = {
-                        val message = String.format(
-                            Locale.US,
-                            "Пороги: вход +/-%.1f, выход +/-%.1f",
-                            dynamicThresholds.entry,
-                            dynamicThresholds.exit
+                    )
+                    if (realtimeError != null && chartSuccess != null) {
+                        Text(
+                            text = "Предупреждение: $realtimeError",
+                            color = Color(0xFFEF9A9A),
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 4.dp)
                         )
-                        showZStrategySignalPushNotification(
-                            context = context,
-                            title = "Тест уведомления",
-                            body = message
-                        )
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Test")
-                }
-                val monitorEnabled = SignalForegroundService.isBackgroundMonitorEnabled(context)
-                Button(
-                    onClick = {
-                        if (monitorEnabled) {
-                            SignalForegroundService.stop(context)
-                        } else {
-                            SignalForegroundService.start(context)
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (monitorEnabled) Color(0xFF2E7D32) else Color(0xFF2196F3),
-                        contentColor = Color.White
-                    )
-                ) {
-                    Text(if (monitorEnabled) "BG ON" else "BG OFF")
-                }
-            }
-        }
-        item {
-            RealtimeControls(
-                enabled = realtimeEnabled,
-                isRefreshing = isRefreshing,
-                onToggle = { realtimeEnabled = !realtimeEnabled }
-            )
-        }
-        if (realtimeError != null && state is UiState.Success) {
-            item {
-                Text(
-                    text = "Realtime warning: $realtimeError",
-                    color = Color(0xFFEF9A9A),
-                    fontSize = 12.sp
-                )
-            }
-        }
-        when (val current = state) {
-            is UiState.Loading -> item {
-                LoadingState()
-            }
-
-            is UiState.Error -> item {
-                ErrorState(current.message) {
-                    scope.launch { refreshData(showLoading = true) }
-                }
-            }
-
-            is UiState.Empty -> item {
-                EmptyState()
-            }
-
-            is UiState.Success -> {
-                item {
-                    SummaryBlock(
-                        points = current.points,
-                        loadedAt = current.loadedAt
-                    )
-                }
-                item {
-                    ChartCard(
-                        title = "График 4: Z-score спрэда",
-                        series = listOf(
-                            ChartSeries(
-                                name = "Z-score",
-                                color = Color(0xFF80D8FF),
-                                values = current.points.map { it.zScore },
-                                lineWidth = 2.4f
-                            )
-                        ),
-                        labels = current.points.map { it.tradeDate },
-                        chartHeightDp = 130,
-                        referenceLines = buildZScoreReferenceLines(dynamicThresholds),
-                        pointMarkers = if (strategyViewMode == StrategyViewMode.Executed) {
-                            buildZScoreSignalMarkersFromEvents(
-                                points = current.points,
-                                events = signalEvents
-                            )
-                        } else {
-                            buildZScoreSignalMarkersFromCrossings(
-                                points = current.points,
-                                thresholds = dynamicThresholds
+                    }
+                    MarketsPullRefreshBox(
+                        refreshing = isRefreshing,
+                        onRefresh = { scope.launch { refreshData(showLoading = false) } },
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(top = 8.dp)
+                    ) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                        item {
+                            Text(
+                                text = "TATN / TATNP (MOEX ISS)",
+                                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color.White
                             )
                         }
-                    )
+                        item {
+                            PeriodSelector(
+                                selected = selectedPeriod,
+                                onSelect = {
+                                    selectedPeriod = it
+                                    previousZScoreForAlert = null
+                                }
+                            )
+                        }
+                        item {
+                            Text(
+                                text = String.format(
+                                    Locale.US,
+                                    "Z-strategy thresholds: entry +/-%.1f, exit +/-%.1f%s",
+                                    dynamicThresholds.entry,
+                                    dynamicThresholds.exit,
+                                    dynamicThresholds.calculatedDate?.let { " (updated $it)" } ?: ""
+                                ),
+                                color = Color(0xFFE0E0E0),
+                                fontSize = 12.sp
+                            )
+                        }
+                        item {
+                            Text(
+                                text = if (strategyViewMode == StrategyViewMode.Executed) {
+                                    "Маркеры/портфель: реальные сигналы"
+                                } else {
+                                    "Маркеры/портфель: текущая модель порогов"
+                                },
+                                fontSize = 11.sp,
+                                color = Color(0xFFBDBDBD)
+                            )
+                        }
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val message = String.format(
+                                            Locale.US,
+                                            "Пороги: вход +/-%.1f, выход +/-%.1f",
+                                            dynamicThresholds.entry,
+                                            dynamicThresholds.exit
+                                        )
+                                        showZStrategySignalPushNotification(
+                                            context = context,
+                                            title = "Тест уведомления",
+                                            body = message
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Test")
+                                }
+                                val monitorEnabled = SignalForegroundService.isBackgroundMonitorEnabled(context)
+                                Button(
+                                    onClick = {
+                                        if (monitorEnabled) {
+                                            SignalForegroundService.stop(context)
+                                        } else {
+                                            SignalForegroundService.start(context)
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (monitorEnabled) Color(0xFF2E7D32) else Color(0xFF2196F3),
+                                        contentColor = Color.White
+                                    )
+                                ) {
+                                    Text(if (monitorEnabled) "BG ON" else "BG OFF")
+                                }
+                            }
+                        }
+                        item {
+                            RealtimeControls(
+                                enabled = realtimeEnabled,
+                                isRefreshing = isRefreshing,
+                                onToggle = { realtimeEnabled = !realtimeEnabled }
+                            )
+                        }
+                        if (chartSuccess != null) {
+                            val c = chartSuccess
+                            item {
+                                ChartCard(
+                                    title = "График 4: Z-score спрэда",
+                                    series = listOf(
+                                        ChartSeries(
+                                            name = "Z-score",
+                                            color = Color(0xFF80D8FF),
+                                            values = c.points.map { it.zScore },
+                                            lineWidth = 2.4f
+                                        )
+                                    ),
+                                    labels = c.points.map { it.tradeDate },
+                                    chartHeightDp = 130,
+                                    referenceLines = buildZScoreReferenceLines(dynamicThresholds),
+                                    pointMarkers = if (strategyViewMode == StrategyViewMode.Executed) {
+                                        buildZScoreSignalMarkersFromEvents(
+                                            points = c.points,
+                                            events = signalEvents
+                                        )
+                                    } else {
+                                        buildZScoreSignalMarkersFromCrossings(
+                                            points = c.points,
+                                            thresholds = dynamicThresholds
+                                        )
+                                    }
+                                )
+                            }
+                            item {
+                                ChartCard(
+                                    title = "График 2: spread = (TATN / TATNP - 1) * 100",
+                                    series = listOf(
+                                        ChartSeries(
+                                            "Spread %",
+                                            Color(0xFF69F0AE),
+                                            c.points.map { it.spreadPercent }
+                                        )
+                                    ),
+                                    labels = c.points.map { it.tradeDate },
+                                    chartHeightDp = 130,
+                                    rightAxisPercentBase = c.points.minOfOrNull { it.spreadPercent },
+                                    yScale = YAxisScale.Auto
+                                )
+                            }
+                        } else {
+                            when (val st = state) {
+                                is UiState.Loading -> item { LoadingState() }
+                                is UiState.Error -> item {
+                                    ErrorState(st.message) {
+                                        scope.launch { refreshData(showLoading = true) }
+                                    }
+                                }
+                                is UiState.Empty -> item { EmptyState() }
+                                else -> Unit
+                            }
+                        }
+                    }
                 }
-                item {
-                    ChartCard(
-                        title = "График 2: spread = (TATN / TATNP - 1) * 100",
-                        series = listOf(
-                            ChartSeries("Spread %", Color(0xFF69F0AE), current.points.map { it.spreadPercent })
-                        ),
-                        labels = current.points.map { it.tradeDate },
-                        chartHeightDp = 130,
-                        rightAxisPercentBase = current.points.minOfOrNull { it.spreadPercent },
-                        yScale = YAxisScale.Auto
-                    )
                 }
             }
         }
