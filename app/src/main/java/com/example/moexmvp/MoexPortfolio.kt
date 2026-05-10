@@ -12,6 +12,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -517,6 +518,7 @@ internal fun PortfolioTabContent(
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
+    onMoex15mFullReload: () -> Unit,
     timeframe: PortfolioTimeframe,
     onTimeframeChange: (PortfolioTimeframe) -> Unit,
     leverage: Double,
@@ -545,12 +547,22 @@ internal fun PortfolioTabContent(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
             )
-            Button(
-                onClick = onRefresh,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text("Обновить", fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(
+                    onClick = onRefresh,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text("Обновить", fontSize = 11.sp)
+                }
+                if (timeframe == PortfolioTimeframe.FifteenMinuteYear) {
+                    OutlinedButton(
+                        onClick = onMoex15mFullReload,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Text("MOEX заново", fontSize = 11.sp, color = Color(0xFFB3E5FC))
+                    }
+                }
             }
         }
         Text(
@@ -562,7 +574,7 @@ internal fun PortfolioTabContent(
         Text(
             text = when (timeframe) {
                 PortfolioTimeframe.FifteenMinuteYear ->
-                    "Интервал портфеля: ISS 10-мин свечи → 15 мин (быстрее, чем 1 мин); Z по окну. Окно ≈ $PORTFOLIO_M15_LOOKBACK_DAYS календарных дней."
+                    "Интервал портфеля: ISS 10-мин → 15 мин; Z по окну (~$PORTFOLIO_M15_LOOKBACK_DAYS дн.). Ряд кэшируется в SQLite на телефоне; «Обновить» — догрузка хвоста с MOEX."
                 PortfolioTimeframe.DailyOneYear ->
                     "Интервал портфеля: дневные закрытия (как график Рынок · 1Y)."
             },

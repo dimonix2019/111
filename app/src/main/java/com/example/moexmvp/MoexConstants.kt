@@ -31,4 +31,7 @@ internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
 /** Calendar days of history for 15m-style portfolio (10m ISS → 15m bars). ~1y; smaller than 365*1m traffic. */
 internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 252L
+
+/** When refreshing from MOEX, re-fetch this many calendar days before last cached bar (overlap for ISS corrections). */
+internal const val PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS = 3L
 internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033

@@ -190,6 +190,17 @@ internal enum class PortfolioTimeframe(val label: String) {
     FifteenMinuteYear("15 мин · ISS")
 }
 
+internal enum class PortfolioM15LoadMode {
+    /** Read SQLite only; no network. */
+    CACHE_ONLY,
+
+    /** Merge cached rows with a short tail fetch from MOEX (default). */
+    INCREMENTAL,
+
+    /** Drop cache for this series and download full window from MOEX. */
+    FULL_REFRESH
+}
+
 internal data class PortfolioClosedTrade(
     val direction: ZStrategyPosition,
     val entryDate: String,

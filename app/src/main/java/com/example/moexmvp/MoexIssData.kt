@@ -10,6 +10,7 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -326,15 +327,12 @@ internal suspend fun loadState(period: Period): UiState = withContext(Dispatcher
 }
 
 /**
- * Portfolio intraday series: **10-minute** MOEX ISS candles (native `interval=10`),
- * then aggregated to **15-minute** bars (same helper as 1D intraday path).
- * Using 1-minute for a full year would require hundreds of thousands of rows and is too slow on device.
- * Z-score is mean/std over the loaded window.
+ * Fetch 15m-aligned spread rows from MOEX (10m ISS → 15m bars). Does not read/write local cache.
  */
-internal suspend fun loadPortfolio15mDataPoints(
+internal suspend fun fetchPortfolio15mSpreadEntities(
     from: LocalDate,
     till: LocalDate
-): List<DataPoint> = withContext(Dispatchers.IO) {
+): List<PortfolioM15SpreadEntity> = withContext(Dispatchers.IO) {
     val zone = ZoneId.of("Europe/Moscow")
     val (tatnBars, tatnpBars) = coroutineScope {
         val d1 = async { loadCandleBars("TATN", from, till, interval = 10) }
@@ -345,22 +343,83 @@ internal suspend fun loadPortfolio15mDataPoints(
     val tatnp15 = aggregateTo15MinuteBars(tatnpBars).associateBy { it.timestamp }
     val times = tatn15.keys.intersect(tatnp15.keys).sorted()
     if (times.isEmpty()) return@withContext emptyList()
-    val points = times.mapNotNull { ts ->
+    times.mapNotNull { ts ->
         val c1 = tatn15[ts]?.close ?: return@mapNotNull null
         val c2 = tatnp15[ts]?.close ?: return@mapNotNull null
         if (c2 == 0.0) return@mapNotNull null
         val spread = (c1 / c2 - 1.0) * 100.0
-        DataPoint(
-            timestampMillis = ts.atZone(zone).toInstant().toEpochMilli(),
-            tradeDate = ts.format(portfolio15mLabelFormatter),
+        PortfolioM15SpreadEntity(
+            tsMillis = ts.atZone(zone).toInstant().toEpochMilli(),
             tatnClose = c1,
             tatnpClose = c2,
             spreadPercent = spread,
-            diff = c1 - c2,
-            zScore = 0.0
+            diff = c1 - c2
         )
     }
-    applyZScores(points)
+}
+
+/**
+ * 15m portfolio series with local Room cache on device.
+ *
+ * INCREMENTAL: merge cache with a short tail fetch from MOEX.
+ * FULL_REFRESH: wipe cache and download the full from..till window.
+ * CACHE_ONLY: read SQLite only (no network).
+ */
+internal suspend fun loadPortfolio15mDataPoints(
+    context: Context,
+    from: LocalDate,
+    till: LocalDate,
+    mode: PortfolioM15LoadMode
+): List<DataPoint> = withContext(Dispatchers.IO) {
+    val dao = PortfolioM15Database.get(context).dao()
+    val zone = ZoneId.of("Europe/Moscow")
+    val cutoffMillis = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
+
+    dao.deleteOlderThan(cutoffMillis)
+
+    when (mode) {
+        PortfolioM15LoadMode.CACHE_ONLY -> {
+            val rows = dao.getAll()
+            if (rows.isEmpty()) return@withContext emptyList()
+            applyZScores(rows.map { it.toDataPoint() })
+        }
+
+        PortfolioM15LoadMode.FULL_REFRESH -> {
+            val entities = fetchPortfolio15mSpreadEntities(from, till)
+            dao.deleteAll()
+            if (entities.isNotEmpty()) {
+                dao.insertAll(entities)
+            }
+            val all = dao.getAll()
+            if (all.isEmpty()) return@withContext emptyList()
+            applyZScores(all.map { it.toDataPoint() })
+        }
+
+        PortfolioM15LoadMode.INCREMENTAL -> {
+            val cached = dao.getAll()
+            val mergeFrom = if (cached.isEmpty()) {
+                from
+            } else {
+                val lastTs = cached.last().tsMillis
+                val lastDay = Instant.ofEpochMilli(lastTs).atZone(zone).toLocalDate()
+                val overlapStart = lastDay.minusDays(PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS)
+                maxOf(from, overlapStart)
+            }
+            if (mergeFrom <= till) {
+                val fresh = fetchPortfolio15mSpreadEntities(mergeFrom, till)
+                val byTs = LinkedHashMap<Long, PortfolioM15SpreadEntity>()
+                cached.filter { it.tsMillis >= cutoffMillis }.forEach { byTs[it.tsMillis] = it }
+                fresh.forEach { byTs[it.tsMillis] = it }
+                val merged = byTs.values.sortedBy { it.tsMillis }
+                if (merged.isNotEmpty()) {
+                    dao.insertAll(merged)
+                }
+            }
+            val all = dao.getAll()
+            if (all.isEmpty()) return@withContext emptyList()
+            applyZScores(all.map { it.toDataPoint() })
+        }
+    }
 }
 internal fun ensureDynamicThresholds(context: Context): DynamicThresholdUpdate {
     val saved = loadSavedDynamicThresholds(context)

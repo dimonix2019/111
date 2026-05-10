@@ -79,7 +79,7 @@ internal fun MoexScreen() {
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
 
-    suspend fun refreshPortfolio() {
+    suspend fun refreshPortfolio(m15LoadHint: PortfolioM15LoadMode? = null) {
         portfolioLoading = true
         portfolioError = null
         try {
@@ -115,10 +115,19 @@ internal fun MoexScreen() {
                 PortfolioTimeframe.FifteenMinuteYear -> {
                     val till = LocalDate.now()
                     val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
-                    val loaded = loadPortfolio15mDataPoints(from, till)
+                    val m15Mode = m15LoadHint ?: run {
+                        val cnt = PortfolioM15Database.get(context).dao().count()
+                        if (cnt > 0) PortfolioM15LoadMode.CACHE_ONLY else PortfolioM15LoadMode.INCREMENTAL
+                    }
+                    val loaded = loadPortfolio15mDataPoints(context, from, till, m15Mode)
                     if (loaded.size < 2) {
                         portfolioMetrics = null
-                        portfolioError = "Нет 15-мин данных за период (ISS/сеть)."
+                        portfolioError = when (m15Mode) {
+                            PortfolioM15LoadMode.CACHE_ONLY ->
+                                "Нет данных в локальном кэше (15 мин). Нажмите «Обновить» для загрузки с MOEX."
+                            else ->
+                                "Нет 15-мин данных (ISS / сеть). Попробуйте «MOEX заново»."
+                        }
                         return@refreshPortfolio
                     }
                     points = loaded
@@ -186,7 +195,7 @@ internal fun MoexScreen() {
         portfolioTimeframe
     ) {
         if (selectedTab == MainTab.Portfolio) {
-            refreshPortfolio()
+            refreshPortfolio(null)
         }
     }
 
@@ -400,7 +409,8 @@ internal fun MoexScreen() {
                     metrics = portfolioMetrics,
                     portfolioLoading = portfolioLoading,
                     portfolioError = portfolioError,
-                    onRefresh = { scope.launch { refreshPortfolio() } },
+                    onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
+                    onMoex15mFullReload = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.FULL_REFRESH) } },
                     timeframe = portfolioTimeframe,
                     onTimeframeChange = { portfolioTimeframe = it },
                     leverage = portfolioLeverage,
