@@ -272,6 +272,12 @@ internal fun ConfirmedPortfolioTabContent(
             fontSize = 10.sp
         )
         PortfolioHeroMetricsRow(metrics = metrics)
+        Text(
+            text = "Итого = реализованный PnL + нереализованная нога (если по журналу позиция ещё открыта). Обновляется при новых сигналах и «Обновить».",
+            color = Color(0xFF616161),
+            fontSize = 9.sp,
+            maxLines = 3
+        )
 
         if (portfolioError != null) {
             Text(portfolioError, color = Color(0xFFEF9A9A), fontSize = 11.sp)

@@ -186,6 +186,8 @@ internal fun MoexScreen() {
         }
     }
 
+    val signalJournalFingerprint = signalEvents.size to signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
+
     LaunchedEffect(
         selectedTab,
         dynamicThresholds.entry,
@@ -193,7 +195,8 @@ internal fun MoexScreen() {
         portfolioLeverage,
         portfolioCommissionPercent,
         portfolioEntryThreshold,
-        portfolioExitThreshold
+        portfolioExitThreshold,
+        signalJournalFingerprint
     ) {
         if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
             refreshPortfolio(null)
