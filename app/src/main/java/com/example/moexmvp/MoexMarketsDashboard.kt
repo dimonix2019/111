@@ -42,6 +42,7 @@ internal fun MarketsSummaryStrip(
     lastLoadedAt: String?,
     dataSource: MarketsDataSource,
     stale: Boolean,
+    sandboxDemoHint: String?,
     onMoexRefresh: () -> Unit
 ) {
     Column(
@@ -68,6 +69,14 @@ internal fun MarketsSummaryStrip(
                     Text("Обновить MOEX", fontSize = 12.sp)
                 }
             }
+        }
+        if (sandboxDemoHint != null) {
+            Text(
+                text = sandboxDemoHint,
+                color = Color(0xFF81D4FA),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
         Text(
             text = "Z: ${z?.let { String.format(Locale.US, "%.2f", it) } ?: "—"}   |   Спред: ${spread?.let { String.format(Locale.US, "%.2f%%", it) } ?: "—"}",

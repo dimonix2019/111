@@ -8,6 +8,8 @@ import androidx.security.crypto.MasterKey
 private const val PREFS_FILE = "tinkoff_sandbox_secure"
 private const val KEY_TOKEN = "sandbox_api_token"
 private const val KEY_ACCOUNT_ID = "sandbox_account_id"
+/** When true, «Принять» на карточке сигнала шлёт рыночные заявки в SandboxService. */
+private const val KEY_EXECUTE_SIGNALS_ON_SANDBOX = "execute_signals_on_sandbox"
 
 internal object TinkoffSandboxStorage {
 
@@ -42,5 +44,20 @@ internal object TinkoffSandboxStorage {
         encryptedPrefs(context).edit().apply {
             if (id.isEmpty()) remove(KEY_ACCOUNT_ID) else putString(KEY_ACCOUNT_ID, id)
         }.apply()
+    }
+
+    fun isExecuteSignalsOnSandbox(context: Context): Boolean =
+        encryptedPrefs(context).getBoolean(KEY_EXECUTE_SIGNALS_ON_SANDBOX, true)
+
+    fun setExecuteSignalsOnSandbox(context: Context, enabled: Boolean) {
+        encryptedPrefs(context).edit().putBoolean(KEY_EXECUTE_SIGNALS_ON_SANDBOX, enabled).apply()
+    }
+
+    fun resolveExecUiState(context: Context): SandboxExecUiState {
+        if (!isExecuteSignalsOnSandbox(context)) return SandboxExecUiState.Off
+        val t = getToken(context)
+        val a = getAccountId(context)
+        if (t.isNullOrBlank() || a.isNullOrBlank()) return SandboxExecUiState.MissingCredentials
+        return SandboxExecUiState.Ready
     }
 }

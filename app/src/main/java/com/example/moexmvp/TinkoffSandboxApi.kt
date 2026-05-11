@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.IOException
+import java.util.UUID
 
 private val jsonMedia = "application/json".toMediaType()
 
@@ -167,4 +168,133 @@ internal suspend fun tinkoffSandboxPayIn(token: String, accountId: String, units
         }
     }
     throw last ?: IOException("SandboxPayIn: неизвестная ошибка")
+}
+
+private fun postMarketBodyCamel(
+    accountId: String,
+    instrumentId: String,
+    direction: String,
+    quantityLots: Int,
+    orderId: String
+): JSONObject {
+    val price = JSONObject()
+        .put("units", "0")
+        .put("nano", 0)
+    return JSONObject()
+        .put("accountId", accountId)
+        .put("instrumentId", instrumentId)
+        .put("quantity", quantityLots.toString())
+        .put("direction", direction)
+        .put("orderType", "ORDER_TYPE_MARKET")
+        .put("orderId", orderId)
+        .put("price", price)
+        .put("timeInForce", "TIME_IN_FORCE_DAY")
+        .put("confirmMarginTrade", true)
+}
+
+private fun postMarketBodySnake(
+    accountId: String,
+    instrumentId: String,
+    direction: String,
+    quantityLots: Int,
+    orderId: String
+): JSONObject {
+    val price = JSONObject()
+        .put("units", "0")
+        .put("nano", 0)
+    return JSONObject()
+        .put("account_id", accountId)
+        .put("instrument_id", instrumentId)
+        .put("quantity", quantityLots.toString())
+        .put("direction", direction)
+        .put("order_type", "ORDER_TYPE_MARKET")
+        .put("order_id", orderId)
+        .put("price", price)
+        .put("time_in_force", "TIME_IN_FORCE_DAY")
+        .put("confirm_margin_trade", true)
+}
+
+/** One market order on the sandbox account (1 lot by default). */
+internal suspend fun tinkoffPostSandboxMarketOrder(
+    token: String,
+    accountId: String,
+    instrumentId: String,
+    orderDirection: String,
+    quantityLots: Int = 1
+): JSONObject {
+    var last: IOException? = null
+    for (body in listOf(
+        postMarketBodyCamel(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString()),
+        postMarketBodySnake(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString())
+    )) {
+        try {
+            return tinkoffSandboxPostAsync(token, "PostSandboxOrder", body)
+        } catch (e: IOException) {
+            last = e
+        }
+    }
+    throw last ?: IOException("PostSandboxOrder: неизвестная ошибка")
+}
+
+/**
+ * Opens a Z-spread position on the sandbox: 2 MOEX equity legs (1 lot each).
+ * LONG spread = long TATN / short TATNP; SHORT spread = the opposite.
+ */
+internal suspend fun tinkoffSandboxExecuteSpreadEntry(
+    token: String,
+    accountId: String,
+    signalType: StrategySignalType
+) {
+    val tatn = TINKOFF_MOEX_TATN_INSTRUMENT_ID
+    val tatnp = TINKOFF_MOEX_TATNP_INSTRUMENT_ID
+    val buy = "ORDER_DIRECTION_BUY"
+    val sell = "ORDER_DIRECTION_SELL"
+    when (signalType) {
+        StrategySignalType.EnterLong -> {
+            tinkoffPostSandboxMarketOrder(token, accountId, tatn, buy)
+            tinkoffPostSandboxMarketOrder(token, accountId, tatnp, sell)
+        }
+        StrategySignalType.EnterShort -> {
+            tinkoffPostSandboxMarketOrder(token, accountId, tatnp, buy)
+            tinkoffPostSandboxMarketOrder(token, accountId, tatn, sell)
+        }
+        else -> throw IOException("Только EnterLong / EnterShort")
+    }
+}
+
+internal suspend fun tinkoffGetSandboxPortfolio(token: String, accountId: String): JSONObject {
+    val attempts = listOf(
+        JSONObject().put("accountId", accountId).put("currency", "RUB"),
+        JSONObject().put("account_id", accountId).put("currency", "RUB")
+    )
+    var last: IOException? = null
+    for (body in attempts) {
+        try {
+            return tinkoffSandboxPostAsync(token, "GetSandboxPortfolio", body)
+        } catch (e: IOException) {
+            last = e
+        }
+    }
+    throw last ?: IOException("GetSandboxPortfolio: неизвестная ошибка")
+}
+
+private fun quotationUnitsToDouble(o: JSONObject): Double? {
+    val nano = o.optLong("nano", o.optLong("Nano", 0L))
+    val raw = o.opt("units") ?: o.opt("Units")
+    val units = when (raw) {
+        null -> 0.0
+        is Number -> raw.toDouble()
+        is String -> raw.trim().toDoubleOrNull() ?: return null
+        else -> return null
+    }
+    return units + nano / 1_000_000_000.0
+}
+
+/** Short rub summary for UI; null if structure differs. */
+internal fun formatSandboxPortfolioTotalRub(portfolioJson: JSONObject): String? {
+    val total = portfolioJson.optJSONObject("totalAmountPortfolio")
+        ?: portfolioJson.optJSONObject("total_amount_portfolio")
+        ?: return null
+    val v = quotationUnitsToDouble(total) ?: return null
+    return String.format(java.util.Locale.US, "%.2f ₽", v)
 }

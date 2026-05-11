@@ -94,6 +94,9 @@ internal fun MoexScreen() {
     var walkForwardBusy by remember { mutableStateOf(false) }
     var todayPnlHint by remember { mutableStateOf<String?>(null) }
     var pendingVirtualTrade by remember { mutableStateOf<PendingVirtualTradeProposal?>(null) }
+    var sandboxExecState by remember {
+        mutableStateOf(TinkoffSandboxStorage.resolveExecUiState(context))
+    }
     var bgMonitorToggleEpoch by remember { mutableStateOf(0) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
@@ -104,9 +107,11 @@ internal fun MoexScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+        sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+                sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -448,14 +453,54 @@ internal fun MoexScreen() {
         pendingVirtualTrade?.let { proposal ->
             PendingVirtualTradeProposalCard(
                 proposal = proposal,
+                sandboxState = sandboxExecState,
                 onAccept = {
-                    clearPendingVirtualTradeProposal(context)
-                    pendingVirtualTrade = null
-                    Toast.makeText(
-                        context,
-                        "Принято. Учёт вручную; подключение Тинькофф Invest API — отдельный шаг.",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    scope.launch {
+                        val st = TinkoffSandboxStorage.resolveExecUiState(context)
+                        sandboxExecState = st
+                        when (st) {
+                            SandboxExecUiState.Ready -> {
+                                val tok = TinkoffSandboxStorage.getToken(context)
+                                val acc = TinkoffSandboxStorage.getAccountId(context)
+                                if (tok.isNullOrBlank() || acc.isNullOrBlank()) {
+                                    Toast.makeText(
+                                        context,
+                                        "Нет токена или счёта в «Песочница».",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    return@launch
+                                }
+                                try {
+                                    tinkoffSandboxExecuteSpreadEntry(tok, acc, proposal.signalType)
+                                    clearPendingVirtualTradeProposal(context)
+                                    pendingVirtualTrade = null
+                                    Toast.makeText(
+                                        context,
+                                        "Отправлены 2 рыночные заявки в песочницу (TATN/TATNP).",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } catch (e: Exception) {
+                                    Toast.makeText(
+                                        context,
+                                        e.message ?: e.toString(),
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                            SandboxExecUiState.Off, SandboxExecUiState.MissingCredentials -> {
+                                clearPendingVirtualTradeProposal(context)
+                                pendingVirtualTrade = null
+                                val msg = when (st) {
+                                    SandboxExecUiState.Off ->
+                                        "Принято без заявок. Включите «Исполнять на демо-счёте» во вкладке «Песочница»."
+                                    SandboxExecUiState.MissingCredentials ->
+                                        "Принято без заявок: сохраните sandbox-токен и счёт во вкладке «Песочница»."
+                                    else -> ""
+                                }
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
                 },
                 onReject = {
                     clearPendingVirtualTradeProposal(context)
@@ -483,7 +528,11 @@ internal fun MoexScreen() {
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    TinkoffSandboxTabContent()
+                    TinkoffSandboxTabContent(
+                        onSandboxPrefsChanged = {
+                            sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+                        }
+                    )
                 }
             }
 
@@ -605,6 +654,14 @@ internal fun MoexScreen() {
             MainTab.Markets -> {
                 Column(Modifier.weight(1f)) {
                     val last = chartSuccess?.points?.lastOrNull()
+                    val demoTail = TinkoffSandboxStorage.getAccountId(context)?.takeLast(8).orEmpty()
+                    val sandboxDemoHint = when (sandboxExecState) {
+                        SandboxExecUiState.Off -> null
+                        SandboxExecUiState.MissingCredentials ->
+                            "Т‑Инвест песочница: сохраните токен и счёт (вкладка «Песочница»), чтобы слать заявки по «Принять»."
+                        SandboxExecUiState.Ready ->
+                            "Демо-счёт Т‑Инвест · …$demoTail · по «Принять» на сигнале → 2 рыночные заявки в песочнице."
+                    }
                     MarketsSummaryStrip(
                         z = last?.zScore,
                         spread = last?.spreadPercent,
@@ -615,6 +672,7 @@ internal fun MoexScreen() {
                         lastLoadedAt = chartSuccess?.loadedAt ?: "—",
                         dataSource = dataSourceLabel,
                         stale = staleMarkets,
+                        sandboxDemoHint = sandboxDemoHint,
                         onMoexRefresh = {
                             scope.launch { refreshData(showLoading = state !is UiState.Success) }
                         }

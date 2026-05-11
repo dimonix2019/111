@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 internal fun PendingVirtualTradeProposalCard(
     proposal: PendingVirtualTradeProposal,
+    sandboxState: SandboxExecUiState,
     onAccept: () -> Unit,
     onReject: () -> Unit,
     modifier: Modifier = Modifier
@@ -94,7 +95,14 @@ internal fun PendingVirtualTradeProposalCard(
             }
         }
         Text(
-            text = "Демо: без Тинькофф API. Позже можно связать с заявкой на счёте.",
+            text = when (sandboxState) {
+                SandboxExecUiState.Ready ->
+                    "Принять: 2 рыночные заявки на демо-счёт Т‑Инвест (TATN/TATNP, по 1 лоту)."
+                SandboxExecUiState.MissingCredentials ->
+                    "Исполнение на песочнице включено: сохраните токен и счёт на вкладке «Песочница»."
+                SandboxExecUiState.Off ->
+                    "Исполнение на песочнице выключено — только учёт в приложении (вкладка «Песочница»)."
+            },
             color = Color(0xFF78909C),
             fontSize = 9.sp
         )

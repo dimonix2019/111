@@ -14,6 +14,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,7 +38,9 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 @Composable
-internal fun TinkoffSandboxTabContent() {
+internal fun TinkoffSandboxTabContent(
+    onSandboxPrefsChanged: () -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var tokenInput by remember { mutableStateOf("") }
@@ -46,6 +50,10 @@ internal fun TinkoffSandboxTabContent() {
     var loading by remember { mutableStateOf(false) }
     var accounts by remember { mutableStateOf<List<SandboxAccountRow>>(emptyList()) }
     var showToken by remember { mutableStateOf(false) }
+    var executeSignalsOnSandbox by remember {
+        mutableStateOf(TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context))
+    }
+    var portfolioRubLine by remember { mutableStateOf<String?>(null) }
     fun hasToken(): Boolean =
         tokenInput.isNotBlank() || !TinkoffSandboxStorage.getToken(context).isNullOrBlank()
 
@@ -94,6 +102,31 @@ internal fun TinkoffSandboxTabContent() {
             fontSize = 11.sp
         )
 
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Исполнять вход по сигналу на демо-счёт (2 рыночные заявки TATN/TATNP)",
+                color = Color(0xFFE0E0E0),
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            )
+            Switch(
+                checked = executeSignalsOnSandbox,
+                onCheckedChange = {
+                    executeSignalsOnSandbox = it
+                    TinkoffSandboxStorage.setExecuteSignalsOnSandbox(context, it)
+                    onSandboxPrefsChanged()
+                },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color(0xFF81D4FA),
+                    checkedTrackColor = Color(0xFF0277BD)
+                )
+            )
+        }
+
         OutlinedTextField(
             value = tokenInput,
             onValueChange = { tokenInput = it },
@@ -115,6 +148,7 @@ internal fun TinkoffSandboxTabContent() {
                 onClick = {
                     TinkoffSandboxStorage.setToken(context, tokenInput)
                     status = "Токен сохранён локально."
+                    onSandboxPrefsChanged()
                 },
                 enabled = !loading && tokenInput.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
@@ -128,7 +162,9 @@ internal fun TinkoffSandboxTabContent() {
                     tokenInput = ""
                     accountInput = ""
                     accounts = emptyList()
+                    executeSignalsOnSandbox = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
                     status = "Токен и счёт очищены."
+                    onSandboxPrefsChanged()
                 },
                 enabled = !loading,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6D4C41))
@@ -155,6 +191,7 @@ internal fun TinkoffSandboxTabContent() {
                         TinkoffSandboxStorage.setAccountId(context, id)
                         accountInput = id
                         status = "Счёт открыт: $id"
+                        onSandboxPrefsChanged()
                     }
                 },
                 enabled = !loading && hasToken(),
@@ -192,6 +229,7 @@ internal fun TinkoffSandboxTabContent() {
                             accountInput = row.id
                             TinkoffSandboxStorage.setAccountId(context, row.id)
                             status = "Выбран счёт ${row.id}"
+                            onSandboxPrefsChanged()
                         },
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                     ) {
@@ -220,6 +258,7 @@ internal fun TinkoffSandboxTabContent() {
                     val rub = payInRub.toLongOrNull() ?: throw IllegalArgumentException("Сумма не число")
                     val resp = tinkoffSandboxPayIn(t, acc, rub)
                     status = formatPayInResult(resp)
+                    onSandboxPrefsChanged()
                 }
             },
             enabled = !loading && hasToken() && accountInput.isNotBlank() && payInRub.isNotBlank(),
@@ -227,6 +266,30 @@ internal fun TinkoffSandboxTabContent() {
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
         ) {
             Text("Пополнить песочницу")
+        }
+
+        Button(
+            onClick = {
+                run {
+                    portfolioRubLine = null
+                    val t = TinkoffSandboxStorage.getToken(context) ?: tokenInput.trim()
+                    val acc = TinkoffSandboxStorage.getAccountId(context) ?: accountInput.trim()
+                    if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                    if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
+                    val port = tinkoffGetSandboxPortfolio(t, acc)
+                    portfolioRubLine =
+                        formatSandboxPortfolioTotalRub(port)
+                            ?: "Портфель (сырой ответ): ${port.toString().take(400)}"
+                }
+            },
+            enabled = !loading && hasToken() && accountInput.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00695C))
+        ) {
+            Text("Запросить портфель песочницы (оценка в ₽)")
+        }
+        portfolioRubLine?.let { line ->
+            Text(line, color = Color(0xFFB2DFDB), fontSize = 12.sp)
         }
 
         if (loading) {

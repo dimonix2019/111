@@ -184,6 +184,16 @@ internal enum class MainTab(val label: String) {
     About("О приложении")
 }
 
+/** UI for virtual-trade card: whether sandbox market orders can run. */
+internal enum class SandboxExecUiState {
+    /** User disabled «исполнение на песочнице». */
+    Off,
+    /** Toggle on but token or account missing. */
+    MissingCredentials,
+    /** POST PostSandboxOrder possible. */
+    Ready
+}
+
 internal enum class MarketsDataSource(val labelRu: String) {
     Network("MOEX (сеть)"),
     FifteenMinuteCache("Кэш 15м"),
