@@ -32,7 +32,10 @@ import java.time.ZoneId
 import java.util.Locale
 
 @Composable
-internal fun JournalTabContent(events: List<StrategySignalEvent>) {
+internal fun JournalTabContent(
+    events: List<StrategySignalEvent>,
+    modifier: Modifier = Modifier
+) {
     var typeFilter by remember { mutableIntStateOf(0) }
     var dayFilter by remember { mutableStateOf<LocalDate?>(null) }
     val zone = ZoneId.of("Europe/Moscow")
@@ -54,51 +57,58 @@ internal fun JournalTabContent(events: List<StrategySignalEvent>) {
             true
         }.toList().asReversed()
     }
-    Column(
-        modifier = Modifier
+    LazyColumn(
+        modifier = modifier
             .fillMaxWidth()
             .background(Color.Black)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            "Журнал сигналов",
-            style = MaterialTheme.typography.titleMedium,
-            color = Color.White,
-            fontWeight = FontWeight.Bold
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            FilterChip("Все", selected = typeFilter == 0) { typeFilter = 0 }
-            FilterChip("Вход LONG", selected = typeFilter == 1) { typeFilter = 1 }
-            FilterChip("Вход SHORT", selected = typeFilter == 2) { typeFilter = 2 }
-            FilterChip("Выходы", selected = typeFilter == 3) { typeFilter = 3 }
+        item {
+            Text(
+                "Журнал сигналов",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            val today = LocalDate.now(zone)
-            FilterChip("Сегодня", selected = dayFilter == today) { dayFilter = today }
-            FilterChip("Все дни", selected = dayFilter == null) { dayFilter = null }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                FilterChip("Все", selected = typeFilter == 0) { typeFilter = 0 }
+                FilterChip("Вход LONG", selected = typeFilter == 1) { typeFilter = 1 }
+                FilterChip("Вход SHORT", selected = typeFilter == 2) { typeFilter = 2 }
+                FilterChip("Выходы", selected = typeFilter == 3) { typeFilter = 3 }
+            }
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(filtered, key = { "${it.timestampMillis}_${it.signalType}" }) { ev ->
-                val ts = Instant.ofEpochMilli(ev.timestampMillis).atZone(zone)
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-                        .padding(10.dp)
-                ) {
-                    Text(
-                        "${ts.toLocalDate()} ${ts.toLocalTime()} · ${ev.signalType.name}",
-                        color = Color(0xFFE0E0E0),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        String.format(Locale.US, "Z = %.2f", ev.zScore),
-                        color = Color(0xFF9E9E9E),
-                        fontSize = 12.sp
-                    )
-                }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                val today = LocalDate.now(zone)
+                FilterChip("Сегодня", selected = dayFilter == today) { dayFilter = today }
+                FilterChip("Все дни", selected = dayFilter == null) { dayFilter = null }
+            }
+        }
+        items(
+            items = filtered,
+            key = { "${it.timestampMillis}_${it.signalType}" }
+        ) { ev ->
+            val ts = Instant.ofEpochMilli(ev.timestampMillis).atZone(zone)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+                    .padding(10.dp)
+            ) {
+                Text(
+                    "${ts.toLocalDate()} ${ts.toLocalTime()} · ${ev.signalType.name}",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    String.format(Locale.US, "Z = %.2f", ev.zScore),
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 12.sp
+                )
             }
         }
     }

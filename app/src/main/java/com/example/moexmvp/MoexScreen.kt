@@ -464,11 +464,14 @@ internal fun MoexScreen() {
         }
         when (selectedTab) {
             MainTab.Journal -> {
-                JournalTabContent(events = signalEvents)
+                JournalTabContent(
+                    events = signalEvents,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                )
             }
 
             MainTab.About -> {
-                AboutTabContent()
+                AboutTabContent(modifier = Modifier.weight(1f).fillMaxWidth())
             }
 
             MainTab.Portfolio -> {
