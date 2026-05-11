@@ -501,7 +501,7 @@ class SignalForegroundService : Service() {
 
         fun isBackgroundMonitorEnabled(context: Context): Boolean {
             return context.getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(PREF_BACKGROUND_SIGNAL_ENABLED, false)
+                .getBoolean(PREF_BACKGROUND_SIGNAL_ENABLED, true)
         }
 
         private fun saveSignalMonitorEnabled(context: Context, enabled: Boolean) {

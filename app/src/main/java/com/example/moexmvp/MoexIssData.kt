@@ -19,6 +19,9 @@ import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.sqrt
 
+/** MOEX ISS candle times are treated as Europe/Moscow (exchange local). */
+internal val moexZoneId: ZoneId = ZoneId.of("Europe/Moscow")
+
 internal fun parseCandleBars(body: String): List<CandleBar> {
     val rows = JSONObject(body)
         .optJSONObject("candles")
@@ -199,7 +202,7 @@ internal fun fetchData(period: Period): FetchedData {
 
         val spread = (tatn / tatnp - 1.0) * 100.0
         DataPoint(
-            timestampMillis = time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+            timestampMillis = time.atZone(moexZoneId).toInstant().toEpochMilli(),
             tradeDate = formatLabelForPeriod(time, period),
             tatnClose = tatn,
             tatnpClose = tatnp,

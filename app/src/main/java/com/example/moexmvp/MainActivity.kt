@@ -30,6 +30,9 @@ class MainActivity : ComponentActivity() {
         createPushNotificationChannel(this)
         requestPushPermissionIfNeeded()
         initPushMessaging()
+        if (SignalForegroundService.isBackgroundMonitorEnabled(this)) {
+            SignalForegroundService.start(this)
+        }
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(

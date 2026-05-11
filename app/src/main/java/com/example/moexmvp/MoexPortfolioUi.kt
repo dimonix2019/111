@@ -211,7 +211,7 @@ private fun PortfolioDataRefreshHeader(
     title: String,
     portfolioLoading: Boolean,
     onRefresh: () -> Unit,
-    onMoex15mFullReload: () -> Unit
+    onMoex15mFullReload: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -247,14 +247,16 @@ private fun PortfolioDataRefreshHeader(
                     Text("Обновить", fontSize = 11.sp)
                 }
             }
-            OutlinedButton(
-                onClick = onMoex15mFullReload,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFB3E5FC))
-                    Spacer(Modifier.width(4.dp))
-                    Text("MOEX заново", fontSize = 10.sp, color = Color(0xFFB3E5FC))
+            if (onMoex15mFullReload != null) {
+                OutlinedButton(
+                    onClick = onMoex15mFullReload,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFB3E5FC))
+                        Spacer(Modifier.width(4.dp))
+                        Text("MOEX заново", fontSize = 10.sp, color = Color(0xFFB3E5FC))
+                    }
                 }
             }
         }
@@ -268,7 +270,6 @@ internal fun ConfirmedPortfolioTabContent(
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
-    onMoex15mFullReload: () -> Unit,
     leverage: Double,
     commissionPercentPerSide: Double,
     onLeverageChange: (Double) -> Unit,
@@ -282,7 +283,7 @@ internal fun ConfirmedPortfolioTabContent(
             title = "Портфель · подтверждённые",
             portfolioLoading = portfolioLoading,
             onRefresh = onRefresh,
-            onMoex15mFullReload = onMoex15mFullReload
+            onMoex15mFullReload = null
         )
         Text(
             text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · 15 мин · журнал вход/выход",

@@ -513,6 +513,8 @@ internal fun buildZScoreSignalMarkersFromEvents(
     val rangeStart = points.first().timestampMillis
     val rangeEnd = points.last().timestampMillis
     val bucketMs = 15 * 60 * 1000L
+    /** Allow snapping across small clock skew (chart vs 15m cache both use Moscow). */
+    val maxSnapMs = bucketMs * 2
     return events
         .asSequence()
         .filter { it.timestampMillis in (rangeStart - bucketMs)..(rangeEnd + bucketMs) }
@@ -522,7 +524,7 @@ internal fun buildZScoreSignalMarkersFromEvents(
                 abs(points[index].timestampMillis - event.timestampMillis)
             } ?: return@mapNotNull null
             val diff = abs(points[idx].timestampMillis - event.timestampMillis)
-            if (diff > bucketMs) return@mapNotNull null
+            if (diff > maxSnapMs) return@mapNotNull null
             val (color, label, shape) = when (event.signalType) {
                 StrategySignalType.EnterLong -> Triple(Color(0xFF69F0AE), "Enter LONG", ChartMarkerShape.TriangleUp)
                 StrategySignalType.EnterShort -> Triple(Color(0xFFFF8A80), "Enter SHORT", ChartMarkerShape.TriangleDown)
