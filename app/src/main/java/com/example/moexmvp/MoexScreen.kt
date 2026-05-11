@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.AlertDialog
@@ -654,33 +655,72 @@ internal fun MoexScreen() {
                             val monitorEnabled = remember(bgMonitorToggleEpoch) {
                                 SignalForegroundService.isBackgroundMonitorEnabled(context)
                             }
-                            Button(
-                                onClick = {
-                                    if (monitorEnabled) {
-                                        SignalForegroundService.stop(context)
-                                    } else {
-                                        SignalForegroundService.start(context)
-                                    }
-                                    bgMonitorToggleEpoch++
-                                },
+                            val testEntryZ = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+                            val testExitZ = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+                            Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (monitorEnabled) Color(0xFF2E7D32) else Color(0xFF2196F3),
-                                    contentColor = Color.White
-                                )
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = if (monitorEnabled) {
-                                            Icons.Filled.PauseCircle
-                                        } else {
-                                            Icons.Filled.PlayCircle
-                                        },
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
+                                Button(
+                                    onClick = {
+                                        val body = String.format(
+                                            Locale.US,
+                                            "Тест сигнала MOEX. Текущие пороги Z: вход ±%.2f, выход ±%.2f.",
+                                            testEntryZ,
+                                            testExitZ
+                                        )
+                                        showZStrategySignalPushNotification(
+                                            context = context,
+                                            title = "Тест сигнала",
+                                            body = body
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF455A64),
+                                        contentColor = Color.White
                                     )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(if (monitorEnabled) "Фоновый монитор: вкл" else "Фоновый монитор: выкл")
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Filled.NotificationsActive,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Тест", fontSize = 12.sp)
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        if (monitorEnabled) {
+                                            SignalForegroundService.stop(context)
+                                        } else {
+                                            SignalForegroundService.start(context)
+                                        }
+                                        bgMonitorToggleEpoch++
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (monitorEnabled) Color(0xFF2E7D32) else Color(0xFF2196F3),
+                                        contentColor = Color.White
+                                    )
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = if (monitorEnabled) {
+                                                Icons.Filled.PauseCircle
+                                            } else {
+                                                Icons.Filled.PlayCircle
+                                            },
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(if (monitorEnabled) "BG вкл" else "BG выкл", fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }
