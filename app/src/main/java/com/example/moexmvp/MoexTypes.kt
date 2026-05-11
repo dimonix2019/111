@@ -180,6 +180,7 @@ internal enum class MainTab(val label: String) {
     Portfolio("Портфель"),
     StrategyTest("Тест страт."),
     Journal("Журнал"),
+    Sandbox("Песочница"),
     About("О приложении")
 }
 

@@ -477,6 +477,16 @@ internal fun MoexScreen() {
                 AboutTabContent(modifier = Modifier.weight(1f).fillMaxWidth())
             }
 
+            MainTab.Sandbox -> {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    TinkoffSandboxTabContent()
+                }
+            }
+
             MainTab.Portfolio -> {
                 LazyColumn(
                     modifier = Modifier.weight(1f),

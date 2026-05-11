@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.ShowChart
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
@@ -67,6 +68,7 @@ internal fun MainTabSelector(
                 MainTab.Portfolio -> Icons.Filled.Savings
                 MainTab.StrategyTest -> Icons.Filled.AutoGraph
                 MainTab.Journal -> Icons.AutoMirrored.Filled.FormatListBulleted
+                MainTab.Sandbox -> Icons.Filled.AccountBalance
                 MainTab.About -> Icons.Filled.Info
             }
             Button(

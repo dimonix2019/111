@@ -45,6 +45,7 @@ internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.0 — Вкладка «Песочница»: токен T‑Invest sandbox в EncryptedSharedPreferences, OpenSandboxAccount, GetSandboxAccounts, SandboxPayIn (REST, только клиент).
 1.5.7 — Портфель: пересчёт при изменении журнала сигналов (Итого/PnL не залипали); подсказка про реализованное + нереализованное.
 1.5.6 — Исправлен вылет при открытии «Журнал» (вложенный LazyColumn без высоты); «О приложении» с weight.
 1.5.5 — Рынок: снова кнопка «Тест» уведомления; в тексте — текущие пороги входа/выхода Z (ручные с «Тест страт.» или авто).
