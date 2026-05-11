@@ -178,6 +178,7 @@ internal enum class SpreadScaleMode(val label: String) {
 internal enum class MainTab(val label: String) {
     Markets("Рынок"),
     Portfolio("Портфель"),
+    StrategyTest("Тест страт."),
     Journal("Журнал"),
     About("О приложении")
 }

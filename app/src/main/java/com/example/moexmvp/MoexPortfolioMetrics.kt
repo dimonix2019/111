@@ -400,7 +400,7 @@ internal fun buildExecutedPortfolioMetrics(
     val largestLoss = lossRubList.minOrNull() ?: 0.0
 
     return PortfolioMetrics(
-        periodDescription = "$periodDescription · режим: реальные сигналы",
+        periodDescription = "$periodDescription · подтверждённые вход/выход (журнал)",
         notionalRub = notionalRub,
         leverage = leverage,
         commissionPercentPerSide = commissionPercentPerSide,

@@ -54,7 +54,10 @@ import java.util.Locale
 internal fun MoexScreen() {
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(MainTab.Markets) }
-    var portfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
+    /** Закрытые сделки с подтверждённым входом и выходом в журнале. */
+    var confirmedPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
+    /** Симуляция по порогам |Z| на 15м ряду. */
+    var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     var portfolioLoading by remember { mutableStateOf(false) }
     var portfolioError by remember { mutableStateOf<String?>(null) }
     var strategyViewMode by remember { mutableStateOf(StrategyViewMode.Executed) }
@@ -132,7 +135,8 @@ internal fun MoexScreen() {
             }
             val loaded = loadPortfolio15mDataPoints(context, from, till, m15Mode)
             if (loaded.size < 2) {
-                portfolioMetrics = null
+                confirmedPortfolioMetrics = null
+                strategyTestPortfolioMetrics = null
                 portfolioError = when (m15Mode) {
                     PortfolioM15LoadMode.CACHE_ONLY ->
                         "Нет 15-мин данных в кэше. Нажмите «Обновить» для загрузки с MOEX."
@@ -156,39 +160,27 @@ internal fun MoexScreen() {
                 exit = exitThreshold,
                 calculatedDate = dynamicThresholds.calculatedDate
             )
-            val modeSpecific = when (strategyViewMode) {
-                StrategyViewMode.Executed -> {
-                    val events = loadStrategySignalEvents(
-                        context = context,
-                        fromTimestampMillis = points.firstOrNull()?.timestampMillis
-                    )
-                    buildExecutedPortfolioMetrics(
-                        points = points,
-                        events = events,
-                        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                        leverage = portfolioLeverage,
-                        commissionPercentPerSide = portfolioCommissionPercent,
-                        periodDescription = desc
-                    )
-                }
-
-                StrategyViewMode.CurrentModel -> buildZStrategyPortfolioMetrics(
-                    points = points,
-                    thresholds = portfolioThresholds,
-                    notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                    leverage = portfolioLeverage,
-                    commissionPercentPerSide = portfolioCommissionPercent,
-                    periodDescription = desc
-                )
-            }
-            portfolioMetrics = modeSpecific
-            if (portfolioMetrics == null) {
-                portfolioError = if (strategyViewMode == StrategyViewMode.Executed) {
-                    "Нет сигналов за период для режима 'Реальные сигналы'."
-                } else {
-                    "Недостаточно точек для расчёта портфеля."
-                }
-            }
+            val events = loadStrategySignalEvents(
+                context = context,
+                fromTimestampMillis = points.firstOrNull()?.timestampMillis
+            )
+            confirmedPortfolioMetrics = buildExecutedPortfolioMetrics(
+                points = points,
+                events = events,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+                periodDescription = desc
+            )
+            strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(
+                points = points,
+                thresholds = portfolioThresholds,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+                periodDescription = desc
+            )
+            portfolioError = null
         } finally {
             portfolioLoading = false
         }
@@ -201,10 +193,9 @@ internal fun MoexScreen() {
         portfolioLeverage,
         portfolioCommissionPercent,
         portfolioEntryThreshold,
-        portfolioExitThreshold,
-        strategyViewMode
+        portfolioExitThreshold
     ) {
-        if (selectedTab == MainTab.Portfolio) {
+        if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
             refreshPortfolio(null)
         }
     }
@@ -471,7 +462,7 @@ internal fun MoexScreen() {
                 modifier = Modifier.padding(top = 6.dp)
             )
         }
-        if (selectedTab == MainTab.Markets || selectedTab == MainTab.Portfolio) {
+        if (selectedTab == MainTab.Markets) {
             StrategyViewModeSelector(
                 mode = strategyViewMode,
                 onModeChange = { strategyViewMode = it }
@@ -493,8 +484,29 @@ internal fun MoexScreen() {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item {
-                        PortfolioTabContent(
-                            metrics = portfolioMetrics,
+                        ConfirmedPortfolioTabContent(
+                            metrics = confirmedPortfolioMetrics,
+                            portfolioLoading = portfolioLoading,
+                            portfolioError = portfolioError,
+                            onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
+                            onMoex15mFullReload = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.FULL_REFRESH) } },
+                            leverage = portfolioLeverage,
+                            commissionPercentPerSide = portfolioCommissionPercent,
+                            onLeverageChange = { portfolioLeverage = it },
+                            onCommissionChange = { portfolioCommissionPercent = it }
+                        )
+                    }
+                }
+            }
+
+            MainTab.StrategyTest -> {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        StrategyTestTabContent(
+                            metrics = strategyTestPortfolioMetrics,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,
                             onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
@@ -505,7 +517,6 @@ internal fun MoexScreen() {
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                            strategyViewMode = strategyViewMode,
                             onLeverageChange = { portfolioLeverage = it },
                             onCommissionChange = { portfolioCommissionPercent = it },
                             onEntryThresholdChange = { newEntry ->
@@ -651,9 +662,9 @@ internal fun MoexScreen() {
                         item {
                             Text(
                                 text = if (strategyViewMode == StrategyViewMode.Executed) {
-                                    "Маркеры/портфель: реальные сигналы"
+                                    "Маркеры: журнал сигналов · вкладка «Портфель» — подтверждённые сделки"
                                 } else {
-                                    "Маркеры/портфель: текущая модель порогов"
+                                    "Маркеры: пересечение порогов · симуляция на вкладке «Тест страт.»"
                                 },
                                 fontSize = 11.sp,
                                 color = Color(0xFFBDBDBD)
