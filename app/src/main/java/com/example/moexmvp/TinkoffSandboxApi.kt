@@ -7,31 +7,69 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.io.IOException
 
-private val jsonMedia = "application/json; charset=utf-8".toMediaType()
+private val jsonMedia = "application/json".toMediaType()
+
+/** Strip accidental "Bearer " prefix and whitespace (users often paste full header). */
+internal fun normalizeInvestToken(raw: String): String {
+    var t = raw.trim()
+    if (t.startsWith("Bearer ", ignoreCase = true)) {
+        t = t.substring(7).trim()
+    }
+    return t.trim()
+}
+
+private fun parseJsonObjectOrEmpty(text: String): JSONObject {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return JSONObject()
+    return try {
+        JSONTokener(trimmed).nextValue() as? JSONObject ?: JSONObject()
+    } catch (_: Exception) {
+        JSONObject().put("_raw", trimmed)
+    }
+}
+
+private fun extractApiErrorMessage(httpCode: Int, body: String): String {
+    val o = runCatching { JSONObject(body) }.getOrNull() ?: return body.ifBlank { "HTTP $httpCode" }
+    val msg = sequenceOf(
+        o.optString("message"),
+        o.optString("description"),
+        o.optString("error"),
+        o.optJSONObject("error")?.optString("message") ?: ""
+    ).firstOrNull { it.isNotBlank() }
+    val code = o.opt("code")?.toString()?.takeIf { it.isNotBlank() }
+    return buildString {
+        append("HTTP $httpCode")
+        if (code != null) append(" · code=").append(code)
+        if (!msg.isNullOrBlank()) append(": ").append(msg)
+        else if (body.isNotBlank() && body.length < 800) append(": ").append(body)
+    }
+}
 
 private suspend fun tinkoffSandboxPostRaw(token: String, method: String, bodyJson: String): String =
     withContext(Dispatchers.IO) {
+        val norm = normalizeInvestToken(token)
         val url = "$TINVEST_SANDBOX_REST_PREFIX/$method"
         val req = Request.Builder()
             .url(url)
             .post(bodyJson.toRequestBody(jsonMedia))
-            .header("Authorization", "Bearer $token")
+            .header("Authorization", "Bearer $norm")
+            .header("Accept", "application/json")
             .build()
         httpClient.newCall(req).execute().use { resp ->
             val text = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
-                throw IOException("HTTP ${resp.code}: $text")
+                throw IOException(extractApiErrorMessage(resp.code, text))
             }
             text
         }
     }
 
-/** POST to sandbox REST; returns parsed JSON body on HTTP 2xx. */
 internal suspend fun tinkoffSandboxPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffSandboxPostRaw(token, method, body.toString())
-    return JSONObject(raw)
+    return parseJsonObjectOrEmpty(raw)
 }
 
 private fun JSONObject.firstNonBlankString(vararg keys: String): String? {
@@ -43,10 +81,11 @@ private fun JSONObject.firstNonBlankString(vararg keys: String): String? {
 }
 
 private fun extractAccountId(root: JSONObject): String? {
-    root.firstNonBlankString("accountId", "account_id")?.let { return it }
-    val nestedKeys = arrayOf("account", "sandboxAccount", "openSandboxAccountResponse")
-    for (k in nestedKeys) {
-        root.optJSONObject(k)?.let { extractAccountId(it)?.let { return it } }
+    root.firstNonBlankString("accountId", "account_id", "id")?.let { return it }
+    val it = root.keys()
+    while (it.hasNext()) {
+        val key = it.next()
+        root.optJSONObject(key)?.firstNonBlankString("accountId", "account_id", "id")?.let { return it }
     }
     return null
 }
@@ -58,12 +97,10 @@ internal suspend fun tinkoffOpenSandboxAccount(token: String, name: String): Str
 
 internal data class SandboxAccountRow(val id: String, val name: String)
 
-internal suspend fun tinkoffGetSandboxAccounts(token: String): List<SandboxAccountRow> {
-    val body = JSONObject().put("status", "ACCOUNT_STATUS_ALL")
-    val root = tinkoffSandboxPostAsync(token, "GetSandboxAccounts", body)
+private fun parseSandboxAccounts(root: JSONObject): List<SandboxAccountRow> {
     val arr: JSONArray = root.optJSONArray("accounts")
         ?: root.optJSONArray("Accounts")
-        ?: return emptyList()
+        ?: JSONArray()
     return buildList {
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
@@ -74,13 +111,48 @@ internal suspend fun tinkoffGetSandboxAccounts(token: String): List<SandboxAccou
     }
 }
 
-internal suspend fun tinkoffSandboxPayIn(token: String, accountId: String, unitsRub: Long): JSONObject {
+internal suspend fun tinkoffGetSandboxAccounts(token: String): List<SandboxAccountRow> {
+    var root = tinkoffSandboxPostAsync(token, "GetSandboxAccounts", JSONObject())
+    var rows = parseSandboxAccounts(root)
+    if (rows.isEmpty()) {
+        root = tinkoffSandboxPostAsync(
+            token,
+            "GetSandboxAccounts",
+            JSONObject().put("status", "ACCOUNT_STATUS_ALL")
+        )
+        rows = parseSandboxAccounts(root)
+    }
+    return rows
+}
+
+private fun payInBodyCamel(accountId: String, unitsRub: Long): JSONObject {
     val amount = JSONObject()
         .put("currency", "RUB")
         .put("units", unitsRub.toString())
         .put("nano", 0)
-    val body = JSONObject()
+    return JSONObject()
         .put("accountId", accountId)
         .put("amount", amount)
-    return tinkoffSandboxPostAsync(token, "SandboxPayIn", body)
+}
+
+private fun payInBodySnake(accountId: String, unitsRub: Long): JSONObject {
+    val amount = JSONObject()
+        .put("currency", "rub")
+        .put("units", unitsRub.toString())
+        .put("nano", 0)
+    return JSONObject()
+        .put("account_id", accountId)
+        .put("amount", amount)
+}
+
+internal suspend fun tinkoffSandboxPayIn(token: String, accountId: String, unitsRub: Long): JSONObject {
+    var last: IOException? = null
+    for (body in listOf(payInBodyCamel(accountId, unitsRub), payInBodySnake(accountId, unitsRub))) {
+        try {
+            return tinkoffSandboxPostAsync(token, "SandboxPayIn", body)
+        } catch (e: IOException) {
+            last = e
+        }
+    }
+    throw last ?: IOException("SandboxPayIn: неизвестная ошибка")
 }

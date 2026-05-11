@@ -28,7 +28,7 @@ internal object TinkoffSandboxStorage {
         encryptedPrefs(context).getString(KEY_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
 
     fun setToken(context: Context, token: String?) {
-        val t = token?.trim().orEmpty()
+        val t = normalizeInvestToken(token?.trim().orEmpty())
         encryptedPrefs(context).edit().apply {
             if (t.isEmpty()) remove(KEY_TOKEN) else putString(KEY_TOKEN, t)
         }.apply()
