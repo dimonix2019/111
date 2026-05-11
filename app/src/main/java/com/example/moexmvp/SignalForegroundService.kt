@@ -122,6 +122,12 @@ class SignalForegroundService : Service() {
         when (determineSignal(prevZ, snapshot.latestZ, currentPosition, thresholdUpdate.thresholds)) {
             BgSignal.EnterLong -> {
                 nextPosition = BgPosition.Long
+                recordStrategySignalEvent(
+                    context = this,
+                    signalType = StrategySignalType.EnterLong,
+                    zScore = snapshot.latestZ,
+                    timestampMillis = snapshot.latestTimestampMillis
+                )
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
                         context = this,
@@ -134,12 +140,6 @@ class SignalForegroundService : Service() {
                         )
                     )
                     if (sent) {
-                        recordStrategySignalEvent(
-                            context = this,
-                            signalType = StrategySignalType.EnterLong,
-                            zScore = snapshot.latestZ,
-                            timestampMillis = snapshot.latestTimestampMillis
-                        )
                         nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                     }
                 }
@@ -147,6 +147,12 @@ class SignalForegroundService : Service() {
 
             BgSignal.EnterShort -> {
                 nextPosition = BgPosition.Short
+                recordStrategySignalEvent(
+                    context = this,
+                    signalType = StrategySignalType.EnterShort,
+                    zScore = snapshot.latestZ,
+                    timestampMillis = snapshot.latestTimestampMillis
+                )
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
                         context = this,
@@ -159,12 +165,6 @@ class SignalForegroundService : Service() {
                         )
                     )
                     if (sent) {
-                        recordStrategySignalEvent(
-                            context = this,
-                            signalType = StrategySignalType.EnterShort,
-                            zScore = snapshot.latestZ,
-                            timestampMillis = snapshot.latestTimestampMillis
-                        )
                         nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                     }
                 }
@@ -172,6 +172,12 @@ class SignalForegroundService : Service() {
 
             BgSignal.ExitLong -> {
                 nextPosition = BgPosition.Flat
+                recordStrategySignalEvent(
+                    context = this,
+                    signalType = StrategySignalType.ExitLong,
+                    zScore = snapshot.latestZ,
+                    timestampMillis = snapshot.latestTimestampMillis
+                )
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
                         context = this,
@@ -184,12 +190,6 @@ class SignalForegroundService : Service() {
                         )
                     )
                     if (sent) {
-                        recordStrategySignalEvent(
-                            context = this,
-                            signalType = StrategySignalType.ExitLong,
-                            zScore = snapshot.latestZ,
-                            timestampMillis = snapshot.latestTimestampMillis
-                        )
                         nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                     }
                 }
@@ -197,6 +197,12 @@ class SignalForegroundService : Service() {
 
             BgSignal.ExitShort -> {
                 nextPosition = BgPosition.Flat
+                recordStrategySignalEvent(
+                    context = this,
+                    signalType = StrategySignalType.ExitShort,
+                    zScore = snapshot.latestZ,
+                    timestampMillis = snapshot.latestTimestampMillis
+                )
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
                         context = this,
@@ -209,12 +215,6 @@ class SignalForegroundService : Service() {
                         )
                     )
                     if (sent) {
-                        recordStrategySignalEvent(
-                            context = this,
-                            signalType = StrategySignalType.ExitShort,
-                            zScore = snapshot.latestZ,
-                            timestampMillis = snapshot.latestTimestampMillis
-                        )
                         nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                     }
                 }

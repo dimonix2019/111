@@ -241,6 +241,12 @@ internal fun MoexScreen() {
                             ZStrategySignal.EnterLong -> {
                                 zStrategyPosition = ZStrategyPosition.Long
                                 saveStrategyPosition(context, zStrategyPosition)
+                                recordStrategySignalEvent(
+                                    context = context,
+                                    signalType = StrategySignalType.EnterLong,
+                                    zScore = latestZScore,
+                                    timestampMillis = latestTimestampMillis
+                                )
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
@@ -253,12 +259,6 @@ internal fun MoexScreen() {
                                         )
                                     )
                                     if (sent) {
-                                        recordStrategySignalEvent(
-                                            context = context,
-                                            signalType = StrategySignalType.EnterLong,
-                                            zScore = latestZScore,
-                                            timestampMillis = latestTimestampMillis
-                                        )
                                         dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                         saveDailySignalLimit(context, dailySignalLimit)
                                     }
@@ -268,6 +268,12 @@ internal fun MoexScreen() {
                             ZStrategySignal.EnterShort -> {
                                 zStrategyPosition = ZStrategyPosition.Short
                                 saveStrategyPosition(context, zStrategyPosition)
+                                recordStrategySignalEvent(
+                                    context = context,
+                                    signalType = StrategySignalType.EnterShort,
+                                    zScore = latestZScore,
+                                    timestampMillis = latestTimestampMillis
+                                )
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
@@ -280,12 +286,6 @@ internal fun MoexScreen() {
                                         )
                                     )
                                     if (sent) {
-                                        recordStrategySignalEvent(
-                                            context = context,
-                                            signalType = StrategySignalType.EnterShort,
-                                            zScore = latestZScore,
-                                            timestampMillis = latestTimestampMillis
-                                        )
                                         dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                         saveDailySignalLimit(context, dailySignalLimit)
                                     }
@@ -295,6 +295,12 @@ internal fun MoexScreen() {
                             ZStrategySignal.ExitLong -> {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
+                                recordStrategySignalEvent(
+                                    context = context,
+                                    signalType = StrategySignalType.ExitLong,
+                                    zScore = latestZScore,
+                                    timestampMillis = latestTimestampMillis
+                                )
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
@@ -307,12 +313,6 @@ internal fun MoexScreen() {
                                         )
                                     )
                                     if (sent) {
-                                        recordStrategySignalEvent(
-                                            context = context,
-                                            signalType = StrategySignalType.ExitLong,
-                                            zScore = latestZScore,
-                                            timestampMillis = latestTimestampMillis
-                                        )
                                         dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                         saveDailySignalLimit(context, dailySignalLimit)
                                     }
@@ -322,6 +322,12 @@ internal fun MoexScreen() {
                             ZStrategySignal.ExitShort -> {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
+                                recordStrategySignalEvent(
+                                    context = context,
+                                    signalType = StrategySignalType.ExitShort,
+                                    zScore = latestZScore,
+                                    timestampMillis = latestTimestampMillis
+                                )
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
@@ -334,12 +340,6 @@ internal fun MoexScreen() {
                                         )
                                     )
                                     if (sent) {
-                                        recordStrategySignalEvent(
-                                            context = context,
-                                            signalType = StrategySignalType.ExitShort,
-                                            zScore = latestZScore,
-                                            timestampMillis = latestTimestampMillis
-                                        )
                                         dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                         saveDailySignalLimit(context, dailySignalLimit)
                                     }

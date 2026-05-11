@@ -27,6 +27,8 @@ internal const val PREF_Z_DAILY_SIGNAL_COUNT = "z_daily_signal_count"
 internal const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry_legacy"
 internal const val PREF_Z_DAILY_SIGNAL_EXIT = "z_daily_signal_exit_legacy"
 internal const val DAILY_SIGNAL_MAX_PER_DAY = 20
+/** Skip duplicate journal rows when UI and background service see the same edge within this window. */
+internal const val STRATEGY_SIGNAL_JOURNAL_DEDUP_WALL_MS = 25_000L
 internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
 
@@ -43,6 +45,7 @@ internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.5.4 — Журнал: сигналы пишутся всегда при срабатывании стратегии (не только при успешном push); с BG по умолчанию снова видны сделки. Дедуп 25 с тем же типом.
 1.5.3 — Рынок: убраны режимы «Реальные/Модель», маркеры только из журнала; без легенды под Z-графиком; убрана кнопка Test; один переключатель фонового монитора.
 1.5.2 — Портфель: без «MOEX заново»; время свечей графика = Москва — подтверждённые сделки из журнала совпадают с 15м; фоновый монитор (BG) по умолчанию вкл. и стартует с приложением.
 1.5.1 — Вкладка «Тест страт.»: пороги Z, пресеты, walk-forward, сделки симуляции. «Портфель» — только подтверждённые сделки (журнал вход/выход).

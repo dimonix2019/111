@@ -27,6 +27,8 @@ private const val PREF_PUSH_LAST_TIMESTAMP_MS = "push_last_timestamp_ms"
 private const val PUSH_DEDUP_WINDOW_MS = 10_000L
 private const val SIGNAL_EVENTS_PREFS_NAME = "moex_signal_events"
 private const val PREF_SIGNAL_EVENTS_JSON = "strategy_signal_events_json"
+private const val PREF_SIGNAL_LAST_WALL_MS = "strategy_signal_last_journal_wall_ms"
+private const val PREF_SIGNAL_LAST_TYPE = "strategy_signal_last_journal_type"
 private const val MAX_SIGNAL_EVENTS = 800
 private val pushDedupLock = Any()
 private val signalEventsLock = Any()
@@ -169,6 +171,14 @@ internal fun recordStrategySignalEvent(
 ) {
     synchronized(signalEventsLock) {
         val prefs = context.getSharedPreferences(SIGNAL_EVENTS_PREFS_NAME, Context.MODE_PRIVATE)
+        val nowWall = System.currentTimeMillis()
+        val prevWall = prefs.getLong(PREF_SIGNAL_LAST_WALL_MS, 0L)
+        val prevType = prefs.getString(PREF_SIGNAL_LAST_TYPE, null)
+        if (prevWall > 0L && prevType == signalType.name &&
+            (nowWall - prevWall) <= STRATEGY_SIGNAL_JOURNAL_DEDUP_WALL_MS
+        ) {
+            return
+        }
         val existing = prefs.getString(PREF_SIGNAL_EVENTS_JSON, null).orEmpty()
         val source = runCatching { JSONArray(existing) }.getOrElse { JSONArray() }
         val events = mutableListOf<StrategySignalEvent>()
@@ -199,7 +209,11 @@ internal fun recordStrategySignalEvent(
                     .put("zScore", event.zScore)
             )
         }
-        prefs.edit().putString(PREF_SIGNAL_EVENTS_JSON, output.toString()).apply()
+        prefs.edit()
+            .putString(PREF_SIGNAL_EVENTS_JSON, output.toString())
+            .putLong(PREF_SIGNAL_LAST_WALL_MS, nowWall)
+            .putString(PREF_SIGNAL_LAST_TYPE, signalType.name)
+            .apply()
     }
     if (signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort) {
         savePendingVirtualTradeProposal(
