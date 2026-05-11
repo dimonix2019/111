@@ -45,6 +45,7 @@ internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.2 — Песочница: REST на хосте sandbox-invest-public-api (не продовый invest-public-api); SandboxPayIn: units/nano числом; запасной домен .tinkoff.ru; в ошибке — URL запроса.
 1.6.1 — Песочница: нормализация токена (убрать лишний Bearer), разбор ошибок API, повтор GetSandboxAccounts, SandboxPayIn camel/snake JSON.
 1.6.0 — Вкладка «Песочница»: токен T‑Invest sandbox в EncryptedSharedPreferences, OpenSandboxAccount, GetSandboxAccounts, SandboxPayIn (REST, только клиент).
 1.5.7 — Портфель: пересчёт при изменении журнала сигналов (Итого/PnL не залипали); подсказка про реализованное + нереализованное.

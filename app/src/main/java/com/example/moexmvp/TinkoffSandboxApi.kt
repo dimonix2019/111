@@ -37,7 +37,8 @@ private fun extractApiErrorMessage(httpCode: Int, body: String): String {
         o.optString("message"),
         o.optString("description"),
         o.optString("error"),
-        o.optJSONObject("error")?.optString("message") ?: ""
+        o.optJSONObject("error")?.optString("message") ?: "",
+        o.optJSONObject("details")?.optString("message") ?: ""
     ).firstOrNull { it.isNotBlank() }
     val code = o.opt("code")?.toString()?.takeIf { it.isNotBlank() }
     return buildString {
@@ -51,20 +52,30 @@ private fun extractApiErrorMessage(httpCode: Int, body: String): String {
 private suspend fun tinkoffSandboxPostRaw(token: String, method: String, bodyJson: String): String =
     withContext(Dispatchers.IO) {
         val norm = normalizeInvestToken(token)
-        val url = "$TINVEST_SANDBOX_REST_PREFIX/$method"
-        val req = Request.Builder()
-            .url(url)
-            .post(bodyJson.toRequestBody(jsonMedia))
-            .header("Authorization", "Bearer $norm")
-            .header("Accept", "application/json")
-            .build()
-        httpClient.newCall(req).execute().use { resp ->
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) {
-                throw IOException(extractApiErrorMessage(resp.code, text))
+        var lastNetwork: IOException? = null
+        for (prefix in TINVEST_SANDBOX_REST_PREFIXES) {
+            val url = "$prefix/$method"
+            val req = Request.Builder()
+                .url(url)
+                .post(bodyJson.toRequestBody(jsonMedia))
+                .header("Authorization", "Bearer $norm")
+                .header("Accept", "application/json")
+                .build()
+            try {
+                httpClient.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) {
+                        throw IOException("${extractApiErrorMessage(resp.code, text)} · $url")
+                    }
+                    return@withContext text
+                }
+            } catch (e: IOException) {
+                // Ответ API с не-2xx уже упакован в сообщение, начинающееся с «HTTP …» — другой хост не пробуем.
+                if (e.message?.startsWith("HTTP ") == true) throw e
+                lastNetwork = e
             }
-            text
         }
+        throw lastNetwork ?: IOException("Sandbox REST: нет доступных хостов")
     }
 
 internal suspend fun tinkoffSandboxPostAsync(token: String, method: String, body: JSONObject): JSONObject {
@@ -128,17 +139,18 @@ internal suspend fun tinkoffGetSandboxAccounts(token: String): List<SandboxAccou
 private fun payInBodyCamel(accountId: String, unitsRub: Long): JSONObject {
     val amount = JSONObject()
         .put("currency", "RUB")
-        .put("units", unitsRub.toString())
+        .put("units", unitsRub)
         .put("nano", 0)
     return JSONObject()
         .put("accountId", accountId)
         .put("amount", amount)
 }
 
+/** Официальная схема SandboxPayInRequest: account_id + MoneyValue (ISO валюта, units/nano — числа). */
 private fun payInBodySnake(accountId: String, unitsRub: Long): JSONObject {
     val amount = JSONObject()
-        .put("currency", "rub")
-        .put("units", unitsRub.toString())
+        .put("currency", "RUB")
+        .put("units", unitsRub)
         .put("nano", 0)
     return JSONObject()
         .put("account_id", accountId)
@@ -147,7 +159,7 @@ private fun payInBodySnake(accountId: String, unitsRub: Long): JSONObject {
 
 internal suspend fun tinkoffSandboxPayIn(token: String, accountId: String, unitsRub: Long): JSONObject {
     var last: IOException? = null
-    for (body in listOf(payInBodyCamel(accountId, unitsRub), payInBodySnake(accountId, unitsRub))) {
+    for (body in listOf(payInBodySnake(accountId, unitsRub), payInBodyCamel(accountId, unitsRub))) {
         try {
             return tinkoffSandboxPostAsync(token, "SandboxPayIn", body)
         } catch (e: IOException) {

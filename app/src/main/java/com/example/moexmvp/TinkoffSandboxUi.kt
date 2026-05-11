@@ -89,7 +89,7 @@ internal fun TinkoffSandboxTabContent() {
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Токен песочницы выпускается в настройках Т‑Инвест (раздел API). Хранится зашифрованно на устройстве. Без вашего сервера.",
+            text = "Токен режима «песочница» (Т‑Инвест → API). Запросы идут на sandbox-invest-public-api.tbank.ru — это отдельный контур от боевого API. «Bearer …» в начале токена уберётся. Внизу показывается текст ошибки и URL метода.",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp
         )
