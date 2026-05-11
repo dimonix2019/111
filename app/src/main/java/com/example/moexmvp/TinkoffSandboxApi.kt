@@ -33,20 +33,34 @@ private fun parseJsonObjectOrEmpty(text: String): JSONObject {
 }
 
 private fun extractApiErrorMessage(httpCode: Int, body: String): String {
-    val o = runCatching { JSONObject(body) }.getOrNull() ?: return body.ifBlank { "HTTP $httpCode" }
+    val o = runCatching { JSONObject(body) }.getOrNull()
+        ?: return body.ifBlank { "HTTP $httpCode" }
     val msg = sequenceOf(
         o.optString("message"),
+        o.optJSONObject("status")?.optString("message") ?: "",
         o.optString("description"),
         o.optString("error"),
         o.optJSONObject("error")?.optString("message") ?: "",
         o.optJSONObject("details")?.optString("message") ?: ""
     ).firstOrNull { it.isNotBlank() }
     val code = o.opt("code")?.toString()?.takeIf { it.isNotBlank() }
+    val snippet = body.trim().replace("\n", " ").take(320)
+    val vague = msg.isNullOrBlank() ||
+        msg.equals("Ошибка", ignoreCase = true) ||
+        msg.equals("error", ignoreCase = true) ||
+        msg.length < 4
     return buildString {
         append("HTTP $httpCode")
         if (code != null) append(" · code=").append(code)
-        if (!msg.isNullOrBlank()) append(": ").append(msg)
-        else if (body.isNotBlank() && body.length < 800) append(": ").append(body)
+        when {
+            !msg.isNullOrBlank() && !vague -> append(": ").append(msg)
+            !msg.isNullOrBlank() && vague && snippet.isNotEmpty() -> {
+                append(": ").append(msg)
+                append(" · ").append(snippet)
+            }
+            !msg.isNullOrBlank() && vague -> append(": ").append(msg)
+            snippet.isNotEmpty() -> append(": ").append(snippet)
+        }
     }
 }
 
@@ -214,6 +228,38 @@ private fun postMarketBodySnake(
         .put("confirm_margin_trade", true)
 }
 
+private fun postMarketBodyCamelNoPrice(
+    accountId: String,
+    instrumentId: String,
+    direction: String,
+    quantityLots: Int,
+    orderId: String
+): JSONObject = JSONObject()
+    .put("accountId", accountId)
+    .put("instrumentId", instrumentId)
+    .put("quantity", quantityLots.toString())
+    .put("direction", direction)
+    .put("orderType", "ORDER_TYPE_MARKET")
+    .put("orderId", orderId)
+    .put("timeInForce", "TIME_IN_FORCE_DAY")
+    .put("confirmMarginTrade", true)
+
+private fun postMarketBodySnakeNoPrice(
+    accountId: String,
+    instrumentId: String,
+    direction: String,
+    quantityLots: Int,
+    orderId: String
+): JSONObject = JSONObject()
+    .put("account_id", accountId)
+    .put("instrument_id", instrumentId)
+    .put("quantity", quantityLots.toString())
+    .put("direction", direction)
+    .put("order_type", "ORDER_TYPE_MARKET")
+    .put("order_id", orderId)
+    .put("time_in_force", "TIME_IN_FORCE_DAY")
+    .put("confirm_margin_trade", true)
+
 /** One market order on the sandbox account (1 lot by default). */
 internal suspend fun tinkoffPostSandboxMarketOrder(
     token: String,
@@ -223,12 +269,15 @@ internal suspend fun tinkoffPostSandboxMarketOrder(
     quantityLots: Int = 1
 ): JSONObject {
     var last: IOException? = null
-    for (body in listOf(
-        postMarketBodyCamel(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString()),
-        postMarketBodySnake(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString())
-    )) {
+    val bodies = listOf(
+        { postMarketBodyCamel(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString()) },
+        { postMarketBodySnake(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString()) },
+        { postMarketBodyCamelNoPrice(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString()) },
+        { postMarketBodySnakeNoPrice(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString()) }
+    )
+    for (factory in bodies) {
         try {
-            return tinkoffSandboxPostAsync(token, "PostSandboxOrder", body)
+            return tinkoffSandboxPostAsync(token, "PostSandboxOrder", factory())
         } catch (e: IOException) {
             last = e
         }

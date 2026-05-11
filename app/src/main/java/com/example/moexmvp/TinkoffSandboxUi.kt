@@ -34,8 +34,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 @Composable
@@ -60,23 +62,30 @@ internal fun TinkoffSandboxTabContent(
         tokenInput.isNotBlank() || !TinkoffSandboxStorage.getToken(context).isNullOrBlank()
 
     LaunchedEffect(Unit) {
-        val embedTok = BuildConfig.SANDBOX_TOKEN_EMBED.trim()
-        val embedAcc = BuildConfig.SANDBOX_ACCOUNT_EMBED.trim()
-        var tok = TinkoffSandboxStorage.getToken(context)
-        if (tok.isNullOrEmpty() && embedTok.isNotEmpty()) {
-            TinkoffSandboxStorage.setToken(context, embedTok)
-            tok = TinkoffSandboxStorage.getToken(context)
+        val loadResult = withContext(Dispatchers.IO) {
+            runCatching {
+                val embedTok = BuildConfig.SANDBOX_TOKEN_EMBED.trim()
+                val embedAcc = BuildConfig.SANDBOX_ACCOUNT_EMBED.trim()
+                var tok = TinkoffSandboxStorage.getToken(context)
+                if (tok.isNullOrEmpty() && embedTok.isNotEmpty()) {
+                    TinkoffSandboxStorage.setToken(context, embedTok)
+                    tok = TinkoffSandboxStorage.getToken(context)
+                }
+                var acc = TinkoffSandboxStorage.getAccountId(context)
+                if (acc.isNullOrEmpty() && embedAcc.isNotEmpty()) {
+                    TinkoffSandboxStorage.setAccountId(context, embedAcc)
+                    acc = TinkoffSandboxStorage.getAccountId(context)
+                }
+                Pair(tok.orEmpty(), acc.orEmpty())
+            }
         }
-        if (!tok.isNullOrEmpty()) {
-            tokenInput = tok
-        }
-        var acc = TinkoffSandboxStorage.getAccountId(context)
-        if (acc.isNullOrEmpty() && embedAcc.isNotEmpty()) {
-            TinkoffSandboxStorage.setAccountId(context, embedAcc)
-            acc = TinkoffSandboxStorage.getAccountId(context)
-        }
-        if (!acc.isNullOrEmpty()) {
-            accountInput = acc
+        if (loadResult.isSuccess) {
+            val (tok, acc) = loadResult.getOrThrow()
+            if (tok.isNotEmpty()) tokenInput = tok
+            if (acc.isNotEmpty()) accountInput = acc
+        } else {
+            val e = loadResult.exceptionOrNull()
+            status = "Чтение сохранённых данных: ${e?.message ?: e?.javaClass?.simpleName}"
         }
         prefsHydrated = true
     }
@@ -85,7 +94,11 @@ internal fun TinkoffSandboxTabContent(
         if (!prefsHydrated) return@LaunchedEffect
         if (tokenInput.isBlank()) return@LaunchedEffect
         delay(550)
-        TinkoffSandboxStorage.setToken(context, tokenInput)
+        val err = withContext(Dispatchers.IO) {
+            runCatching { TinkoffSandboxStorage.setToken(context, tokenInput) }
+                .exceptionOrNull()?.let { "Сохранение токена: ${it.message ?: it.javaClass.simpleName}" }
+        }
+        if (!err.isNullOrEmpty()) status = err
         onSandboxPrefsChanged()
     }
 
@@ -93,7 +106,11 @@ internal fun TinkoffSandboxTabContent(
         if (!prefsHydrated) return@LaunchedEffect
         if (accountInput.isBlank()) return@LaunchedEffect
         delay(550)
-        TinkoffSandboxStorage.setAccountId(context, accountInput)
+        val err = withContext(Dispatchers.IO) {
+            runCatching { TinkoffSandboxStorage.setAccountId(context, accountInput) }
+                .exceptionOrNull()?.let { "Сохранение счёта: ${it.message ?: it.javaClass.simpleName}" }
+        }
+        if (!err.isNullOrEmpty()) status = err
         onSandboxPrefsChanged()
     }
 
