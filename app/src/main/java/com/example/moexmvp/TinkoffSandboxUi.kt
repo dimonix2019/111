@@ -34,6 +34,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -54,18 +55,46 @@ internal fun TinkoffSandboxTabContent(
         mutableStateOf(TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context))
     }
     var portfolioRubLine by remember { mutableStateOf<String?>(null) }
+    var prefsHydrated by remember { mutableStateOf(false) }
     fun hasToken(): Boolean =
         tokenInput.isNotBlank() || !TinkoffSandboxStorage.getToken(context).isNullOrBlank()
 
     LaunchedEffect(Unit) {
-        val saved = TinkoffSandboxStorage.getToken(context)
-        if (!saved.isNullOrEmpty()) {
-            tokenInput = saved
+        val embedTok = BuildConfig.SANDBOX_TOKEN_EMBED.trim()
+        val embedAcc = BuildConfig.SANDBOX_ACCOUNT_EMBED.trim()
+        var tok = TinkoffSandboxStorage.getToken(context)
+        if (tok.isNullOrEmpty() && embedTok.isNotEmpty()) {
+            TinkoffSandboxStorage.setToken(context, embedTok)
+            tok = TinkoffSandboxStorage.getToken(context)
         }
-        val acc = TinkoffSandboxStorage.getAccountId(context)
+        if (!tok.isNullOrEmpty()) {
+            tokenInput = tok
+        }
+        var acc = TinkoffSandboxStorage.getAccountId(context)
+        if (acc.isNullOrEmpty() && embedAcc.isNotEmpty()) {
+            TinkoffSandboxStorage.setAccountId(context, embedAcc)
+            acc = TinkoffSandboxStorage.getAccountId(context)
+        }
         if (!acc.isNullOrEmpty()) {
             accountInput = acc
         }
+        prefsHydrated = true
+    }
+
+    LaunchedEffect(tokenInput, prefsHydrated) {
+        if (!prefsHydrated) return@LaunchedEffect
+        if (tokenInput.isBlank()) return@LaunchedEffect
+        delay(550)
+        TinkoffSandboxStorage.setToken(context, tokenInput)
+        onSandboxPrefsChanged()
+    }
+
+    LaunchedEffect(accountInput, prefsHydrated) {
+        if (!prefsHydrated) return@LaunchedEffect
+        if (accountInput.isBlank()) return@LaunchedEffect
+        delay(550)
+        TinkoffSandboxStorage.setAccountId(context, accountInput)
+        onSandboxPrefsChanged()
     }
 
     fun run(block: suspend () -> Unit) {
@@ -97,7 +126,7 @@ internal fun TinkoffSandboxTabContent(
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Токен режима «песочница» (Т‑Инвест → API). Запросы идут на sandbox-invest-public-api.tbank.ru — это отдельный контур от боевого API. «Bearer …» в начале токена уберётся. Внизу показывается текст ошибки и URL метода.",
+            text = "Токен режима «песочница» (Т‑Инвест → API). Хранится на устройстве в EncryptedSharedPreferences и подставляется при следующем запуске. После ввода сохраняется автоматически (~0,5 с). Для своих локальных сборок можно добавить sandbox-token.properties (см. пример в репозитории). «Bearer …» у токена отрежется само.",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp
         )
@@ -153,7 +182,7 @@ internal fun TinkoffSandboxTabContent(
                 enabled = !loading && tokenInput.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
             ) {
-                Text("Сохранить токен")
+                Text("Сохранить сейчас")
             }
             Button(
                 onClick = {

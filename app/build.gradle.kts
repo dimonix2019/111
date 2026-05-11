@@ -1,8 +1,20 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.kapt")
 }
+
+/** Values baked into BuildConfig only if sandbox-token.properties exists (gitignored). */
+val sandboxEmbedProps = Properties().apply {
+    val f = rootProject.file("sandbox-token.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun escapeForBuildConfigString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+val embedSandboxToken = sandboxEmbedProps.getProperty("SANDBOX_TOKEN", "").trim()
+val embedSandboxAccountId = sandboxEmbedProps.getProperty("SANDBOX_ACCOUNT_ID", "").trim()
 
 android {
     namespace = "com.example.moexmvp"
@@ -12,13 +24,16 @@ android {
         applicationId = "com.example.moexmvp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 24
-        versionName = "1.6.3"
+        versionCode = 25
+        versionName = "1.6.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        buildConfigField("String", "SANDBOX_TOKEN_EMBED", escapeForBuildConfigString(embedSandboxToken))
+        buildConfigField("String", "SANDBOX_ACCOUNT_EMBED", escapeForBuildConfigString(embedSandboxAccountId))
     }
 
     buildTypes {
