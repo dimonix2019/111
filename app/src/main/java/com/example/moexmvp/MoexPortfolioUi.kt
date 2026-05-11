@@ -19,14 +19,10 @@ import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Savings
-import androidx.compose.material.icons.filled.ShowChart
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -91,38 +87,6 @@ internal fun MainTabSelector(
                         fontSize = 11.sp,
                         maxLines = 1
                     )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun StrategyViewModeSelector(
-    mode: StrategyViewMode,
-    onModeChange: (StrategyViewMode) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        StrategyViewMode.entries.forEach { candidate ->
-            val selected = candidate == mode
-            val icon = when (candidate) {
-                StrategyViewMode.Executed -> Icons.Filled.History
-                StrategyViewMode.CurrentModel -> Icons.Filled.Tune
-            }
-            Button(
-                onClick = { onModeChange(candidate) },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (selected) Color(0xFF00897B) else Color(0xFF424242),
-                    contentColor = Color.White
-                ),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(candidate.label, fontSize = 10.sp, maxLines = 2)
                 }
             }
         }

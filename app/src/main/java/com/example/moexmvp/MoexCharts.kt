@@ -243,7 +243,8 @@ internal fun ChartCard(
     rightAxisPercentBase: Double? = null,
     yScale: YAxisScale = YAxisScale.Auto,
     referenceLines: List<ChartReferenceLine> = emptyList(),
-    pointMarkers: List<ChartPointMarker> = emptyList()
+    pointMarkers: List<ChartPointMarker> = emptyList(),
+    showLegend: Boolean = true
 ) {
     val axisScale = remember(series, labels, yScale, referenceLines) {
         buildAxisScale(
@@ -315,11 +316,13 @@ internal fun ChartCard(
                 }
             }
         }
-        Legend(
-            series = series,
-            referenceLines = referenceLines,
-            pointMarkers = pointMarkers
-        )
+        if (showLegend) {
+            Legend(
+                series = series,
+                referenceLines = referenceLines,
+                pointMarkers = pointMarkers
+            )
+        }
         selectedIndex?.let { selected ->
             val label = labels.getOrNull(selected)
             val values = series.mapNotNull { chartSeries ->
@@ -490,21 +493,6 @@ internal fun buildZScoreReferenceLines(thresholds: DynamicThresholds): List<Char
     )
 }
 
-internal fun buildZScoreSignalMarkers(
-    points: List<DataPoint>,
-    events: List<StrategySignalEvent>,
-    thresholds: DynamicThresholds
-): List<ChartPointMarker> {
-    val fromEvents = buildZScoreSignalMarkersFromEvents(points, events)
-    return if (fromEvents.isNotEmpty()) {
-        fromEvents
-    } else {
-        // Fallback for older installs with empty event log:
-        // keep markers visible by reconstructing from current chart crossings.
-        buildZScoreSignalMarkersFromCrossings(points, thresholds)
-    }
-}
-
 internal fun buildZScoreSignalMarkersFromEvents(
     points: List<DataPoint>,
     events: List<StrategySignalEvent>
@@ -540,50 +528,6 @@ internal fun buildZScoreSignalMarkersFromEvents(
             )
         }
         .toList()
-}
-
-internal fun buildZScoreSignalMarkersFromCrossings(
-    points: List<DataPoint>,
-    thresholds: DynamicThresholds
-): List<ChartPointMarker> {
-    if (points.size < 2) return emptyList()
-    val markers = mutableListOf<ChartPointMarker>()
-    var position = ZStrategyPosition.Flat
-    for (index in 1..points.lastIndex) {
-        val previous = points[index - 1].zScore
-        val current = points[index].zScore
-        when (
-            determineZStrategySignal(
-                previousZ = previous,
-                currentZ = current,
-                position = position,
-                thresholds = thresholds
-            )
-        ) {
-            ZStrategySignal.EnterLong -> {
-                markers += ChartPointMarker(index, current, Color(0xFF69F0AE), "Enter LONG", ChartMarkerShape.TriangleUp)
-                position = ZStrategyPosition.Long
-            }
-
-            ZStrategySignal.EnterShort -> {
-                markers += ChartPointMarker(index, current, Color(0xFFFF8A80), "Enter SHORT", ChartMarkerShape.TriangleDown)
-                position = ZStrategyPosition.Short
-            }
-
-            ZStrategySignal.ExitLong -> {
-                markers += ChartPointMarker(index, current, Color(0xFF90CAF9), "Exit LONG", ChartMarkerShape.Diamond)
-                position = ZStrategyPosition.Flat
-            }
-
-            ZStrategySignal.ExitShort -> {
-                markers += ChartPointMarker(index, current, Color(0xFFFFCC80), "Exit SHORT", ChartMarkerShape.Diamond)
-                position = ZStrategyPosition.Flat
-            }
-
-            ZStrategySignal.None -> Unit
-        }
-    }
-    return markers
 }
 
 internal fun buildChartStats(series: List<ChartSeries>): ChartStats {

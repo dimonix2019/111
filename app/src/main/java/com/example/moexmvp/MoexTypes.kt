@@ -198,11 +198,6 @@ internal data class PortfolioPreset(
     val exitThreshold: Double
 )
 
-internal enum class StrategyViewMode(val label: String) {
-    Executed("Реальные сигналы"),
-    CurrentModel("Текущая модель")
-}
-
 internal enum class PortfolioM15LoadMode {
     /** Read SQLite only; no network. */
     CACHE_ONLY,

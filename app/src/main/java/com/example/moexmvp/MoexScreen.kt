@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.AlertDialog
@@ -60,7 +59,6 @@ internal fun MoexScreen() {
     var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     var portfolioLoading by remember { mutableStateOf(false) }
     var portfolioError by remember { mutableStateOf<String?>(null) }
-    var strategyViewMode by remember { mutableStateOf(StrategyViewMode.Executed) }
     var portfolioLeverage by remember { mutableStateOf(7.0) }
     var portfolioCommissionPercent by remember { mutableStateOf(0.04) }
     var portfolioEntryThreshold by remember { mutableStateOf<Double?>(null) }
@@ -95,6 +93,7 @@ internal fun MoexScreen() {
     var walkForwardBusy by remember { mutableStateOf(false) }
     var todayPnlHint by remember { mutableStateOf<String?>(null) }
     var pendingVirtualTrade by remember { mutableStateOf<PendingVirtualTradeProposal?>(null) }
+    var bgMonitorToggleEpoch by remember { mutableStateOf(0) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
 
@@ -462,13 +461,6 @@ internal fun MoexScreen() {
                 modifier = Modifier.padding(top = 6.dp)
             )
         }
-        if (selectedTab == MainTab.Markets) {
-            StrategyViewModeSelector(
-                mode = strategyViewMode,
-                onModeChange = { strategyViewMode = it }
-            )
-        }
-
         when (selectedTab) {
             MainTab.Journal -> {
                 JournalTabContent(events = signalEvents)
@@ -659,75 +651,36 @@ internal fun MoexScreen() {
                             )
                         }
                         item {
-                            Text(
-                                text = if (strategyViewMode == StrategyViewMode.Executed) {
-                                    "Маркеры: журнал сигналов · вкладка «Портфель» — подтверждённые сделки"
-                                } else {
-                                    "Маркеры: пересечение порогов · симуляция на вкладке «Тест страт.»"
+                            val monitorEnabled = remember(bgMonitorToggleEpoch) {
+                                SignalForegroundService.isBackgroundMonitorEnabled(context)
+                            }
+                            Button(
+                                onClick = {
+                                    if (monitorEnabled) {
+                                        SignalForegroundService.stop(context)
+                                    } else {
+                                        SignalForegroundService.start(context)
+                                    }
+                                    bgMonitorToggleEpoch++
                                 },
-                                fontSize = 11.sp,
-                                color = Color(0xFFBDBDBD)
-                            )
-                        }
-                        item {
-                            Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (monitorEnabled) Color(0xFF2E7D32) else Color(0xFF2196F3),
+                                    contentColor = Color.White
+                                )
                             ) {
-                                Button(
-                                    onClick = {
-                                        val message = String.format(
-                                            Locale.US,
-                                            "Пороги: вход +/-%.1f, выход +/-%.1f",
-                                            dynamicThresholds.entry,
-                                            dynamicThresholds.exit
-                                        )
-                                        showZStrategySignalPushNotification(
-                                            context = context,
-                                            title = "Тест уведомления",
-                                            body = message
-                                        )
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            Icons.Filled.NotificationsActive,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Test")
-                                    }
-                                }
-                                val monitorEnabled = SignalForegroundService.isBackgroundMonitorEnabled(context)
-                                Button(
-                                    onClick = {
-                                        if (monitorEnabled) {
-                                            SignalForegroundService.stop(context)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = if (monitorEnabled) {
+                                            Icons.Filled.PauseCircle
                                         } else {
-                                            SignalForegroundService.start(context)
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (monitorEnabled) Color(0xFF2E7D32) else Color(0xFF2196F3),
-                                        contentColor = Color.White
+                                            Icons.Filled.PlayCircle
+                                        },
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
                                     )
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = if (monitorEnabled) {
-                                                Icons.Filled.PauseCircle
-                                            } else {
-                                                Icons.Filled.PlayCircle
-                                            },
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(Modifier.width(4.dp))
-                                        Text(if (monitorEnabled) "BG ON" else "BG OFF")
-                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(if (monitorEnabled) "Фоновый монитор: вкл" else "Фоновый монитор: выкл")
                                 }
                             }
                         }
@@ -754,17 +707,11 @@ internal fun MoexScreen() {
                                     labels = c.points.map { it.tradeDate },
                                     chartHeightDp = 130,
                                     referenceLines = buildZScoreReferenceLines(dynamicThresholds),
-                                    pointMarkers = if (strategyViewMode == StrategyViewMode.Executed) {
-                                        buildZScoreSignalMarkersFromEvents(
-                                            points = c.points,
-                                            events = signalEvents
-                                        )
-                                    } else {
-                                        buildZScoreSignalMarkersFromCrossings(
-                                            points = c.points,
-                                            thresholds = dynamicThresholds
-                                        )
-                                    }
+                                    pointMarkers = buildZScoreSignalMarkersFromEvents(
+                                        points = c.points,
+                                        events = signalEvents
+                                    ),
+                                    showLegend = false
                                 )
                             }
                             item {
