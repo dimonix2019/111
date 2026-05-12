@@ -45,6 +45,7 @@ internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.11 — Песочница OpenSandboxAccount: сначала тело как в доке (name строка, вариант Name); массив name — запасной; глубокий поиск accountId в ответе; при HTTP-ошибке перебираются оба хоста (.tbank / .tinkoff); charset в теле POST (OkHttp).
 1.6.10 — Песочница: «Открыть счёт» и остальные действия — чтение/запись токена и EncryptedSharedPreferences только на IO (устранение вылетов на главном потоке); OpenSandboxAccount — тело name как массив (как в схеме API) + запасные варианты; развёртка openSandboxAccountResponse; GetSandboxAccounts — развёртка getAccountsResponse; перехват Throwable в UI.
 1.6.9 — Песочница: PostSandboxOrder снова как в примерах T‑Invest (quantity и price.units строками); варианты BESTPRICE и figi для BBG; FindInstrument — вложенный instrument, второй запрос без apiTrade; GetSandboxPortfolio — accountId без currency, развёртка оболочки ответа, рекурсивный поиск total; заголовки Content-Type/User-Agent.
 1.6.7 — Песочница «Принять»: FindInstrument по TATN/TATNP (UID/FIGI для PostSandboxOrder); quantity как число; цена-котировка units=0; вся цепочка на IO; понятнее Toast при пустом message.

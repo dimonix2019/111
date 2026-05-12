@@ -12,7 +12,7 @@ import java.io.IOException
 import java.util.Locale
 import java.util.UUID
 
-private val jsonMedia = "application/json".toMediaType()
+private val jsonMediaUtf8 = "application/json; charset=utf-8".toMediaType()
 
 /** Strip accidental "Bearer " prefix and whitespace (users often paste full header). */
 internal fun normalizeInvestToken(raw: String): String {
@@ -73,12 +73,12 @@ private suspend fun tinkoffSbxPostRaw(
 ): String =
     withContext(Dispatchers.IO) {
         val norm = normalizeInvestToken(token)
-        var lastNetwork: IOException? = null
+        var lastFailure: IOException? = null
         for (prefix in prefixes) {
             val url = "$prefix/$method"
             val req = Request.Builder()
                 .url(url)
-                .post(bodyJson.toRequestBody(jsonMedia))
+                .post(bodyJson.toRequestBody(jsonMediaUtf8))
                 .header("Authorization", "Bearer $norm")
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json; charset=utf-8")
@@ -88,16 +88,17 @@ private suspend fun tinkoffSbxPostRaw(
                 httpClient.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
                     if (!resp.isSuccessful) {
-                        throw IOException("${extractApiErrorMessage(resp.code, text)} · $url")
+                        lastFailure =
+                            IOException("${extractApiErrorMessage(resp.code, text)} · $url")
+                    } else {
+                        return@withContext text
                     }
-                    return@withContext text
                 }
             } catch (e: IOException) {
-                if (e.message?.startsWith("HTTP ") == true) throw e
-                lastNetwork = e
+                lastFailure = e
             }
         }
-        throw lastNetwork ?: IOException("T‑Invest REST: нет доступных хостов")
+        throw lastFailure ?: IOException("T‑Invest REST: нет доступных хостов")
     }
 
 private suspend fun tinkoffSandboxPostRaw(token: String, method: String, bodyJson: String): String =
@@ -134,6 +135,44 @@ private fun extractAccountId(root: JSONObject): String? {
     return null
 }
 
+/** BFS по вложенным объектам: accountId иногда глубже одного уровня обёртки. */
+private fun deepFindSandboxAccountId(root: JSONObject): String? {
+    val q = ArrayDeque<JSONObject>()
+    q.add(root)
+    var steps = 0
+    while (q.isNotEmpty() && steps++ < 256) {
+        val o = q.removeFirst()
+        o.optString("accountId", "").trim().takeIf { it.isNotEmpty() }?.let { return it }
+        o.optString("account_id", "").trim().takeIf { it.isNotEmpty() }?.let { return it }
+        val it = o.keys()
+        while (it.hasNext()) {
+            when (val v = o.opt(it.next())) {
+                is JSONObject -> q.add(v)
+                is JSONArray -> for (i in 0 until v.length()) {
+                    v.optJSONObject(i)?.let { q.add(it) }
+                }
+            }
+        }
+    }
+    return null
+}
+
+private fun resolveOpenSandboxAccountId(raw: JSONObject): String? {
+    val variants = listOf(
+        raw,
+        unwrapJsonByKeys(raw, listOf("openSandboxAccountResponse", "open_sandbox_account_response")),
+        unwrapJsonByKeys(raw, listOf("result")),
+        unwrapJsonByKeys(raw, listOf("payload")),
+        unwrapJsonByKeys(raw, listOf("data")),
+        unwrapJsonByKeys(raw, listOf("response"))
+    )
+    for (v in variants) {
+        deepFindSandboxAccountId(v)?.let { return it }
+        extractAccountId(v)?.let { return it }
+    }
+    return null
+}
+
 private fun unwrapJsonByKeys(root: JSONObject, keys: Iterable<String>): JSONObject {
     var o = root
     for (w in keys) {
@@ -142,29 +181,22 @@ private fun unwrapJsonByKeys(root: JSONObject, keys: Iterable<String>): JSONObje
     return o
 }
 
-private fun unwrapOpenSandboxAccountEnvelope(root: JSONObject): JSONObject =
-    unwrapJsonByKeys(
-        root,
-        listOf("openSandboxAccountResponse", "open_sandbox_account_response")
-    )
-
 private fun unwrapGetAccountsEnvelope(root: JSONObject): JSONObject =
     unwrapJsonByKeys(root, listOf("getAccountsResponse", "get_accounts_response"))
 
 internal suspend fun tinkoffOpenSandboxAccount(token: String, name: String): String {
     val nameAsArray = JSONArray().put(name)
     val bodies = listOf(
-        JSONObject().put("name", nameAsArray),
         JSONObject().put("name", name),
+        JSONObject().put("Name", name),
+        JSONObject().put("name", nameAsArray),
         JSONObject()
     )
     var last: IOException? = null
     for (body in bodies) {
         try {
             val raw = tinkoffSandboxPostAsync(token, "OpenSandboxAccount", body)
-            val unwrapped = unwrapOpenSandboxAccountEnvelope(raw)
-            extractAccountId(unwrapped)?.let { return it }
-            extractAccountId(raw)?.let { return it }
+            resolveOpenSandboxAccountId(raw)?.let { return it }
         } catch (e: IOException) {
             last = e
         }
