@@ -11,6 +11,8 @@ import kotlinx.coroutines.withContext
 private const val TAG = "TinkoffSandbox"
 private const val PREFS_FILE = "tinkoff_sandbox_secure"
 private const val PLAIN_PREFS_FILE = "tinkoff_sandbox_plain"
+/** Дублирует токен и accountId в открытом виде — только для песочницы; переживает сбой Keystore/EncryptedPrefs после обновления APK. */
+private const val PUBLIC_MIRROR_PREFS = "tinkoff_sandbox_public_mirror"
 private const val KEY_TOKEN = "sandbox_api_token"
 private const val KEY_ACCOUNT_ID = "sandbox_account_id"
 /** When true, «Принять» на карточке сигнала шлёт рыночные заявки в SandboxService. */
@@ -21,6 +23,9 @@ internal object TinkoffSandboxStorage {
     private val lock = Any()
     @Volatile
     private var prefsInstance: SharedPreferences? = null
+
+    private fun mirrorPrefs(app: Context): SharedPreferences =
+        app.getSharedPreferences(PUBLIC_MIRROR_PREFS, Context.MODE_PRIVATE)
 
     private fun createEncryptedPrefs(context: Context): SharedPreferences {
         val masterKey = MasterKey.Builder(context.applicationContext)
@@ -50,22 +55,60 @@ internal object TinkoffSandboxStorage {
         }
     }
 
-    fun getToken(context: Context): String? =
-        prefs(context).getString(KEY_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
+    fun getToken(context: Context): String? {
+        val app = context.applicationContext
+        val primary = prefs(context).getString(KEY_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
+        if (primary != null) {
+            val m = mirrorPrefs(app)
+            if (m.getString(KEY_TOKEN, null) != primary) {
+                m.edit().putString(KEY_TOKEN, primary).apply()
+            }
+            return primary
+        }
+        val mirrored = mirrorPrefs(app).getString(KEY_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return null
+        runCatching {
+            prefs(app).edit().putString(KEY_TOKEN, mirrored).apply()
+        }
+        return mirrored
+    }
 
     fun setToken(context: Context, token: String?) {
         val t = normalizeInvestToken(token?.trim().orEmpty())
+        val app = context.applicationContext
         prefs(context).edit().apply {
+            if (t.isEmpty()) remove(KEY_TOKEN) else putString(KEY_TOKEN, t)
+        }.apply()
+        mirrorPrefs(app).edit().apply {
             if (t.isEmpty()) remove(KEY_TOKEN) else putString(KEY_TOKEN, t)
         }.apply()
     }
 
-    fun getAccountId(context: Context): String? =
-        prefs(context).getString(KEY_ACCOUNT_ID, null)?.trim()?.takeIf { it.isNotEmpty() }
+    fun getAccountId(context: Context): String? {
+        val app = context.applicationContext
+        val primary = prefs(context).getString(KEY_ACCOUNT_ID, null)?.trim()?.takeIf { it.isNotEmpty() }
+        if (primary != null) {
+            val m = mirrorPrefs(app)
+            if (m.getString(KEY_ACCOUNT_ID, null) != primary) {
+                m.edit().putString(KEY_ACCOUNT_ID, primary).apply()
+            }
+            return primary
+        }
+        val mirrored = mirrorPrefs(app).getString(KEY_ACCOUNT_ID, null)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return null
+        runCatching {
+            prefs(app).edit().putString(KEY_ACCOUNT_ID, mirrored).apply()
+        }
+        return mirrored
+    }
 
     fun setAccountId(context: Context, accountId: String?) {
         val id = accountId?.trim().orEmpty()
+        val app = context.applicationContext
         prefs(context).edit().apply {
+            if (id.isEmpty()) remove(KEY_ACCOUNT_ID) else putString(KEY_ACCOUNT_ID, id)
+        }.apply()
+        mirrorPrefs(app).edit().apply {
             if (id.isEmpty()) remove(KEY_ACCOUNT_ID) else putString(KEY_ACCOUNT_ID, id)
         }.apply()
     }
