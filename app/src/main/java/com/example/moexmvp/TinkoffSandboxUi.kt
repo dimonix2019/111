@@ -6,6 +6,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -387,6 +391,83 @@ internal fun TinkoffSandboxTabContent(
         }
         portfolioRubLine?.let { line ->
             Text(line, color = Color(0xFFB2DFDB), fontSize = 12.sp)
+        }
+
+        Text(
+            text = "Тестовые рыночные заявки — 1 лот TATN (после заявки ниже обновляется оценка портфеля в ₽).",
+            color = Color(0xFF9E9E9E),
+            fontSize = 11.sp
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = {
+                    run {
+                        val typedTok = tokenInput.trim()
+                        val typedAcc = accountInput.trim()
+                        val (order, port) = withContext(Dispatchers.IO) {
+                            val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
+                            val acc = TinkoffSandboxStorage.getAccountId(context) ?: typedAcc
+                            if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                            if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
+                            val ord = tinkoffSandboxPostTestSingleLegOrder(t, acc, buy = true)
+                            val p = tinkoffGetSandboxPortfolio(t, acc)
+                            ord to p
+                        }
+                        status = "Тест: покупка · ${formatPostSandboxOrderBrief(order)}"
+                        portfolioRubLine =
+                            formatSandboxPortfolioTotalRub(port)
+                                ?: "Портфель (сырой): ${port.toString().take(200)}"
+                        onSandboxPrefsChanged()
+                    }
+                },
+                enabled = !loading && hasToken() && accountInput.isNotBlank(),
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.TrendingUp,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 6.dp),
+                    tint = Color.White
+                )
+                Text("Купить 1 лот", fontSize = 12.sp)
+            }
+            Button(
+                onClick = {
+                    run {
+                        val typedTok = tokenInput.trim()
+                        val typedAcc = accountInput.trim()
+                        val (order, port) = withContext(Dispatchers.IO) {
+                            val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
+                            val acc = TinkoffSandboxStorage.getAccountId(context) ?: typedAcc
+                            if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                            if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
+                            val ord = tinkoffSandboxPostTestSingleLegOrder(t, acc, buy = false)
+                            val p = tinkoffGetSandboxPortfolio(t, acc)
+                            ord to p
+                        }
+                        status = "Тест: продажа · ${formatPostSandboxOrderBrief(order)}"
+                        portfolioRubLine =
+                            formatSandboxPortfolioTotalRub(port)
+                                ?: "Портфель (сырой): ${port.toString().take(200)}"
+                        onSandboxPrefsChanged()
+                    }
+                },
+                enabled = !loading && hasToken() && accountInput.isNotBlank(),
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.TrendingDown,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 6.dp),
+                    tint = Color.White
+                )
+                Text("Продать 1 лот", fontSize = 12.sp)
+            }
         }
 
         if (loading) {

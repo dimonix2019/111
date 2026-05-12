@@ -489,6 +489,49 @@ internal suspend fun tinkoffResolveShareInstrumentId(token: String, ticker: Stri
 }
 
 /**
+ * Одна рыночная тестовая заявка по TATN (1 лот по умолчанию) — для проверки песочницы и баланса.
+ */
+internal suspend fun tinkoffSandboxPostTestSingleLegOrder(
+    token: String,
+    accountId: String,
+    buy: Boolean,
+    quantityLots: Int = 1
+): JSONObject {
+    val inst = try {
+        tinkoffResolveShareInstrumentId(token, "TATN")
+    } catch (_: Exception) {
+        TINKOFF_MOEX_TATN_INSTRUMENT_ID
+    }
+    val dir = if (buy) "ORDER_DIRECTION_BUY" else "ORDER_DIRECTION_SELL"
+    return tinkoffPostSandboxMarketOrder(token, accountId, inst, dir, quantityLots)
+}
+
+internal fun formatPostSandboxOrderBrief(root: JSONObject): String {
+    fun peel(o: JSONObject): JSONObject {
+        var x = o
+        for (k in listOf(
+            "postOrderResponse", "post_order_response",
+            "postSandboxOrderResponse", "post_sandbox_order_response",
+            "generateOrdersResponse", "generate_orders_response"
+        )) {
+            x.optJSONObject(k)?.let { x = it }
+        }
+        return x
+    }
+    val o = peel(root)
+    val id = o.firstNonBlankString("orderId", "order_id").orEmpty()
+    val st = o.firstNonBlankString(
+        "executionReportStatus", "execution_report_status",
+        "orderState", "order_state"
+    ).orEmpty()
+    return when {
+        id.isNotEmpty() && st.isNotEmpty() -> "$id · $st"
+        id.isNotEmpty() -> id
+        else -> o.toString().take(180)
+    }
+}
+
+/**
  * Opens a Z-spread position on the sandbox: 2 MOEX equity legs (1 lot each).
  * LONG spread = long TATN / short TATNP; SHORT spread = the opposite.
  */
