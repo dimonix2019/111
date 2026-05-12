@@ -81,6 +81,8 @@ private suspend fun tinkoffSbxPostRaw(
                 .post(bodyJson.toRequestBody(jsonMedia))
                 .header("Authorization", "Bearer $norm")
                 .header("Accept", "application/json")
+                .header("Content-Type", "application/json; charset=utf-8")
+                .header("User-Agent", "MOEX-MVP-Android")
                 .build()
             try {
                 httpClient.newCall(req).execute().use { resp ->
@@ -200,26 +202,32 @@ internal suspend fun tinkoffSandboxPayIn(token: String, accountId: String, units
     throw last ?: IOException("SandboxPayIn: неизвестная ошибка")
 }
 
+private fun isLikelyFigi(instrumentId: String): Boolean =
+    instrumentId.trim().uppercase(Locale.US).startsWith("BBG")
+
 private fun postMarketBodyCamel(
     accountId: String,
     instrumentId: String,
     direction: String,
     quantityLots: Int,
-    orderId: String
+    orderId: String,
+    orderType: String = "ORDER_TYPE_MARKET",
+    includePrice: Boolean = true
 ): JSONObject {
     val price = JSONObject()
-        .put("units", 0)
+        .put("units", "0")
         .put("nano", 0)
-    return JSONObject()
-        .put("accountId", accountId)
-        .put("instrumentId", instrumentId)
-        .put("quantity", quantityLots)
-        .put("direction", direction)
-        .put("orderType", "ORDER_TYPE_MARKET")
-        .put("orderId", orderId)
-        .put("price", price)
-        .put("timeInForce", "TIME_IN_FORCE_DAY")
-        .put("confirmMarginTrade", true)
+    return JSONObject().apply {
+        put("accountId", accountId)
+        put("instrumentId", instrumentId)
+        put("quantity", quantityLots.toString())
+        put("direction", direction)
+        put("orderType", orderType)
+        put("orderId", orderId)
+        if (includePrice) put("price", price)
+        put("timeInForce", "TIME_IN_FORCE_DAY")
+        put("confirmMarginTrade", true)
+    }
 }
 
 private fun postMarketBodySnake(
@@ -227,21 +235,74 @@ private fun postMarketBodySnake(
     instrumentId: String,
     direction: String,
     quantityLots: Int,
-    orderId: String
+    orderId: String,
+    orderType: String = "ORDER_TYPE_MARKET",
+    includePrice: Boolean = true
 ): JSONObject {
     val price = JSONObject()
-        .put("units", 0)
+        .put("units", "0")
         .put("nano", 0)
-    return JSONObject()
-        .put("account_id", accountId)
-        .put("instrument_id", instrumentId)
-        .put("quantity", quantityLots)
-        .put("direction", direction)
-        .put("order_type", "ORDER_TYPE_MARKET")
-        .put("order_id", orderId)
-        .put("price", price)
-        .put("time_in_force", "TIME_IN_FORCE_DAY")
-        .put("confirm_margin_trade", true)
+    return JSONObject().apply {
+        put("account_id", accountId)
+        put("instrument_id", instrumentId)
+        put("quantity", quantityLots.toString())
+        put("direction", direction)
+        put("order_type", orderType)
+        put("order_id", orderId)
+        if (includePrice) put("price", price)
+        put("time_in_force", "TIME_IN_FORCE_DAY")
+        put("confirm_margin_trade", true)
+    }
+}
+
+private fun postMarketBodyCamelFigi(
+    accountId: String,
+    figi: String,
+    direction: String,
+    quantityLots: Int,
+    orderId: String,
+    orderType: String = "ORDER_TYPE_MARKET",
+    includePrice: Boolean = true
+): JSONObject {
+    val price = JSONObject()
+        .put("units", "0")
+        .put("nano", 0)
+    return JSONObject().apply {
+        put("accountId", accountId)
+        put("figi", figi)
+        put("quantity", quantityLots.toString())
+        put("direction", direction)
+        put("orderType", orderType)
+        put("orderId", orderId)
+        if (includePrice) put("price", price)
+        put("timeInForce", "TIME_IN_FORCE_DAY")
+        put("confirmMarginTrade", true)
+    }
+}
+
+private fun postMarketBodySnakeFigi(
+    accountId: String,
+    figi: String,
+    direction: String,
+    quantityLots: Int,
+    orderId: String,
+    orderType: String = "ORDER_TYPE_MARKET",
+    includePrice: Boolean = true
+): JSONObject {
+    val price = JSONObject()
+        .put("units", "0")
+        .put("nano", 0)
+    return JSONObject().apply {
+        put("account_id", accountId)
+        put("figi", figi)
+        put("quantity", quantityLots.toString())
+        put("direction", direction)
+        put("order_type", orderType)
+        put("order_id", orderId)
+        if (includePrice) put("price", price)
+        put("time_in_force", "TIME_IN_FORCE_DAY")
+        put("confirm_margin_trade", true)
+    }
 }
 
 private fun postMarketBodyCamelNoPrice(
@@ -249,32 +310,24 @@ private fun postMarketBodyCamelNoPrice(
     instrumentId: String,
     direction: String,
     quantityLots: Int,
-    orderId: String
-): JSONObject = JSONObject()
-    .put("accountId", accountId)
-    .put("instrumentId", instrumentId)
-    .put("quantity", quantityLots)
-    .put("direction", direction)
-    .put("orderType", "ORDER_TYPE_MARKET")
-    .put("orderId", orderId)
-    .put("timeInForce", "TIME_IN_FORCE_DAY")
-    .put("confirmMarginTrade", true)
+    orderId: String,
+    orderType: String = "ORDER_TYPE_MARKET"
+): JSONObject = postMarketBodyCamel(
+    accountId, instrumentId, direction, quantityLots, orderId,
+    orderType = orderType, includePrice = false
+)
 
 private fun postMarketBodySnakeNoPrice(
     accountId: String,
     instrumentId: String,
     direction: String,
     quantityLots: Int,
-    orderId: String
-): JSONObject = JSONObject()
-    .put("account_id", accountId)
-    .put("instrument_id", instrumentId)
-    .put("quantity", quantityLots)
-    .put("direction", direction)
-    .put("order_type", "ORDER_TYPE_MARKET")
-    .put("order_id", orderId)
-    .put("time_in_force", "TIME_IN_FORCE_DAY")
-    .put("confirm_margin_trade", true)
+    orderId: String,
+    orderType: String = "ORDER_TYPE_MARKET"
+): JSONObject = postMarketBodySnake(
+    accountId, instrumentId, direction, quantityLots, orderId,
+    orderType = orderType, includePrice = false
+)
 
 /** One market order on the sandbox account (1 lot by default). */
 internal suspend fun tinkoffPostSandboxMarketOrder(
@@ -285,12 +338,22 @@ internal suspend fun tinkoffPostSandboxMarketOrder(
     quantityLots: Int = 1
 ): JSONObject {
     var last: IOException? = null
-    val bodies = listOf(
-        { postMarketBodyCamel(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString()) },
-        { postMarketBodySnake(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString()) },
-        { postMarketBodyCamelNoPrice(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString()) },
-        { postMarketBodySnakeNoPrice(accountId, instrumentId, orderDirection, quantityLots, UUID.randomUUID().toString()) }
-    )
+    val oid = { UUID.randomUUID().toString() }
+    val figi = isLikelyFigi(instrumentId)
+    val bodies = buildList {
+        add { postMarketBodyCamel(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+        add { postMarketBodySnake(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+        add { postMarketBodyCamelNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+        add { postMarketBodySnakeNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+        add { postMarketBodyCamelNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE") }
+        add { postMarketBodySnakeNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE") }
+        if (figi) {
+            add { postMarketBodyCamelFigi(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+            add { postMarketBodySnakeFigi(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+            add { postMarketBodyCamelFigi(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE", false) }
+            add { postMarketBodySnakeFigi(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE", false) }
+        }
+    }
     for (factory in bodies) {
         try {
             return tinkoffSandboxPostAsync(token, "PostSandboxOrder", factory())
@@ -307,35 +370,55 @@ internal suspend fun tinkoffPostSandboxMarketOrder(
  */
 internal suspend fun tinkoffResolveShareInstrumentId(token: String, ticker: String): String {
     val want = ticker.trim().uppercase(Locale.US)
-    val root = tinkoffInstrumentsPostAsync(
-        token,
-        "FindInstrument",
-        JSONObject()
-            .put("query", want)
-            .put("instrumentKind", "INSTRUMENT_TYPE_SHARE")
-            .put("apiTradeAvailableFlag", true)
-    )
-    val arr = root.optJSONArray("instruments")
-        ?: root.optJSONArray("Instruments")
-        ?: throw IOException("FindInstrument: нет массива instruments · ${root.toString().take(400)}")
-    val matches = buildList {
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            val t = o.optString("ticker", o.optString("Ticker", "")).trim().uppercase(Locale.US)
-            if (t == want) add(o)
+    fun parseMatches(root: JSONObject): List<JSONObject> {
+        val arr = root.optJSONArray("instruments")
+            ?: root.optJSONArray("Instruments")
+            ?: JSONArray()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val raw = arr.optJSONObject(i) ?: continue
+                val o = raw.optJSONObject("instrument") ?: raw
+                val t = o.optString("ticker", o.optString("Ticker", "")).trim().uppercase(Locale.US)
+                if (t == want) add(o)
+            }
         }
     }
-    if (matches.isEmpty()) {
-        throw IOException("FindInstrument: тикер $want не найден · ${root.toString().take(400)}")
-    }
-    val tqbr = matches.firstOrNull {
-        it.optString("classCode", it.optString("class_code", "")).equals("TQBR", ignoreCase = true)
-    }
-    val chosen = tqbr ?: matches.first()
-    return chosen.firstNonBlankString(
+    fun pickId(o: JSONObject): String? = o.firstNonBlankString(
         "instrumentUid", "instrument_uid", "uid",
         "figi", "FIGI"
-    ) ?: throw IOException("FindInstrument: нет uid/figi для $want · ${chosen.toString().take(400)}")
+    )
+
+    val roots = listOf(
+        tinkoffInstrumentsPostAsync(
+            token,
+            "FindInstrument",
+            JSONObject()
+                .put("query", want)
+                .put("instrumentKind", "INSTRUMENT_TYPE_SHARE")
+                .put("apiTradeAvailableFlag", true)
+        ),
+        runCatching {
+            tinkoffInstrumentsPostAsync(
+                token,
+                "FindInstrument",
+                JSONObject()
+                    .put("query", want)
+                    .put("instrumentKind", "INSTRUMENT_TYPE_UNSPECIFIED")
+            )
+        }.getOrElse { JSONObject() }
+    )
+
+    val allMatches = roots.flatMap { parseMatches(it) }.distinctBy { it.toString() }
+    if (allMatches.isEmpty()) {
+        val hint = roots.joinToString(" | ") { it.toString().take(200) }
+        throw IOException("FindInstrument: тикер $want не найден · $hint")
+    }
+    val tqbr = allMatches.firstOrNull {
+        it.optString("classCode", it.optString("class_code", "")).equals("TQBR", ignoreCase = true)
+    }
+    val chosen = tqbr ?: allMatches.first()
+    return pickId(chosen)
+        ?: throw IOException("FindInstrument: нет uid/figi для $want · ${chosen.toString().take(400)}")
 }
 
 /**
@@ -372,15 +455,34 @@ internal suspend fun tinkoffSandboxExecuteSpreadEntry(
     }
 }
 
+private fun unwrapSandboxPortfolioJson(root: JSONObject): JSONObject {
+    var o = root
+    val wrappers = listOf(
+        "getSandboxPortfolioResponse",
+        "get_sandbox_portfolio_response",
+        "getPortfolioResponse",
+        "get_portfolio_response",
+        "portfolio",
+        "Portfolio"
+    )
+    for (w in wrappers) {
+        o.optJSONObject(w)?.let { inner -> o = inner }
+    }
+    return o
+}
+
 internal suspend fun tinkoffGetSandboxPortfolio(token: String, accountId: String): JSONObject {
     val attempts = listOf(
-        JSONObject().put("accountId", accountId).put("currency", "RUB"),
-        JSONObject().put("account_id", accountId).put("currency", "RUB")
+        JSONObject().put("accountId", accountId.trim()),
+        JSONObject().put("account_id", accountId.trim()),
+        JSONObject().put("accountId", accountId.trim()).put("currency", "RUB"),
+        JSONObject().put("account_id", accountId.trim()).put("currency", "RUB")
     )
     var last: IOException? = null
     for (body in attempts) {
         try {
-            return tinkoffSandboxPostAsync(token, "GetSandboxPortfolio", body)
+            val raw = tinkoffSandboxPostAsync(token, "GetSandboxPortfolio", body)
+            return unwrapSandboxPortfolioJson(raw)
         } catch (e: IOException) {
             last = e
         }
@@ -402,9 +504,18 @@ private fun quotationUnitsToDouble(o: JSONObject): Double? {
 
 /** Short rub summary for UI; null if structure differs. */
 internal fun formatSandboxPortfolioTotalRub(portfolioJson: JSONObject): String? {
-    val total = portfolioJson.optJSONObject("totalAmountPortfolio")
-        ?: portfolioJson.optJSONObject("total_amount_portfolio")
-        ?: return null
+    fun findTotal(o: JSONObject?, depth: Int): JSONObject? {
+        if (o == null || depth > 6) return null
+        o.optJSONObject("totalAmountPortfolio")?.let { return it }
+        o.optJSONObject("total_amount_portfolio")?.let { return it }
+        val it = o.keys()
+        while (it.hasNext()) {
+            val k = it.next()
+            findTotal(o.optJSONObject(k), depth + 1)?.let { return it }
+        }
+        return null
+    }
+    val total = findTotal(portfolioJson, 0) ?: return null
     val v = quotationUnitsToDouble(total) ?: return null
     return String.format(java.util.Locale.US, "%.2f ₽", v)
 }
