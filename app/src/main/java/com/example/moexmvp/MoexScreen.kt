@@ -97,6 +97,9 @@ internal fun MoexScreen() {
     var sandboxExecState by remember {
         mutableStateOf(TinkoffSandboxStorage.resolveExecUiState(context))
     }
+    /** Поля песочницы держим здесь: при переключении вкладок `TinkoffSandboxTabContent` пересоздаётся, иначе токен «терялся» из UI до повторной загрузки. */
+    var sandboxTokenInput by remember { mutableStateOf("") }
+    var sandboxAccountInput by remember { mutableStateOf("") }
     var bgMonitorToggleEpoch by remember { mutableStateOf(0) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
@@ -112,10 +115,28 @@ internal fun MoexScreen() {
             if (event == Lifecycle.Event.ON_RESUME) {
                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
                 sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+                scope.launch {
+                    val (t, a) = withContext(Dispatchers.IO) {
+                        Pair(
+                            TinkoffSandboxStorage.getToken(context).orEmpty(),
+                            TinkoffSandboxStorage.getAccountId(context).orEmpty()
+                        )
+                    }
+                    sandboxTokenInput = t
+                    sandboxAccountInput = a
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(Unit) {
+        runCatching {
+            val (t, a) = TinkoffSandboxStorage.hydrateCredentialsForUi(context)
+            sandboxTokenInput = t
+            sandboxAccountInput = a
+        }
     }
 
     LaunchedEffect(chartSuccess?.points, signalEvents) {
@@ -541,6 +562,10 @@ internal fun MoexScreen() {
                         .fillMaxWidth()
                 ) {
                     TinkoffSandboxTabContent(
+                        tokenInput = sandboxTokenInput,
+                        onTokenInputChange = { sandboxTokenInput = it },
+                        accountInput = sandboxAccountInput,
+                        onAccountInputChange = { sandboxAccountInput = it },
                         onSandboxPrefsChanged = {
                             sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
                         }

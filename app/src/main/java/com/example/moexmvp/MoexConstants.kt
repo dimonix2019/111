@@ -45,6 +45,7 @@ internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.14 — Песочница: токен и Account ID в состоянии главного экрана — при переключении вкладок поля не очищаются; при возврате в приложение синхронизация с диском (ON_RESUME). Добавлен TinkoffSandboxStorage.hydrateCredentialsForUi.
 1.6.13 — Песочница: кнопки тестовой рыночной покупки и продажи (1 лот TATN) с иконками; после заявки автоматически запрашивается портфель для строки оценки в ₽.
 1.6.12 — Песочница: исправлен REST-путь к SandboxService и InstrumentsService — в URL сегмент **точками** (`...v1.SandboxService/...`), как в доке T‑Bank; вариант со слэшем (`...v1/SandboxService/`) давал HTTP 404 на обоих хостах.
 1.6.11 — Песочница OpenSandboxAccount: сначала тело как в доке (name строка, вариант Name); массив name — запасной; глубокий поиск accountId в ответе; при HTTP-ошибке перебираются оба хоста (.tbank / .tinkoff); charset в теле POST (OkHttp).

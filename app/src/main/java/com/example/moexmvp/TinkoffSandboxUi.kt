@@ -46,12 +46,14 @@ import org.json.JSONObject
 
 @Composable
 internal fun TinkoffSandboxTabContent(
+    tokenInput: String,
+    onTokenInputChange: (String) -> Unit,
+    accountInput: String,
+    onAccountInputChange: (String) -> Unit,
     onSandboxPrefsChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var tokenInput by remember { mutableStateOf("") }
-    var accountInput by remember { mutableStateOf("") }
     var payInRub by remember { mutableStateOf("100000") }
     var status by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
@@ -61,41 +63,10 @@ internal fun TinkoffSandboxTabContent(
         mutableStateOf(TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context))
     }
     var portfolioRubLine by remember { mutableStateOf<String?>(null) }
-    var prefsHydrated by remember { mutableStateOf(false) }
     fun hasToken(): Boolean =
         tokenInput.isNotBlank() || !TinkoffSandboxStorage.getToken(context).isNullOrBlank()
 
-    LaunchedEffect(Unit) {
-        val loadResult = withContext(Dispatchers.IO) {
-            runCatching {
-                val embedTok = BuildConfig.SANDBOX_TOKEN_EMBED.trim()
-                val embedAcc = BuildConfig.SANDBOX_ACCOUNT_EMBED.trim()
-                var tok = TinkoffSandboxStorage.getToken(context)
-                if (tok.isNullOrEmpty() && embedTok.isNotEmpty()) {
-                    TinkoffSandboxStorage.setToken(context, embedTok)
-                    tok = TinkoffSandboxStorage.getToken(context)
-                }
-                var acc = TinkoffSandboxStorage.getAccountId(context)
-                if (acc.isNullOrEmpty() && embedAcc.isNotEmpty()) {
-                    TinkoffSandboxStorage.setAccountId(context, embedAcc)
-                    acc = TinkoffSandboxStorage.getAccountId(context)
-                }
-                Pair(tok.orEmpty(), acc.orEmpty())
-            }
-        }
-        if (loadResult.isSuccess) {
-            val (tok, acc) = loadResult.getOrThrow()
-            if (tok.isNotEmpty()) tokenInput = tok
-            if (acc.isNotEmpty()) accountInput = acc
-        } else {
-            val e = loadResult.exceptionOrNull()
-            status = "Чтение сохранённых данных: ${e?.message ?: e?.javaClass?.simpleName}"
-        }
-        prefsHydrated = true
-    }
-
-    LaunchedEffect(tokenInput, prefsHydrated) {
-        if (!prefsHydrated) return@LaunchedEffect
+    LaunchedEffect(tokenInput) {
         if (tokenInput.isBlank()) return@LaunchedEffect
         delay(550)
         val err = withContext(Dispatchers.IO) {
@@ -106,8 +77,7 @@ internal fun TinkoffSandboxTabContent(
         onSandboxPrefsChanged()
     }
 
-    LaunchedEffect(accountInput, prefsHydrated) {
-        if (!prefsHydrated) return@LaunchedEffect
+    LaunchedEffect(accountInput) {
         if (accountInput.isBlank()) return@LaunchedEffect
         delay(550)
         val err = withContext(Dispatchers.IO) {
@@ -148,7 +118,7 @@ internal fun TinkoffSandboxTabContent(
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Токен режима «песочница» (Т‑Инвест → API). Хранится на устройстве в EncryptedSharedPreferences и подставляется при следующем запуске. После ввода сохраняется автоматически (~0,5 с). Для своих локальных сборок можно добавить sandbox-token.properties (см. пример в репозитории). «Bearer …» у токена отрежется само.",
+            text = "Токен режима «песочница» (Т‑Инвест → API). Хранится на устройстве в EncryptedSharedPreferences; поля не сбрасываются при переходе на другие вкладки. После ввода сохраняется автоматически (~0,5 с). Для своих локальных сборок можно добавить sandbox-token.properties (см. пример в репозитории). «Bearer …» у токена отрежется само.",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp
         )
@@ -188,7 +158,7 @@ internal fun TinkoffSandboxTabContent(
 
         OutlinedTextField(
             value = tokenInput,
-            onValueChange = { tokenInput = it },
+            onValueChange = onTokenInputChange,
             label = { Text("Sandbox token") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
@@ -230,8 +200,8 @@ internal fun TinkoffSandboxTabContent(
                                 TinkoffSandboxStorage.setToken(context, null)
                                 TinkoffSandboxStorage.setAccountId(context, null)
                             }
-                            tokenInput = ""
-                            accountInput = ""
+                            onTokenInputChange("")
+                            onAccountInputChange("")
                             accounts = emptyList()
                             executeSignalsOnSandbox = withContext(Dispatchers.IO) {
                                 TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
@@ -252,7 +222,7 @@ internal fun TinkoffSandboxTabContent(
 
         OutlinedTextField(
             value = accountInput,
-            onValueChange = { accountInput = it },
+            onValueChange = onAccountInputChange,
             label = { Text("Account ID (подставится после «Открыть счёт»)") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
@@ -270,7 +240,7 @@ internal fun TinkoffSandboxTabContent(
                             TinkoffSandboxStorage.setAccountId(context, opened)
                             opened
                         }
-                        accountInput = id
+                        onAccountInputChange(id)
                         status = "Счёт открыт: $id"
                         onSandboxPrefsChanged()
                     }
@@ -315,7 +285,7 @@ internal fun TinkoffSandboxTabContent(
                                     withContext(Dispatchers.IO) {
                                         TinkoffSandboxStorage.setAccountId(context, row.id)
                                     }
-                                    accountInput = row.id
+                                    onAccountInputChange(row.id)
                                     status = "Выбран счёт ${row.id}"
                                     onSandboxPrefsChanged()
                                 } catch (e: Throwable) {

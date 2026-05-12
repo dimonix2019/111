@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val TAG = "TinkoffSandbox"
 private const val PREFS_FILE = "tinkoff_sandbox_secure"
@@ -82,4 +84,25 @@ internal object TinkoffSandboxStorage {
         if (t.isNullOrBlank() || a.isNullOrBlank()) return SandboxExecUiState.MissingCredentials
         return SandboxExecUiState.Ready
     }
+
+    /**
+     * Читает токен и счёт с диска; при пустых prefs подставляет значения из [BuildConfig] (sandbox-token.properties),
+     * если они заданы при сборке. Безопасно вызывать с главного потока (внутри — [Dispatchers.IO]).
+     */
+    suspend fun hydrateCredentialsForUi(context: Context): Pair<String, String> =
+        withContext(Dispatchers.IO) {
+            val embedTok = BuildConfig.SANDBOX_TOKEN_EMBED.trim()
+            val embedAcc = BuildConfig.SANDBOX_ACCOUNT_EMBED.trim()
+            var tok = getToken(context)
+            if (tok.isNullOrEmpty() && embedTok.isNotEmpty()) {
+                setToken(context, embedTok)
+                tok = getToken(context)
+            }
+            var acc = getAccountId(context)
+            if (acc.isNullOrEmpty() && embedAcc.isNotEmpty()) {
+                setAccountId(context, embedAcc)
+                acc = getAccountId(context)
+            }
+            Pair(tok.orEmpty(), acc.orEmpty())
+        }
 }
