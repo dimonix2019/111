@@ -120,8 +120,9 @@ internal fun TinkoffSandboxTabContent(
             status = ""
             try {
                 block()
-            } catch (e: Exception) {
-                status = e.message ?: e.toString()
+            } catch (e: Throwable) {
+                status = e.message?.takeIf { it.isNotBlank() }
+                    ?: "${e.javaClass.simpleName} (см. logcat: TinkoffSandbox)"
             } finally {
                 loading = false
             }
@@ -161,10 +162,18 @@ internal fun TinkoffSandboxTabContent(
             )
             Switch(
                 checked = executeSignalsOnSandbox,
-                onCheckedChange = {
-                    executeSignalsOnSandbox = it
-                    TinkoffSandboxStorage.setExecuteSignalsOnSandbox(context, it)
-                    onSandboxPrefsChanged()
+                onCheckedChange = { newVal ->
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                TinkoffSandboxStorage.setExecuteSignalsOnSandbox(context, newVal)
+                            }
+                            executeSignalsOnSandbox = newVal
+                            onSandboxPrefsChanged()
+                        } catch (e: Throwable) {
+                            status = e.message ?: e.javaClass.simpleName
+                        }
+                    }
                 },
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color(0xFF81D4FA),
@@ -192,9 +201,17 @@ internal fun TinkoffSandboxTabContent(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = {
-                    TinkoffSandboxStorage.setToken(context, tokenInput)
-                    status = "Токен сохранён локально."
-                    onSandboxPrefsChanged()
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                TinkoffSandboxStorage.setToken(context, tokenInput)
+                            }
+                            status = "Токен сохранён локально."
+                            onSandboxPrefsChanged()
+                        } catch (e: Throwable) {
+                            status = e.message ?: e.javaClass.simpleName
+                        }
+                    }
                 },
                 enabled = !loading && tokenInput.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
@@ -203,14 +220,24 @@ internal fun TinkoffSandboxTabContent(
             }
             Button(
                 onClick = {
-                    TinkoffSandboxStorage.setToken(context, null)
-                    TinkoffSandboxStorage.setAccountId(context, null)
-                    tokenInput = ""
-                    accountInput = ""
-                    accounts = emptyList()
-                    executeSignalsOnSandbox = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
-                    status = "Токен и счёт очищены."
-                    onSandboxPrefsChanged()
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                TinkoffSandboxStorage.setToken(context, null)
+                                TinkoffSandboxStorage.setAccountId(context, null)
+                            }
+                            tokenInput = ""
+                            accountInput = ""
+                            accounts = emptyList()
+                            executeSignalsOnSandbox = withContext(Dispatchers.IO) {
+                                TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
+                            }
+                            status = "Токен и счёт очищены."
+                            onSandboxPrefsChanged()
+                        } catch (e: Throwable) {
+                            status = e.message ?: e.javaClass.simpleName
+                        }
+                    }
                 },
                 enabled = !loading,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6D4C41))
@@ -231,10 +258,14 @@ internal fun TinkoffSandboxTabContent(
             Button(
                 onClick = {
                     run {
-                        val t = TinkoffSandboxStorage.getToken(context) ?: tokenInput.trim()
-                        if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
-                        val id = tinkoffOpenSandboxAccount(t, "MOEX MVP sandbox")
-                        TinkoffSandboxStorage.setAccountId(context, id)
+                        val typedTok = tokenInput.trim()
+                        val id = withContext(Dispatchers.IO) {
+                            val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
+                            if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                            val opened = tinkoffOpenSandboxAccount(t, "MOEX MVP sandbox")
+                            TinkoffSandboxStorage.setAccountId(context, opened)
+                            opened
+                        }
                         accountInput = id
                         status = "Счёт открыт: $id"
                         onSandboxPrefsChanged()
@@ -248,9 +279,12 @@ internal fun TinkoffSandboxTabContent(
             Button(
                 onClick = {
                     run {
-                        val t = TinkoffSandboxStorage.getToken(context) ?: tokenInput.trim()
-                        if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
-                        accounts = tinkoffGetSandboxAccounts(t)
+                        val typedTok = tokenInput.trim()
+                        accounts = withContext(Dispatchers.IO) {
+                            val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
+                            if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                            tinkoffGetSandboxAccounts(t)
+                        }
                         status = "Счетов: ${accounts.size}"
                     }
                 },
@@ -272,10 +306,18 @@ internal fun TinkoffSandboxTabContent(
                     Text(row.name.ifBlank { "—" }, color = Color(0xFFE0E0E0), fontSize = 12.sp, modifier = Modifier.weight(1f))
                     Button(
                         onClick = {
-                            accountInput = row.id
-                            TinkoffSandboxStorage.setAccountId(context, row.id)
-                            status = "Выбран счёт ${row.id}"
-                            onSandboxPrefsChanged()
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        TinkoffSandboxStorage.setAccountId(context, row.id)
+                                    }
+                                    accountInput = row.id
+                                    status = "Выбран счёт ${row.id}"
+                                    onSandboxPrefsChanged()
+                                } catch (e: Throwable) {
+                                    status = e.message ?: e.javaClass.simpleName
+                                }
+                            }
                         },
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                     ) {
@@ -297,12 +339,17 @@ internal fun TinkoffSandboxTabContent(
         Button(
             onClick = {
                 run {
-                    val t = TinkoffSandboxStorage.getToken(context) ?: tokenInput.trim()
-                    val acc = TinkoffSandboxStorage.getAccountId(context) ?: accountInput.trim()
-                    if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
-                    if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
-                    val rub = payInRub.toLongOrNull() ?: throw IllegalArgumentException("Сумма не число")
-                    val resp = tinkoffSandboxPayIn(t, acc, rub)
+                    val typedTok = tokenInput.trim()
+                    val typedAcc = accountInput.trim()
+                    val rubStr = payInRub
+                    val resp = withContext(Dispatchers.IO) {
+                        val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
+                        val acc = TinkoffSandboxStorage.getAccountId(context) ?: typedAcc
+                        if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                        if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
+                        val rub = rubStr.toLongOrNull() ?: throw IllegalArgumentException("Сумма не число")
+                        tinkoffSandboxPayIn(t, acc, rub)
+                    }
                     status = formatPayInResult(resp)
                     onSandboxPrefsChanged()
                 }
@@ -318,11 +365,15 @@ internal fun TinkoffSandboxTabContent(
             onClick = {
                 run {
                     portfolioRubLine = null
-                    val t = TinkoffSandboxStorage.getToken(context) ?: tokenInput.trim()
-                    val acc = TinkoffSandboxStorage.getAccountId(context) ?: accountInput.trim()
-                    if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
-                    if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
-                    val port = tinkoffGetSandboxPortfolio(t, acc)
+                    val typedTok = tokenInput.trim()
+                    val typedAcc = accountInput.trim()
+                    val port = withContext(Dispatchers.IO) {
+                        val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
+                        val acc = TinkoffSandboxStorage.getAccountId(context) ?: typedAcc
+                        if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                        if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
+                        tinkoffGetSandboxPortfolio(t, acc)
+                    }
                     portfolioRubLine =
                         formatSandboxPortfolioTotalRub(port)
                             ?: "Портфель (сырой ответ): ${port.toString().take(400)}"

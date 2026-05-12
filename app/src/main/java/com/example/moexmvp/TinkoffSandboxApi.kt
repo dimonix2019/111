@@ -134,9 +134,42 @@ private fun extractAccountId(root: JSONObject): String? {
     return null
 }
 
+private fun unwrapJsonByKeys(root: JSONObject, keys: Iterable<String>): JSONObject {
+    var o = root
+    for (w in keys) {
+        o.optJSONObject(w)?.let { inner -> o = inner }
+    }
+    return o
+}
+
+private fun unwrapOpenSandboxAccountEnvelope(root: JSONObject): JSONObject =
+    unwrapJsonByKeys(
+        root,
+        listOf("openSandboxAccountResponse", "open_sandbox_account_response")
+    )
+
+private fun unwrapGetAccountsEnvelope(root: JSONObject): JSONObject =
+    unwrapJsonByKeys(root, listOf("getAccountsResponse", "get_accounts_response"))
+
 internal suspend fun tinkoffOpenSandboxAccount(token: String, name: String): String {
-    val root = tinkoffSandboxPostAsync(token, "OpenSandboxAccount", JSONObject().put("name", name))
-    return extractAccountId(root) ?: throw IOException("Нет accountId в ответе: $root")
+    val nameAsArray = JSONArray().put(name)
+    val bodies = listOf(
+        JSONObject().put("name", nameAsArray),
+        JSONObject().put("name", name),
+        JSONObject()
+    )
+    var last: IOException? = null
+    for (body in bodies) {
+        try {
+            val raw = tinkoffSandboxPostAsync(token, "OpenSandboxAccount", body)
+            val unwrapped = unwrapOpenSandboxAccountEnvelope(raw)
+            extractAccountId(unwrapped)?.let { return it }
+            extractAccountId(raw)?.let { return it }
+        } catch (e: IOException) {
+            last = e
+        }
+    }
+    throw last ?: IOException("OpenSandboxAccount: не удалось открыть счёт")
 }
 
 internal data class SandboxAccountRow(val id: String, val name: String)
@@ -156,15 +189,17 @@ private fun parseSandboxAccounts(root: JSONObject): List<SandboxAccountRow> {
 }
 
 internal suspend fun tinkoffGetSandboxAccounts(token: String): List<SandboxAccountRow> {
+    fun parse(root: JSONObject): List<SandboxAccountRow> =
+        parseSandboxAccounts(unwrapGetAccountsEnvelope(root))
     var root = tinkoffSandboxPostAsync(token, "GetSandboxAccounts", JSONObject())
-    var rows = parseSandboxAccounts(root)
+    var rows = parse(root)
     if (rows.isEmpty()) {
         root = tinkoffSandboxPostAsync(
             token,
             "GetSandboxAccounts",
             JSONObject().put("status", "ACCOUNT_STATUS_ALL")
         )
-        rows = parseSandboxAccounts(root)
+        rows = parse(root)
     }
     return rows
 }
@@ -455,21 +490,18 @@ internal suspend fun tinkoffSandboxExecuteSpreadEntry(
     }
 }
 
-private fun unwrapSandboxPortfolioJson(root: JSONObject): JSONObject {
-    var o = root
-    val wrappers = listOf(
-        "getSandboxPortfolioResponse",
-        "get_sandbox_portfolio_response",
-        "getPortfolioResponse",
-        "get_portfolio_response",
-        "portfolio",
-        "Portfolio"
+private fun unwrapSandboxPortfolioJson(root: JSONObject): JSONObject =
+    unwrapJsonByKeys(
+        root,
+        listOf(
+            "getSandboxPortfolioResponse",
+            "get_sandbox_portfolio_response",
+            "getPortfolioResponse",
+            "get_portfolio_response",
+            "portfolio",
+            "Portfolio"
+        )
     )
-    for (w in wrappers) {
-        o.optJSONObject(w)?.let { inner -> o = inner }
-    }
-    return o
-}
 
 internal suspend fun tinkoffGetSandboxPortfolio(token: String, accountId: String): JSONObject {
     val attempts = listOf(
