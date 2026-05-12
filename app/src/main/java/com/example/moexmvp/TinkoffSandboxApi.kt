@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.IOException
+import java.util.Locale
 import java.util.UUID
 
 private val jsonMedia = "application/json".toMediaType()
@@ -64,11 +65,16 @@ private fun extractApiErrorMessage(httpCode: Int, body: String): String {
     }
 }
 
-private suspend fun tinkoffSandboxPostRaw(token: String, method: String, bodyJson: String): String =
+private suspend fun tinkoffSbxPostRaw(
+    prefixes: List<String>,
+    token: String,
+    method: String,
+    bodyJson: String
+): String =
     withContext(Dispatchers.IO) {
         val norm = normalizeInvestToken(token)
         var lastNetwork: IOException? = null
-        for (prefix in TINVEST_SANDBOX_REST_PREFIXES) {
+        for (prefix in prefixes) {
             val url = "$prefix/$method"
             val req = Request.Builder()
                 .url(url)
@@ -85,13 +91,23 @@ private suspend fun tinkoffSandboxPostRaw(token: String, method: String, bodyJso
                     return@withContext text
                 }
             } catch (e: IOException) {
-                // Ответ API с не-2xx уже упакован в сообщение, начинающееся с «HTTP …» — другой хост не пробуем.
                 if (e.message?.startsWith("HTTP ") == true) throw e
                 lastNetwork = e
             }
         }
-        throw lastNetwork ?: IOException("Sandbox REST: нет доступных хостов")
+        throw lastNetwork ?: IOException("T‑Invest REST: нет доступных хостов")
     }
+
+private suspend fun tinkoffSandboxPostRaw(token: String, method: String, bodyJson: String): String =
+    tinkoffSbxPostRaw(TINVEST_SANDBOX_REST_PREFIXES, token, method, bodyJson)
+
+private suspend fun tinkoffInstrumentsPostRaw(token: String, method: String, bodyJson: String): String =
+    tinkoffSbxPostRaw(TINVEST_SANDBOX_INSTRUMENTS_PREFIXES, token, method, bodyJson)
+
+internal suspend fun tinkoffInstrumentsPostAsync(token: String, method: String, body: JSONObject): JSONObject {
+    val raw = tinkoffInstrumentsPostRaw(token, method, body.toString())
+    return parseJsonObjectOrEmpty(raw)
+}
 
 internal suspend fun tinkoffSandboxPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffSandboxPostRaw(token, method, body.toString())
@@ -192,12 +208,12 @@ private fun postMarketBodyCamel(
     orderId: String
 ): JSONObject {
     val price = JSONObject()
-        .put("units", "0")
+        .put("units", 0)
         .put("nano", 0)
     return JSONObject()
         .put("accountId", accountId)
         .put("instrumentId", instrumentId)
-        .put("quantity", quantityLots.toString())
+        .put("quantity", quantityLots)
         .put("direction", direction)
         .put("orderType", "ORDER_TYPE_MARKET")
         .put("orderId", orderId)
@@ -214,12 +230,12 @@ private fun postMarketBodySnake(
     orderId: String
 ): JSONObject {
     val price = JSONObject()
-        .put("units", "0")
+        .put("units", 0)
         .put("nano", 0)
     return JSONObject()
         .put("account_id", accountId)
         .put("instrument_id", instrumentId)
-        .put("quantity", quantityLots.toString())
+        .put("quantity", quantityLots)
         .put("direction", direction)
         .put("order_type", "ORDER_TYPE_MARKET")
         .put("order_id", orderId)
@@ -237,7 +253,7 @@ private fun postMarketBodyCamelNoPrice(
 ): JSONObject = JSONObject()
     .put("accountId", accountId)
     .put("instrumentId", instrumentId)
-    .put("quantity", quantityLots.toString())
+    .put("quantity", quantityLots)
     .put("direction", direction)
     .put("orderType", "ORDER_TYPE_MARKET")
     .put("orderId", orderId)
@@ -253,7 +269,7 @@ private fun postMarketBodySnakeNoPrice(
 ): JSONObject = JSONObject()
     .put("account_id", accountId)
     .put("instrument_id", instrumentId)
-    .put("quantity", quantityLots.toString())
+    .put("quantity", quantityLots)
     .put("direction", direction)
     .put("order_type", "ORDER_TYPE_MARKET")
     .put("order_id", orderId)
@@ -286,6 +302,43 @@ internal suspend fun tinkoffPostSandboxMarketOrder(
 }
 
 /**
+ * REST PostOrder expects [instrument_id] as FIGI or instrument UID, not always `TICKER_TQBR`.
+ * Resolves via InstrumentsService/FindInstrument on the sandbox host.
+ */
+internal suspend fun tinkoffResolveShareInstrumentId(token: String, ticker: String): String {
+    val want = ticker.trim().uppercase(Locale.US)
+    val root = tinkoffInstrumentsPostAsync(
+        token,
+        "FindInstrument",
+        JSONObject()
+            .put("query", want)
+            .put("instrumentKind", "INSTRUMENT_TYPE_SHARE")
+            .put("apiTradeAvailableFlag", true)
+    )
+    val arr = root.optJSONArray("instruments")
+        ?: root.optJSONArray("Instruments")
+        ?: throw IOException("FindInstrument: нет массива instruments · ${root.toString().take(400)}")
+    val matches = buildList {
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val t = o.optString("ticker", o.optString("Ticker", "")).trim().uppercase(Locale.US)
+            if (t == want) add(o)
+        }
+    }
+    if (matches.isEmpty()) {
+        throw IOException("FindInstrument: тикер $want не найден · ${root.toString().take(400)}")
+    }
+    val tqbr = matches.firstOrNull {
+        it.optString("classCode", it.optString("class_code", "")).equals("TQBR", ignoreCase = true)
+    }
+    val chosen = tqbr ?: matches.first()
+    return chosen.firstNonBlankString(
+        "instrumentUid", "instrument_uid", "uid",
+        "figi", "FIGI"
+    ) ?: throw IOException("FindInstrument: нет uid/figi для $want · ${chosen.toString().take(400)}")
+}
+
+/**
  * Opens a Z-spread position on the sandbox: 2 MOEX equity legs (1 lot each).
  * LONG spread = long TATN / short TATNP; SHORT spread = the opposite.
  */
@@ -294,8 +347,16 @@ internal suspend fun tinkoffSandboxExecuteSpreadEntry(
     accountId: String,
     signalType: StrategySignalType
 ) {
-    val tatn = TINKOFF_MOEX_TATN_INSTRUMENT_ID
-    val tatnp = TINKOFF_MOEX_TATNP_INSTRUMENT_ID
+    val tatn = try {
+        tinkoffResolveShareInstrumentId(token, "TATN")
+    } catch (_: Exception) {
+        TINKOFF_MOEX_TATN_INSTRUMENT_ID
+    }
+    val tatnp = try {
+        tinkoffResolveShareInstrumentId(token, "TATNP")
+    } catch (_: Exception) {
+        TINKOFF_MOEX_TATNP_INSTRUMENT_ID
+    }
     val buy = "ORDER_DIRECTION_BUY"
     val sell = "ORDER_DIRECTION_SELL"
     when (signalType) {

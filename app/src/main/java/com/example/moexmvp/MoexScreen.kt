@@ -471,17 +471,19 @@ internal fun MoexScreen() {
                                     return@launch
                                 }
                                 try {
-                                    tinkoffSandboxExecuteSpreadEntry(tok, acc, proposal.signalType)
-                                    clearPendingVirtualTradeProposal(context)
+                                    withContext(Dispatchers.IO) {
+                                        tinkoffSandboxExecuteSpreadEntry(tok, acc, proposal.signalType)
+                                        clearPendingVirtualTradeProposal(context)
+                                        recordStrategySignalEvent(
+                                            context = context,
+                                            signalType = proposal.signalType,
+                                            zScore = proposal.zScore,
+                                            timestampMillis = System.currentTimeMillis(),
+                                            skipJournalWallDedup = true,
+                                            savePendingVirtualTradeIfEntry = false
+                                        )
+                                    }
                                     pendingVirtualTrade = null
-                                    recordStrategySignalEvent(
-                                        context = context,
-                                        signalType = proposal.signalType,
-                                        zScore = proposal.zScore,
-                                        timestampMillis = System.currentTimeMillis(),
-                                        skipJournalWallDedup = true,
-                                        savePendingVirtualTradeIfEntry = false
-                                    )
                                     signalEvents = loadStrategySignalEvents(context)
                                     Toast.makeText(
                                         context,
@@ -491,7 +493,8 @@ internal fun MoexScreen() {
                                 } catch (e: Exception) {
                                     Toast.makeText(
                                         context,
-                                        e.message ?: e.toString(),
+                                        e.message?.takeIf { it.isNotBlank() }
+                                            ?: "${e.javaClass.simpleName} (см. лог)",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 }
