@@ -45,6 +45,7 @@ internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.6 — Журнал: уникальные ключи списка (без вылета при дубликатах). Портфель: привязка сигналов к 15м с «хвостом» после последнего бара; после «Принять» в песочнице — запись в журнал и обновление списка.
 1.6.5 — Песочница: fallback на обычные prefs если EncryptedSharedPreferences падают; сохранение на IO; разбор API-ошибок (в т.ч. «Ошибка» + фрагмент тела); PostSandboxOrder без поля price.
 1.6.4 — Песочница: токен и счёт автоматически сохраняются при вводе (EncryptedSharedPreferences); опционально sandbox-token.properties для локальной сборки (не в git).
 1.6.3 — Песочница: по кнопке «Принять» на сигнале входа — 2 рыночные заявки в песочнице (TATN/TATNP, 1 лот); переключатель «Исполнять на демо»; портфель песочницы; сводка на «Рынке».

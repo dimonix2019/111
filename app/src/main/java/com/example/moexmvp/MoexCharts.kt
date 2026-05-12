@@ -503,16 +503,25 @@ internal fun buildZScoreSignalMarkersFromEvents(
     val bucketMs = 15 * 60 * 1000L
     /** Allow snapping across small clock skew (chart vs 15m cache both use Moscow). */
     val maxSnapMs = bucketMs * 2
+    /** Events slightly after the last bar (e.g. confirm tap) still map to the last 15m bar. */
+    val edgeGraceMs = 48 * 60 * 60 * 1000L
     return events
         .asSequence()
-        .filter { it.timestampMillis in (rangeStart - bucketMs)..(rangeEnd + bucketMs) }
+        .filter { it.timestampMillis in (rangeStart - bucketMs - edgeGraceMs)..(rangeEnd + bucketMs + edgeGraceMs) }
         .distinctBy { "${it.signalType}:${it.timestampMillis}" }
         .mapNotNull { event ->
-            val idx = points.indices.minByOrNull { index ->
+            val idxNearest = points.indices.minByOrNull { index ->
                 abs(points[index].timestampMillis - event.timestampMillis)
             } ?: return@mapNotNull null
-            val diff = abs(points[idx].timestampMillis - event.timestampMillis)
-            if (diff > maxSnapMs) return@mapNotNull null
+            val diffNearest = abs(points[idxNearest].timestampMillis - event.timestampMillis)
+            val idx = when {
+                diffNearest <= maxSnapMs -> idxNearest
+                event.timestampMillis > rangeEnd && event.timestampMillis <= rangeEnd + edgeGraceMs ->
+                    points.lastIndex
+                event.timestampMillis < rangeStart && event.timestampMillis >= rangeStart - edgeGraceMs ->
+                    0
+                else -> return@mapNotNull null
+            }
             val (color, label, shape) = when (event.signalType) {
                 StrategySignalType.EnterLong -> Triple(Color(0xFF69F0AE), "Enter LONG", ChartMarkerShape.TriangleUp)
                 StrategySignalType.EnterShort -> Triple(Color(0xFFFF8A80), "Enter SHORT", ChartMarkerShape.TriangleDown)

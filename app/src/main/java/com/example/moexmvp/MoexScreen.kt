@@ -474,9 +474,18 @@ internal fun MoexScreen() {
                                     tinkoffSandboxExecuteSpreadEntry(tok, acc, proposal.signalType)
                                     clearPendingVirtualTradeProposal(context)
                                     pendingVirtualTrade = null
+                                    recordStrategySignalEvent(
+                                        context = context,
+                                        signalType = proposal.signalType,
+                                        zScore = proposal.zScore,
+                                        timestampMillis = System.currentTimeMillis(),
+                                        skipJournalWallDedup = true,
+                                        savePendingVirtualTradeIfEntry = false
+                                    )
+                                    signalEvents = loadStrategySignalEvents(context)
                                     Toast.makeText(
                                         context,
-                                        "Отправлены 2 рыночные заявки в песочницу (TATN/TATNP).",
+                                        "Заявки в песочнице отправлены; вход записан в журнал и портфель.",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } catch (e: Exception) {

@@ -167,17 +167,23 @@ internal fun recordStrategySignalEvent(
     context: Context,
     signalType: StrategySignalType,
     zScore: Double,
-    timestampMillis: Long
+    timestampMillis: Long,
+    /** When true, skip 25s wall dedup (e.g. sandbox «Принять» right after the same signal was logged). */
+    skipJournalWallDedup: Boolean = false,
+    /** When false, do not refresh pending virtual-trade card (used after sandbox execution). */
+    savePendingVirtualTradeIfEntry: Boolean = true
 ) {
     synchronized(signalEventsLock) {
         val prefs = context.getSharedPreferences(SIGNAL_EVENTS_PREFS_NAME, Context.MODE_PRIVATE)
         val nowWall = System.currentTimeMillis()
-        val prevWall = prefs.getLong(PREF_SIGNAL_LAST_WALL_MS, 0L)
-        val prevType = prefs.getString(PREF_SIGNAL_LAST_TYPE, null)
-        if (prevWall > 0L && prevType == signalType.name &&
-            (nowWall - prevWall) <= STRATEGY_SIGNAL_JOURNAL_DEDUP_WALL_MS
-        ) {
-            return
+        if (!skipJournalWallDedup) {
+            val prevWall = prefs.getLong(PREF_SIGNAL_LAST_WALL_MS, 0L)
+            val prevType = prefs.getString(PREF_SIGNAL_LAST_TYPE, null)
+            if (prevWall > 0L && prevType == signalType.name &&
+                (nowWall - prevWall) <= STRATEGY_SIGNAL_JOURNAL_DEDUP_WALL_MS
+            ) {
+                return
+            }
         }
         val existing = prefs.getString(PREF_SIGNAL_EVENTS_JSON, null).orEmpty()
         val source = runCatching { JSONArray(existing) }.getOrElse { JSONArray() }
@@ -215,7 +221,9 @@ internal fun recordStrategySignalEvent(
             .putString(PREF_SIGNAL_LAST_TYPE, signalType.name)
             .apply()
     }
-    if (signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort) {
+    if (savePendingVirtualTradeIfEntry &&
+        (signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
+    ) {
         savePendingVirtualTradeProposal(
             context = context,
             signalType = signalType,

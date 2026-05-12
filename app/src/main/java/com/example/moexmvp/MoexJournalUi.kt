@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -87,10 +87,10 @@ internal fun JournalTabContent(
                 FilterChip("Все дни", selected = dayFilter == null) { dayFilter = null }
             }
         }
-        items(
+        itemsIndexed(
             items = filtered,
-            key = { "${it.timestampMillis}_${it.signalType}" }
-        ) { ev ->
+            key = { index, ev -> "${index}_${ev.timestampMillis}_${ev.signalType.name}" }
+        ) { _, ev ->
             val ts = Instant.ofEpochMilli(ev.timestampMillis).atZone(zone)
             Column(
                 Modifier
