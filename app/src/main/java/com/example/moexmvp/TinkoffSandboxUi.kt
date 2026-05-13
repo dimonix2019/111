@@ -3,6 +3,7 @@ package com.example.moexmvp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,6 +18,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -61,6 +63,9 @@ internal fun TinkoffSandboxTabContent(
     var showToken by remember { mutableStateOf(false) }
     var executeSignalsOnSandbox by remember {
         mutableStateOf(TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context))
+    }
+    var entryModeAuto by remember {
+        mutableStateOf(TinkoffSandboxStorage.isSandboxEntryAuto(context))
     }
     var portfolioRubLine by remember { mutableStateOf<String?>(null) }
     fun hasToken(): Boolean =
@@ -155,6 +160,58 @@ internal fun TinkoffSandboxTabContent(
                 )
             )
         }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Режим входа (тест)",
+                color = Color(0xFFE0E0E0),
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            TinkoffSandboxStorage.setSandboxEntryAuto(context, false)
+                        }
+                        entryModeAuto = false
+                        onSandboxPrefsChanged()
+                    }
+                },
+                enabled = entryModeAuto,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text("Ручной", fontSize = 11.sp)
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            TinkoffSandboxStorage.setSandboxEntryAuto(context, true)
+                        }
+                        entryModeAuto = true
+                        onSandboxPrefsChanged()
+                    }
+                },
+                enabled = !entryModeAuto,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text("Авто", fontSize = 11.sp)
+            }
+        }
+        Text(
+            text = if (entryModeAuto) {
+                "Авто: после сигнала входа заявки на песочницу отправляются сами (нужны токен и счёт). По каждой ноге — отдельное уведомление: время, тикер, заявка, номинал и плечо, баланс портфеля после ноги. Карточка «Принять» не показывается."
+            } else {
+                "Ручной: как раньше — уведомление о сигнале и карточка «Принять». Плечо в тексте уведомлений о сделке берётся с вкладки «Портфель» (параметр плеча)."
+            },
+            color = Color(0xFF757575),
+            fontSize = 10.sp
+        )
 
         OutlinedTextField(
             value = tokenInput,

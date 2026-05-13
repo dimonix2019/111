@@ -148,6 +148,14 @@ class SignalForegroundService : Service() {
                         nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                     }
                 }
+                scope.launch(Dispatchers.IO) {
+                    runSandboxAutoEntryIfNeeded(
+                        applicationContext,
+                        StrategySignalType.EnterLong,
+                        snapshot.latestZ,
+                        snapshot.latestTimestampMillis
+                    )
+                }
             }
 
             BgSignal.EnterShort -> {
@@ -177,6 +185,14 @@ class SignalForegroundService : Service() {
                     if (sent) {
                         nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                     }
+                }
+                scope.launch(Dispatchers.IO) {
+                    runSandboxAutoEntryIfNeeded(
+                        applicationContext,
+                        StrategySignalType.EnterShort,
+                        snapshot.latestZ,
+                        snapshot.latestTimestampMillis
+                    )
                 }
             }
 

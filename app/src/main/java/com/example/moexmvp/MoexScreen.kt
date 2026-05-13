@@ -147,6 +147,12 @@ internal fun MoexScreen() {
         }
     }
 
+    LaunchedEffect(portfolioLeverage) {
+        withContext(Dispatchers.IO) {
+            TinkoffSandboxStorage.setSandboxNotifyLeverage(context, portfolioLeverage)
+        }
+    }
+
     LaunchedEffect(chartSuccess?.points, signalEvents) {
         val pts = chartSuccess?.points
         if (pts != null && pts.isNotEmpty()) {
@@ -307,6 +313,20 @@ internal fun MoexScreen() {
                                         saveDailySignalLimit(context, dailySignalLimit)
                                     }
                                 }
+                                scope.launch(Dispatchers.IO) {
+                                    val ran = runSandboxAutoEntryIfNeeded(
+                                        context.applicationContext,
+                                        StrategySignalType.EnterLong,
+                                        latestZScore,
+                                        latestTimestampMillis
+                                    )
+                                    if (ran) {
+                                        withContext(Dispatchers.Main) {
+                                            pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+                                            sandboxSpreadExecReload++
+                                        }
+                                    }
+                                }
                             }
 
                             ZStrategySignal.EnterShort -> {
@@ -338,6 +358,20 @@ internal fun MoexScreen() {
                                     if (sent) {
                                         dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                         saveDailySignalLimit(context, dailySignalLimit)
+                                    }
+                                }
+                                scope.launch(Dispatchers.IO) {
+                                    val ran = runSandboxAutoEntryIfNeeded(
+                                        context.applicationContext,
+                                        StrategySignalType.EnterShort,
+                                        latestZScore,
+                                        latestTimestampMillis
+                                    )
+                                    if (ran) {
+                                        withContext(Dispatchers.Main) {
+                                            pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+                                            sandboxSpreadExecReload++
+                                        }
                                     }
                                 }
                             }
@@ -517,8 +551,12 @@ internal fun MoexScreen() {
                                 }
                                 try {
                                     val nowMs = System.currentTimeMillis()
-                                    val skippedJournal = withContext(Dispatchers.IO) {
-                                        tinkoffSandboxExecuteSpreadEntry(tok, acc, proposal.signalType)
+                                    val (skipDupJournal, legs) = withContext(Dispatchers.IO) {
+                                        val legsInner = tinkoffSandboxExecuteSpreadEntryDetailed(
+                                            tok,
+                                            acc,
+                                            proposal.signalType
+                                        )
                                         clearPendingVirtualTradeProposal(context, proposal)
                                         TinkoffSandboxSpreadExecLog.record(
                                             context,
@@ -545,12 +583,18 @@ internal fun MoexScreen() {
                                                 savePendingVirtualTradeIfEntry = false
                                             )
                                         }
-                                        skipDup
+                                        Pair(skipDup, legsInner)
                                     }
+                                    notifySandboxSpreadLegExecutionResults(
+                                        context,
+                                        legs,
+                                        DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                                        TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
+                                    )
                                     pendingVirtualTrade = null
                                     sandboxSpreadExecReload++
                                     signalEvents = loadStrategySignalEvents(context)
-                                    val tail = if (skippedJournal) {
+                                    val tail = if (skipDupJournal) {
                                         "Повторный вход в журнал не записан (тот же сигнал уже в журнале)."
                                     } else {
                                         "Вход записан в журнал."

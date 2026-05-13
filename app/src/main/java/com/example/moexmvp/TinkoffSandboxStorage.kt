@@ -17,6 +17,9 @@ private const val KEY_TOKEN = "sandbox_api_token"
 private const val KEY_ACCOUNT_ID = "sandbox_account_id"
 /** When true, «Принять» на карточке сигнала шлёт рыночные заявки в SandboxService. */
 private const val KEY_EXECUTE_SIGNALS_ON_SANDBOX = "execute_signals_on_sandbox"
+/** "MANUAL" — карточка «Принять»; "AUTO" — заявки на песочницу сразу после сигнала входа (тест). */
+private const val KEY_SANDBOX_ENTRY_MODE = "sandbox_entry_mode"
+private const val KEY_SANDBOX_NOTIFY_LEVERAGE = "sandbox_notify_leverage"
 
 internal object TinkoffSandboxStorage {
 
@@ -118,6 +121,25 @@ internal object TinkoffSandboxStorage {
 
     fun setExecuteSignalsOnSandbox(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_EXECUTE_SIGNALS_ON_SANDBOX, enabled).apply()
+    }
+
+    fun isSandboxEntryAuto(context: Context): Boolean =
+        prefs(context).getString(KEY_SANDBOX_ENTRY_MODE, "MANUAL") == "AUTO"
+
+    fun setSandboxEntryAuto(context: Context, auto: Boolean) {
+        prefs(context).edit()
+            .putString(KEY_SANDBOX_ENTRY_MODE, if (auto) "AUTO" else "MANUAL")
+            .apply()
+    }
+
+    /** Плечо для текста в уведомлениях о сделках (по умолчанию как в портфеле). */
+    fun getSandboxNotifyLeverage(context: Context): Double =
+        prefs(context).getFloat(KEY_SANDBOX_NOTIFY_LEVERAGE, 7f).toDouble().coerceIn(1.0, 30.0)
+
+    fun setSandboxNotifyLeverage(context: Context, leverage: Double) {
+        prefs(context).edit()
+            .putFloat(KEY_SANDBOX_NOTIFY_LEVERAGE, leverage.toFloat().coerceIn(1f, 30f))
+            .apply()
     }
 
     fun resolveExecUiState(context: Context): SandboxExecUiState {

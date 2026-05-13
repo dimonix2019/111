@@ -536,6 +536,60 @@ internal fun formatPostSandboxOrderBrief(root: JSONObject): String {
     }
 }
 
+internal data class SandboxLegOrderResult(
+    val ticker: String,
+    val sideRu: String,
+    val orderJson: JSONObject,
+    val portfolioTotalRub: String?,
+    val portfolioCashRub: String?,
+    val completedAtMillis: Long
+)
+
+/**
+ * Две рыночные заявки по 1 лоту; после **каждой** — GetSandboxPortfolio для строк «всего» и «деньги» в уведомлениях.
+ */
+internal suspend fun tinkoffSandboxExecuteSpreadEntryDetailed(
+    token: String,
+    accountId: String,
+    signalType: StrategySignalType
+): List<SandboxLegOrderResult> {
+    val tatnId = try {
+        tinkoffResolveShareInstrumentId(token, "TATN")
+    } catch (_: Exception) {
+        TINKOFF_MOEX_TATN_INSTRUMENT_ID
+    }
+    val tatnpId = try {
+        tinkoffResolveShareInstrumentId(token, "TATNP")
+    } catch (_: Exception) {
+        TINKOFF_MOEX_TATNP_INSTRUMENT_ID
+    }
+    val buy = "ORDER_DIRECTION_BUY"
+    val sell = "ORDER_DIRECTION_SELL"
+    suspend fun postLeg(ticker: String, instId: String, dir: String, sideRu: String): SandboxLegOrderResult {
+        val order = tinkoffPostSandboxMarketOrder(token, accountId, instId, dir)
+        val pf = tinkoffGetSandboxPortfolio(token, accountId)
+        return SandboxLegOrderResult(
+            ticker = ticker,
+            sideRu = sideRu,
+            orderJson = order,
+            portfolioTotalRub = formatSandboxPortfolioTotalRub(pf),
+            portfolioCashRub = formatSandboxCashRub(pf),
+            completedAtMillis = System.currentTimeMillis()
+        )
+    }
+    return when (signalType) {
+        StrategySignalType.EnterLong -> listOf(
+            postLeg("TATN", tatnId, buy, "покупка 1 лот"),
+            postLeg("TATNP", tatnpId, sell, "продажа 1 лот")
+        )
+        StrategySignalType.EnterShort -> listOf(
+            postLeg("TATNP", tatnpId, buy, "покупка 1 лот"),
+            postLeg("TATN", tatnId, sell, "продажа 1 лот")
+        )
+        else -> throw IOException("Только EnterLong / EnterShort")
+    }
+}
+
 /**
  * Вход в Z‑спрэд на песочнице: **ровно две** рыночные заявки по 1 лоту — одна **покупка**, одна **продажа**
  * на разных тикерах (TATN и TATNP). Это не «два сигнала Long+Short подряд», а одна спрэд‑позиция.
@@ -548,29 +602,7 @@ internal suspend fun tinkoffSandboxExecuteSpreadEntry(
     accountId: String,
     signalType: StrategySignalType
 ) {
-    val tatn = try {
-        tinkoffResolveShareInstrumentId(token, "TATN")
-    } catch (_: Exception) {
-        TINKOFF_MOEX_TATN_INSTRUMENT_ID
-    }
-    val tatnp = try {
-        tinkoffResolveShareInstrumentId(token, "TATNP")
-    } catch (_: Exception) {
-        TINKOFF_MOEX_TATNP_INSTRUMENT_ID
-    }
-    val buy = "ORDER_DIRECTION_BUY"
-    val sell = "ORDER_DIRECTION_SELL"
-    when (signalType) {
-        StrategySignalType.EnterLong -> {
-            tinkoffPostSandboxMarketOrder(token, accountId, tatn, buy)
-            tinkoffPostSandboxMarketOrder(token, accountId, tatnp, sell)
-        }
-        StrategySignalType.EnterShort -> {
-            tinkoffPostSandboxMarketOrder(token, accountId, tatnp, buy)
-            tinkoffPostSandboxMarketOrder(token, accountId, tatn, sell)
-        }
-        else -> throw IOException("Только EnterLong / EnterShort")
-    }
+    tinkoffSandboxExecuteSpreadEntryDetailed(token, accountId, signalType)
 }
 
 private fun unwrapSandboxPortfolioJson(root: JSONObject): JSONObject =

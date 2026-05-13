@@ -16,6 +16,9 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 internal const val PUSH_CHANNEL_ID = "moex_push_channel"
@@ -43,6 +46,9 @@ private const val PREF_SIGNAL_LAST_TYPE = "strategy_signal_last_journal_type"
 private const val MAX_SIGNAL_EVENTS = 800
 private val pushDedupLock = Any()
 private val signalEventsLock = Any()
+
+private val sandboxLegNotifyTimeFormatter: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Europe/Moscow"))
 
 internal enum class StrategySignalType {
     EnterLong,
@@ -75,7 +81,8 @@ internal fun showPushNotification(
     title: String,
     body: String,
     notificationId: Int = System.currentTimeMillis().toInt(),
-    virtualTradeTap: VirtualTradeTapIntent? = null
+    virtualTradeTap: VirtualTradeTapIntent? = null,
+    skipDuplicateCheck: Boolean = false
 ): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         val granted = ContextCompat.checkSelfPermission(
@@ -87,7 +94,7 @@ internal fun showPushNotification(
             return false
         }
     }
-    if (shouldSkipDuplicatePush(context, title, body)) {
+    if (!skipDuplicateCheck && shouldSkipDuplicatePush(context, title, body)) {
         Log.d(PUSH_LOG_TAG, "Skipping duplicate notification: $title | $body")
         return false
     }
@@ -120,6 +127,50 @@ internal fun showPushNotification(
 
     NotificationManagerCompat.from(context).notify(notificationId, notification)
     return true
+}
+
+/** Отдельное уведомление по каждой ноге спрэда после PostSandboxOrder (тест песочницы). */
+internal fun notifySandboxSpreadLegExecutionResults(
+    context: Context,
+    legs: List<SandboxLegOrderResult>,
+    notionalRub: Double,
+    leverage: Double
+) {
+    val app = context.applicationContext
+    legs.forEachIndexed { index, leg ->
+        val msk = sandboxLegNotifyTimeFormatter.format(Instant.ofEpochMilli(leg.completedAtMillis))
+        val brief = formatPostSandboxOrderBrief(leg.orderJson)
+        val body = buildString {
+            append(msk)
+            append(" (МСК)\n")
+            append("Тикер: ")
+            append(leg.ticker)
+            append(" · ")
+            append(leg.sideRu)
+            append("\nЗаявка: ")
+            append(brief)
+            append("\n")
+            append(
+                String.format(
+                    Locale.US,
+                    "Сумма (тест, номинал стратегии): %.0f ₽ · плечо ×%.1f · лоты: 1\n",
+                    notionalRub,
+                    leverage
+                )
+            )
+            leg.portfolioTotalRub?.let { append("Баланс портфеля после ноги: $it\n") }
+            leg.portfolioCashRub?.let { append("Деньги (₽) после ноги: $it") }
+        }
+        val nid = kotlin.math.abs((System.nanoTime() xor (index * 49999L)).toInt()) % 1_000_000_000
+        showPushNotification(
+            context = app,
+            title = "Песочница · нога ${index + 1}/${legs.size}: ${leg.ticker}",
+            body = body,
+            notificationId = nid,
+            virtualTradeTap = null,
+            skipDuplicateCheck = true
+        )
+    }
 }
 
 private fun shouldSkipDuplicatePush(context: Context, title: String, body: String): Boolean {
@@ -272,6 +323,7 @@ internal fun recordStrategySignalEvent(
             .apply()
     }
     if (savePendingVirtualTradeIfEntry &&
+        !TinkoffSandboxStorage.isSandboxEntryAuto(context) &&
         (signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
     ) {
         savePendingVirtualTradeProposal(
