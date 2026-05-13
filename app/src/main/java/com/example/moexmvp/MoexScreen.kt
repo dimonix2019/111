@@ -508,7 +508,7 @@ internal fun MoexScreen() {
                                     signalEvents = loadStrategySignalEvents(context)
                                     Toast.makeText(
                                         context,
-                                        "Заявки в песочнице отправлены; вход записан в журнал и портфель.",
+                                        "В песочнице отправлены 2 заявки (покупка + продажа по спрэду); вход в журнале.",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } catch (e: Exception) {
@@ -697,7 +697,7 @@ internal fun MoexScreen() {
                         SandboxExecUiState.MissingCredentials ->
                             "Т‑Инвест песочница: сохраните токен и счёт (вкладка «Песочница»), чтобы слать заявки по «Принять»."
                         SandboxExecUiState.Ready ->
-                            "Демо-счёт Т‑Инвест · …$demoTail · по «Принять» на сигнале → 2 рыночные заявки в песочнице."
+                            "Демо-счёт Т‑Инвест · …$demoTail · «Принять» → покупка 1 лота + продажа 1 лота (спрэд TATN/TATNP)."
                     }
                     MarketsSummaryStrip(
                         z = last?.zScore,

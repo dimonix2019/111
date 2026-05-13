@@ -129,7 +129,7 @@ internal fun TinkoffSandboxTabContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Исполнять вход по сигналу на демо-счёт (2 рыночные заявки TATN/TATNP)",
+                text = "Исполнять вход по сигналу на демо-счёт (покупка 1 лота + продажа 1 лота по спрэду TATN/TATNP)",
                 color = Color(0xFFE0E0E0),
                 fontSize = 12.sp,
                 modifier = Modifier.weight(1f).padding(end = 8.dp)

@@ -23,7 +23,7 @@ internal data class PendingVirtualTradeProposal(
     val bodyRu: String
         get() = String.format(
             java.util.Locale.US,
-            "Z = %.2f · порог входа ±%.2f, выход ±%.2f\n(подтверждение в приложении; при песочнице — 2 заявки на демо-счёт)",
+            "Z = %.2f · порог входа ±%.2f, выход ±%.2f\n(подтверждение в приложении; при песочнице — 2 заявки: 1×покупка + 1×продажа по ногам спрэда TATN/TATNP)",
             zScore,
             entryThreshold,
             exitThreshold

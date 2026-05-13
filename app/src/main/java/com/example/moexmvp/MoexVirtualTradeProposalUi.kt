@@ -97,7 +97,7 @@ internal fun PendingVirtualTradeProposalCard(
         Text(
             text = when (sandboxState) {
                 SandboxExecUiState.Ready ->
-                    "Принять: 2 рыночные заявки на демо-счёт Т‑Инвест (TATN/TATNP, по 1 лоту)."
+                    "Принять: 2 рыночные заявки на демо-счёт — покупка 1 лота одной акции и продажа 1 лота другой (${proposal.titleRu})."
                 SandboxExecUiState.MissingCredentials ->
                     "Исполнение на песочнице включено: сохраните токен и счёт на вкладке «Песочница»."
                 SandboxExecUiState.Off ->

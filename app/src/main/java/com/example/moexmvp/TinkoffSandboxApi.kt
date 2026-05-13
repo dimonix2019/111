@@ -532,8 +532,11 @@ internal fun formatPostSandboxOrderBrief(root: JSONObject): String {
 }
 
 /**
- * Opens a Z-spread position on the sandbox: 2 MOEX equity legs (1 lot each).
- * LONG spread = long TATN / short TATNP; SHORT spread = the opposite.
+ * Вход в Z‑спрэд на песочнице: **ровно две** рыночные заявки по 1 лоту — одна **покупка**, одна **продажа**
+ * на разных тикерах (TATN и TATNP). Это не «два сигнала Long+Short подряд», а одна спрэд‑позиция.
+ *
+ * - **EnterLong** (Z ушёл вниз): LONG TATN + SHORT TATNP → buy TATN, sell TATNP.
+ * - **EnterShort** (Z ушёл вверх): LONG TATNP + SHORT TATN → buy TATNP, sell TATN.
  */
 internal suspend fun tinkoffSandboxExecuteSpreadEntry(
     token: String,
