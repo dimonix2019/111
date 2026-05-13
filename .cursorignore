@@ -1,0 +1,35 @@
+# Build outputs & caches (large, high-churn — keep out of Cursor context)
+**/build/
+**/.gradle/
+**/.kotlin/
+**/captures/
+**/.cxx/
+**/.externalNativeBuild/
+**/intermediates/
+**/generated/
+**/tmp/
+**/out/
+
+# Local SDK / tooling (often huge)
+**/.android-sdk/
+**/android-sdk/
+**/.emulator/
+
+# IDE & OS
+**/.idea/
+**/*.iml
+**/.DS_Store
+
+# Secrets & machine-local
+**/local.properties
+
+# Python / automation state
+**/__pycache__/
+**/*.pyc
+**/automation/.state/
+
+# Aider / local agent artifacts
+**/.aider*
+
+# Optional: shrink noise from dependency trees if ever added
+**/node_modules/
