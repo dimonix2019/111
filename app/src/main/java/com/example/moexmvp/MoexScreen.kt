@@ -1,9 +1,11 @@
 package com.example.moexmvp
 
 import android.app.Activity
+import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,10 +40,12 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -55,6 +59,10 @@ import java.util.Locale
 internal fun MoexScreen() {
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(MainTab.Markets) }
+    val configuration = LocalConfiguration.current
+    val landscapeMarketsChartsOnly =
+        configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            selectedTab == MainTab.Markets
     /** Закрытые сделки с подтверждённым входом и выходом в журнале. */
     var confirmedPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     /** Симуляция по порогам |Z| на 15м ряду. */
@@ -527,13 +535,14 @@ internal fun MoexScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(12.dp)
+            .padding(if (landscapeMarketsChartsOnly) 4.dp else 12.dp)
     ) {
-        MainTabSelector(
-            selected = selectedTab,
-            onSelect = { selectedTab = it }
-        )
-        pendingVirtualTrade?.let { proposal ->
+        if (!landscapeMarketsChartsOnly) {
+            MainTabSelector(
+                selected = selectedTab,
+                onSelect = { selectedTab = it }
+            )
+            pendingVirtualTrade?.let { proposal ->
             PendingVirtualTradeProposalCard(
                 proposal = proposal,
                 sandboxState = sandboxExecState,
@@ -639,6 +648,7 @@ internal fun MoexScreen() {
                 },
                 modifier = Modifier.padding(top = 6.dp)
             )
+        }
         }
         when (selectedTab) {
             MainTab.Journal -> {
@@ -788,45 +798,134 @@ internal fun MoexScreen() {
 
             MainTab.Markets -> {
                 Column(Modifier.weight(1f)) {
-                    val last = chartSuccess?.points?.lastOrNull()
-                    val demoTail = TinkoffSandboxStorage.getAccountId(context)?.takeLast(8).orEmpty()
-                    val sandboxDemoHint = when (sandboxExecState) {
-                        SandboxExecUiState.Off -> null
-                        SandboxExecUiState.MissingCredentials ->
-                            "Т‑Инвест песочница: сохраните токен и счёт (вкладка «Песочница»), чтобы слать заявки по «Принять»."
-                        SandboxExecUiState.Ready ->
-                            "Демо-счёт Т‑Инвест · …$demoTail · «Принять» → покупка 1 лота + продажа 1 лота (спрэд TATN/TATNP)."
-                    }
-                    MarketsSummaryStrip(
-                        z = last?.zScore,
-                        spread = last?.spreadPercent,
-                        position = zStrategyPosition,
-                        signalsToday = dailySignalLimit.sentCount,
-                        signalsMax = DAILY_SIGNAL_MAX_PER_DAY,
-                        todayPnlSpreadHint = todayPnlHint,
-                        lastLoadedAt = chartSuccess?.loadedAt ?: "—",
-                        dataSource = dataSourceLabel,
-                        stale = staleMarkets,
-                        sandboxDemoHint = sandboxDemoHint,
-                        onMoexRefresh = {
-                            scope.launch { refreshData(showLoading = state !is UiState.Success) }
+                    if (!landscapeMarketsChartsOnly) {
+                        val last = chartSuccess?.points?.lastOrNull()
+                        val demoTail = TinkoffSandboxStorage.getAccountId(context)?.takeLast(8).orEmpty()
+                        val sandboxDemoHint = when (sandboxExecState) {
+                            SandboxExecUiState.Off -> null
+                            SandboxExecUiState.MissingCredentials ->
+                                "Т‑Инвест песочница: сохраните токен и счёт (вкладка «Песочница»), чтобы слать заявки по «Принять»."
+                            SandboxExecUiState.Ready ->
+                                "Демо-счёт Т‑Инвест · …$demoTail · «Принять» → покупка 1 лота + продажа 1 лота (спрэд TATN/TATNP)."
                         }
-                    )
-                    if (realtimeError != null && chartSuccess != null) {
-                        Text(
-                            text = "Предупреждение: $realtimeError",
-                            color = Color(0xFFEF9A9A),
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(top = 4.dp)
+                        MarketsSummaryStrip(
+                            z = last?.zScore,
+                            spread = last?.spreadPercent,
+                            position = zStrategyPosition,
+                            signalsToday = dailySignalLimit.sentCount,
+                            signalsMax = DAILY_SIGNAL_MAX_PER_DAY,
+                            todayPnlSpreadHint = todayPnlHint,
+                            lastLoadedAt = chartSuccess?.loadedAt ?: "—",
+                            dataSource = dataSourceLabel,
+                            stale = staleMarkets,
+                            sandboxDemoHint = sandboxDemoHint,
+                            onMoexRefresh = {
+                                scope.launch { refreshData(showLoading = state !is UiState.Success) }
+                            }
                         )
+                        if (realtimeError != null && chartSuccess != null) {
+                            Text(
+                                text = "Предупреждение: $realtimeError",
+                                color = Color(0xFFEF9A9A),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
                     }
                     MarketsPullRefreshBox(
                         refreshing = isRefreshing,
                         onRefresh = { scope.launch { refreshData(showLoading = false) } },
                         modifier = Modifier
                             .weight(1f)
-                            .padding(top = 8.dp)
+                            .padding(top = if (landscapeMarketsChartsOnly) 0.dp else 8.dp)
                     ) {
+                        if (landscapeMarketsChartsOnly) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = 2.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "Портрет — вкладки и сводка. Масштаб: два пальца, сдвиг, двойной тап — сброс.",
+                                    color = Color(0xFFB0BEC5),
+                                    fontSize = 10.sp
+                                )
+                                PeriodSelector(
+                                    selected = selectedPeriod,
+                                    onSelect = {
+                                        selectedPeriod = it
+                                        previousZScoreForAlert = null
+                                    }
+                                )
+                                BoxWithConstraints(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                ) {
+                                    val safeMax = if (maxHeight.value.isFinite()) maxHeight else 360.dp
+                                    val slotH = ((safeMax - 4.dp) / 2).coerceAtLeast(120.dp)
+                                    val chartH = slotH.value.roundToInt().coerceIn(110, 800)
+                                    if (chartSuccess != null) {
+                                        val c = chartSuccess
+                                        Column(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            ChartCard(
+                                                title = "Z-score спрэда",
+                                                series = listOf(
+                                                    ChartSeries(
+                                                        name = "Z-score",
+                                                        color = Color(0xFF80D8FF),
+                                                        values = c.points.map { it.zScore },
+                                                        lineWidth = 2.6f
+                                                    )
+                                                ),
+                                                labels = c.points.map { it.tradeDate },
+                                                chartHeightDp = chartH,
+                                                referenceLines = buildZScoreReferenceLines(dynamicThresholds),
+                                                pointMarkers = buildZScoreSignalMarkersFromEvents(
+                                                    points = c.points,
+                                                    events = signalEvents
+                                                ),
+                                                showLegend = false,
+                                                enableZoomPan = true,
+                                                markerScale = 1.5f,
+                                                showZoomHint = true
+                                            )
+                                            ChartCard(
+                                                title = "Spread %",
+                                                series = listOf(
+                                                    ChartSeries(
+                                                        "Spread %",
+                                                        Color(0xFF69F0AE),
+                                                        c.points.map { it.spreadPercent }
+                                                    )
+                                                ),
+                                                labels = c.points.map { it.tradeDate },
+                                                chartHeightDp = chartH,
+                                                rightAxisPercentBase = c.points.minOfOrNull { it.spreadPercent },
+                                                yScale = YAxisScale.Auto,
+                                                showLegend = false,
+                                                enableZoomPan = true,
+                                                markerScale = 1f,
+                                                showZoomHint = false
+                                            )
+                                        }
+                                    } else {
+                                        when (val st = state) {
+                                            is UiState.Loading -> LoadingState()
+                                            is UiState.Error -> ErrorState(st.message) {
+                                                scope.launch { refreshData(showLoading = true) }
+                                            }
+                                            is UiState.Empty -> EmptyState()
+                                            else -> Unit
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -950,17 +1049,20 @@ internal fun MoexScreen() {
                                             name = "Z-score",
                                             color = Color(0xFF80D8FF),
                                             values = c.points.map { it.zScore },
-                                            lineWidth = 2.4f
+                                            lineWidth = 2.8f
                                         )
                                     ),
                                     labels = c.points.map { it.tradeDate },
-                                    chartHeightDp = 130,
+                                    chartHeightDp = 228,
                                     referenceLines = buildZScoreReferenceLines(dynamicThresholds),
                                     pointMarkers = buildZScoreSignalMarkersFromEvents(
                                         points = c.points,
                                         events = signalEvents
                                     ),
-                                    showLegend = false
+                                    showLegend = false,
+                                    enableZoomPan = true,
+                                    markerScale = 1.35f,
+                                    showZoomHint = true
                                 )
                             }
                             item {
@@ -974,9 +1076,13 @@ internal fun MoexScreen() {
                                         )
                                     ),
                                     labels = c.points.map { it.tradeDate },
-                                    chartHeightDp = 130,
+                                    chartHeightDp = 208,
                                     rightAxisPercentBase = c.points.minOfOrNull { it.spreadPercent },
-                                    yScale = YAxisScale.Auto
+                                    yScale = YAxisScale.Auto,
+                                    showLegend = false,
+                                    enableZoomPan = true,
+                                    markerScale = 1f,
+                                    showZoomHint = false
                                 )
                             }
                         } else {
@@ -992,7 +1098,8 @@ internal fun MoexScreen() {
                             }
                         }
                     }
-                }
+                        }
+                    }
                 }
             }
         }

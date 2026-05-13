@@ -244,7 +244,10 @@ internal fun ChartCard(
     yScale: YAxisScale = YAxisScale.Auto,
     referenceLines: List<ChartReferenceLine> = emptyList(),
     pointMarkers: List<ChartPointMarker> = emptyList(),
-    showLegend: Boolean = true
+    showLegend: Boolean = true,
+    enableZoomPan: Boolean = false,
+    markerScale: Float = 1f,
+    showZoomHint: Boolean = false
 ) {
     val axisScale = remember(series, labels, yScale, referenceLines) {
         buildAxisScale(
@@ -264,6 +267,13 @@ internal fun ChartCard(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(title, fontWeight = FontWeight.Bold, color = Color.White)
+        if (showZoomHint && enableZoomPan) {
+            Text(
+                text = "Масштаб: два пальца · сдвиг: перетаскивание · двойной тап: весь период",
+                color = Color(0xFF9FA8DA),
+                fontSize = 10.sp
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -294,7 +304,9 @@ internal fun ChartCard(
                 pointMarkers = pointMarkers,
                 modifier = Modifier
                     .weight(1f)
-                    .height(chartHeightDp.dp)
+                    .height(chartHeightDp.dp),
+                enableZoomPan = enableZoomPan,
+                markerScale = markerScale
             )
             if (rightAxisPercentBase != null && rightAxisPercentBase != 0.0) {
                 Column(

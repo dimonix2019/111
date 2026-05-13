@@ -3,6 +3,8 @@ package com.example.moexmvp
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
@@ -22,8 +23,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
@@ -46,6 +49,9 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+/** Минимальная доля ряда по оси X при масштабировании (≈6% точек). */
+private const val CHART_ZOOM_MIN_WINDOW = 0.06f
+
 @Composable
 internal fun LineChart(
     series: List<ChartSeries>,
@@ -55,7 +61,9 @@ internal fun LineChart(
     onSelectIndex: (Int?) -> Unit,
     referenceLines: List<ChartReferenceLine> = emptyList(),
     pointMarkers: List<ChartPointMarker> = emptyList(),
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enableZoomPan: Boolean = false,
+    markerScale: Float = 1f
 ) {
     if (series.isEmpty() || series.all { it.values.isEmpty() }) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -73,35 +81,89 @@ internal fun LineChart(
     val topPadding = 12f
     val bottomPadding = 60f
 
-    Canvas(
-        modifier = modifier
-            .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
-            .pointerInput(series) {
-                detectTapGestures { tapOffset ->
-                    val maxIndex = series.maxOfOrNull { it.values.lastIndex }?.coerceAtLeast(0) ?: 0
+    val maxIndex = series.maxOfOrNull { it.values.lastIndex }?.coerceAtLeast(0) ?: 0
+
+    var windowStart by remember(series) { mutableFloatStateOf(0f) }
+    var windowWidth by remember(series) { mutableFloatStateOf(1f) }
+    LaunchedEffect(series) {
+        windowStart = 0f
+        windowWidth = 1f
+    }
+
+    val wStart = if (enableZoomPan) windowStart else 0f
+    val wWidth = if (enableZoomPan) windowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f) else 1f
+
+    fun fracForIndex(index: Int): Float =
+        if (maxIndex <= 0) 0f else index / maxIndex.toFloat()
+
+    fun chartW(pxWidth: Float): Float =
+        (pxWidth - leftPadding - rightPadding).coerceAtLeast(1f)
+
+    fun xForIndex(index: Int, pxWidth: Float): Float {
+        val w = chartW(pxWidth)
+        val frac = fracForIndex(index)
+        val rel = (frac - wStart) / wWidth
+        return leftPadding + rel * w
+    }
+
+    fun indexFromTapX(tapX: Float, pxWidth: Float): Int {
+        if (maxIndex <= 0) return 0
+        val w = chartW(pxWidth)
+        val rel = ((tapX - leftPadding) / w).coerceIn(0f, 1f)
+        val frac = wStart + rel * wWidth
+        return (frac * maxIndex).roundToInt().coerceIn(0, maxIndex)
+    }
+
+    val chartModifier = modifier
+        .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
+        .then(
+            if (enableZoomPan) {
+                Modifier.pointerInput(series, maxIndex) {
+                    detectTransformGestures { centroid, pan, zoom, _ ->
+                        val chartWidthPx = chartW(size.width.toFloat())
+                        if (chartWidthPx <= 1f) return@detectTransformGestures
+                        if (kotlin.math.abs(zoom - 1f) > 0.001f) {
+                            val newW = (windowWidth / zoom).coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
+                            val centroidRel =
+                                ((centroid.x - leftPadding) / chartWidthPx).coerceIn(0f, 1f)
+                            val dataFracUnderCentroid = windowStart + centroidRel * windowWidth
+                            var newStart = dataFracUnderCentroid - centroidRel * newW
+                            newStart = newStart.coerceIn(0f, 1f - newW)
+                            windowWidth = newW
+                            windowStart = newStart
+                        } else if (pan.x != 0f) {
+                            val panFrac = -pan.x / chartWidthPx * windowWidth
+                            windowStart = (windowStart + panFrac).coerceIn(0f, 1f - windowWidth)
+                        }
+                    }
+                }
+            } else {
+                Modifier
+            }
+        )
+        .pointerInput(series, wStart, wWidth, maxIndex, enableZoomPan) {
+            detectTapGestures(
+                onDoubleTap = if (enableZoomPan) {
+                    { _: Offset ->
+                        windowStart = 0f
+                        windowWidth = 1f
+                    }
+                } else {
+                    null
+                },
+                onTap = { tapOffset ->
                     onSelectIndex(
-                        resolveSelectedIndex(
-                            tapX = tapOffset.x,
-                            canvasWidth = size.width.toFloat(),
-                            leftPadding = leftPadding,
-                            rightPadding = rightPadding,
-                            maxIndex = maxIndex
-                        )
+                        indexFromTapX(tapOffset.x, size.width.toFloat())
                     )
                 }
-            }
-    ) {
-        val w = size.width - leftPadding - rightPadding
+            )
+        }
+
+    Canvas(modifier = chartModifier) {
+        val w = chartW(size.width)
         val h = size.height - topPadding - bottomPadding
 
-        val maxIndex = series.maxOfOrNull { it.values.lastIndex }?.coerceAtLeast(0) ?: 0
-        fun xForIndex(index: Int): Float {
-            return if (maxIndex == 0) {
-                leftPadding + (w / 2f)
-            } else {
-                leftPadding + ((index.toFloat() / maxIndex) * w)
-            }
-        }
+        fun xForIndexDraw(index: Int): Float = xForIndex(index, size.width)
 
         yTicks.forEach { tick ->
             val y = topPadding + h - (((tick - min) / range).toFloat() * h)
@@ -126,7 +188,9 @@ internal fun LineChart(
         }
 
         xTicks.forEach { tick ->
-            val x = xForIndex(tick.index)
+            val frac = fracForIndex(tick.index)
+            if (frac < wStart - 0.02f || frac > wStart + wWidth + 0.02f) return@forEach
+            val x = xForIndexDraw(tick.index)
             drawLine(
                 color = Color(0xFF2A3D50),
                 start = Offset(x, topPadding),
@@ -148,7 +212,9 @@ internal fun LineChart(
             strokeWidth = 2f
         )
         xTicks.forEach { tick ->
-            val x = xForIndex(tick.index)
+            val frac = fracForIndex(tick.index)
+            if (frac < wStart - 0.02f || frac > wStart + wWidth + 0.02f) return@forEach
+            val x = xForIndexDraw(tick.index)
             drawLine(
                 color = Color(0xFF8AA6C1),
                 start = Offset(x, topPadding + h),
@@ -159,7 +225,7 @@ internal fun LineChart(
 
         val selected = selectedIndex?.coerceIn(0, maxIndex)
         selected?.let { idx ->
-            val x = xForIndex(idx)
+            val x = xForIndexDraw(idx)
             drawLine(
                 color = Color(0xFF90CAF9),
                 start = Offset(x, topPadding),
@@ -168,53 +234,63 @@ internal fun LineChart(
             )
         }
 
-        series.forEach { line ->
-            val values = line.values
-            if (values.isEmpty()) return@forEach
-            if (values.size == 1) {
-                val y = topPadding + h - (((values.first() - min) / range).toFloat() * h)
-                drawCircle(
-                    color = line.color,
-                    radius = 6f,
-                    center = Offset(leftPadding + (w / 2f), y)
-                )
-                return@forEach
-            }
-
-            val path = Path()
-            val localMaxIndex = values.lastIndex.coerceAtLeast(1)
-            values.forEachIndexed { index, value ->
-                val x = leftPadding + (index.toFloat() / localMaxIndex) * w
-                val y = topPadding + h - (((value - min) / range).toFloat() * h)
-                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-            drawPath(
-                path = path,
-                color = line.color,
-                style = Stroke(width = line.lineWidth, cap = StrokeCap.Round)
-            )
-
-            selected?.let { idx ->
-                if (idx <= values.lastIndex) {
-                    val x = xForIndex(idx)
-                    val y = topPadding + h - (((values[idx] - min) / range).toFloat() * h)
+        clipRect(
+            left = leftPadding,
+            top = topPadding,
+            right = leftPadding + w,
+            bottom = topPadding + h
+        ) {
+            series.forEach { line ->
+                val values = line.values
+                if (values.isEmpty()) return@forEach
+                if (values.size == 1) {
+                    val y = topPadding + h - (((values.first() - min) / range).toFloat() * h)
                     drawCircle(
                         color = line.color,
-                        radius = 5f,
-                        center = Offset(x, y)
+                        radius = 6f,
+                        center = Offset(xForIndexDraw(0), y)
                     )
+                    return@forEach
+                }
+
+            val path = Path()
+            values.forEachIndexed { index, value ->
+                    val x = xForIndexDraw(index)
+                    val y = topPadding + h - (((value - min) / range).toFloat() * h)
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(
+                    path = path,
+                    color = line.color,
+                    style = Stroke(width = line.lineWidth, cap = StrokeCap.Round)
+                )
+
+                selected?.let { idx ->
+                    if (idx <= values.lastIndex) {
+                        val x = xForIndexDraw(idx)
+                        val y = topPadding + h - (((values[idx] - min) / range).toFloat() * h)
+                        drawCircle(
+                            color = line.color,
+                            radius = 5f,
+                            center = Offset(x, y)
+                        )
+                    }
                 }
             }
-        }
-        pointMarkers.forEach { marker ->
-            if (marker.index < 0 || marker.index > maxIndex) return@forEach
-            val x = xForIndex(marker.index)
-            val y = topPadding + h - (((marker.value - min) / range).toFloat() * h)
-            drawMarkerShape(
-                shape = marker.shape,
-                center = Offset(x, y),
-                color = marker.color
-            )
+
+            pointMarkers.forEach { marker ->
+                if (marker.index < 0 || marker.index > maxIndex) return@forEach
+                val frac = fracForIndex(marker.index)
+                if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEach
+                val x = xForIndexDraw(marker.index)
+                val y = topPadding + h - (((marker.value - min) / range).toFloat() * h)
+                drawMarkerShape(
+                    shape = marker.shape,
+                    center = Offset(x, y),
+                    color = marker.color,
+                    scale = markerScale
+                )
+            }
         }
 
         if (xTicks.isNotEmpty()) {
@@ -225,7 +301,9 @@ internal fun LineChart(
                 textAlign = Paint.Align.RIGHT
             }
             xTicks.forEach { tick ->
-                val x = xForIndex(tick.index)
+                val frac = fracForIndex(tick.index)
+                if (frac < wStart - 0.02f || frac > wStart + wWidth + 0.02f) return@forEach
+                val x = xForIndexDraw(tick.index)
                 val y = topPadding + h + 34f
                 drawContext.canvas.nativeCanvas.save()
                 drawContext.canvas.nativeCanvas.rotate(-55f, x, y)
@@ -239,13 +317,19 @@ internal fun LineChart(
 internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMarkerShape(
     shape: ChartMarkerShape,
     center: Offset,
-    color: Color
+    color: Color,
+    scale: Float = 1f
 ) {
-    val radius = 9f
-    val halfBase = 8f
-    val halfHeight = 9f
+    val outline = Color(0xFF0D1117)
+    val strokeW = (2f * scale).coerceAtLeast(1.5f)
+    val radius = 9f * scale
+    val halfBase = 8f * scale
+    val halfHeight = 9f * scale
     when (shape) {
-        ChartMarkerShape.Circle -> drawCircle(color = color, radius = radius, center = center)
+        ChartMarkerShape.Circle -> {
+            drawCircle(color = color, radius = radius, center = center)
+            drawCircle(color = outline, radius = radius, center = center, style = Stroke(width = strokeW))
+        }
         ChartMarkerShape.TriangleUp -> {
             val path = Path().apply {
                 moveTo(center.x, center.y - halfHeight)
@@ -254,6 +338,7 @@ internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMarkerShape(
                 close()
             }
             drawPath(path = path, color = color)
+            drawPath(path = path, color = outline, style = Stroke(width = strokeW))
         }
         ChartMarkerShape.TriangleDown -> {
             val path = Path().apply {
@@ -263,6 +348,7 @@ internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMarkerShape(
                 close()
             }
             drawPath(path = path, color = color)
+            drawPath(path = path, color = outline, style = Stroke(width = strokeW))
         }
         ChartMarkerShape.Diamond -> {
             val path = Path().apply {
@@ -273,6 +359,7 @@ internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMarkerShape(
                 close()
             }
             drawPath(path = path, color = color)
+            drawPath(path = path, color = outline, style = Stroke(width = strokeW))
         }
     }
 }
