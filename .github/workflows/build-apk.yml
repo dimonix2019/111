@@ -1,10 +1,10 @@
 # Debug APK is signed with a fixed keystore (app/keystore/) so installs from
 # GitHub Releases can be updated in-place; ephemeral CI debug keys broke upgrades.
 #
-# Не используйте /releases/latest/download/… если в репозитории есть другие релизы
-# (например v1.21): GitHub может считать «latest» их, и по ссылке скачается не наш APK.
-# CI каждый раз пересоздаёт один релиз с тегом moexmvp-debug-latest и помечает его --latest:
+# Не используйте /releases/latest/download/… если в репозитории есть другие релизы:
+# GitHub может считать «latest» чужой тег (например v1.21).
 #
+# Стабильная ссылка на наш debug APK (один релиз, тег moexmvp-debug-latest):
 #   https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk
 #
 # PRs only build and upload a CI artifact (no release).
@@ -16,9 +16,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Не отменять уже идущий прогон: иначе job публикации в релиз мог не выполниться — ссылка давала 404.
 concurrency:
   group: apk-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   debug-apk:
@@ -70,31 +71,43 @@ jobs:
       - name: Stable filename for direct download URL
         run: cp apk-out/app-debug.apk moexmvp-debug.apk
 
-      - name: Rolling release moexmvp-debug-latest (stable URL, always real latest)
+      - name: Extract version from Gradle
+        id: meta
+        run: |
+          VERSION=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          VC=$(grep -m1 'versionCode' app/build.gradle.kts | sed -E 's/.*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "vcode=${VC}" >> "$GITHUB_OUTPUT"
+
+      - name: Remove previous rolling release (best effort)
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          VERSION=$(grep -m1 'versionName' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
-          VC=$(grep -m1 'versionCode' app/build.gradle.kts | sed -E 's/.*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*/\1/')
-          BODY="Приложение: **${VERSION}** (versionCode ${VC})
-
-          - Коммит: \`${{ github.sha }}\`
-          - Ветка: \`${{ github.ref_name }}\`
-          - Сборка: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-          Прямая ссылка на APK (закрепите её; не зависит от чужих релизов в репозитории):
-          \`https://github.com/${{ github.repository }}/releases/download/moexmvp-debug-latest/moexmvp-debug.apk\`"
-
-          if gh release view moexmvp-debug-latest --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release delete moexmvp-debug-latest --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || \
-              gh release delete moexmvp-debug-latest --repo "${{ github.repository }}" --yes || true
-          fi
+          gh release delete moexmvp-debug-latest --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || \
+            gh release delete moexmvp-debug-latest --repo "${{ github.repository }}" --yes || true
           gh api --method DELETE "repos/${{ github.repository }}/git/refs/tags/moexmvp-debug-latest" 2>/dev/null || true
 
-          gh release create moexmvp-debug-latest moexmvp-debug.apk \
-            --repo "${{ github.repository }}" \
-            --target "${{ github.sha }}" \
-            --title "MOEX MVP debug — ${VERSION} (${VC})" \
-            --notes "$BODY" \
-            --latest
+      - name: Publish rolling debug release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: moexmvp-debug-latest
+          target_commitish: ${{ github.sha }}
+          name: MOEX MVP debug — ${{ steps.meta.outputs.version }} (${{ steps.meta.outputs.vcode }})
+          body: |
+            Сборка **${{ steps.meta.outputs.version }}** (versionCode ${{ steps.meta.outputs.vcode }}).
+
+            - Коммит: `${{ github.sha }}`
+            - Ветка: `${{ github.ref_name }}`
+            - Workflow: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            Прямая ссылка на APK:
+
+            ```
+            https://github.com/${{ github.repository }}/releases/download/moexmvp-debug-latest/moexmvp-debug.apk
+            ```
+          files: moexmvp-debug.apk
+          fail_on_unmatched_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
