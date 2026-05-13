@@ -2,6 +2,7 @@ package com.example.moexmvp
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -23,6 +24,11 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         Log.d(PUSH_LOG_TAG, "POST_NOTIFICATIONS granted=$granted")
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

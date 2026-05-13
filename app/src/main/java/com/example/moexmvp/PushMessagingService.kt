@@ -21,6 +21,17 @@ import java.util.Locale
 internal const val PUSH_CHANNEL_ID = "moex_push_channel"
 internal const val PUSH_TOPIC = "moex_updates"
 internal const val PUSH_LOG_TAG = "MoexPush"
+/** PendingIntent → MainActivity: восстановить карточку «Принять» по данным из уведомления. */
+internal const val EXTRA_TAP_RESTORE_VIRTUAL_TRADE = "moex_tap_restore_virtual_trade"
+internal const val EXTRA_TAP_SIGNAL_TYPE = "moex_tap_signal_type"
+internal const val EXTRA_TAP_Z = "moex_tap_z"
+internal const val EXTRA_TAP_TS = "moex_tap_ts"
+
+internal data class VirtualTradeTapIntent(
+    val signalType: StrategySignalType,
+    val zScore: Double,
+    val timestampMillis: Long
+)
 private const val PUSH_DEDUP_PREFS_NAME = "moex_push_dedup"
 private const val PREF_PUSH_LAST_SIGNATURE = "push_last_signature"
 private const val PREF_PUSH_LAST_TIMESTAMP_MS = "push_last_timestamp_ms"
@@ -63,7 +74,8 @@ internal fun showPushNotification(
     context: Context,
     title: String,
     body: String,
-    notificationId: Int = System.currentTimeMillis().toInt()
+    notificationId: Int = System.currentTimeMillis().toInt(),
+    virtualTradeTap: VirtualTradeTapIntent? = null
 ): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         val granted = ContextCompat.checkSelfPermission(
@@ -83,10 +95,16 @@ internal fun showPushNotification(
     createPushNotificationChannel(context)
     val intent = Intent(context, MainActivity::class.java).apply {
         addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        if (virtualTradeTap != null) {
+            putExtra(EXTRA_TAP_RESTORE_VIRTUAL_TRADE, true)
+            putExtra(EXTRA_TAP_SIGNAL_TYPE, virtualTradeTap.signalType.name)
+            putExtra(EXTRA_TAP_Z, virtualTradeTap.zScore)
+            putExtra(EXTRA_TAP_TS, virtualTradeTap.timestampMillis)
+        }
     }
     val pendingIntent = PendingIntent.getActivity(
         context,
-        0,
+        notificationId,
         intent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
@@ -154,13 +172,44 @@ internal fun showZScoreCrossPushNotification(
 internal fun showZStrategySignalPushNotification(
     context: Context,
     title: String,
-    body: String
+    body: String,
+    virtualTradeTap: VirtualTradeTapIntent? = null
 ): Boolean {
     return showPushNotification(
         context = context,
         title = title,
-        body = body
+        body = body,
+        virtualTradeTap = virtualTradeTap
     )
+}
+
+/** Вызывать при старте/resume Activity: из PendingIntent уведомления восстановить карточку входа. */
+internal fun applyVirtualTradeTapIntent(context: Context, intent: Intent?) {
+    if (intent == null) return
+    if (!intent.getBooleanExtra(EXTRA_TAP_RESTORE_VIRTUAL_TRADE, false)) return
+    val typeName = intent.getStringExtra(EXTRA_TAP_SIGNAL_TYPE) ?: return
+    val type = runCatching { StrategySignalType.valueOf(typeName) }.getOrNull()
+    if (type == null) {
+        intent.removeExtra(EXTRA_TAP_RESTORE_VIRTUAL_TRADE)
+        intent.removeExtra(EXTRA_TAP_SIGNAL_TYPE)
+        intent.removeExtra(EXTRA_TAP_Z)
+        intent.removeExtra(EXTRA_TAP_TS)
+        return
+    }
+    if (type != StrategySignalType.EnterLong && type != StrategySignalType.EnterShort) {
+        intent.removeExtra(EXTRA_TAP_RESTORE_VIRTUAL_TRADE)
+        intent.removeExtra(EXTRA_TAP_SIGNAL_TYPE)
+        intent.removeExtra(EXTRA_TAP_Z)
+        intent.removeExtra(EXTRA_TAP_TS)
+        return
+    }
+    val z = intent.getDoubleExtra(EXTRA_TAP_Z, 0.0)
+    val ts = intent.getLongExtra(EXTRA_TAP_TS, System.currentTimeMillis())
+    savePendingVirtualTradeProposal(context, type, z, ts)
+    intent.removeExtra(EXTRA_TAP_RESTORE_VIRTUAL_TRADE)
+    intent.removeExtra(EXTRA_TAP_SIGNAL_TYPE)
+    intent.removeExtra(EXTRA_TAP_Z)
+    intent.removeExtra(EXTRA_TAP_TS)
 }
 
 internal fun recordStrategySignalEvent(
@@ -173,7 +222,7 @@ internal fun recordStrategySignalEvent(
     /** When false, do not refresh pending virtual-trade card (used after sandbox execution). */
     savePendingVirtualTradeIfEntry: Boolean = true
 ) {
-    synchronized(signalEventsLock) {
+    synchronized(signalEventsLock) signalLock@{
         val prefs = context.getSharedPreferences(SIGNAL_EVENTS_PREFS_NAME, Context.MODE_PRIVATE)
         val nowWall = System.currentTimeMillis()
         if (!skipJournalWallDedup) {
@@ -182,7 +231,8 @@ internal fun recordStrategySignalEvent(
             if (prevWall > 0L && prevType == signalType.name &&
                 (nowWall - prevWall) <= STRATEGY_SIGNAL_JOURNAL_DEDUP_WALL_MS
             ) {
-                return
+                // Дубликат строки в журнал не пишем, но ниже всё равно обновим pending-карточку для входа.
+                return@signalLock
             }
         }
         val existing = prefs.getString(PREF_SIGNAL_EVENTS_JSON, null).orEmpty()

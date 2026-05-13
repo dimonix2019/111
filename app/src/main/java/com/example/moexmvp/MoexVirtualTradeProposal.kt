@@ -5,6 +5,8 @@ import org.json.JSONObject
 
 private const val VIRTUAL_TRADE_PREFS = "moex_virtual_trade"
 private const val PREF_PENDING_JSON = "pending_virtual_entry_json"
+private const val PREF_REJECTED_VIRTUAL_TS = "rejected_virtual_ts"
+private const val PREF_REJECTED_VIRTUAL_TYPE = "rejected_virtual_type"
 
 internal data class PendingVirtualTradeProposal(
     val signalType: StrategySignalType,
@@ -52,7 +54,9 @@ internal fun savePendingVirtualTradeProposal(
     context.getSharedPreferences(VIRTUAL_TRADE_PREFS, Context.MODE_PRIVATE)
         .edit()
         .putString(PREF_PENDING_JSON, json.toString())
-        .apply()
+        .remove(PREF_REJECTED_VIRTUAL_TS)
+        .remove(PREF_REJECTED_VIRTUAL_TYPE)
+        .commit()
 }
 
 internal fun loadPendingVirtualTradeProposal(context: Context): PendingVirtualTradeProposal? {
@@ -71,9 +75,46 @@ internal fun loadPendingVirtualTradeProposal(context: Context): PendingVirtualTr
     )
 }
 
-internal fun clearPendingVirtualTradeProposal(context: Context) {
-    context.getSharedPreferences(VIRTUAL_TRADE_PREFS, Context.MODE_PRIVATE)
-        .edit()
+/**
+ * Убирает карточку «Принять».
+ * @param consumedProposal если задан — этот вход больше не показываем после «Отклонить» / «Принять» (в т.ч. без песочницы).
+ */
+internal fun clearPendingVirtualTradeProposal(
+    context: Context,
+    consumedProposal: PendingVirtualTradeProposal? = null
+) {
+    val ed = context.getSharedPreferences(VIRTUAL_TRADE_PREFS, Context.MODE_PRIVATE).edit()
         .remove(PREF_PENDING_JSON)
-        .apply()
+    if (consumedProposal != null) {
+        ed.putLong(PREF_REJECTED_VIRTUAL_TS, consumedProposal.timestampMillis)
+            .putString(PREF_REJECTED_VIRTUAL_TYPE, consumedProposal.signalType.name)
+    }
+    ed.commit()
+}
+
+/**
+ * Если карточки нет, а в журнале последняя запись — вход и позиция совпадает — восстановить pending (после сбоя prefs / гонки apply()).
+ */
+internal fun restorePendingVirtualTradeFromJournalIfNeeded(context: Context) {
+    if (loadPendingVirtualTradeProposal(context) != null) return
+    val events = loadStrategySignalEvents(context)
+    val last = events.lastOrNull() ?: return
+    if (last.signalType != StrategySignalType.EnterLong && last.signalType != StrategySignalType.EnterShort) return
+    val prefs = context.getSharedPreferences(VIRTUAL_TRADE_PREFS, Context.MODE_PRIVATE)
+    val rejTs = prefs.getLong(PREF_REJECTED_VIRTUAL_TS, Long.MIN_VALUE)
+    val rejTy = prefs.getString(PREF_REJECTED_VIRTUAL_TYPE, null)
+    if (last.timestampMillis == rejTs && last.signalType.name == rejTy) return
+    val pos = loadSavedStrategyPosition(context)
+    val matches = when (last.signalType) {
+        StrategySignalType.EnterLong -> pos == ZStrategyPosition.Long
+        StrategySignalType.EnterShort -> pos == ZStrategyPosition.Short
+        else -> false
+    }
+    if (!matches) return
+    savePendingVirtualTradeProposal(
+        context = context,
+        signalType = last.signalType,
+        zScore = last.zScore,
+        timestampMillis = last.timestampMillis
+    )
 }

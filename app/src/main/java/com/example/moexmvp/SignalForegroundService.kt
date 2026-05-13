@@ -137,6 +137,11 @@ class SignalForegroundService : Service() {
                             "Z <= -%.1f (текущий Z=%.2f)",
                             thresholdUpdate.thresholds.entry,
                             snapshot.latestZ
+                        ),
+                        virtualTradeTap = VirtualTradeTapIntent(
+                            signalType = StrategySignalType.EnterLong,
+                            zScore = snapshot.latestZ,
+                            timestampMillis = snapshot.latestTimestampMillis
                         )
                     )
                     if (sent) {
@@ -162,6 +167,11 @@ class SignalForegroundService : Service() {
                             "Z >= +%.1f (текущий Z=%.2f)",
                             thresholdUpdate.thresholds.entry,
                             snapshot.latestZ
+                        ),
+                        virtualTradeTap = VirtualTradeTapIntent(
+                            signalType = StrategySignalType.EnterShort,
+                            zScore = snapshot.latestZ,
+                            timestampMillis = snapshot.latestTimestampMillis
                         )
                     )
                     if (sent) {
@@ -178,6 +188,7 @@ class SignalForegroundService : Service() {
                     zScore = snapshot.latestZ,
                     timestampMillis = snapshot.latestTimestampMillis
                 )
+                clearPendingVirtualTradeProposal(this)
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
                         context = this,
@@ -203,6 +214,7 @@ class SignalForegroundService : Service() {
                     zScore = snapshot.latestZ,
                     timestampMillis = snapshot.latestTimestampMillis
                 )
+                clearPendingVirtualTradeProposal(this)
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
                         context = this,

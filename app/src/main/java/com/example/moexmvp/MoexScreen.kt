@@ -1,5 +1,6 @@
 package com.example.moexmvp
 
+import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -111,12 +112,17 @@ internal fun MoexScreen() {
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-        sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+        fun hydrateVirtualTradeAndSandboxUi() {
+            val act = context as? Activity
+            applyVirtualTradeTapIntent(context, act?.intent)
+            restorePendingVirtualTradeFromJournalIfNeeded(context)
+            pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+            sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+        }
+        hydrateVirtualTradeAndSandboxUi()
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+                hydrateVirtualTradeAndSandboxUi()
                 scope.launch {
                     val (t, a) = withContext(Dispatchers.IO) {
                         Pair(
@@ -279,6 +285,7 @@ internal fun MoexScreen() {
                                     zScore = latestZScore,
                                     timestampMillis = latestTimestampMillis
                                 )
+                                pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
@@ -288,6 +295,11 @@ internal fun MoexScreen() {
                                             "Z <= -%.1f (текущий Z=%.2f)",
                                             dynamicThresholds.entry,
                                             latestZScore
+                                        ),
+                                        virtualTradeTap = VirtualTradeTapIntent(
+                                            signalType = StrategySignalType.EnterLong,
+                                            zScore = latestZScore,
+                                            timestampMillis = latestTimestampMillis
                                         )
                                     )
                                     if (sent) {
@@ -306,6 +318,7 @@ internal fun MoexScreen() {
                                     zScore = latestZScore,
                                     timestampMillis = latestTimestampMillis
                                 )
+                                pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
@@ -315,6 +328,11 @@ internal fun MoexScreen() {
                                             "Z >= +%.1f (текущий Z=%.2f)",
                                             dynamicThresholds.entry,
                                             latestZScore
+                                        ),
+                                        virtualTradeTap = VirtualTradeTapIntent(
+                                            signalType = StrategySignalType.EnterShort,
+                                            zScore = latestZScore,
+                                            timestampMillis = latestTimestampMillis
                                         )
                                     )
                                     if (sent) {
@@ -333,6 +351,8 @@ internal fun MoexScreen() {
                                     zScore = latestZScore,
                                     timestampMillis = latestTimestampMillis
                                 )
+                                clearPendingVirtualTradeProposal(context)
+                                pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
@@ -360,6 +380,8 @@ internal fun MoexScreen() {
                                     zScore = latestZScore,
                                     timestampMillis = latestTimestampMillis
                                 )
+                                clearPendingVirtualTradeProposal(context)
+                                pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
@@ -497,7 +519,7 @@ internal fun MoexScreen() {
                                     val nowMs = System.currentTimeMillis()
                                     val skippedJournal = withContext(Dispatchers.IO) {
                                         tinkoffSandboxExecuteSpreadEntry(tok, acc, proposal.signalType)
-                                        clearPendingVirtualTradeProposal(context)
+                                        clearPendingVirtualTradeProposal(context, proposal)
                                         TinkoffSandboxSpreadExecLog.record(
                                             context,
                                             proposal.signalType,
@@ -548,7 +570,7 @@ internal fun MoexScreen() {
                                 }
                             }
                             SandboxExecUiState.Off, SandboxExecUiState.MissingCredentials -> {
-                                clearPendingVirtualTradeProposal(context)
+                                clearPendingVirtualTradeProposal(context, proposal)
                                 pendingVirtualTrade = null
                                 val msg = when (st) {
                                     SandboxExecUiState.Off ->
@@ -563,7 +585,7 @@ internal fun MoexScreen() {
                     }
                 },
                 onReject = {
-                    clearPendingVirtualTradeProposal(context)
+                    clearPendingVirtualTradeProposal(context, proposal)
                     pendingVirtualTrade = null
                     Toast.makeText(context, "Отклонено.", Toast.LENGTH_SHORT).show()
                 },
