@@ -6,7 +6,9 @@ import org.json.JSONObject
 
 private const val PREFS_NAME = "moex_markets_snapshot"
 private const val KEY_PREFIX = "snap_v1_"
-private const val TTL_MS = 15L * 60L * 1000L
+
+/** TTL локального снимка «Рынка» при недоступности MOEX (мс). */
+internal const val MARKETS_SNAPSHOT_TTL_MS = 15L * 60L * 1000L
 
 private fun key(period: Period) = KEY_PREFIX + period.name
 
@@ -50,33 +52,27 @@ private fun jsonToCandle(o: JSONObject): CandlePoint? = runCatching {
     )
 }.getOrNull()
 
-internal fun saveMarketsSnapshot(context: Context, period: Period, success: UiState.Success) {
-    val root = JSONObject().apply {
-        put("savedAtMillis", System.currentTimeMillis())
+/** Для юнит-тестов и атомарной сериализации снимка. */
+internal fun encodeMarketsSnapshotJson(success: UiState.Success, savedAtMillis: Long): String =
+    JSONObject().apply {
+        put("savedAtMillis", savedAtMillis)
         put("loadedAt", success.loadedAt)
         put("points", JSONArray().apply { success.points.forEach { put(dataPointToJson(it)) } })
         put("tatn", JSONArray().apply { success.tatnCandles.forEach { put(candleToJson(it)) } })
         put("tatnp", JSONArray().apply { success.tatnpCandles.forEach { put(candleToJson(it)) } })
-    }
-    context.applicationContext
-        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        .edit()
-        .putString(key(period), root.toString())
-        .apply()
-}
+    }.toString()
 
 /**
- * Возвращает последний успешный снимок «Рынка» для периода, если он не старше [TTL_MS].
- * Используется при недоступности MOEX (сеть / HTTP).
+ * Разбор снимка; [nowMillis] и [ttlMs] задают «свежесть» (как при чтении из prefs).
  */
-internal fun readMarketsSnapshotIfFresh(context: Context, period: Period): UiState.Success? {
-    val raw = context.applicationContext
-        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        .getString(key(period), null)
-        ?: return null
+internal fun decodeMarketsSnapshotIfFresh(
+    raw: String,
+    nowMillis: Long,
+    ttlMs: Long = MARKETS_SNAPSHOT_TTL_MS
+): UiState.Success? {
     val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
     val savedAt = root.optLong("savedAtMillis", 0L)
-    if (savedAt <= 0L || System.currentTimeMillis() - savedAt > TTL_MS) return null
+    if (savedAt <= 0L || nowMillis - savedAt > ttlMs) return null
     val loadedAt = root.optString("loadedAt", "").ifBlank { "—" }
     val pts = root.optJSONArray("points") ?: return null
     val points = buildList {
@@ -102,4 +98,25 @@ internal fun readMarketsSnapshotIfFresh(context: Context, period: Period): UiSta
         tatnpCandles = parseCandles("tatnp"),
         marketsDataSource = MarketsDataSource.FifteenMinuteCache
     )
+}
+
+internal fun saveMarketsSnapshot(context: Context, period: Period, success: UiState.Success) {
+    val json = encodeMarketsSnapshotJson(success, System.currentTimeMillis())
+    context.applicationContext
+        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(key(period), json)
+        .apply()
+}
+
+/**
+ * Возвращает последний успешный снимок «Рынка» для периода, если он не старше [MARKETS_SNAPSHOT_TTL_MS].
+ * Используется при недоступности MOEX (сеть / HTTP).
+ */
+internal fun readMarketsSnapshotIfFresh(context: Context, period: Period): UiState.Success? {
+    val raw = context.applicationContext
+        .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getString(key(period), null)
+        ?: return null
+    return decodeMarketsSnapshotIfFresh(raw, System.currentTimeMillis())
 }

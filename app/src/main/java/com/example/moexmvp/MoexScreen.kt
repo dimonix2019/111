@@ -257,10 +257,11 @@ internal fun MoexScreen() {
                     marketsStale = false
                     state = next
                     realtimeError = null
+                    val fromDiskCache = next.marketsDataSource == MarketsDataSource.FifteenMinuteCache
                     val thresholdUpdate = ensureDynamicThresholds(context)
                     dynamicThresholds = thresholdUpdate.thresholds
                     val backgroundMonitorEnabled = SignalForegroundService.isBackgroundMonitorEnabled(context)
-                    if (thresholdUpdate.recalculated && !backgroundMonitorEnabled) {
+                    if (thresholdUpdate.recalculated && !backgroundMonitorEnabled && !fromDiskCache) {
                         showDynamicZThresholdsPushNotification(
                             context = context,
                             entry = dynamicThresholds.entry,
@@ -269,20 +270,21 @@ internal fun MoexScreen() {
                         )
                     }
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
-                    val latestPoint = next.points.lastOrNull()
-                    val latestZScore = latestPoint?.zScore
-                    if (latestZScore != null) {
-                        val latestTimestampMillis = latestPoint.timestampMillis
-                        val prevZ = previousZScoreForAlert
-                        when (
-                            determineZStrategySignal(
-                                previousZ = prevZ,
-                                currentZ = latestZScore,
-                                position = zStrategyPosition,
-                                thresholds = dynamicThresholds
-                            )
-                        ) {
-                            ZStrategySignal.EnterLong -> {
+                    if (!fromDiskCache) {
+                        val latestPoint = next.points.lastOrNull()
+                        val latestZScore = latestPoint?.zScore
+                        if (latestZScore != null) {
+                            val latestTimestampMillis = latestPoint.timestampMillis
+                            val prevZ = previousZScoreForAlert
+                            when (
+                                determineZStrategySignal(
+                                    previousZ = prevZ,
+                                    currentZ = latestZScore,
+                                    position = zStrategyPosition,
+                                    thresholds = dynamicThresholds
+                                )
+                            ) {
+                                ZStrategySignal.EnterLong -> {
                                 zStrategyPosition = ZStrategyPosition.Long
                                 saveStrategyPosition(context, zStrategyPosition)
                                 recordStrategySignalEvent(
@@ -437,6 +439,7 @@ internal fun MoexScreen() {
                             ZStrategySignal.None -> Unit
                         }
                         previousZScoreForAlert = latestZScore
+                    }
                     }
                     signalEvents = loadStrategySignalEvents(context)
                 }
