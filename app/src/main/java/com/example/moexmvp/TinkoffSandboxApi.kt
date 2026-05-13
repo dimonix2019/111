@@ -289,6 +289,7 @@ private fun postMarketBodyCamel(
         put("instrumentId", instrumentId)
         put("quantity", quantityLots.toString())
         put("direction", direction)
+        put("orderDirection", direction)
         put("orderType", orderType)
         put("orderId", orderId)
         if (includePrice) put("price", price)
@@ -314,6 +315,7 @@ private fun postMarketBodySnake(
         put("instrument_id", instrumentId)
         put("quantity", quantityLots.toString())
         put("direction", direction)
+        put("order_direction", direction)
         put("order_type", orderType)
         put("order_id", orderId)
         if (includePrice) put("price", price)
@@ -339,6 +341,7 @@ private fun postMarketBodyCamelFigi(
         put("figi", figi)
         put("quantity", quantityLots.toString())
         put("direction", direction)
+        put("orderDirection", direction)
         put("orderType", orderType)
         put("orderId", orderId)
         if (includePrice) put("price", price)
@@ -364,6 +367,7 @@ private fun postMarketBodySnakeFigi(
         put("figi", figi)
         put("quantity", quantityLots.toString())
         put("direction", direction)
+        put("order_direction", direction)
         put("order_type", orderType)
         put("order_id", orderId)
         if (includePrice) put("price", price)
@@ -408,17 +412,18 @@ internal suspend fun tinkoffPostSandboxMarketOrder(
     val oid = { UUID.randomUUID().toString() }
     val figi = isLikelyFigi(instrumentId)
     val bodies = buildList {
-        add { postMarketBodyCamel(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+        // Сначала snake_case: на REST часто корректнее читается direction (camel иногда давал «всегда покупка»).
         add { postMarketBodySnake(accountId, instrumentId, orderDirection, quantityLots, oid()) }
-        add { postMarketBodyCamelNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+        add { postMarketBodyCamel(accountId, instrumentId, orderDirection, quantityLots, oid()) }
         add { postMarketBodySnakeNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid()) }
-        add { postMarketBodyCamelNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE") }
+        add { postMarketBodyCamelNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid()) }
         add { postMarketBodySnakeNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE") }
+        add { postMarketBodyCamelNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE") }
         if (figi) {
-            add { postMarketBodyCamelFigi(accountId, instrumentId, orderDirection, quantityLots, oid()) }
             add { postMarketBodySnakeFigi(accountId, instrumentId, orderDirection, quantityLots, oid()) }
-            add { postMarketBodyCamelFigi(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE", false) }
+            add { postMarketBodyCamelFigi(accountId, instrumentId, orderDirection, quantityLots, oid()) }
             add { postMarketBodySnakeFigi(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE", false) }
+            add { postMarketBodyCamelFigi(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE", false) }
         }
     }
     for (factory in bodies) {
@@ -628,4 +633,38 @@ internal fun formatSandboxPortfolioTotalRub(portfolioJson: JSONObject): String? 
     val total = findTotal(portfolioJson, 0) ?: return null
     val v = quotationUnitsToDouble(total) ?: return null
     return String.format(java.util.Locale.US, "%.2f ₽", v)
+}
+
+private fun findPortfolioMoneyQuotation(portfolioJson: JSONObject): JSONObject? {
+    val keys = listOf("totalAmountCurrencies", "total_amount_currencies")
+    fun find(o: JSONObject?, depth: Int): JSONObject? {
+        if (o == null || depth > 6) return null
+        for (k in keys) {
+            o.optJSONObject(k)?.let { return it }
+        }
+        val it = o.keys()
+        while (it.hasNext()) {
+            find(o.optJSONObject(it.next()), depth + 1)?.let { return it }
+        }
+        return null
+    }
+    return find(portfolioJson, 0)
+}
+
+/** Денежная часть портфеля в ₽ (удобно видеть рост после продажи). */
+internal fun formatSandboxCashRub(portfolioJson: JSONObject): String? {
+    val q = findPortfolioMoneyQuotation(portfolioJson) ?: return null
+    val v = quotationUnitsToDouble(q) ?: return null
+    return String.format(java.util.Locale.US, "%.2f ₽", v)
+}
+
+/** Две строки: всего по портфелю и деньги в ₽ (если API отдал). */
+internal fun formatSandboxPortfolioLinesForUi(portfolioJson: JSONObject): String {
+    val lines = buildList {
+        formatSandboxPortfolioTotalRub(portfolioJson)?.let { add("Всего (портфель): $it") }
+        formatSandboxCashRub(portfolioJson)?.let { add("Деньги (₽): $it") }
+    }
+    if (lines.isNotEmpty()) return lines.joinToString("\n")
+    return formatSandboxPortfolioTotalRub(portfolioJson)
+        ?: "Портфель (сырой): ${portfolioJson.toString().take(400)}"
 }

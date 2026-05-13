@@ -348,9 +348,7 @@ internal fun TinkoffSandboxTabContent(
                         if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
                         tinkoffGetSandboxPortfolio(t, acc)
                     }
-                    portfolioRubLine =
-                        formatSandboxPortfolioTotalRub(port)
-                            ?: "Портфель (сырой ответ): ${port.toString().take(400)}"
+                    portfolioRubLine = formatSandboxPortfolioLinesForUi(port)
                 }
             },
             enabled = !loading && hasToken() && accountInput.isNotBlank(),
@@ -364,7 +362,7 @@ internal fun TinkoffSandboxTabContent(
         }
 
         Text(
-            text = "Тестовые рыночные заявки — 1 лот TATN (после заявки ниже обновляется оценка портфеля в ₽).",
+            text = "Тестовые рыночные заявки — 1 лот TATN. Ниже: всего по портфелю и строка «Деньги (₽)» (после продажи деньги обычно растут).",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp
         )
@@ -387,9 +385,7 @@ internal fun TinkoffSandboxTabContent(
                             ord to p
                         }
                         status = "Тест: покупка · ${formatPostSandboxOrderBrief(order)}"
-                        portfolioRubLine =
-                            formatSandboxPortfolioTotalRub(port)
-                                ?: "Портфель (сырой): ${port.toString().take(200)}"
+                        portfolioRubLine = formatSandboxPortfolioLinesForUi(port)
                         onSandboxPrefsChanged()
                     }
                 },
@@ -420,9 +416,7 @@ internal fun TinkoffSandboxTabContent(
                             ord to p
                         }
                         status = "Тест: продажа · ${formatPostSandboxOrderBrief(order)}"
-                        portfolioRubLine =
-                            formatSandboxPortfolioTotalRub(port)
-                                ?: "Портфель (сырой): ${port.toString().take(200)}"
+                        portfolioRubLine = formatSandboxPortfolioLinesForUi(port)
                         onSandboxPrefsChanged()
                     }
                 },
