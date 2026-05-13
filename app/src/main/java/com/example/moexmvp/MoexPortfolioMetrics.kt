@@ -107,6 +107,7 @@ internal fun buildZStrategyPortfolioMetrics(
                         entrySpreadPercent = entrySpread,
                         exitSpreadPercent = current.spreadPercent,
                         pnlSpreadPoints = pnl,
+                        grossPnlRubApprox = grossPnlRub,
                         pnlRubApprox = netTradeRub
                     )
                     position = ZStrategyPosition.Flat
@@ -132,6 +133,7 @@ internal fun buildZStrategyPortfolioMetrics(
                         entrySpreadPercent = entrySpread,
                         exitSpreadPercent = current.spreadPercent,
                         pnlSpreadPoints = pnl,
+                        grossPnlRubApprox = grossPnlRub,
                         pnlRubApprox = netTradeRub
                     )
                     position = ZStrategyPosition.Flat
@@ -332,6 +334,7 @@ internal fun buildExecutedPortfolioMetrics(
                             entrySpreadPercent = entrySpread,
                             exitSpreadPercent = point.spreadPercent,
                             pnlSpreadPoints = pnlSpread,
+                            grossPnlRubApprox = grossPnlRub,
                             pnlRubApprox = grossPnlRub - (2 * commissionPerSideRub) - overnightRub
                         )
                         currentPosition = ZStrategyPosition.Flat
@@ -355,6 +358,7 @@ internal fun buildExecutedPortfolioMetrics(
                             entrySpreadPercent = entrySpread,
                             exitSpreadPercent = point.spreadPercent,
                             pnlSpreadPoints = pnlSpread,
+                            grossPnlRubApprox = grossPnlRub,
                             pnlRubApprox = grossPnlRub - (2 * commissionPerSideRub) - overnightRub
                         )
                         currentPosition = ZStrategyPosition.Flat

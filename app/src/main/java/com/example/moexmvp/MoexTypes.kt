@@ -229,6 +229,9 @@ internal data class PortfolioClosedTrade(
     val entrySpreadPercent: Double,
     val exitSpreadPercent: Double,
     val pnlSpreadPoints: Double,
+    /** PnL по движению спрэда в ₽ до вычета комиссий и овернайта (масштаб номинала × плечо). */
+    val grossPnlRubApprox: Double,
+    /** Чистый результат сделки в ₽ после комиссий вход/выход и овернайта. */
     val pnlRubApprox: Double
 )
 

@@ -902,6 +902,12 @@ private fun PortfolioStatCard(title: String, value: String) {
     }
 }
 
+private fun rubDeltaColor(v: Double): Color = when {
+    v > 0 -> Color(0xFF81C784)
+    v < 0 -> Color(0xFFE57373)
+    else -> Color(0xFFBDBDBD)
+}
+
 @Composable
 private fun ConfirmedSpreadTradeCard(index: Int, t: PortfolioClosedTrade) {
     val spreadTitle = when (t.direction) {
@@ -933,11 +939,8 @@ private fun ConfirmedSpreadTradeCard(index: Int, t: PortfolioClosedTrade) {
             shortLabel = "—"
         }
     }
-    val pnlColor = when {
-        t.pnlRubApprox > 0 -> Color(0xFF81C784)
-        t.pnlRubApprox < 0 -> Color(0xFFE57373)
-        else -> Color(0xFFBDBDBD)
-    }
+    val pnlColor = rubDeltaColor(t.pnlRubApprox)
+    val grossColor = rubDeltaColor(t.grossPnlRubApprox)
     Column(
         Modifier
             .fillMaxWidth()
@@ -990,11 +993,11 @@ private fun ConfirmedSpreadTradeCard(index: Int, t: PortfolioClosedTrade) {
             }
         }
         Text(
-            text = "⟷  Обе ноги одной позиции; PnL — один на спрэд (дельта спрэда в журнале, с плечом и комиссиями из настроек выше).",
+            text = "⟷  Обе ноги одной позиции; в ₽: валовый — только движение спрэда (номинал×плечо), чистый — минус комиссии вход/выход и овернайт из настроек выше.",
             color = Color(0xFF90A4AE),
             fontSize = 9.sp,
             modifier = Modifier.padding(top = 6.dp),
-            maxLines = 3
+            maxLines = 4
         )
         Text(
             text = "Спрэд ${String.format(Locale.US, "%.2f", t.entrySpreadPercent)}% → ${String.format(Locale.US, "%.2f", t.exitSpreadPercent)}% (${String.format(Locale.US, "%+.2f", t.pnlSpreadPoints)} п.п.)",
@@ -1002,25 +1005,48 @@ private fun ConfirmedSpreadTradeCard(index: Int, t: PortfolioClosedTrade) {
             fontSize = 10.sp,
             modifier = Modifier.padding(top = 4.dp)
         )
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
-                .padding(top = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(top = 4.dp)
         ) {
-            Text(
-                text = "Общий результат (оценка)",
-                color = Color(0xFFE0E0E0),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = formatRubSigned(t.pnlRubApprox),
-                color = pnlColor,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Чистый (комиссии + овернайт)",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = formatRubSigned(t.pnlRubApprox),
+                    color = pnlColor,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Валовый (только спрэд в ₽)",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 10.sp
+                )
+                Text(
+                    text = formatRubSigned(t.grossPnlRubApprox),
+                    color = grossColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
@@ -1032,11 +1058,8 @@ private fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
         ZStrategyPosition.Short -> "SHORT"
         ZStrategyPosition.Flat -> "—"
     }
-    val pnlColor = when {
-        t.pnlRubApprox > 0 -> Color(0xFF81C784)
-        t.pnlRubApprox < 0 -> Color(0xFFE57373)
-        else -> Color(0xFFBDBDBD)
-    }
+    val pnlColor = rubDeltaColor(t.pnlRubApprox)
+    val grossColor = rubDeltaColor(t.grossPnlRubApprox)
     Column(
         Modifier
             .fillMaxWidth()
@@ -1046,10 +1069,27 @@ private fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
-            Text("#$index  $dir ${t.entryDate} → ${t.exitDate}", color = Color(0xFFE0E0E0), fontSize = 12.sp)
-            Text(formatRubSigned(t.pnlRubApprox), color = pnlColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "#$index  $dir ${t.entryDate} → ${t.exitDate}",
+                color = Color(0xFFE0E0E0),
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = formatRubSigned(t.pnlRubApprox),
+                    color = pnlColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "валовый ${formatRubSigned(t.grossPnlRubApprox)}",
+                    color = grossColor,
+                    fontSize = 9.sp
+                )
+            }
         }
         Text(
             "спрэд ${String.format(Locale.US, "%.2f", t.entrySpreadPercent)}% → ${String.format(Locale.US, "%.2f", t.exitSpreadPercent)}% (${String.format(Locale.US, "%+.2f", t.pnlSpreadPoints)} п.п.)",
