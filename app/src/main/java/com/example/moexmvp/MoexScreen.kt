@@ -67,6 +67,8 @@ internal fun MoexScreen() {
     var confirmedPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     /** Симуляция по порогам |Z| на 15м ряду. */
     var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
+    /** Реинвестирование PnL в размер следующей сделки (только симуляция «Тест страт.»). */
+    var strategyTestCompoundReturns by remember { mutableStateOf(false) }
     var portfolioLoading by remember { mutableStateOf(false) }
     var portfolioError by remember { mutableStateOf<String?>(null) }
     var portfolioLeverage by remember { mutableStateOf(7.0) }
@@ -226,7 +228,8 @@ internal fun MoexScreen() {
                 notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                 leverage = portfolioLeverage,
                 commissionPercentPerSide = portfolioCommissionPercent,
-                periodDescription = desc
+                periodDescription = desc,
+                compoundReturns = strategyTestCompoundReturns
             )
             portfolioError = null
         } finally {
@@ -244,7 +247,8 @@ internal fun MoexScreen() {
         portfolioCommissionPercent,
         portfolioEntryThreshold,
         portfolioExitThreshold,
-        signalJournalFingerprint
+        signalJournalFingerprint,
+        strategyTestCompoundReturns
     ) {
         if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
             refreshPortfolio(null)
@@ -719,6 +723,8 @@ internal fun MoexScreen() {
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            compoundReturns = strategyTestCompoundReturns,
+                            onCompoundReturnsChange = { strategyTestCompoundReturns = it },
                             onLeverageChange = { portfolioLeverage = it },
                             onCommissionChange = { portfolioCommissionPercent = it },
                             onEntryThresholdChange = { newEntry ->
