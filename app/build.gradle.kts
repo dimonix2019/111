@@ -24,8 +24,8 @@ android {
         applicationId = "com.example.moexmvp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 36
-        versionName = "1.6.16"
+        versionCode = 37
+        versionName = "1.6.17"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -36,7 +36,24 @@ android {
         buildConfigField("String", "SANDBOX_ACCOUNT_EMBED", escapeForBuildConfigString(embedSandboxAccountId))
     }
 
+    /**
+     * Фиксированная подпись debug APK (keystore в репозитории), чтобы сборки GitHub Actions и локальные
+     * `assembleDebug` имели **один и тот же сертификат** — иначе на телефоне нельзя обновить приложение
+     * поверх старой версии (приходится удалять). Не использовать этот ключ для prod/release.
+     */
+    signingConfigs {
+        create("moexmvpCiDebug") {
+            storeFile = file("keystore/moexmvp-ci-debug.jks")
+            storePassword = "moexmvp_ci_store"
+            keyAlias = "moexmvp_ci"
+            keyPassword = "moexmvp_ci_store"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("moexmvpCiDebug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

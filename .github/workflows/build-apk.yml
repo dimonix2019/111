@@ -1,4 +1,5 @@
-# Debug APK on every push / PR. On push to the branches below, also publishes
+# Debug APK is signed with a fixed keystore (app/keystore/) so installs from
+# GitHub Releases can be updated in-place; ephemeral CI debug keys broke upgrades.
 # to GitHub Releases as the *latest* release so this URL always downloads the
 # newest build (direct .apk, no zip, no login):
 #

@@ -45,6 +45,7 @@ internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.17 — Установка поверх: debug APK подписывается фиксированным keystore из репозитория (один сертификат на CI и локально). Раньше GitHub Actions каждый раз использовал новый ephemeral debug‑ключ — Android не давал обновить приложение без удаления. Первый переход со старого CI‑APK на 1.6.17 может потребовать одну переустановку; дальше обновления с GitHub — поверх.
 1.6.16 — Сигнал «Принять»: уточнены тексты — на песочнице всегда 2 заявки (1×покупка + 1×продажа по ногам спрэда TATN/TATNP); логика без изменений.
 1.6.15 — Песочница: токен и Account ID дублируются в отдельный SharedPreferences (только песочница); при сбое EncryptedSharedPreferences/Keystore после обновления APK значения подтягиваются из резерва. Кнопка «Очистить» стирает и основное, и резервное хранилище.
 1.6.14 — Песочница: токен и Account ID в состоянии главного экрана — при переключении вкладок поля не очищаются; при возврате в приложение синхронизация с диском (ON_RESUME). Добавлен TinkoffSandboxStorage.hydrateCredentialsForUi.
