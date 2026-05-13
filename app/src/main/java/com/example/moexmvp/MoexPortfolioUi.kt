@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -233,6 +235,97 @@ private fun PortfolioDataRefreshHeader(
     }
 }
 
+@Composable
+private fun PortfolioCollapsibleSection(
+    title: String,
+    subtitle: String? = null,
+    defaultExpanded: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    var expanded by remember { mutableStateOf(defaultExpanded) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .background(Color(0xFF2C2C2C), RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                subtitle?.let {
+                    Text(
+                        text = it,
+                        color = Color(0xFF757575),
+                        fontSize = 10.sp,
+                        maxLines = 2
+                    )
+                }
+            }
+            Text(
+                text = if (expanded) "▼" else "▶",
+                color = Color(0xFF9E9E9E),
+                fontSize = 12.sp
+            )
+        }
+        if (expanded) {
+            Spacer(Modifier.height(6.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun PortfolioCompactHeroInline(metrics: PortfolioMetrics) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        val pnlColor = when {
+            metrics.totalPnlRubApprox > 0 -> Color(0xFF81C784)
+            metrics.totalPnlRubApprox < 0 -> Color(0xFFE57373)
+            else -> Color(0xFFBDBDBD)
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+        ) {
+            Text("Итого PnL", color = Color(0xFF90A4AE), fontSize = 10.sp)
+            Text(
+                text = "${formatRubSigned(metrics.totalPnlRubApprox)}  ${formatPercentSigned(metrics.totalReturnPercent)}",
+                color = pnlColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+        ) {
+            Text("Макс. просадка", color = Color(0xFF90A4AE), fontSize = 10.sp)
+            Text(
+                text = "${formatRubSigned(-metrics.maxDrawdownRubApprox)}  ${String.format(Locale.US, "%.1f%%", metrics.maxDrawdownPercent)}",
+                color = Color(0xFFFFB74D),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+    }
+}
+
 /** Подтверждённые сделки: пары вход/выход из журнала сигналов на 15-мин ряду. */
 @Composable
 internal fun ConfirmedPortfolioTabContent(
@@ -263,72 +356,82 @@ internal fun ConfirmedPortfolioTabContent(
             fontSize = 10.sp,
             maxLines = 3
         )
-        PortfolioParamsControls(
-            leverage = leverage,
-            commissionPercentPerSide = commissionPercentPerSide,
-            entryThreshold = 0.0,
-            exitThreshold = 0.0,
-            showZThresholdSteppers = false,
-            onLeverageChange = onLeverageChange,
-            onCommissionChange = onCommissionChange,
-            onEntryThresholdChange = {},
-            onExitThresholdChange = {}
-        )
-        Text(
-            text = "Учитываются только закрытые сделки, у которых в журнале есть и вход, и выход.",
-            color = Color(0xFF757575),
-            fontSize = 10.sp
-        )
         val context = LocalContext.current
         var sandboxExec by remember { mutableStateOf<SandboxSpreadExecUi?>(null) }
         LaunchedEffect(sandboxSpreadExecReload) {
             sandboxExec = TinkoffSandboxSpreadExecLog.load(context)
         }
-        sandboxExec?.let { ex ->
-            val mskWhen = Instant.ofEpochMilli(ex.timestampMillis)
-                .atZone(ZoneId.of("Europe/Moscow"))
-                .toLocalDateTime()
-                .format(portfolio15mLabelFormatter)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF1B2A20), RoundedCornerShape(10.dp))
-                    .padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
+        PortfolioCollapsibleSection(
+            title = "Плечо, комиссия, пояснения",
+            defaultExpanded = false
+        ) {
+            PortfolioParamsControls(
+                leverage = leverage,
+                commissionPercentPerSide = commissionPercentPerSide,
+                entryThreshold = 0.0,
+                exitThreshold = 0.0,
+                showZThresholdSteppers = false,
+                onLeverageChange = onLeverageChange,
+                onCommissionChange = onCommissionChange,
+                onEntryThresholdChange = {},
+                onExitThresholdChange = {}
+            )
+            Text(
+                text = "Учитываются только закрытые сделки, у которых в журнале есть и вход, и выход.",
+                color = Color(0xFF757575),
+                fontSize = 10.sp
+            )
+        }
+        PortfolioCollapsibleSection(
+            title = "Песочница: последнее «Принять» (2 ноги)",
+            defaultExpanded = false
+        ) {
+            val ex = sandboxExec
+            if (ex == null) {
                 Text(
-                    text = "Последнее «Принять» на песочнице — 2 биржевые заявки (ноги спрэда)",
-                    color = Color(0xFFB2DFDB),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                val title = when (ex.signalType) {
-                    StrategySignalType.EnterLong -> "LONG спрэд (TATN / TATNP)"
-                    StrategySignalType.EnterShort -> "SHORT спрэд (TATNP / TATN)"
-                    else -> ""
-                }
-                Text(title, color = Color(0xFFE0E0E0), fontSize = 11.sp)
-                Text(
-                    text = "Z = ${String.format(Locale.US, "%.2f", ex.zScore)} · $mskWhen (МСК)",
+                    text = "Пока нет записи последнего исполнения двух биржевых заявок на демо-счёте.",
                     color = Color(0xFF9E9E9E),
-                    fontSize = 10.sp
+                    fontSize = 11.sp
                 )
-                Text(ex.legsRu, color = Color(0xFFC8E6C9), fontSize = 11.sp)
-                Text(
-                    text = "Список «Сделки» ниже — по одной строке на полный круг вход→выход по журналу Z, а не по строке на каждую заявку в Т‑Инвест.",
-                    color = Color(0xFF78909C),
-                    fontSize = 9.sp,
-                    maxLines = 4
-                )
+            } else {
+                val mskWhen = Instant.ofEpochMilli(ex.timestampMillis)
+                    .atZone(ZoneId.of("Europe/Moscow"))
+                    .toLocalDateTime()
+                    .format(portfolio15mLabelFormatter)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF1B2A20), RoundedCornerShape(10.dp))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Последнее «Принять» на песочнице — 2 биржевые заявки (ноги спрэда)",
+                        color = Color(0xFFB2DFDB),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    val title = when (ex.signalType) {
+                        StrategySignalType.EnterLong -> "LONG спрэд (TATN / TATNP)"
+                        StrategySignalType.EnterShort -> "SHORT спрэд (TATNP / TATN)"
+                        else -> ""
+                    }
+                    Text(title, color = Color(0xFFE0E0E0), fontSize = 11.sp)
+                    Text(
+                        text = "Z = ${String.format(Locale.US, "%.2f", ex.zScore)} · $mskWhen (МСК)",
+                        color = Color(0xFF9E9E9E),
+                        fontSize = 10.sp
+                    )
+                    Text(ex.legsRu, color = Color(0xFFC8E6C9), fontSize = 11.sp)
+                    Text(
+                        text = "Список «Сделки» ниже — по одной карточке на полный круг вход→выход по журналу Z; внутри карточки две связанные ноги.",
+                        color = Color(0xFF78909C),
+                        fontSize = 9.sp,
+                        maxLines = 4
+                    )
+                }
             }
         }
-        PortfolioHeroMetricsRow(metrics = metrics)
-        Text(
-            text = "Итого = реализованный PnL + нереализованная нога (если по журналу позиция ещё открыта). Обновляется при новых сигналах и «Обновить».",
-            color = Color(0xFF616161),
-            fontSize = 9.sp,
-            maxLines = 3
-        )
 
         if (portfolioError != null) {
             Text(portfolioError, color = Color(0xFFEF9A9A), fontSize = 11.sp)
@@ -343,25 +446,45 @@ internal fun ConfirmedPortfolioTabContent(
             Text("Нет подтверждённых сделок за период (или нет данных 15м).", color = Color(0xFFBDBDBD), fontSize = 11.sp)
         } else {
             metrics?.let { m ->
+                PortfolioCompactHeroInline(m)
+                PortfolioCollapsibleSection(
+                    title = "Все показатели (сводка и сетка)",
+                    subtitle = "${formatRubSigned(m.totalPnlRubApprox)} · просадка ${formatRubSigned(-m.maxDrawdownRubApprox)}",
+                    defaultExpanded = false
+                ) {
+                    Text(
+                        text = "Итого = реализованный PnL + нереализованная нога (если по журналу позиция ещё открыта). Обновляется при новых сигналах и «Обновить».",
+                        color = Color(0xFF616161),
+                        fontSize = 9.sp,
+                        maxLines = 3
+                    )
+                    PortfolioHeroMetricsRow(metrics = m)
+                    Text(
+                        text = m.periodDescription,
+                        color = Color(0xFF757575),
+                        fontSize = 10.sp
+                    )
+                    PortfolioMetricGrid(m, showHeroDuplicate = false)
+                }
                 Text(
-                    text = m.periodDescription,
-                    color = Color(0xFF757575),
-                    fontSize = 10.sp
-                )
-                PortfolioMetricGrid(m, showHeroDuplicate = false)
-                Text(
-                    text = "Сделки (${m.closedTrades.size})",
+                    text = "Сделки (${m.closedTrades.size}) — связанные ноги LONG + SHORT",
                     color = Color(0xFFE0E0E0),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
+                )
+                Text(
+                    text = "Одна карточка = одна спрэд-позиция по журналу. Две строки — бумаги TATN и TATNP; итог внизу — общий PnL по движению спрэда (не сумма двух отдельных акций).",
+                    color = Color(0xFF616161),
+                    fontSize = 9.sp,
+                    maxLines = 3
                 )
                 val recent = m.closedTrades.takeLast(25).asReversed()
                 if (recent.isEmpty()) {
                     Text("Закрытых с подтверждённым входом и выходом нет.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
                 } else {
                     recent.forEachIndexed { index, t ->
-                        PortfolioTradeRow(index = index + 1, t = t)
+                        ConfirmedSpreadTradeCard(index = index + 1, t = t)
                     }
                 }
             }
@@ -424,7 +547,15 @@ internal fun StrategyTestTabContent(
             color = Color(0xFF757575),
             fontSize = 10.sp
         )
-        PortfolioHeroMetricsRow(metrics = metrics)
+        PortfolioCollapsibleSection(
+            title = "Сводка: Итого PnL и просадка",
+            subtitle = metrics?.let { m ->
+                "${formatRubSigned(m.totalPnlRubApprox)} · просадка ${formatRubSigned(-m.maxDrawdownRubApprox)}"
+            },
+            defaultExpanded = false
+        ) {
+            PortfolioHeroMetricsRow(metrics = metrics)
+        }
         PortfolioPresetSection(
             presets = presets,
             onApply = onApplyPreset,
@@ -475,12 +606,17 @@ internal fun StrategyTestTabContent(
             Text("Недостаточно данных для симуляции.", color = Color(0xFFBDBDBD), fontSize = 11.sp)
         } else {
             metrics?.let { m ->
-                Text(
-                    text = m.periodDescription,
-                    color = Color(0xFF757575),
-                    fontSize = 10.sp
-                )
-                PortfolioMetricGrid(m, showHeroDuplicate = false)
+                PortfolioCollapsibleSection(
+                    title = "Детальные показатели симуляции",
+                    defaultExpanded = false
+                ) {
+                    Text(
+                        text = m.periodDescription,
+                        color = Color(0xFF757575),
+                        fontSize = 10.sp
+                    )
+                    PortfolioMetricGrid(m, showHeroDuplicate = false)
+                }
                 Text(
                     text = "Сделки симуляции (${m.closedTrades.size})",
                     color = Color(0xFFE0E0E0),
@@ -723,6 +859,129 @@ private fun PortfolioStatCard(title: String, value: String) {
     ) {
         Text(title, color = Color(0xFF9E9E9E), fontSize = 10.sp)
         Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun ConfirmedSpreadTradeCard(index: Int, t: PortfolioClosedTrade) {
+    val spreadTitle = when (t.direction) {
+        ZStrategyPosition.Long -> "LONG спрэд TATN / TATNP"
+        ZStrategyPosition.Short -> "SHORT спрэд TATNP / TATN"
+        ZStrategyPosition.Flat -> "Спрэд"
+    }
+    val longTicker: String
+    val longLabel: String
+    val shortTicker: String
+    val shortLabel: String
+    when (t.direction) {
+        ZStrategyPosition.Long -> {
+            longTicker = "TATN"
+            longLabel = "LONG · покупка базы (нога 1)"
+            shortTicker = "TATNP"
+            shortLabel = "SHORT · продажа префа (нога 2)"
+        }
+        ZStrategyPosition.Short -> {
+            longTicker = "TATNP"
+            longLabel = "LONG · покупка префа (нога 1)"
+            shortTicker = "TATN"
+            shortLabel = "SHORT · продажа базы (нога 2)"
+        }
+        ZStrategyPosition.Flat -> {
+            longTicker = "—"
+            longLabel = "—"
+            shortTicker = "—"
+            shortLabel = "—"
+        }
+    }
+    val pnlColor = when {
+        t.pnlRubApprox > 0 -> Color(0xFF81C784)
+        t.pnlRubApprox < 0 -> Color(0xFFE57373)
+        else -> Color(0xFFBDBDBD)
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF263238), RoundedCornerShape(8.dp))
+            .padding(10.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Спрэд #$index  $spreadTitle",
+                color = Color(0xFFB0BEC5),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "${t.entryDate} → ${t.exitDate}",
+                color = Color(0xFF78909C),
+                fontSize = 10.sp
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF1B3D2F), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(longTicker, color = Color(0xFF81C784), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(longLabel, color = Color(0xFFCFD8DC), fontSize = 10.sp)
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF3D2626), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(shortTicker, color = Color(0xFFFFAB91), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(shortLabel, color = Color(0xFFCFD8DC), fontSize = 10.sp)
+            }
+        }
+        Text(
+            text = "⟷  Обе ноги одной позиции; PnL — один на спрэд (дельта спрэда в журнале, с плечом и комиссиями из настроек выше).",
+            color = Color(0xFF90A4AE),
+            fontSize = 9.sp,
+            modifier = Modifier.padding(top = 6.dp),
+            maxLines = 3
+        )
+        Text(
+            text = "Спрэд ${String.format(Locale.US, "%.2f", t.entrySpreadPercent)}% → ${String.format(Locale.US, "%.2f", t.exitSpreadPercent)}% (${String.format(Locale.US, "%+.2f", t.pnlSpreadPoints)} п.п.)",
+            color = Color(0xFF9E9E9E),
+            fontSize = 10.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Общий результат (оценка)",
+                color = Color(0xFFE0E0E0),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = formatRubSigned(t.pnlRubApprox),
+                color = pnlColor,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 
