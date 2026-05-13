@@ -14,6 +14,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,7 +54,8 @@ internal fun TinkoffSandboxTabContent(
     onTokenInputChange: (String) -> Unit,
     accountInput: String,
     onAccountInputChange: (String) -> Unit,
-    onSandboxPrefsChanged: () -> Unit = {}
+    onSandboxPrefsChanged: () -> Unit = {},
+    onSandboxAccountRecreated: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -68,6 +71,7 @@ internal fun TinkoffSandboxTabContent(
         mutableStateOf(TinkoffSandboxStorage.isSandboxEntryAuto(context))
     }
     var portfolioRubLine by remember { mutableStateOf<String?>(null) }
+    var showResetSandboxDialog by remember { mutableStateOf(false) }
     fun hasToken(): Boolean =
         tokenInput.isNotBlank() || !TinkoffSandboxStorage.getToken(context).isNullOrBlank()
 
@@ -116,6 +120,62 @@ internal fun TinkoffSandboxTabContent(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        if (showResetSandboxDialog) {
+            AlertDialog(
+                onDismissRequest = { if (!loading) showResetSandboxDialog = false },
+                title = { Text("Сбросить счёт песочницы?", color = Color.White) },
+                text = {
+                    Text(
+                        "Текущий демо-счёт будет закрыт на стороне T‑Invest (все позиции и баланс этого счёта удалятся), " +
+                            "затем откроется новый пустой счёт. Локальный токен не меняется. Блок «последнее Принять» в портфеле очищается.",
+                        color = Color(0xFFB0BEC5),
+                        fontSize = 13.sp
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showResetSandboxDialog = false
+                            run {
+                                val typedTok = tokenInput.trim()
+                                val newId = withContext(Dispatchers.IO) {
+                                    val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
+                                    val acc = TinkoffSandboxStorage.getAccountId(context) ?: accountInput.trim()
+                                    if (t.isBlank()) throw IllegalArgumentException("Нет токена")
+                                    if (acc.isBlank()) throw IllegalArgumentException("Нет accountId — введите или выберите счёт")
+                                    val n = tinkoffCloseAndOpenSandboxAccount(t, acc)
+                                    TinkoffSandboxStorage.setAccountId(context, n)
+                                    TinkoffSandboxSpreadExecLog.clear(context.applicationContext)
+                                    n
+                                }
+                                onAccountInputChange(newId)
+                                accounts = withContext(Dispatchers.IO) {
+                                    val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
+                                    tinkoffGetSandboxAccounts(t)
+                                }
+                                portfolioRubLine = null
+                                status =
+                                    "Старый счёт закрыт. Новый accountId (хвост): …${newId.takeLast(10)}"
+                                onSandboxPrefsChanged()
+                                onSandboxAccountRecreated()
+                            }
+                        },
+                        enabled = !loading
+                    ) {
+                        Text("Сбросить", color = Color(0xFFFFAB91))
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showResetSandboxDialog = false },
+                        enabled = !loading
+                    ) {
+                        Text("Отмена", color = Color(0xFF90CAF9))
+                    }
+                },
+                containerColor = Color(0xFF263238)
+            )
+        }
         Text(
             text = "T‑Invest · песочница (только клиент)",
             style = MaterialTheme.typography.titleMedium,
@@ -357,6 +417,18 @@ internal fun TinkoffSandboxTabContent(
                 }
                 Text(row.id, color = Color(0xFF9E9E9E), fontSize = 10.sp)
             }
+        }
+
+        OutlinedButton(
+            onClick = { showResetSandboxDialog = true },
+            enabled = !loading && hasToken() && accountInput.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFAB91))
+        ) {
+            Text(
+                "Сбросить счёт песочницы (закрыть текущий и открыть новый пустой)",
+                fontSize = 12.sp
+            )
         }
 
         OutlinedTextField(

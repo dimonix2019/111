@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -34,10 +36,12 @@ import java.util.Locale
 @Composable
 internal fun JournalTabContent(
     events: List<StrategySignalEvent>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClearHistoryRequest: () -> Unit = {}
 ) {
     var typeFilter by remember { mutableIntStateOf(0) }
     var dayFilter by remember { mutableStateOf<LocalDate?>(null) }
+    var showClearDialog by remember { mutableStateOf(false) }
     val zone = ZoneId.of("Europe/Moscow")
     val filtered = remember(events, typeFilter, dayFilter) {
         events.asSequence().filter { ev ->
@@ -57,20 +61,65 @@ internal fun JournalTabContent(
             true
         }.toList().asReversed()
     }
-    LazyColumn(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(Color.Black)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Text(
-                "Журнал сигналов",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                fontWeight = FontWeight.Bold
+    Column(modifier) {
+        if (showClearDialog) {
+            AlertDialog(
+                onDismissRequest = { showClearDialog = false },
+                title = { Text("Очистить историю сигналов?", color = Color.White) },
+                text = {
+                    Text(
+                        "Будут удалены все записи журнала (входы и выходы), сброшена сохранённая позиция Z в FLAT, " +
+                            "карточка «Принять» и блок последнего исполнения спрэда в портфеле. Токен и счёт песочницы не меняются.",
+                        color = Color(0xFFB0BEC5),
+                        fontSize = 13.sp
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showClearDialog = false
+                            onClearHistoryRequest()
+                        }
+                    ) {
+                        Text("Очистить", color = Color(0xFFFFAB91))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearDialog = false }) {
+                        Text("Отмена", color = Color(0xFF90CAF9))
+                    }
+                },
+                containerColor = Color(0xFF263238)
             )
+        }
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .background(Color.Black)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Журнал сигналов",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                Button(
+                    onClick = { showClearDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text("Очистить историю", fontSize = 11.sp, color = Color.White)
+                }
+            }
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -110,6 +159,7 @@ internal fun JournalTabContent(
                     fontSize = 12.sp
                 )
             }
+        }
         }
     }
 }

@@ -658,7 +658,19 @@ internal fun MoexScreen() {
             MainTab.Journal -> {
                 JournalTabContent(
                     events = signalEvents,
-                    modifier = Modifier.weight(1f).fillMaxWidth()
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    onClearHistoryRequest = {
+                        clearStrategySignalJournalAndLocalStrategyState(context)
+                        signalEvents = loadStrategySignalEvents(context)
+                        pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+                        zStrategyPosition = ZStrategyPosition.Flat
+                        sandboxSpreadExecReload++
+                        Toast.makeText(
+                            context,
+                            "Журнал очищен; позиция Z — FLAT; карточка «Принять» и блок песочницы в портфеле сброшены.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 )
             }
 
@@ -679,7 +691,8 @@ internal fun MoexScreen() {
                         onAccountInputChange = { sandboxAccountInput = it },
                         onSandboxPrefsChanged = {
                             sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
-                        }
+                        },
+                        onSandboxAccountRecreated = { sandboxSpreadExecReload++ }
                     )
                 }
             }

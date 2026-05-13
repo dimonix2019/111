@@ -50,4 +50,11 @@ internal object TinkoffSandboxSpreadExecLog {
             legsRu = o.optString("legsRu", "")
         )
     }
+
+    fun clear(context: Context) {
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_JSON)
+            .apply()
+    }
 }

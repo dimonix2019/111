@@ -363,6 +363,25 @@ internal fun loadStrategySignalEvents(
     }
 }
 
+/**
+ * Журнал сигналов (вход/выход), дедуп-ключи, карточка «Принять», последняя запись «Принять» в портфеле,
+ * сохранённая позиция Z → FLAT. Не трогает токен/счёт песочницы и динамические пороги.
+ */
+internal fun clearStrategySignalJournalAndLocalStrategyState(context: Context) {
+    val app = context.applicationContext
+    synchronized(signalEventsLock) {
+        app.getSharedPreferences(SIGNAL_EVENTS_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(PREF_SIGNAL_EVENTS_JSON)
+            .remove(PREF_SIGNAL_LAST_WALL_MS)
+            .remove(PREF_SIGNAL_LAST_TYPE)
+            .apply()
+    }
+    clearVirtualTradeProposalPrefs(app)
+    saveStrategyPosition(app, ZStrategyPosition.Flat)
+    TinkoffSandboxSpreadExecLog.clear(app)
+}
+
 internal fun showDynamicZThresholdsPushNotification(
     context: Context,
     entry: Double,

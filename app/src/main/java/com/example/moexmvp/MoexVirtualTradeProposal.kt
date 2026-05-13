@@ -92,6 +92,16 @@ internal fun clearPendingVirtualTradeProposal(
     ed.commit()
 }
 
+/** Сброс prefs карточки «Принять» и отклонённых входов (например при очистке журнала). */
+internal fun clearVirtualTradeProposalPrefs(context: Context) {
+    context.applicationContext.getSharedPreferences(VIRTUAL_TRADE_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .remove(PREF_PENDING_JSON)
+        .remove(PREF_REJECTED_VIRTUAL_TS)
+        .remove(PREF_REJECTED_VIRTUAL_TYPE)
+        .commit()
+}
+
 /** После авто-входа на песочницу: убрать карточку и не поднимать её из журнала для этой записи входа. */
 internal fun markVirtualTradeConsumedForJournalEntry(
     context: Context,

@@ -204,6 +204,27 @@ internal suspend fun tinkoffOpenSandboxAccount(token: String, name: String): Str
     throw last ?: IOException("OpenSandboxAccount: не удалось открыть счёт")
 }
 
+internal suspend fun tinkoffCloseSandboxAccount(token: String, accountId: String): JSONObject {
+    var last: IOException? = null
+    for (body in listOf(
+        JSONObject().put("accountId", accountId),
+        JSONObject().put("account_id", accountId)
+    )) {
+        try {
+            return tinkoffSandboxPostAsync(token, "CloseSandboxAccount", body)
+        } catch (e: IOException) {
+            last = e
+        }
+    }
+    throw last ?: IOException("CloseSandboxAccount: неизвестная ошибка")
+}
+
+/** Закрывает указанный демо-счёт на стороне T‑Invest и открывает новый пустой (тот же токен). */
+internal suspend fun tinkoffCloseAndOpenSandboxAccount(token: String, accountIdToClose: String): String {
+    tinkoffCloseSandboxAccount(token, accountIdToClose)
+    return tinkoffOpenSandboxAccount(token, "MOEX MVP sandbox")
+}
+
 internal data class SandboxAccountRow(val id: String, val name: String)
 
 private fun parseSandboxAccounts(root: JSONObject): List<SandboxAccountRow> {
