@@ -311,21 +311,25 @@ internal fun loadCandleBars(
 
     return allBars
 }
-internal suspend fun loadState(period: Period): UiState = withContext(Dispatchers.IO) {
+internal suspend fun loadState(context: Context, period: Period): UiState = withContext(Dispatchers.IO) {
     try {
         val data = fetchData(period)
         if (data.points.isEmpty()) {
             UiState.Empty
         } else {
-            UiState.Success(
+            val success = UiState.Success(
                 points = data.points,
                 loadedAt = LocalDateTime.now().format(updatedAtFormatter),
                 tatnCandles = data.tatnCandles,
-                tatnpCandles = data.tatnpCandles
+                tatnpCandles = data.tatnpCandles,
+                marketsDataSource = MarketsDataSource.Network
             )
+            saveMarketsSnapshot(context.applicationContext, period, success)
+            success
         }
     } catch (t: Throwable) {
-        UiState.Error(t.message ?: "Unknown error")
+        readMarketsSnapshotIfFresh(context.applicationContext, period)
+            ?: UiState.Error(t.message ?: "Unknown error")
     }
 }
 

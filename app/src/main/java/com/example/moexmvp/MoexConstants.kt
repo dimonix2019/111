@@ -51,6 +51,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.26 — Рынок: локальный снимок графиков MOEX (точки Z/спред + свечи) на 15 минут; при ошибке сети показывается кэш, в сводке — «Кэш 15м» и время последней удачной загрузки.
 1.6.25 — О приложении: подсказка при 404 с телефона (часто private repo на GitHub); кнопки открытия прямой ссылки APK и страницы релизов.
 1.6.24 — CI: отключена отмена параллельных прогонов (release иначе мог не создаться → 404 по ссылке). Публикация релиза moexmvp-debug-latest через action-gh-release + предварительное удаление старого релиза.
 1.6.23 — Ссылка на debug APK: в GitHub «latest» мог перехватываться чужой релиз (например v1.21). CI публикует один релиз с тегом moexmvp-debug-latest. Прямая ссылка: https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk

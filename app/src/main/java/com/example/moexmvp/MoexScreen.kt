@@ -251,7 +251,7 @@ internal fun MoexScreen() {
                 isRefreshing = true
             }
 
-            when (val next = loadState(selectedPeriod)) {
+            when (val next = loadState(context, selectedPeriod)) {
                 is UiState.Success -> {
                     lastGoodMarkets = next
                     marketsStale = false
@@ -475,10 +475,11 @@ internal fun MoexScreen() {
         }
     }
 
-    val dataSourceLabel = if (staleMarkets) {
-        MarketsDataSource.OfflineStale
-    } else {
-        MarketsDataSource.Network
+    val dataSourceLabel = when {
+        staleMarkets -> MarketsDataSource.OfflineStale
+        chartSuccess?.marketsDataSource == MarketsDataSource.FifteenMinuteCache ->
+            MarketsDataSource.FifteenMinuteCache
+        else -> MarketsDataSource.Network
     }
 
     robustCandidate?.let { cand ->

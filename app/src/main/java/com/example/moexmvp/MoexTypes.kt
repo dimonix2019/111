@@ -142,7 +142,9 @@ internal sealed interface UiState {
         val points: List<DataPoint>,
         val loadedAt: String,
         val tatnCandles: List<CandlePoint>,
-        val tatnpCandles: List<CandlePoint>
+        val tatnpCandles: List<CandlePoint>,
+        /** MOEX сеть, локальный снимок ≤15 мин, или устаревший in-memory снимок (см. вкладка «Рынок»). */
+        val marketsDataSource: MarketsDataSource = MarketsDataSource.Network
     ) : UiState
 }
 
