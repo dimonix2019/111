@@ -35,16 +35,20 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -239,7 +243,9 @@ internal fun ConfirmedPortfolioTabContent(
     leverage: Double,
     commissionPercentPerSide: Double,
     onLeverageChange: (Double) -> Unit,
-    onCommissionChange: (Double) -> Unit
+    onCommissionChange: (Double) -> Unit,
+    /** Увеличить после успешного «Принять» на песочнице, чтобы подтянуть блок «2 ноги». */
+    sandboxSpreadExecReload: Int = 0
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -273,6 +279,49 @@ internal fun ConfirmedPortfolioTabContent(
             color = Color(0xFF757575),
             fontSize = 10.sp
         )
+        val context = LocalContext.current
+        var sandboxExec by remember { mutableStateOf<SandboxSpreadExecUi?>(null) }
+        LaunchedEffect(sandboxSpreadExecReload) {
+            sandboxExec = TinkoffSandboxSpreadExecLog.load(context)
+        }
+        sandboxExec?.let { ex ->
+            val mskWhen = Instant.ofEpochMilli(ex.timestampMillis)
+                .atZone(ZoneId.of("Europe/Moscow"))
+                .toLocalDateTime()
+                .format(portfolio15mLabelFormatter)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1B2A20), RoundedCornerShape(10.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "Последнее «Принять» на песочнице — 2 биржевые заявки (ноги спрэда)",
+                    color = Color(0xFFB2DFDB),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                val title = when (ex.signalType) {
+                    StrategySignalType.EnterLong -> "LONG спрэд (TATN / TATNP)"
+                    StrategySignalType.EnterShort -> "SHORT спрэд (TATNP / TATN)"
+                    else -> ""
+                }
+                Text(title, color = Color(0xFFE0E0E0), fontSize = 11.sp)
+                Text(
+                    text = "Z = ${String.format(Locale.US, "%.2f", ex.zScore)} · $mskWhen (МСК)",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 10.sp
+                )
+                Text(ex.legsRu, color = Color(0xFFC8E6C9), fontSize = 11.sp)
+                Text(
+                    text = "Список «Сделки» ниже — по одной строке на полный круг вход→выход по журналу Z, а не по строке на каждую заявку в Т‑Инвест.",
+                    color = Color(0xFF78909C),
+                    fontSize = 9.sp,
+                    maxLines = 4
+                )
+            }
+        }
         PortfolioHeroMetricsRow(metrics = metrics)
         Text(
             text = "Итого = реализованный PnL + нереализованная нога (если по журналу позиция ещё открыта). Обновляется при новых сигналах и «Обновить».",

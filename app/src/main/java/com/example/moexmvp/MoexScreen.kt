@@ -100,6 +100,8 @@ internal fun MoexScreen() {
     /** Поля песочницы держим здесь: при переключении вкладок `TinkoffSandboxTabContent` пересоздаётся, иначе токен «терялся» из UI до повторной загрузки. */
     var sandboxTokenInput by remember { mutableStateOf("") }
     var sandboxAccountInput by remember { mutableStateOf("") }
+    /** Сдвигается после успешного «Принять» на песочнице — портфель перечитывает блок «2 ноги». */
+    var sandboxSpreadExecReload by remember { mutableStateOf(0) }
     var bgMonitorToggleEpoch by remember { mutableStateOf(0) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
@@ -492,23 +494,48 @@ internal fun MoexScreen() {
                                     return@launch
                                 }
                                 try {
-                                    withContext(Dispatchers.IO) {
+                                    val nowMs = System.currentTimeMillis()
+                                    val skippedJournal = withContext(Dispatchers.IO) {
                                         tinkoffSandboxExecuteSpreadEntry(tok, acc, proposal.signalType)
                                         clearPendingVirtualTradeProposal(context)
-                                        recordStrategySignalEvent(
-                                            context = context,
-                                            signalType = proposal.signalType,
-                                            zScore = proposal.zScore,
-                                            timestampMillis = System.currentTimeMillis(),
-                                            skipJournalWallDedup = true,
-                                            savePendingVirtualTradeIfEntry = false
+                                        TinkoffSandboxSpreadExecLog.record(
+                                            context,
+                                            proposal.signalType,
+                                            proposal.zScore,
+                                            nowMs
                                         )
+                                        val recent = loadStrategySignalEvents(context)
+                                        val last = recent.lastOrNull()
+                                        val ageMs = last?.let { nowMs - it.timestampMillis }
+                                        val skipDup = last != null &&
+                                            ageMs != null &&
+                                            ageMs >= 0L &&
+                                            ageMs < 600_000L &&
+                                            last.signalType == proposal.signalType &&
+                                            kotlin.math.abs(last.zScore - proposal.zScore) < 0.08
+                                        if (!skipDup) {
+                                            recordStrategySignalEvent(
+                                                context = context,
+                                                signalType = proposal.signalType,
+                                                zScore = proposal.zScore,
+                                                timestampMillis = nowMs,
+                                                skipJournalWallDedup = true,
+                                                savePendingVirtualTradeIfEntry = false
+                                            )
+                                        }
+                                        skipDup
                                     }
                                     pendingVirtualTrade = null
+                                    sandboxSpreadExecReload++
                                     signalEvents = loadStrategySignalEvents(context)
+                                    val tail = if (skippedJournal) {
+                                        "Повторный вход в журнал не записан (тот же сигнал уже в журнале)."
+                                    } else {
+                                        "Вход записан в журнал."
+                                    }
                                     Toast.makeText(
                                         context,
-                                        "В песочнице отправлены 2 заявки (покупка + продажа по спрэду); вход в журнале.",
+                                        "В песочнице отправлены 2 заявки (две ноги спрэда). $tail",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } catch (e: Exception) {
@@ -587,7 +614,8 @@ internal fun MoexScreen() {
                             leverage = portfolioLeverage,
                             commissionPercentPerSide = portfolioCommissionPercent,
                             onLeverageChange = { portfolioLeverage = it },
-                            onCommissionChange = { portfolioCommissionPercent = it }
+                            onCommissionChange = { portfolioCommissionPercent = it },
+                            sandboxSpreadExecReload = sandboxSpreadExecReload
                         )
                     }
                 }

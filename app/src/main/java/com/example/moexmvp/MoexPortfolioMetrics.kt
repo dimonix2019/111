@@ -264,7 +264,7 @@ internal fun buildExecutedPortfolioMetrics(
             val point = points.getOrNull(marker.index) ?: return@mapNotNull null
             Triple(point, marker.label, marker.index)
         }
-        .sortedBy { it.third }
+        .sortedWith(compareBy({ it.third }, { it.first.timestampMillis }))
 
     var eventCursor = 0
     for (index in points.indices) {
