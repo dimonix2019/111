@@ -92,6 +92,21 @@ internal fun clearPendingVirtualTradeProposal(
     ed.commit()
 }
 
+/** После авто-входа на песочницу: убрать карточку и не поднимать её из журнала для этой записи входа. */
+internal fun markVirtualTradeConsumedForJournalEntry(
+    context: Context,
+    signalType: StrategySignalType,
+    timestampMillis: Long
+) {
+    if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return
+    context.getSharedPreferences(VIRTUAL_TRADE_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .remove(PREF_PENDING_JSON)
+        .putLong(PREF_REJECTED_VIRTUAL_TS, timestampMillis)
+        .putString(PREF_REJECTED_VIRTUAL_TYPE, signalType.name)
+        .commit()
+}
+
 /**
  * Если карточки нет, а в журнале последняя запись — вход и позиция совпадает — восстановить pending (после сбоя prefs / гонки apply()).
  */

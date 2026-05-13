@@ -43,8 +43,15 @@ internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 252L
 internal const val PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS = 3L
 internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
+/** Прямая загрузка debug APK (если репозиторий private — нужна авторизация GitHub в браузере, иначе будет 404). */
+internal const val APK_DOWNLOAD_DIRECT_URL =
+    "https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk"
+
+internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix2019/111/releases"
+
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.25 — О приложении: подсказка при 404 с телефона (часто private repo на GitHub); кнопки открытия прямой ссылки APK и страницы релизов.
 1.6.24 — CI: отключена отмена параллельных прогонов (release иначе мог не создаться → 404 по ссылке). Публикация релиза moexmvp-debug-latest через action-gh-release + предварительное удаление старого релиза.
 1.6.23 — Ссылка на debug APK: в GitHub «latest» мог перехватываться чужой релиз (например v1.21). CI публикует один релиз с тегом moexmvp-debug-latest. Прямая ссылка: https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk
 1.6.22 — Песочница (тест): режим «Ручной» / «Авто» — в авто после сигнала входа отправляются 2 заявки без карточки «Принять»; по каждой ноге отдельное уведомление (дата/время МСК, тикер, сторона, кратко заявка, номинал стратегии и плечо, баланс портфеля и деньги после ноги). В ручном после «Принять» — те же уведомления по ногам. Плечо в тексте синхронизируется с вкладкой «Портфель». Исполнение спрэда запрашивает портфель после каждой ноги.
