@@ -247,7 +247,9 @@ internal fun ChartCard(
     showLegend: Boolean = true,
     enableZoomPan: Boolean = false,
     markerScale: Float = 1f,
-    showZoomHint: Boolean = false
+    showZoomHint: Boolean = false,
+    /** Доп. строка под выбранной точкой (например PnL симуляции по Z). */
+    tradeTapHintFormatter: ((Int) -> String?)? = null
 ) {
     val axisScale = remember(series, labels, yScale, referenceLines) {
         buildAxisScale(
@@ -347,6 +349,14 @@ internal fun ChartCard(
                     text = "↕ $label | ${values.joinToString(" | ")}",
                     fontSize = 12.sp,
                     color = Color(0xFFF1F8FF)
+                )
+            }
+            tradeTapHintFormatter?.invoke(selected)?.let { hint ->
+                Text(
+                    text = hint,
+                    fontSize = 11.sp,
+                    color = Color(0xFFFFE082),
+                    modifier = Modifier.padding(top = 2.dp)
                 )
             }
         }

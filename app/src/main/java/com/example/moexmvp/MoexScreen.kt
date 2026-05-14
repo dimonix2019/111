@@ -120,6 +120,28 @@ internal fun MoexScreen() {
     val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
     val staleMarkets = marketsStale || (realtimeError != null && chartSuccess != null)
 
+    val marketsZStrategyTapMetrics = remember(
+        chartSuccess?.points,
+        dynamicThresholds.entry,
+        dynamicThresholds.exit,
+        dynamicThresholds.calculatedDate,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        selectedPeriod
+    ) {
+        val pts = chartSuccess?.points
+        if (pts == null || pts.size < 2) return@remember null
+        buildZStrategyPortfolioMetrics(
+            points = pts,
+            thresholds = dynamicThresholds,
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = portfolioLeverage,
+            commissionPercentPerSide = portfolioCommissionPercent,
+            periodDescription = "${selectedPeriod.label} · тап Z",
+            compoundReturns = false
+        )
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         fun hydrateVirtualTradeAndSandboxUi() {
@@ -911,7 +933,10 @@ internal fun MoexScreen() {
                                                 showLegend = false,
                                                 enableZoomPan = true,
                                                 markerScale = 1.5f,
-                                                showZoomHint = true
+                                                showZoomHint = true,
+                                                tradeTapHintFormatter = { idx ->
+                                                    formatZStrategyTradeTapHint(idx, c.points, marketsZStrategyTapMetrics)
+                                                }
                                             )
                                             ChartCard(
                                                 title = "Spread %",
@@ -1081,7 +1106,10 @@ internal fun MoexScreen() {
                                     showLegend = false,
                                     enableZoomPan = true,
                                     markerScale = 1.35f,
-                                    showZoomHint = true
+                                    showZoomHint = true,
+                                    tradeTapHintFormatter = { idx ->
+                                        formatZStrategyTradeTapHint(idx, c.points, marketsZStrategyTapMetrics)
+                                    }
                                 )
                             }
                             item {

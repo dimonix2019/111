@@ -9,7 +9,9 @@ internal val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:
 internal val candleTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 internal val intradayLabelFormatter = DateTimeFormatter.ofPattern("HH:mm")
 internal val portfolio15mLabelFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-internal const val DYNAMIC_Z_RECALC_HOUR = 9
+/** Локальное время (часы устройства): до этого момента пороги Z не пересчитываются «за сегодня». */
+internal const val DYNAMIC_Z_RECALC_HOUR = 7
+internal const val DYNAMIC_Z_RECALC_MINUTE = 30
 internal const val DEFAULT_DYNAMIC_Z_ENTRY = 1.3
 internal const val DEFAULT_DYNAMIC_Z_EXIT = 1.2
 internal const val Z_STRATEGY_ENTRY_MIN_TENTHS = 8
@@ -51,6 +53,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.31 — Рынок: тап по графику Z-score — подсказка PnL симуляции (те же динамические пороги, номинал/плечо/комиссия, что на «Портфеле»), если бар — день входа/выхода сделки или последний бар при открытой позиции. Автопересчёт динамических порогов Z перенесён на 7:30 (раньше ориентир 9:00); фоновый сервис использует то же время.
 1.6.30 — Журнал: кнопка «Очистить историю» (подтверждение) — сброс журнала сигналов, позиции Z в FLAT, карточки «Принять» и блока последнего спрэда в портфеле. Песочница: «Сбросить счёт» — CloseSandboxAccount + новый OpenSandboxAccount (токен не трогаем), очистка локального лога «Принять».
 1.6.29 — Тест стратегии: переключатель «фикс. номинал» / «капитализация PnL» — при включённой капитализации перед каждой новой сделкой пересчитывается собственный капитал (старт + накопленный realized в ₽) и от него снова берутся номинал с плечом, комиссия и овернайт (реинвестирование в симуляции).
 1.6.28 — Вкладка «Рынок»: выше графики Z и спреда, маркеры сделок крупнее с обводкой; масштаб/панорама по времени (два пальца, сдвиг, двойной тап — сброс). В альбомной ориентации — только графики и выбор периода (портрет — полный интерфейс). MainActivity: configChanges для плавного поворота.

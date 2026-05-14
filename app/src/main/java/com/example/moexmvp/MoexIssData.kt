@@ -13,6 +13,7 @@ import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -428,6 +429,12 @@ internal suspend fun loadPortfolio15mDataPoints(
         }
     }
 }
+
+internal fun isBeforeDynamicZRecalcWallClock(now: LocalDateTime): Boolean {
+    val trigger = LocalTime.of(DYNAMIC_Z_RECALC_HOUR, DYNAMIC_Z_RECALC_MINUTE)
+    return now.toLocalTime().isBefore(trigger)
+}
+
 internal fun ensureDynamicThresholds(context: Context): DynamicThresholdUpdate {
     val saved = loadSavedDynamicThresholds(context)
     val now = LocalDateTime.now()
@@ -441,7 +448,7 @@ internal fun ensureDynamicThresholds(context: Context): DynamicThresholdUpdate {
     if (saved?.calculatedDate == todayIso) {
         return DynamicThresholdUpdate(thresholds = saved, recalculated = false)
     }
-    if (now.hour < DYNAMIC_Z_RECALC_HOUR) {
+    if (isBeforeDynamicZRecalcWallClock(now)) {
         return DynamicThresholdUpdate(thresholds = fallback, recalculated = false)
     }
     val calculated = runCatching {

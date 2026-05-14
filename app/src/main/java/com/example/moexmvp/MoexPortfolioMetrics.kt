@@ -455,3 +455,41 @@ internal fun buildExecutedPortfolioMetrics(
         largestLossRub = largestLoss
     )
 }
+
+private fun fmtRubHint(v: Double): String = String.format(Locale.US, "%+.0f ₽", v)
+
+/**
+ * Подсказка под тапом по дневному графику Z: закрытая сделка симуляции, если дата бара = дата входа или выхода;
+ * на последнем баре — нереализованная оценка при открытой позиции.
+ */
+internal fun formatZStrategyTradeTapHint(
+    selectedIndex: Int,
+    points: List<DataPoint>,
+    metrics: PortfolioMetrics?
+): String? {
+    if (metrics == null || selectedIndex !in points.indices) return null
+    val dateLabel = points[selectedIndex].tradeDate
+    val closed = metrics.closedTrades.firstOrNull { it.entryDate == dateLabel || it.exitDate == dateLabel }
+    if (closed != null) {
+        val dir = when (closed.direction) {
+            ZStrategyPosition.Long -> "LONG"
+            ZStrategyPosition.Short -> "SHORT"
+            ZStrategyPosition.Flat -> ""
+        }
+        val leg = when {
+            closed.entryDate == dateLabel && closed.exitDate == dateLabel -> "вход/выход"
+            closed.entryDate == dateLabel -> "вход"
+            else -> "выход"
+        }
+        return "Симуляция $dir ($leg) ${closed.entryDate}→${closed.exitDate}: чистый ${fmtRubHint(closed.pnlRubApprox)}, валовый ${fmtRubHint(closed.grossPnlRubApprox)}, спрэд ${String.format(Locale.US, "%+.2f", closed.pnlSpreadPoints)} п.п. (${"%.0f".format(Locale.US, metrics.notionalRub)} ₽ ×${String.format(Locale.US, "%.1f", metrics.leverage)}, ${String.format(Locale.US, "%.3f", metrics.commissionPercentPerSide)}% / сторона)"
+    }
+    val open = metrics.openPosition ?: return null
+    if (selectedIndex != points.lastIndex) return null
+    if (open.direction == ZStrategyPosition.Flat) return null
+    val dir = when (open.direction) {
+        ZStrategyPosition.Long -> "LONG"
+        ZStrategyPosition.Short -> "SHORT"
+        ZStrategyPosition.Flat -> ""
+    }
+    return "Симуляция открытая $dir с ${open.entryDate}: нереализ. ${fmtRubHint(open.unrealizedRubApprox)}, спрэд ${String.format(Locale.US, "%+.2f", open.unrealizedPnlSpread)} п.п. на $dateLabel (${"%.0f".format(Locale.US, metrics.notionalRub)} ₽ ×${String.format(Locale.US, "%.1f", metrics.leverage)})"
+}

@@ -33,7 +33,6 @@ internal const val SIGNAL_MONITOR_INTERVAL_MS = 15_000L
 
 private const val DEFAULT_DYNAMIC_Z_ENTRY_BG = 1.3
 private const val DEFAULT_DYNAMIC_Z_EXIT_BG = 1.2
-private const val DYNAMIC_Z_RECALC_HOUR_BG = 9
 private const val Z_STRATEGY_MIN_TRADES_BG = 4
 private const val Z_STRATEGY_ENTRY_MIN_TENTHS_BG = 8
 private const val Z_STRATEGY_ENTRY_MAX_TENTHS_BG = 35
@@ -349,7 +348,7 @@ class SignalForegroundService : Service() {
         if (saved?.calculatedDate == todayIso) {
             return BgThresholdUpdate(saved, recalculated = false)
         }
-        if (now.hour < DYNAMIC_Z_RECALC_HOUR_BG) {
+        if (isBeforeDynamicZRecalcWallClock(now)) {
             return BgThresholdUpdate(fallback, recalculated = false)
         }
         val best = runCatching {
