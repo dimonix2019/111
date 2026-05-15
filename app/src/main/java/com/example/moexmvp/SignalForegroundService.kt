@@ -113,7 +113,7 @@ class SignalForegroundService : Service() {
             exit = thresholdUpdate.thresholds.exit,
             calculatedDate = thresholdUpdate.thresholds.calculatedDate
         )
-        val portfolioTh = loadPortfolioZThresholds(this, dynFallback)
+        val portfolioTh = loadRealTradeZThresholds(this, dynFallback)
         val signalThresholds = BgThresholds(
             entry = portfolioTh.entry,
             exit = portfolioTh.exit,

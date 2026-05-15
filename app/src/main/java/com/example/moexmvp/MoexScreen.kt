@@ -64,7 +64,7 @@ internal fun MoexScreen() {
     val landscapeMarketsChartsOnly =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
             selectedTab == MainTab.Markets
-    /** Закрытые сделки по тем же правилам 15м Z, что «Тест страт.» (без капитализации). */
+    /** Портфель: исполнения песочницы + журнал (фильтр ручной/авто). */
     var confirmedPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     /** Симуляция по порогам |Z| на 15м ряду. */
     var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
@@ -74,8 +74,10 @@ internal fun MoexScreen() {
     var portfolioError by remember { mutableStateOf<String?>(null) }
     var portfolioLeverage by remember { mutableStateOf(7.0) }
     var portfolioCommissionPercent by remember { mutableStateOf(0.04) }
-    var portfolioEntryThreshold by remember { mutableStateOf<Double?>(null) }
-    var portfolioExitThreshold by remember { mutableStateOf<Double?>(null) }
+    var realTradeEntryThreshold by remember { mutableStateOf<Double?>(null) }
+    var realTradeExitThreshold by remember { mutableStateOf<Double?>(null) }
+    var strategyTestEntryThreshold by remember { mutableStateOf<Double?>(null) }
+    var strategyTestExitThreshold by remember { mutableStateOf<Double?>(null) }
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -114,6 +116,10 @@ internal fun MoexScreen() {
     var sandboxAccountInput by remember { mutableStateOf("") }
     /** Сдвигается после успешного «Принять» на песочнице — портфель перечитывает блок «2 ноги». */
     var sandboxSpreadExecReload by remember { mutableStateOf(0) }
+    /** Инкремент при смене настроек песочницы (ручной/авто), чтобы пересчитать фильтр портфеля. */
+    var sandboxPrefsEpoch by remember { mutableStateOf(0) }
+    var showCloseAllPortfolioDialog by remember { mutableStateOf(false) }
+    var closeAllPortfolioBusy by remember { mutableStateOf(false) }
     var bgMonitorToggleEpoch by remember { mutableStateOf(0) }
     val refreshMutex = remember { Mutex() }
     val scope = rememberCoroutineScope()
@@ -186,19 +192,41 @@ internal fun MoexScreen() {
         }
     }
 
+    LaunchedEffect(Unit) {
+        val rt = loadRealTradeZThresholds(context, dynamicThresholds)
+        if (realTradeEntryThreshold == null) realTradeEntryThreshold = rt.entry
+        if (realTradeExitThreshold == null) realTradeExitThreshold = rt.exit
+        val st = loadStrategyTestZThresholds(context, dynamicThresholds)
+        if (strategyTestEntryThreshold == null) strategyTestEntryThreshold = st.entry
+        if (strategyTestExitThreshold == null) strategyTestExitThreshold = st.exit
+    }
+
     LaunchedEffect(dynamicThresholds.entry, dynamicThresholds.exit) {
-        if (portfolioEntryThreshold == null || portfolioExitThreshold == null) {
-            val saved = loadPortfolioZThresholds(context, dynamicThresholds)
-            if (portfolioEntryThreshold == null) portfolioEntryThreshold = saved.entry
-            if (portfolioExitThreshold == null) portfolioExitThreshold = saved.exit
+        if (realTradeEntryThreshold == null || realTradeExitThreshold == null) {
+            val saved = loadRealTradeZThresholds(context, dynamicThresholds)
+            if (realTradeEntryThreshold == null) realTradeEntryThreshold = saved.entry
+            if (realTradeExitThreshold == null) realTradeExitThreshold = saved.exit
+        }
+        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) {
+            val st = loadStrategyTestZThresholds(context, dynamicThresholds)
+            if (strategyTestEntryThreshold == null) strategyTestEntryThreshold = st.entry
+            if (strategyTestExitThreshold == null) strategyTestExitThreshold = st.exit
         }
     }
 
-    LaunchedEffect(portfolioEntryThreshold, portfolioExitThreshold) {
-        val entry = portfolioEntryThreshold ?: return@LaunchedEffect
-        val exit = portfolioExitThreshold ?: return@LaunchedEffect
+    LaunchedEffect(realTradeEntryThreshold, realTradeExitThreshold) {
+        val entry = realTradeEntryThreshold ?: return@LaunchedEffect
+        val exit = realTradeExitThreshold ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
-            savePortfolioZThresholds(context, entry, exit)
+            saveRealTradeZThresholds(context, entry, exit)
+        }
+    }
+
+    LaunchedEffect(strategyTestEntryThreshold, strategyTestExitThreshold) {
+        val entry = strategyTestEntryThreshold ?: return@LaunchedEffect
+        val exit = strategyTestExitThreshold ?: return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            saveStrategyTestZThresholds(context, entry, exit)
         }
     }
 
@@ -238,29 +266,46 @@ internal fun MoexScreen() {
             val desc =
                 "15 мин (ISS 10m→15m) · $PORTFOLIO_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
 
-            val entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+            val entryRt = (realTradeEntryThreshold ?: dynamicThresholds.entry)
                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-            val exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
+            val exitRt = (realTradeExitThreshold ?: dynamicThresholds.exit)
                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-            if (portfolioEntryThreshold == null) portfolioEntryThreshold = entryThreshold
-            if (portfolioExitThreshold == null) portfolioExitThreshold = exitThreshold
-            val portfolioThresholds = DynamicThresholds(
-                entry = entryThreshold,
-                exit = exitThreshold,
+            if (realTradeEntryThreshold == null) realTradeEntryThreshold = entryRt
+            if (realTradeExitThreshold == null) realTradeExitThreshold = exitRt
+
+            val entrySt = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            val exitSt = (strategyTestExitThreshold ?: dynamicThresholds.exit)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            if (strategyTestEntryThreshold == null) strategyTestEntryThreshold = entrySt
+            if (strategyTestExitThreshold == null) strategyTestExitThreshold = exitSt
+            val strategyTestThresholds = DynamicThresholds(
+                entry = entrySt,
+                exit = exitSt,
                 calculatedDate = dynamicThresholds.calculatedDate
             )
-            confirmedPortfolioMetrics = buildZStrategyPortfolioMetrics(
+
+            val eventsAll = loadStrategySignalEvents(
+                context = context,
+                fromTimestampMillis = points.firstOrNull()?.timestampMillis
+            )
+            val ledger = loadPortfolioExecutionLedger(context)
+            val filteredEvents = journalEventsForExecutionPortfolioTab(
+                allEvents = eventsAll,
+                ledger = ledger,
+                sandboxEntryAuto = TinkoffSandboxStorage.isSandboxEntryAuto(context)
+            )
+            confirmedPortfolioMetrics = buildExecutedPortfolioMetrics(
                 points = points,
-                thresholds = portfolioThresholds,
+                events = filteredEvents,
                 notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                 leverage = portfolioLeverage,
                 commissionPercentPerSide = portfolioCommissionPercent,
-                periodDescription = "$desc · 15м Z (как «Тест страт.»)",
-                compoundReturns = false
+                periodDescription = desc
             )
             strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(
                 points = points,
-                thresholds = portfolioThresholds,
+                thresholds = strategyTestThresholds,
                 notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                 leverage = portfolioLeverage,
                 commissionPercentPerSide = portfolioCommissionPercent,
@@ -279,8 +324,8 @@ internal fun MoexScreen() {
         signalJournalFingerprint,
         confirmedPortfolioMetrics,
         strategyTestPortfolioMetrics,
-        portfolioEntryThreshold,
-        portfolioExitThreshold,
+        strategyTestEntryThreshold,
+        strategyTestExitThreshold,
         dynamicThresholds.entry,
         dynamicThresholds.exit
     ) {
@@ -289,8 +334,8 @@ internal fun MoexScreen() {
             journalEvents = signalEvents,
             confirmed = confirmedPortfolioMetrics,
             simulation = strategyTestPortfolioMetrics,
-            simEntryThreshold = portfolioEntryThreshold ?: dynamicThresholds.entry,
-            simExitThreshold = portfolioExitThreshold ?: dynamicThresholds.exit
+            simEntryThreshold = strategyTestEntryThreshold ?: dynamicThresholds.entry,
+            simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit
         )
     }
 
@@ -300,10 +345,14 @@ internal fun MoexScreen() {
         dynamicThresholds.exit,
         portfolioLeverage,
         portfolioCommissionPercent,
-        portfolioEntryThreshold,
-        portfolioExitThreshold,
+        realTradeEntryThreshold,
+        realTradeExitThreshold,
+        strategyTestEntryThreshold,
+        strategyTestExitThreshold,
         signalJournalFingerprint,
-        strategyTestCompoundReturns
+        strategyTestCompoundReturns,
+        sandboxSpreadExecReload,
+        sandboxPrefsEpoch
     ) {
         if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
             refreshPortfolio(null)
@@ -339,9 +388,9 @@ internal fun MoexScreen() {
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
                     if (!fromDiskCache && !backgroundMonitorEnabled) {
                         val signalThresholds = DynamicThresholds(
-                            entry = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+                            entry = (realTradeEntryThreshold ?: dynamicThresholds.entry)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                            exit = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                            exit = (realTradeExitThreshold ?: dynamicThresholds.exit)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             calculatedDate = dynamicThresholds.calculatedDate
                         )
@@ -611,6 +660,118 @@ internal fun MoexScreen() {
         )
     }
 
+    if (showCloseAllPortfolioDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!closeAllPortfolioBusy) showCloseAllPortfolioDialog = false },
+            title = { Text("Закрыть все сделки", color = Color.White) },
+            text = {
+                Text(
+                    "Отправить обратные заявки на демо-счёте (если позиция открыта), записать выход в журнал, " +
+                        "очистить список исполнений портфеля и сбросить локальную позицию Z в FLAT. Журнал сигналов не очищается.",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !closeAllPortfolioBusy,
+                    onClick = {
+                        closeAllPortfolioBusy = true
+                        scope.launch {
+                            try {
+                                val pos = withContext(Dispatchers.IO) { loadSavedStrategyPosition(context) }
+                                val entrySignal = when (pos) {
+                                    ZStrategyPosition.Long -> StrategySignalType.EnterLong
+                                    ZStrategyPosition.Short -> StrategySignalType.EnterShort
+                                    ZStrategyPosition.Flat -> null
+                                }
+                                val tok = TinkoffSandboxStorage.getToken(context)
+                                val acc = TinkoffSandboxStorage.getAccountId(context)
+                                if (entrySignal != null &&
+                                    TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context) &&
+                                    !tok.isNullOrBlank() &&
+                                    !acc.isNullOrBlank()
+                                ) {
+                                    withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            tinkoffSandboxExecuteSpreadExitDetailed(tok, acc, entrySignal)
+                                        }
+                                    }
+                                }
+                                val tsExit = System.currentTimeMillis()
+                                val lastZ = withContext(Dispatchers.IO) {
+                                    val till = LocalDate.now()
+                                    val pts = loadPortfolio15mDataPoints(
+                                        context,
+                                        till.minusDays(3),
+                                        till,
+                                        PortfolioM15LoadMode.INCREMENTAL
+                                    )
+                                    pts.lastOrNull()?.zScore ?: 0.0
+                                }
+                                when (pos) {
+                                    ZStrategyPosition.Long -> {
+                                        recordStrategySignalEvent(
+                                            context = context,
+                                            signalType = StrategySignalType.ExitLong,
+                                            zScore = lastZ,
+                                            timestampMillis = tsExit,
+                                            skipJournalWallDedup = true,
+                                            savePendingVirtualTradeIfEntry = false
+                                        )
+                                    }
+                                    ZStrategyPosition.Short -> {
+                                        recordStrategySignalEvent(
+                                            context = context,
+                                            signalType = StrategySignalType.ExitShort,
+                                            zScore = lastZ,
+                                            timestampMillis = tsExit,
+                                            skipJournalWallDedup = true,
+                                            savePendingVirtualTradeIfEntry = false
+                                        )
+                                    }
+                                    ZStrategyPosition.Flat -> Unit
+                                }
+                                saveStrategyPosition(context, ZStrategyPosition.Flat)
+                                zStrategyPosition = ZStrategyPosition.Flat
+                                clearPortfolioExecutionLedger(context)
+                                TinkoffSandboxSpreadExecLog.clear(context)
+                                clearSandboxAutoSpreadDedup(context)
+                                clearConsumed15mStrategySignalEdge(context)
+                                clearPendingVirtualTradeProposal(context)
+                                pendingVirtualTrade = null
+                                signalEvents = loadStrategySignalEvents(context)
+                                sandboxSpreadExecReload++
+                                refreshPortfolio(null)
+                                Toast.makeText(context, "Портфель сделок сброшен.", Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    context,
+                                    e.message?.take(120) ?: e.javaClass.simpleName,
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            } finally {
+                                closeAllPortfolioBusy = false
+                                showCloseAllPortfolioDialog = false
+                            }
+                        }
+                    }
+                ) {
+                    Text("Закрыть и сбросить", color = Color(0xFFFFAB91))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !closeAllPortfolioBusy,
+                    onClick = { showCloseAllPortfolioDialog = false }
+                ) {
+                    Text("Отмена")
+                }
+            },
+            containerColor = Color(0xFF263238)
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -657,21 +818,23 @@ internal fun MoexScreen() {
                                             proposal.zScore,
                                             nowMs
                                         )
+                                        appendPortfolioExecutionLedger(
+                                            context,
+                                            barTimestampMillis = proposal.timestampMillis,
+                                            signalType = proposal.signalType,
+                                            source = PortfolioExecSource.MANUAL
+                                        )
                                         val recent = loadStrategySignalEvents(context)
                                         val last = recent.lastOrNull()
-                                        val ageMs = last?.let { nowMs - it.timestampMillis }
                                         val skipDup = last != null &&
-                                            ageMs != null &&
-                                            ageMs >= 0L &&
-                                            ageMs < 600_000L &&
                                             last.signalType == proposal.signalType &&
-                                            kotlin.math.abs(last.zScore - proposal.zScore) < 0.08
+                                            last.timestampMillis == proposal.timestampMillis
                                         if (!skipDup) {
                                             recordStrategySignalEvent(
                                                 context = context,
                                                 signalType = proposal.signalType,
                                                 zScore = proposal.zScore,
-                                                timestampMillis = nowMs,
+                                                timestampMillis = proposal.timestampMillis,
                                                 skipJournalWallDedup = true,
                                                 savePendingVirtualTradeIfEntry = false
                                             )
@@ -767,6 +930,7 @@ internal fun MoexScreen() {
                         onAccountInputChange = { sandboxAccountInput = it },
                         onSandboxPrefsChanged = {
                             sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+                            sandboxPrefsEpoch++
                         },
                         onSandboxAccountRecreated = { sandboxSpreadExecReload++ }
                     )
@@ -788,7 +952,26 @@ internal fun MoexScreen() {
                             commissionPercentPerSide = portfolioCommissionPercent,
                             onLeverageChange = { portfolioLeverage = it },
                             onCommissionChange = { portfolioCommissionPercent = it },
+                            realTradeEntryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            realTradeExitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            onRealTradeEntryChange = { v ->
+                                realTradeEntryThreshold = v.coerceIn(
+                                    PORTFOLIO_Z_THRESHOLD_MIN,
+                                    PORTFOLIO_Z_THRESHOLD_MAX
+                                )
+                            },
+                            onRealTradeExitChange = { v ->
+                                realTradeExitThreshold = v.coerceIn(
+                                    PORTFOLIO_Z_THRESHOLD_MIN,
+                                    PORTFOLIO_Z_THRESHOLD_MAX
+                                )
+                            },
+                            sandboxPrefsEpoch = sandboxPrefsEpoch,
                             sandboxSpreadExecReload = sandboxSpreadExecReload,
+                            closeAllPortfolioBusy = closeAllPortfolioBusy,
+                            onCloseAllTradesClick = { showCloseAllPortfolioDialog = true },
                             dailyReconciliation = dailyReconciliation
                         )
                     }
@@ -809,22 +992,22 @@ internal fun MoexScreen() {
                             onMoex15mFullReload = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.FULL_REFRESH) } },
                             leverage = portfolioLeverage,
                             commissionPercentPerSide = portfolioCommissionPercent,
-                            entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+                            entryThreshold = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                            exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                            exitThreshold = (strategyTestExitThreshold ?: dynamicThresholds.exit)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             compoundReturns = strategyTestCompoundReturns,
                             onCompoundReturnsChange = { strategyTestCompoundReturns = it },
                             onLeverageChange = { portfolioLeverage = it },
                             onCommissionChange = { portfolioCommissionPercent = it },
                             onEntryThresholdChange = { newEntry ->
-                                portfolioEntryThreshold = newEntry.coerceIn(
+                                strategyTestEntryThreshold = newEntry.coerceIn(
                                     PORTFOLIO_Z_THRESHOLD_MIN,
                                     PORTFOLIO_Z_THRESHOLD_MAX
                                 )
                             },
                             onExitThresholdChange = { newExit ->
-                                portfolioExitThreshold = newExit.coerceIn(
+                                strategyTestExitThreshold = newExit.coerceIn(
                                     PORTFOLIO_Z_THRESHOLD_MIN,
                                     PORTFOLIO_Z_THRESHOLD_MAX
                                 )
@@ -833,8 +1016,8 @@ internal fun MoexScreen() {
                             onApplyPreset = { p ->
                                 portfolioLeverage = p.leverage
                                 portfolioCommissionPercent = p.commissionPercentPerSide
-                                portfolioEntryThreshold = p.entryThreshold
-                                portfolioExitThreshold = p.exitThreshold
+                                strategyTestEntryThreshold = p.entryThreshold
+                                strategyTestExitThreshold = p.exitThreshold
                             },
                             onDeletePreset = { id ->
                                 portfolioPresets = deletePortfolioPreset(context, id)
@@ -845,9 +1028,9 @@ internal fun MoexScreen() {
                                     name = name,
                                     leverage = portfolioLeverage,
                                     commissionPercentPerSide = portfolioCommissionPercent,
-                                    entryThreshold = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+                                    entryThreshold = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
                                         .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                                    exitThreshold = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                                    exitThreshold = (strategyTestExitThreshold ?: dynamicThresholds.exit)
                                         .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
                                 )
                             },
@@ -1063,9 +1246,9 @@ internal fun MoexScreen() {
                             val monitorEnabled = remember(bgMonitorToggleEpoch) {
                                 SignalForegroundService.isBackgroundMonitorEnabled(context)
                             }
-                            val testEntryZ = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+                            val testEntryZ = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-                            val testExitZ = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                            val testExitZ = (strategyTestExitThreshold ?: dynamicThresholds.exit)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),

@@ -400,6 +400,7 @@ internal fun clearStrategySignalJournalAndLocalStrategyState(context: Context) {
     saveStrategyPosition(app, ZStrategyPosition.Flat)
     clearConsumed15mStrategySignalEdge(app)
     clearSandboxAutoSpreadDedup(app)
+    clearPortfolioExecutionLedger(app)
     TinkoffSandboxSpreadExecLog.clear(app)
 }
 

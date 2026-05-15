@@ -327,7 +327,7 @@ private fun PortfolioCompactHeroInline(metrics: PortfolioMetrics) {
     }
 }
 
-/** Подтверждённые сделки: симуляция 15м Z (те же пороги и правила, что «Тест страт.»). */
+/** Портфель: сделки по журналу, но вход учитывается только после исполнения на демо (ручное «Принять» или авто‑режим). */
 @Composable
 internal fun ConfirmedPortfolioTabContent(
     metrics: PortfolioMetrics?,
@@ -338,8 +338,14 @@ internal fun ConfirmedPortfolioTabContent(
     commissionPercentPerSide: Double,
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
-    /** Увеличить после успешного «Принять» на песочнице, чтобы подтянуть блок «2 ноги». */
+    realTradeEntryThreshold: Double,
+    realTradeExitThreshold: Double,
+    onRealTradeEntryChange: (Double) -> Unit,
+    onRealTradeExitChange: (Double) -> Unit,
+    sandboxPrefsEpoch: Int,
     sandboxSpreadExecReload: Int = 0,
+    closeAllPortfolioBusy: Boolean,
+    onCloseAllTradesClick: () -> Unit,
     dailyReconciliation: DailyPortfolioReconciliation? = null
 ) {
     Column(
@@ -347,18 +353,97 @@ internal fun ConfirmedPortfolioTabContent(
         modifier = Modifier.fillMaxWidth()
     ) {
         PortfolioDataRefreshHeader(
-            title = "Портфель · подтверждённые",
+            title = "Портфель · демо-счёт",
             portfolioLoading = portfolioLoading,
             onRefresh = onRefresh,
             onMoex15mFullReload = null
         )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = onCloseAllTradesClick,
+                enabled = !closeAllPortfolioBusy,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFAB91))
+            ) {
+                Text(
+                    if (closeAllPortfolioBusy) "Закрытие…" else "Закрыть все сделки",
+                    fontSize = 12.sp
+                )
+            }
+        }
+        val context = LocalContext.current
+        val sandboxEntryAuto = remember(sandboxPrefsEpoch) {
+            TinkoffSandboxStorage.isSandboxEntryAuto(context)
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0x33F48FB1), RoundedCornerShape(10.dp))
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Пороги |Z| для рыночных сигналов (не связаны с «Тест страт.»)",
+                color = Color(0xFFF8BBD0),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                ParamStepper(
+                    title = "Вход |Z|",
+                    valueLabel = String.format(Locale.US, "%.2f", realTradeEntryThreshold),
+                    onMinus = {
+                        onRealTradeEntryChange(
+                            (realTradeEntryThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
+                        )
+                    },
+                    onPlus = {
+                        onRealTradeEntryChange(
+                            (realTradeEntryThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    containerColor = Color(0x22FFFFFF),
+                    titleColor = Color(0xFFFCE4EC),
+                    valueTextColor = Color(0xFFFFF8F9)
+                )
+                ParamStepper(
+                    title = "Выход |Z|",
+                    valueLabel = String.format(Locale.US, "%.2f", realTradeExitThreshold),
+                    onMinus = {
+                        onRealTradeExitChange(
+                            (realTradeExitThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
+                        )
+                    },
+                    onPlus = {
+                        onRealTradeExitChange(
+                            (realTradeExitThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    containerColor = Color(0x22FFFFFF),
+                    titleColor = Color(0xFFFCE4EC),
+                    valueTextColor = Color(0xFFFFF8F9)
+                )
+            }
+        }
         Text(
-            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · 15 мин · Z (как тест страт.)",
+            text = "В портфеле: ${if (sandboxEntryAuto) "авто — учитываются входы, реально отправленные с демо без «Принять»." else "ручной — только входы после «Принять» с 2 заявками."} Выходы — из журнала сигналов.",
+            color = Color(0xFF9E9E9E),
+            fontSize = 10.sp,
+            maxLines = 4
+        )
+        Text(
+            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
             maxLines = 3
         )
-        val context = LocalContext.current
         var sandboxExec by remember { mutableStateOf<SandboxSpreadExecUi?>(null) }
         LaunchedEffect(sandboxSpreadExecReload) {
             sandboxExec = TinkoffSandboxSpreadExecLog.load(context)
@@ -379,7 +464,7 @@ internal fun ConfirmedPortfolioTabContent(
                 onExitThresholdChange = {}
             )
             Text(
-                text = "Сделки считаются по пересечению порогов |Z| на 15-мин барах (как на вкладке «Тест страт.»), а не по каждому событию журнала.",
+                text = "Метрики ниже — по парам вход→выход из журнала; начало сделки попадает в портфель только после исполнения на демо (см. режим на вкладке «Песочница»).",
                 color = Color(0xFF757575),
                 fontSize = 10.sp
             )
@@ -425,12 +510,6 @@ internal fun ConfirmedPortfolioTabContent(
                         fontSize = 10.sp
                     )
                     Text(ex.legsRu, color = Color(0xFFC8E6C9), fontSize = 11.sp)
-                    Text(
-                        text = "Список «Сделки» ниже — по одной карточке на полный круг вход→выход по симуляции 15м Z; внутри карточки две связанные ноги.",
-                        color = Color(0xFF78909C),
-                        fontSize = 9.sp,
-                        maxLines = 4
-                    )
                 }
             }
         }
@@ -445,7 +524,7 @@ internal fun ConfirmedPortfolioTabContent(
                 }
             }
         } else if (!portfolioLoading && metrics == null) {
-            Text("Нет подтверждённых сделок за период (или нет данных 15м).", color = Color(0xFFBDBDBD), fontSize = 11.sp)
+            Text("Нет сделок по данным портфеля (или нет 15м данных).", color = Color(0xFFBDBDBD), fontSize = 11.sp)
         } else {
             metrics?.let { m ->
                 PortfolioCompactHeroInline(m)
@@ -455,7 +534,7 @@ internal fun ConfirmedPortfolioTabContent(
                     defaultExpanded = false
                 ) {
                     Text(
-                        text = "Итого = реализованный PnL + нереализованная нога (если по симуляции позиция ещё открыта). Обновляется при «Обновить» и смене порогов на «Тест страт.».",
+                        text = "Итого = реализованный PnL + нереализованная нога (если позиция ещё открыта по журналу).",
                         color = Color(0xFF616161),
                         fontSize = 9.sp,
                         maxLines = 3
@@ -476,14 +555,14 @@ internal fun ConfirmedPortfolioTabContent(
                     modifier = Modifier.padding(top = 4.dp)
                 )
                 Text(
-                    text = "Одна карточка = одна спрэд-позиция по симуляции. Две строки — бумаги TATN и TATNP; итог внизу — общий PnL по движению спрэда (не сумма двух отдельных акций).",
+                    text = "Одна карточка = один круг вход→выход по журналу с учётом демо-исполнения входа.",
                     color = Color(0xFF616161),
                     fontSize = 9.sp,
                     maxLines = 3
                 )
                 val recent = m.closedTrades.takeLast(25).asReversed()
                 if (recent.isEmpty()) {
-                    Text("Закрытых с подтверждённым входом и выходом нет.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
+                    Text("Закрытых сделок за период нет.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
                 } else {
                     recent.forEachIndexed { index, t ->
                         ConfirmedSpreadTradeCard(index = index + 1, t = t)
@@ -536,6 +615,12 @@ internal fun StrategyTestTabContent(
         Text(
             text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · симуляция по Z",
             color = Color(0xFF9E9E9E),
+            fontSize = 10.sp,
+            maxLines = 2
+        )
+        Text(
+            text = "Пороги ниже задают только симуляцию на этом экране и не влияют на розовые пороги вкладки «Портфель».",
+            color = Color(0xFFF48FB1),
             fontSize = 10.sp,
             maxLines = 2
         )
@@ -946,16 +1031,19 @@ private fun ParamStepper(
     valueLabel: String,
     onMinus: () -> Unit,
     onPlus: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    containerColor: Color = Color(0xFF1E1E1E),
+    titleColor: Color = Color(0xFF9E9E9E),
+    valueTextColor: Color = Color.White
 ) {
     Column(
         modifier
-            .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+            .background(containerColor, RoundedCornerShape(8.dp))
             .padding(horizontal = 6.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(title, color = Color(0xFF9E9E9E), fontSize = 10.sp)
-        Text(valueLabel, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(title, color = titleColor, fontSize = 10.sp)
+        Text(valueLabel, color = valueTextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(onClick = onMinus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
                 Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(20.dp))

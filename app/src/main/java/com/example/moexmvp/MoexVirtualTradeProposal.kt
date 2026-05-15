@@ -39,12 +39,15 @@ internal fun savePendingVirtualTradeProposal(
     timestampMillis: Long
 ) {
     if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return
-    val th = loadSavedDynamicThresholds(context)
-        ?: DynamicThresholds(
-            entry = DEFAULT_DYNAMIC_Z_ENTRY,
-            exit = DEFAULT_DYNAMIC_Z_EXIT,
-            calculatedDate = null
-        )
+    val th = loadRealTradeZThresholds(
+        context,
+        loadSavedDynamicThresholds(context)
+            ?: DynamicThresholds(
+                entry = DEFAULT_DYNAMIC_Z_ENTRY,
+                exit = DEFAULT_DYNAMIC_Z_EXIT,
+                calculatedDate = null
+            )
+    )
     val json = JSONObject()
         .put("signalType", signalType.name)
         .put("zScore", zScore)

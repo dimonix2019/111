@@ -37,7 +37,7 @@ internal data class DailyPortfolioReconciliation(
 )
 
 /**
- * Сверка за календарный день (МСК): журнал сигналов ↔ подтверждённые сделки (15м + журнал) ↔ симуляция Z на 15м.
+ * Сверка за календарный день (МСК): журнал сигналов ↔ портфель (демо‑исполнения) ↔ симуляция «Тест страт.» на 15м.
  */
 internal fun buildDailyPortfolioReconciliation(
     day: LocalDate,

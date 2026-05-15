@@ -502,20 +502,26 @@ internal fun saveStrategyPosition(context: Context, position: ZStrategyPosition)
         .apply()
 }
 
-/** Пороги входа/выхода |Z| с вкладки портфеля (степперы). Если не сохранены — [fallback]. */
-internal fun loadPortfolioZThresholds(context: Context, fallback: DynamicThresholds): DynamicThresholds {
+/** Пороги для push/фона и песочницы: из розовых степперов «Портфель» или миграция из старых ключей/dynamic fallback. */
+internal fun loadRealTradeZThresholds(context: Context, fallback: DynamicThresholds): DynamicThresholds {
     val prefs = context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
-    if (!prefs.contains(PREF_PORTFOLIO_Z_ENTRY_THRESHOLD) ||
-        !prefs.contains(PREF_PORTFOLIO_Z_EXIT_THRESHOLD)
-    ) {
-        return fallback
+    fun readPair(): Pair<Float, Float>? {
+        val eKey = when {
+            prefs.contains(PREF_REAL_TRADE_Z_ENTRY) -> PREF_REAL_TRADE_Z_ENTRY
+            prefs.contains(PREF_PORTFOLIO_Z_ENTRY_THRESHOLD) -> PREF_PORTFOLIO_Z_ENTRY_THRESHOLD
+            else -> null
+        }
+        val xKey = when {
+            prefs.contains(PREF_REAL_TRADE_Z_EXIT) -> PREF_REAL_TRADE_Z_EXIT
+            prefs.contains(PREF_PORTFOLIO_Z_EXIT_THRESHOLD) -> PREF_PORTFOLIO_Z_EXIT_THRESHOLD
+            else -> null
+        }
+        if (eKey == null || xKey == null) return null
+        return prefs.getFloat(eKey, fallback.entry.toFloat()) to prefs.getFloat(xKey, fallback.exit.toFloat())
     }
-    val entry = prefs.getFloat(PREF_PORTFOLIO_Z_ENTRY_THRESHOLD, fallback.entry.toFloat())
-        .toDouble()
-        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-    val exit = prefs.getFloat(PREF_PORTFOLIO_Z_EXIT_THRESHOLD, fallback.exit.toFloat())
-        .toDouble()
-        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val pair = readPair() ?: return fallback
+    val entry = pair.first.toDouble().coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val exit = pair.second.toDouble().coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
     if (entry <= 0.0 || exit < 0.0 || exit >= entry) return fallback
     return DynamicThresholds(
         entry = entry,
@@ -524,11 +530,41 @@ internal fun loadPortfolioZThresholds(context: Context, fallback: DynamicThresho
     )
 }
 
-internal fun savePortfolioZThresholds(context: Context, entry: Double, exit: Double) {
+internal fun saveRealTradeZThresholds(context: Context, entry: Double, exit: Double) {
     context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
         .edit()
-        .putFloat(PREF_PORTFOLIO_Z_ENTRY_THRESHOLD, entry.toFloat())
-        .putFloat(PREF_PORTFOLIO_Z_EXIT_THRESHOLD, exit.toFloat())
+        .putFloat(PREF_REAL_TRADE_Z_ENTRY, entry.toFloat())
+        .putFloat(PREF_REAL_TRADE_Z_EXIT, exit.toFloat())
+        .apply()
+}
+
+/** Независимые пороги симуляции «Тест страт.». Если ещё не заданы — те же значения, что у рыночных (миграция). */
+internal fun loadStrategyTestZThresholds(context: Context, fallback: DynamicThresholds): DynamicThresholds {
+    val prefs = context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+    if (!prefs.contains(PREF_STRATEGY_TEST_Z_ENTRY) ||
+        !prefs.contains(PREF_STRATEGY_TEST_Z_EXIT)
+    ) {
+        return loadRealTradeZThresholds(context, fallback)
+    }
+    val entry = prefs.getFloat(PREF_STRATEGY_TEST_Z_ENTRY, fallback.entry.toFloat())
+        .toDouble()
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val exit = prefs.getFloat(PREF_STRATEGY_TEST_Z_EXIT, fallback.exit.toFloat())
+        .toDouble()
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    if (entry <= 0.0 || exit < 0.0 || exit >= entry) return loadRealTradeZThresholds(context, fallback)
+    return DynamicThresholds(
+        entry = entry,
+        exit = exit,
+        calculatedDate = fallback.calculatedDate
+    )
+}
+
+internal fun saveStrategyTestZThresholds(context: Context, entry: Double, exit: Double) {
+    context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putFloat(PREF_STRATEGY_TEST_Z_ENTRY, entry.toFloat())
+        .putFloat(PREF_STRATEGY_TEST_Z_EXIT, exit.toFloat())
         .apply()
 }
 

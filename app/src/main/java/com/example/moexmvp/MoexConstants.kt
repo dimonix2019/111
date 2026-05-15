@@ -24,8 +24,15 @@ internal const val PREF_DYNAMIC_Z_ENTRY = "dynamic_z_entry"
 internal const val PREF_DYNAMIC_Z_EXIT = "dynamic_z_exit"
 internal const val PREF_DYNAMIC_Z_DATE = "dynamic_z_date"
 internal const val PREF_Z_STRATEGY_POSITION = "z_strategy_position"
-/** Пороги Z с вкладки «Тест страт.» / «Портфель» — для сигналов и BG (те же правила, что симуляция 15м). */
+/** Пороги |Z| для рыночных сигналов и песочницы (вкладка «Портфель», розовые степперы). */
+internal const val PREF_REAL_TRADE_Z_ENTRY = "real_trade_z_entry"
+internal const val PREF_REAL_TRADE_Z_EXIT = "real_trade_z_exit"
+/** Пороги |Z| только для симуляции «Тест страт.». */
+internal const val PREF_STRATEGY_TEST_Z_ENTRY = "strategy_test_z_entry"
+internal const val PREF_STRATEGY_TEST_Z_EXIT = "strategy_test_z_exit"
+/** @deprecated миграция в [PREF_REAL_TRADE_Z_ENTRY] при первом запуске. */
 internal const val PREF_PORTFOLIO_Z_ENTRY_THRESHOLD = "portfolio_z_entry_threshold"
+/** @deprecated */
 internal const val PREF_PORTFOLIO_Z_EXIT_THRESHOLD = "portfolio_z_exit_threshold"
 /** Один сигнал на пересечение порога на конкретном 15м баре (barTs|EnterLong и т.д.). */
 internal const val PREF_LAST_CONSUMED_15M_SIGNAL_EDGE = "last_consumed_15m_signal_edge"
@@ -58,6 +65,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.37 — Портфель: кнопка «Закрыть все сделки» (обратные заявки на демо при открытой позиции + сброс списка исполнений и локальной позиции Z). Список сделок только при реальном входе на демо: в ручном режиме после «Принять», в авто — после авто-заявок; пороги входа/выхода Z на портфеле (розовые) отдельно от «Тест страт.».
 1.6.36 — Журнал: один сигнал на 15м бар (без повторов при опросе 5–15 с); UI не дублирует фоновый монитор. Фон: пересечение prev→last 15м бара (не тик-к-тику). Авто-вход: уведомление с причиной при ошибке (токен, «Исполнять вход», API).
 1.6.35 — Портфель «подтверждённые» и push/журнал: те же правила, что «Тест страт.» — пересечение порогов |Z| на 15-мин барах и пороги со степперов (не дневной график и не каждая запись журнала). Меньше оповещений и сделок в списке.
 1.6.34 — Портфель и тест страт.: блок «Сверка за день» — журнал сигналов vs подтверждённые сделки vs симуляция Z на 15м; PnL за день и пояснение причин расхождений.

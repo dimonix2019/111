@@ -63,6 +63,12 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
                 .edit().putString(KEY_LAST_AUTO, dedupKey).commit()
         }
         markVirtualTradeConsumedForJournalEntry(app, signalType, barTimestampMillis)
+        appendPortfolioExecutionLedger(
+            app,
+            barTimestampMillis = barTimestampMillis,
+            signalType = signalType,
+            source = PortfolioExecSource.AUTO
+        )
         TinkoffSandboxSpreadExecLog.record(app, signalType, zScore, System.currentTimeMillis())
         notifySandboxSpreadLegExecutionResults(
             app,
