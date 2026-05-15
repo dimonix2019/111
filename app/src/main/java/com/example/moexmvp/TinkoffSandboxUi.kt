@@ -67,9 +67,6 @@ internal fun TinkoffSandboxTabContent(
     var executeSignalsOnSandbox by remember {
         mutableStateOf(TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context))
     }
-    var entryModeAuto by remember {
-        mutableStateOf(TinkoffSandboxStorage.isSandboxEntryAuto(context))
-    }
     var portfolioRubLine by remember { mutableStateOf<String?>(null) }
     var showResetSandboxDialog by remember { mutableStateOf(false) }
     fun hasToken(): Boolean =
@@ -221,66 +218,55 @@ internal fun TinkoffSandboxTabContent(
             )
         }
 
-        Column(
+        Text(
+            text = "Какие входы показывать в списке сделок на «Портфеле» (ручной / авто по журналу исполнений) настраивается там, в розовом блоке — отдельно от песочницы.",
+            color = Color(0xFF9E9E9E),
+            fontSize = 10.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
+        var spreadAutoExec by remember {
+            mutableStateOf(TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context))
+        }
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Режим входа (тест)",
+                text = "Сразу отправлять 2 заявки на демо без карточки «Принять»",
                 color = Color(0xFFE0E0E0),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
+                fontSize = 11.sp,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Ручной",
-                    color = if (!entryModeAuto) Color(0xFF81D4FA) else Color(0xFF757575),
-                    fontSize = 12.sp,
-                    fontWeight = if (!entryModeAuto) FontWeight.SemiBold else FontWeight.Normal
-                )
-                Switch(
-                    checked = entryModeAuto,
-                    onCheckedChange = { auto ->
-                        scope.launch {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    TinkoffSandboxStorage.setSandboxEntryAuto(context, auto)
-                                }
-                                entryModeAuto = auto
-                                onSandboxPrefsChanged()
-                            } catch (e: Throwable) {
-                                status = e.message ?: e.javaClass.simpleName
+            Switch(
+                checked = spreadAutoExec,
+                onCheckedChange = { v ->
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                TinkoffSandboxStorage.setSandboxSpreadAutoExecute(context, v)
                             }
+                            spreadAutoExec = v
+                            onSandboxPrefsChanged()
+                        } catch (e: Throwable) {
+                            status = e.message ?: e.javaClass.simpleName
                         }
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFF81D4FA),
-                        checkedTrackColor = Color(0xFF0277BD),
-                        uncheckedThumbColor = Color(0xFFB0BEC5),
-                        uncheckedTrackColor = Color(0xFF455A64)
-                    )
-                )
-                Text(
-                    text = "Авто",
-                    color = if (entryModeAuto) Color(0xFF81D4FA) else Color(0xFF757575),
-                    fontSize = 12.sp,
-                    fontWeight = if (entryModeAuto) FontWeight.SemiBold else FontWeight.Normal
-                )
-            }
-            Text(
-                text = if (entryModeAuto) {
-                    "Авто: после сигнала входа заявки на песочницу отправляются сами (нужны токен и счёт). По каждой ноге — отдельное уведомление: время, тикер, заявка, номинал и плечо, баланс портфеля после ноги. Карточка «Принять» не показывается."
-                } else {
-                    "Ручной: уведомление о сигнале и карточка «Принять». Плечо в тексте уведомлений о сделке берётся с вкладки «Портфель» (параметр плеча)."
+                    }
                 },
-                color = Color(0xFF757575),
-                fontSize = 10.sp
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color(0xFF81D4FA),
+                    checkedTrackColor = Color(0xFF0277BD),
+                    uncheckedThumbColor = Color(0xFFB0BEC5),
+                    uncheckedTrackColor = Color(0xFF455A64)
+                )
             )
         }
+        Text(
+            text = "Независимо от фильтра «Ручное / Авто демо» на вкладке «Портфель».",
+            color = Color(0xFF757575),
+            fontSize = 9.sp
+        )
 
         OutlinedTextField(
             value = tokenInput,

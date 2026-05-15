@@ -28,7 +28,7 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
     if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) {
         return false
     }
-    if (!TinkoffSandboxStorage.isSandboxEntryAuto(context)) return false
+    if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
     if (!TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)) return false
     val dedupKey = "${signalType.name}|$barTimestampMillis"
     synchronized(autoSpreadDedupLock) {

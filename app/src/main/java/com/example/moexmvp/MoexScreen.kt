@@ -116,8 +116,9 @@ internal fun MoexScreen() {
     var sandboxAccountInput by remember { mutableStateOf("") }
     /** Сдвигается после успешного «Принять» на песочнице — портфель перечитывает блок «2 ноги». */
     var sandboxSpreadExecReload by remember { mutableStateOf(0) }
-    /** Инкремент при смене настроек песочницы (ручной/авто), чтобы пересчитать фильтр портфеля. */
-    var sandboxPrefsEpoch by remember { mutableStateOf(0) }
+    var portfolioLedgerIncludeAuto by remember {
+        mutableStateOf(TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context))
+    }
     var showCloseAllPortfolioDialog by remember { mutableStateOf(false) }
     var closeAllPortfolioBusy by remember { mutableStateOf(false) }
     var bgMonitorToggleEpoch by remember { mutableStateOf(0) }
@@ -293,7 +294,7 @@ internal fun MoexScreen() {
             val filteredEvents = journalEventsForExecutionPortfolioTab(
                 allEvents = eventsAll,
                 ledger = ledger,
-                sandboxEntryAuto = TinkoffSandboxStorage.isSandboxEntryAuto(context)
+                portfolioLedgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
             )
             confirmedPortfolioMetrics = buildExecutedPortfolioMetrics(
                 points = points,
@@ -352,7 +353,7 @@ internal fun MoexScreen() {
         signalJournalFingerprint,
         strategyTestCompoundReturns,
         sandboxSpreadExecReload,
-        sandboxPrefsEpoch
+        portfolioLedgerIncludeAuto
     ) {
         if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
             refreshPortfolio(null)
@@ -930,7 +931,6 @@ internal fun MoexScreen() {
                         onAccountInputChange = { sandboxAccountInput = it },
                         onSandboxPrefsChanged = {
                             sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
-                            sandboxPrefsEpoch++
                         },
                         onSandboxAccountRecreated = { sandboxSpreadExecReload++ }
                     )
@@ -968,7 +968,11 @@ internal fun MoexScreen() {
                                     PORTFOLIO_Z_THRESHOLD_MAX
                                 )
                             },
-                            sandboxPrefsEpoch = sandboxPrefsEpoch,
+                            portfolioLedgerIncludeAuto = portfolioLedgerIncludeAuto,
+                            onPortfolioLedgerIncludeAutoChange = { v ->
+                                TinkoffSandboxStorage.setPortfolioLedgerIncludeAuto(context, v)
+                                portfolioLedgerIncludeAuto = v
+                            },
                             sandboxSpreadExecReload = sandboxSpreadExecReload,
                             closeAllPortfolioBusy = closeAllPortfolioBusy,
                             onCloseAllTradesClick = { showCloseAllPortfolioDialog = true },

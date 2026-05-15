@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -342,7 +343,8 @@ internal fun ConfirmedPortfolioTabContent(
     realTradeExitThreshold: Double,
     onRealTradeEntryChange: (Double) -> Unit,
     onRealTradeExitChange: (Double) -> Unit,
-    sandboxPrefsEpoch: Int,
+    portfolioLedgerIncludeAuto: Boolean,
+    onPortfolioLedgerIncludeAutoChange: (Boolean) -> Unit,
     sandboxSpreadExecReload: Int = 0,
     closeAllPortfolioBusy: Boolean,
     onCloseAllTradesClick: () -> Unit,
@@ -377,9 +379,6 @@ internal fun ConfirmedPortfolioTabContent(
             }
         }
         val context = LocalContext.current
-        val sandboxEntryAuto = remember(sandboxPrefsEpoch) {
-            TinkoffSandboxStorage.isSandboxEntryAuto(context)
-        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -392,6 +391,46 @@ internal fun ConfirmedPortfolioTabContent(
                 color = Color(0xFFF8BBD0),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "Какие входы показывать в списке сделок портфеля (только фильтр по журналу исполнений)",
+                color = Color(0xFFFCE4EC),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Ручное «Принять»",
+                    color = if (!portfolioLedgerIncludeAuto) Color(0xFFF8BBD0) else Color(0xFF9E9E9E),
+                    fontSize = 11.sp,
+                    fontWeight = if (!portfolioLedgerIncludeAuto) FontWeight.SemiBold else FontWeight.Normal
+                )
+                Switch(
+                    checked = portfolioLedgerIncludeAuto,
+                    onCheckedChange = onPortfolioLedgerIncludeAutoChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFFF48FB1),
+                        checkedTrackColor = Color(0xFF880E4F),
+                        uncheckedThumbColor = Color(0xFFB0BEC5),
+                        uncheckedTrackColor = Color(0xFF455A64)
+                    )
+                )
+                Text(
+                    text = "Авто демо",
+                    color = if (portfolioLedgerIncludeAuto) Color(0xFFF8BBD0) else Color(0xFF9E9E9E),
+                    fontSize = 11.sp,
+                    fontWeight = if (portfolioLedgerIncludeAuto) FontWeight.SemiBold else FontWeight.Normal
+                )
+            }
+            Text(
+                text = "Не влияет на отправку заявок на демо (это ниже во вкладке «Песочница»: «Сразу отправлять…»). Только фильтр для списка сделок портфеля.",
+                color = Color(0xFFCE93D8),
+                fontSize = 9.sp,
+                maxLines = 4
             )
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 ParamStepper(
@@ -433,12 +472,6 @@ internal fun ConfirmedPortfolioTabContent(
             }
         }
         Text(
-            text = "В портфеле: ${if (sandboxEntryAuto) "авто — учитываются входы, реально отправленные с демо без «Принять»." else "ручной — только входы после «Принять» с 2 заявками."} Выходы — из журнала сигналов.",
-            color = Color(0xFF9E9E9E),
-            fontSize = 10.sp,
-            maxLines = 4
-        )
-        Text(
             text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
@@ -464,7 +497,7 @@ internal fun ConfirmedPortfolioTabContent(
                 onExitThresholdChange = {}
             )
             Text(
-                text = "Метрики ниже — по парам вход→выход из журнала; начало сделки попадает в портфель только после исполнения на демо (см. режим на вкладке «Песочница»).",
+                text = "Метрики ниже — по парам вход→выход из журнала; начало цикла считается только если вход есть в журнале исполнений под выбранным выше режимом (ручное «Принять» или авто журнал демо).",
                 color = Color(0xFF757575),
                 fontSize = 10.sp
             )

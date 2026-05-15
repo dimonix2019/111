@@ -17,8 +17,13 @@ private const val KEY_TOKEN = "sandbox_api_token"
 private const val KEY_ACCOUNT_ID = "sandbox_account_id"
 /** When true, «Принять» на карточке сигнала шлёт рыночные заявки в SandboxService. */
 private const val KEY_EXECUTE_SIGNALS_ON_SANDBOX = "execute_signals_on_sandbox"
-/** "MANUAL" — карточка «Принять»; "AUTO" — заявки на песочницу сразу после сигнала входа (тест). */
+/** Legacy: раньше один переключатель; теперь разделён на «авто-заявки на демо» и «фильтр портфеля». */
 private const val KEY_SANDBOX_ENTRY_MODE = "sandbox_entry_mode"
+/** Обратные заявки сразу после сигнала входа (без карточки «Принять»); настраивается только миграцией со старых версий или вручную в prefs. */
+private const val KEY_SANDBOX_AUTO_EXECUTE_SPREAD = "sandbox_auto_execute_spread"
+/** Какие входы попадают в расчёт списка на «Портфеле»: false = только после «Принять», true = только авто-исполнения из журнала. */
+private const val KEY_PORTFOLIO_LEDGER_INCLUDE_AUTO = "portfolio_ledger_include_auto"
+private const val KEY_SANDBOX_PORTFOLIO_MODE_SPLIT_MIGRATED = "sandbox_portfolio_mode_split_migrated_v1"
 private const val KEY_SANDBOX_NOTIFY_LEVERAGE = "sandbox_notify_leverage"
 
 internal object TinkoffSandboxStorage {
@@ -116,20 +121,45 @@ internal object TinkoffSandboxStorage {
         }.apply()
     }
 
+    private fun prefsWithMigration(context: Context): SharedPreferences {
+        val p = prefs(context)
+        if (p.getBoolean(KEY_SANDBOX_PORTFOLIO_MODE_SPLIT_MIGRATED, false)) return p
+        synchronized(lock) {
+            val p2 = prefs(context)
+            if (p2.getBoolean(KEY_SANDBOX_PORTFOLIO_MODE_SPLIT_MIGRATED, false)) return p2
+            val legacyAuto = p2.getString(KEY_SANDBOX_ENTRY_MODE, "MANUAL") == "AUTO"
+            p2.edit()
+                .putBoolean(KEY_SANDBOX_AUTO_EXECUTE_SPREAD, legacyAuto)
+                .putBoolean(KEY_PORTFOLIO_LEDGER_INCLUDE_AUTO, legacyAuto)
+                .putBoolean(KEY_SANDBOX_PORTFOLIO_MODE_SPLIT_MIGRATED, true)
+                .apply()
+        }
+        return prefs(context)
+    }
+
+    /** В портфель включать сделки по авто‑исполнению (true) или только по «Принять» (false). На песочницу заявки не влияет. */
+    fun isPortfolioLedgerIncludeAuto(context: Context): Boolean =
+        prefsWithMigration(context).getBoolean(KEY_PORTFOLIO_LEDGER_INCLUDE_AUTO, false)
+
+    fun setPortfolioLedgerIncludeAuto(context: Context, includeAutoTrades: Boolean) {
+        prefsWithMigration(context).edit()
+            .putBoolean(KEY_PORTFOLIO_LEDGER_INCLUDE_AUTO, includeAutoTrades)
+            .apply()
+    }
+
+    /** Сразу отправлять две заявки на демо без «Принять» (перенос старого режима «Авто» до разделения настроек). */
+    fun isSandboxSpreadAutoExecute(context: Context): Boolean =
+        prefsWithMigration(context).getBoolean(KEY_SANDBOX_AUTO_EXECUTE_SPREAD, false)
+
+    fun setSandboxSpreadAutoExecute(context: Context, auto: Boolean) {
+        prefsWithMigration(context).edit().putBoolean(KEY_SANDBOX_AUTO_EXECUTE_SPREAD, auto).apply()
+    }
+
     fun isExecuteSignalsOnSandbox(context: Context): Boolean =
         prefs(context).getBoolean(KEY_EXECUTE_SIGNALS_ON_SANDBOX, true)
 
     fun setExecuteSignalsOnSandbox(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_EXECUTE_SIGNALS_ON_SANDBOX, enabled).apply()
-    }
-
-    fun isSandboxEntryAuto(context: Context): Boolean =
-        prefs(context).getString(KEY_SANDBOX_ENTRY_MODE, "MANUAL") == "AUTO"
-
-    fun setSandboxEntryAuto(context: Context, auto: Boolean) {
-        prefs(context).edit()
-            .putString(KEY_SANDBOX_ENTRY_MODE, if (auto) "AUTO" else "MANUAL")
-            .apply()
     }
 
     /** Плечо для текста в уведомлениях о сделках (по умолчанию как в портфеле). */

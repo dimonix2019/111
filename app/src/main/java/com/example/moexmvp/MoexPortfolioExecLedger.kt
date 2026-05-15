@@ -107,11 +107,11 @@ private fun saveLedgerUnsafe(app: Context, entries: List<PortfolioExecutionLedge
 internal fun journalEventsForExecutionPortfolioTab(
     allEvents: List<StrategySignalEvent>,
     ledger: List<PortfolioExecutionLedgerEntry>,
-    sandboxEntryAuto: Boolean
+    portfolioLedgerIncludeAuto: Boolean
 ): List<StrategySignalEvent> {
     val allowedEntryPairs = ledger
         .filter { e ->
-            if (sandboxEntryAuto) e.source == PortfolioExecSource.AUTO else e.source == PortfolioExecSource.MANUAL
+            if (portfolioLedgerIncludeAuto) e.source == PortfolioExecSource.AUTO else e.source == PortfolioExecSource.MANUAL
         }
         .map { Pair(it.signalType, it.barTimestampMillis) }
         .toSet()
