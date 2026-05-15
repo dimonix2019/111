@@ -544,6 +544,38 @@ internal fun zStrategySignalOnLast15mBar(
     return determineZStrategySignal(prev.zScore, current.zScore, position, thresholds)
 }
 
+private val consumed15mSignalEdgeLock = Any()
+
+/**
+ * Не обрабатывать один и тот же пересечение на одном 15м баре повторно
+ * (опрос каждые 5–15 с, UI + фон, сброс позиции из симуляции).
+ */
+internal fun tryConsume15mStrategySignalEdge(
+    context: Context,
+    barTimestampMillis: Long,
+    signal: ZStrategySignal
+): Boolean {
+    if (signal == ZStrategySignal.None) return false
+    val edgeKey = "$barTimestampMillis|${signal.name}"
+    synchronized(consumed15mSignalEdgeLock) {
+        val prefs = context.applicationContext.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getString(PREF_LAST_CONSUMED_15M_SIGNAL_EDGE, null) == edgeKey) {
+            return false
+        }
+        prefs.edit().putString(PREF_LAST_CONSUMED_15M_SIGNAL_EDGE, edgeKey).commit()
+        return true
+    }
+}
+
+internal fun clearConsumed15mStrategySignalEdge(context: Context) {
+    synchronized(consumed15mSignalEdgeLock) {
+        context.applicationContext.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(PREF_LAST_CONSUMED_15M_SIGNAL_EDGE)
+            .apply()
+    }
+}
+
 internal fun loadDailySignalLimit(context: Context, day: LocalDate): DailySignalLimit {
     val prefs = context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
     val savedDay = prefs.getString(PREF_Z_DAILY_SIGNAL_DATE, null)

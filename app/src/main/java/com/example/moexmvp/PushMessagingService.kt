@@ -398,6 +398,8 @@ internal fun clearStrategySignalJournalAndLocalStrategyState(context: Context) {
     }
     clearVirtualTradeProposalPrefs(app)
     saveStrategyPosition(app, ZStrategyPosition.Flat)
+    clearConsumed15mStrategySignalEdge(app)
+    clearSandboxAutoSpreadDedup(app)
     TinkoffSandboxSpreadExecLog.clear(app)
 }
 

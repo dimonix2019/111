@@ -121,17 +121,31 @@ class SignalForegroundService : Service() {
         )
 
         val dayLimit = loadDailySignalLimit(LocalDate.now())
-        val prevZ = prefs.getString(PREF_BACKGROUND_LAST_Z, null)?.toDoubleOrNull()
         val currentPosition = runCatching {
             val sharedRaw = prefs.getString(PREF_SHARED_STRATEGY_POSITION, null)
             val legacyRaw = prefs.getString(PREF_BACKGROUND_POSITION_LEGACY, null)
             BgPosition.valueOf(sharedRaw ?: legacyRaw ?: BgPosition.Flat.name)
         }.getOrDefault(BgPosition.Flat)
 
+        val dynTh = DynamicThresholds(
+            entry = signalThresholds.entry,
+            exit = signalThresholds.exit,
+            calculatedDate = signalThresholds.calculatedDate
+        )
+        val edgeSignal = determineZStrategySignal(
+            previousZ = snapshot.prevZ,
+            currentZ = snapshot.latestZ,
+            position = currentPosition.toZStrategyPosition(),
+            thresholds = dynTh
+        )
+
         var nextPosition = currentPosition
         var nextLimit = dayLimit
-        when (determineSignal(prevZ, snapshot.latestZ, currentPosition, signalThresholds)) {
-            BgSignal.EnterLong -> {
+        if (edgeSignal != ZStrategySignal.None &&
+            tryConsume15mStrategySignalEdge(this, snapshot.latestTimestampMillis, edgeSignal)
+        ) {
+        when (edgeSignal) {
+            ZStrategySignal.EnterLong -> {
                 nextPosition = BgPosition.Long
                 recordStrategySignalEvent(
                     context = this,
@@ -169,7 +183,7 @@ class SignalForegroundService : Service() {
                 }
             }
 
-            BgSignal.EnterShort -> {
+            ZStrategySignal.EnterShort -> {
                 nextPosition = BgPosition.Short
                 recordStrategySignalEvent(
                     context = this,
@@ -207,7 +221,7 @@ class SignalForegroundService : Service() {
                 }
             }
 
-            BgSignal.ExitLong -> {
+            ZStrategySignal.ExitLong -> {
                 nextPosition = BgPosition.Flat
                 recordStrategySignalEvent(
                     context = this,
@@ -233,7 +247,7 @@ class SignalForegroundService : Service() {
                 }
             }
 
-            BgSignal.ExitShort -> {
+            ZStrategySignal.ExitShort -> {
                 nextPosition = BgPosition.Flat
                 recordStrategySignalEvent(
                     context = this,
@@ -259,13 +273,12 @@ class SignalForegroundService : Service() {
                 }
             }
 
-            BgSignal.None -> Unit
+            ZStrategySignal.None -> Unit
+        }
         }
 
         saveDailySignalLimit(nextLimit)
         prefs.edit()
-            .putString(PREF_BACKGROUND_LAST_Z, snapshot.latestZ.toString())
-            // Keep strategy position in one shared key with MainActivity to avoid drift.
             .putString(PREF_SHARED_STRATEGY_POSITION, nextPosition.name)
             .remove(PREF_BACKGROUND_POSITION_LEGACY)
             .apply()
@@ -284,17 +297,20 @@ class SignalForegroundService : Service() {
             if (p == 0.0) return@mapNotNull null
             ts to ((t / p - 1.0) * 100.0)
         }
-        if (spreadSeries.isEmpty()) return null
+        if (spreadSeries.size < 2) return null
         val spreads = spreadSeries.map { it.second }
         val mean = spreads.average()
         val variance = spreads.map { (it - mean) * (it - mean) }.average()
         val stdDev = kotlin.math.sqrt(variance).takeIf { it > 0.0 } ?: 1.0
+        val prevSpread = spreads[spreads.size - 2]
         val latestSpread = spreads.last()
         val latestTimestampMillis = spreadSeries.last().first
-            .atZone(java.time.ZoneId.systemDefault())
+            .atZone(moexZoneId)
             .toInstant()
             .toEpochMilli()
+        val prevZ = (prevSpread - mean) / stdDev
         return BgSnapshot(
+            prevZ = prevZ,
             latestZ = (latestSpread - mean) / stdDev,
             latestTimestampMillis = latestTimestampMillis
         )
@@ -439,32 +455,6 @@ class SignalForegroundService : Service() {
         return BgThresholds(bestEntry, bestExit, till.toString())
     }
 
-    private fun determineSignal(
-        previousZ: Double?,
-        currentZ: Double,
-        position: BgPosition,
-        thresholds: BgThresholds
-    ): BgSignal {
-        val prev = previousZ ?: return BgSignal.None
-        return when (position) {
-            BgPosition.Flat -> when {
-                prev > -thresholds.entry && currentZ <= -thresholds.entry -> BgSignal.EnterLong
-                prev < thresholds.entry && currentZ >= thresholds.entry -> BgSignal.EnterShort
-                else -> BgSignal.None
-            }
-            BgPosition.Long -> if (prev < -thresholds.exit && currentZ >= -thresholds.exit) {
-                BgSignal.ExitLong
-            } else {
-                BgSignal.None
-            }
-            BgPosition.Short -> if (prev > thresholds.exit && currentZ <= thresholds.exit) {
-                BgSignal.ExitShort
-            } else {
-                BgSignal.None
-            }
-        }
-    }
-
     private fun loadSavedThresholds(): BgThresholds? {
         val prefs = getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
         if (!prefs.contains(PREF_DYNAMIC_Z_ENTRY) || !prefs.contains(PREF_DYNAMIC_Z_EXIT)) return null
@@ -508,7 +498,6 @@ class SignalForegroundService : Service() {
     companion object {
         private const val MONITOR_PREFS_NAME = "moex_alert_prefs"
         private const val PREF_BACKGROUND_SIGNAL_ENABLED = "background_signal_enabled"
-        private const val PREF_BACKGROUND_LAST_Z = "bg_last_z"
         private const val PREF_BACKGROUND_POSITION_LEGACY = "bg_position"
         private const val PREF_SHARED_STRATEGY_POSITION = "z_strategy_position"
         private const val PREF_DYNAMIC_Z_ENTRY = "dynamic_z_entry"
@@ -566,9 +555,16 @@ class SignalForegroundService : Service() {
 }
 
 private data class BgSnapshot(
+    val prevZ: Double,
     val latestZ: Double,
     val latestTimestampMillis: Long
 )
+
+private fun BgPosition.toZStrategyPosition(): ZStrategyPosition = when (this) {
+    BgPosition.Flat -> ZStrategyPosition.Flat
+    BgPosition.Long -> ZStrategyPosition.Long
+    BgPosition.Short -> ZStrategyPosition.Short
+}
 
 private data class BgThresholds(
     val entry: Double,
@@ -592,10 +588,3 @@ private enum class BgPosition {
     Short
 }
 
-private enum class BgSignal {
-    None,
-    EnterLong,
-    EnterShort,
-    ExitLong,
-    ExitShort
-}

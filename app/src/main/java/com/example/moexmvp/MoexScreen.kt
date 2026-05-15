@@ -267,9 +267,6 @@ internal fun MoexScreen() {
                 periodDescription = desc,
                 compoundReturns = strategyTestCompoundReturns
             )
-            val simPosition = strategyTestPortfolioMetrics?.openPosition?.direction
-            zStrategyPosition = simPosition ?: ZStrategyPosition.Flat
-            saveStrategyPosition(context, zStrategyPosition)
             portfolioError = null
         } finally {
             portfolioLoading = false
@@ -340,7 +337,7 @@ internal fun MoexScreen() {
                         )
                     }
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
-                    if (!fromDiskCache) {
+                    if (!fromDiskCache && !backgroundMonitorEnabled) {
                         val signalThresholds = DynamicThresholds(
                             entry = (portfolioEntryThreshold ?: dynamicThresholds.entry)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
@@ -361,13 +358,19 @@ internal fun MoexScreen() {
                             val lastPt = m15ForSignal.last()
                             val latestZScore = lastPt.zScore
                             val latestTimestampMillis = lastPt.timestampMillis
-                            when (
-                                zStrategySignalOnLast15mBar(
-                                    points = m15ForSignal,
-                                    position = zStrategyPosition,
-                                    thresholds = signalThresholds
+                            val edgeSignal = zStrategySignalOnLast15mBar(
+                                points = m15ForSignal,
+                                position = zStrategyPosition,
+                                thresholds = signalThresholds
+                            )
+                            if (edgeSignal != ZStrategySignal.None &&
+                                tryConsume15mStrategySignalEdge(
+                                    context,
+                                    latestTimestampMillis,
+                                    edgeSignal
                                 )
                             ) {
+                            when (edgeSignal) {
                                 ZStrategySignal.EnterLong -> {
                                 zStrategyPosition = ZStrategyPosition.Long
                                 saveStrategyPosition(context, zStrategyPosition)
@@ -521,6 +524,7 @@ internal fun MoexScreen() {
                             }
 
                             ZStrategySignal.None -> Unit
+                            }
                             }
                             previousZScoreForAlert = latestZScore
                         }
