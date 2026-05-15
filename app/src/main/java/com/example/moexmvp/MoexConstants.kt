@@ -24,6 +24,9 @@ internal const val PREF_DYNAMIC_Z_ENTRY = "dynamic_z_entry"
 internal const val PREF_DYNAMIC_Z_EXIT = "dynamic_z_exit"
 internal const val PREF_DYNAMIC_Z_DATE = "dynamic_z_date"
 internal const val PREF_Z_STRATEGY_POSITION = "z_strategy_position"
+/** Пороги Z с вкладки «Тест страт.» / «Портфель» — для сигналов и BG (те же правила, что симуляция 15м). */
+internal const val PREF_PORTFOLIO_Z_ENTRY_THRESHOLD = "portfolio_z_entry_threshold"
+internal const val PREF_PORTFOLIO_Z_EXIT_THRESHOLD = "portfolio_z_exit_threshold"
 internal const val PREF_Z_DAILY_SIGNAL_DATE = "z_daily_signal_date"
 internal const val PREF_Z_DAILY_SIGNAL_COUNT = "z_daily_signal_count"
 internal const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry_legacy"
@@ -53,6 +56,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.35 — Портфель «подтверждённые» и push/журнал: те же правила, что «Тест страт.» — пересечение порогов |Z| на 15-мин барах и пороги со степперов (не дневной график и не каждая запись журнала). Меньше оповещений и сделок в списке.
 1.6.34 — Портфель и тест страт.: блок «Сверка за день» — журнал сигналов vs подтверждённые сделки vs симуляция Z на 15м; PnL за день и пояснение причин расхождений.
 1.6.33 — Песочница: режим входа «Ручной / Авто» — переключатель (слева ручной, справа авто), как у «Исполнять вход».
 1.6.32 — Локальный журнал всех попыток показа push (title, body, posted/skip, данные virtual tap): SharedPreferences `moex_notification_log`, до 2000 записей; API `loadPushNotificationLog` / `clearPushNotificationLog` для тестов и отладки.

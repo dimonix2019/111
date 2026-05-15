@@ -108,6 +108,18 @@ class SignalForegroundService : Service() {
             )
         }
 
+        val dynFallback = DynamicThresholds(
+            entry = thresholdUpdate.thresholds.entry,
+            exit = thresholdUpdate.thresholds.exit,
+            calculatedDate = thresholdUpdate.thresholds.calculatedDate
+        )
+        val portfolioTh = loadPortfolioZThresholds(this, dynFallback)
+        val signalThresholds = BgThresholds(
+            entry = portfolioTh.entry,
+            exit = portfolioTh.exit,
+            calculatedDate = portfolioTh.calculatedDate
+        )
+
         val dayLimit = loadDailySignalLimit(LocalDate.now())
         val prevZ = prefs.getString(PREF_BACKGROUND_LAST_Z, null)?.toDoubleOrNull()
         val currentPosition = runCatching {
@@ -118,7 +130,7 @@ class SignalForegroundService : Service() {
 
         var nextPosition = currentPosition
         var nextLimit = dayLimit
-        when (determineSignal(prevZ, snapshot.latestZ, currentPosition, thresholdUpdate.thresholds)) {
+        when (determineSignal(prevZ, snapshot.latestZ, currentPosition, signalThresholds)) {
             BgSignal.EnterLong -> {
                 nextPosition = BgPosition.Long
                 recordStrategySignalEvent(
@@ -134,7 +146,7 @@ class SignalForegroundService : Service() {
                         body = String.format(
                             Locale.US,
                             "Z <= -%.1f (текущий Z=%.2f)",
-                            thresholdUpdate.thresholds.entry,
+                            signalThresholds.entry,
                             snapshot.latestZ
                         ),
                         virtualTradeTap = VirtualTradeTapIntent(
@@ -172,7 +184,7 @@ class SignalForegroundService : Service() {
                         body = String.format(
                             Locale.US,
                             "Z >= +%.1f (текущий Z=%.2f)",
-                            thresholdUpdate.thresholds.entry,
+                            signalThresholds.entry,
                             snapshot.latestZ
                         ),
                         virtualTradeTap = VirtualTradeTapIntent(
@@ -211,7 +223,7 @@ class SignalForegroundService : Service() {
                         body = String.format(
                             Locale.US,
                             "Z >= -%.1f (текущий Z=%.2f)",
-                            thresholdUpdate.thresholds.exit,
+                            signalThresholds.exit,
                             snapshot.latestZ
                         )
                     )
@@ -237,7 +249,7 @@ class SignalForegroundService : Service() {
                         body = String.format(
                             Locale.US,
                             "Z <= +%.1f (текущий Z=%.2f)",
-                            thresholdUpdate.thresholds.exit,
+                            signalThresholds.exit,
                             snapshot.latestZ
                         )
                     )

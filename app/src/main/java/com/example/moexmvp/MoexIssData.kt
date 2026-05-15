@@ -502,6 +502,48 @@ internal fun saveStrategyPosition(context: Context, position: ZStrategyPosition)
         .apply()
 }
 
+/** Пороги входа/выхода |Z| с вкладки портфеля (степперы). Если не сохранены — [fallback]. */
+internal fun loadPortfolioZThresholds(context: Context, fallback: DynamicThresholds): DynamicThresholds {
+    val prefs = context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+    if (!prefs.contains(PREF_PORTFOLIO_Z_ENTRY_THRESHOLD) ||
+        !prefs.contains(PREF_PORTFOLIO_Z_EXIT_THRESHOLD)
+    ) {
+        return fallback
+    }
+    val entry = prefs.getFloat(PREF_PORTFOLIO_Z_ENTRY_THRESHOLD, fallback.entry.toFloat())
+        .toDouble()
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val exit = prefs.getFloat(PREF_PORTFOLIO_Z_EXIT_THRESHOLD, fallback.exit.toFloat())
+        .toDouble()
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    if (entry <= 0.0 || exit < 0.0 || exit >= entry) return fallback
+    return DynamicThresholds(
+        entry = entry,
+        exit = exit,
+        calculatedDate = fallback.calculatedDate
+    )
+}
+
+internal fun savePortfolioZThresholds(context: Context, entry: Double, exit: Double) {
+    context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putFloat(PREF_PORTFOLIO_Z_ENTRY_THRESHOLD, entry.toFloat())
+        .putFloat(PREF_PORTFOLIO_Z_EXIT_THRESHOLD, exit.toFloat())
+        .apply()
+}
+
+/** Сигнал на последнем 15м баре (пересечение prev→last), те же правила что [buildZStrategyPortfolioMetrics]. */
+internal fun zStrategySignalOnLast15mBar(
+    points: List<DataPoint>,
+    position: ZStrategyPosition,
+    thresholds: DynamicThresholds
+): ZStrategySignal {
+    if (points.size < 2) return ZStrategySignal.None
+    val prev = points[points.size - 2]
+    val current = points.last()
+    return determineZStrategySignal(prev.zScore, current.zScore, position, thresholds)
+}
+
 internal fun loadDailySignalLimit(context: Context, day: LocalDate): DailySignalLimit {
     val prefs = context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
     val savedDay = prefs.getString(PREF_Z_DAILY_SIGNAL_DATE, null)

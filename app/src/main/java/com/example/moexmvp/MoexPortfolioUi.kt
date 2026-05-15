@@ -327,7 +327,7 @@ private fun PortfolioCompactHeroInline(metrics: PortfolioMetrics) {
     }
 }
 
-/** Подтверждённые сделки: пары вход/выход из журнала сигналов на 15-мин ряду. */
+/** Подтверждённые сделки: симуляция 15м Z (те же пороги и правила, что «Тест страт.»). */
 @Composable
 internal fun ConfirmedPortfolioTabContent(
     metrics: PortfolioMetrics?,
@@ -353,7 +353,7 @@ internal fun ConfirmedPortfolioTabContent(
             onMoex15mFullReload = null
         )
         Text(
-            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · 15 мин · журнал вход/выход",
+            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · 15 мин · Z (как тест страт.)",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
             maxLines = 3
@@ -379,7 +379,7 @@ internal fun ConfirmedPortfolioTabContent(
                 onExitThresholdChange = {}
             )
             Text(
-                text = "Учитываются только закрытые сделки, у которых в журнале есть и вход, и выход.",
+                text = "Сделки считаются по пересечению порогов |Z| на 15-мин барах (как на вкладке «Тест страт.»), а не по каждому событию журнала.",
                 color = Color(0xFF757575),
                 fontSize = 10.sp
             )
@@ -426,7 +426,7 @@ internal fun ConfirmedPortfolioTabContent(
                     )
                     Text(ex.legsRu, color = Color(0xFFC8E6C9), fontSize = 11.sp)
                     Text(
-                        text = "Список «Сделки» ниже — по одной карточке на полный круг вход→выход по журналу Z; внутри карточки две связанные ноги.",
+                        text = "Список «Сделки» ниже — по одной карточке на полный круг вход→выход по симуляции 15м Z; внутри карточки две связанные ноги.",
                         color = Color(0xFF78909C),
                         fontSize = 9.sp,
                         maxLines = 4
@@ -455,7 +455,7 @@ internal fun ConfirmedPortfolioTabContent(
                     defaultExpanded = false
                 ) {
                     Text(
-                        text = "Итого = реализованный PnL + нереализованная нога (если по журналу позиция ещё открыта). Обновляется при новых сигналах и «Обновить».",
+                        text = "Итого = реализованный PnL + нереализованная нога (если по симуляции позиция ещё открыта). Обновляется при «Обновить» и смене порогов на «Тест страт.».",
                         color = Color(0xFF616161),
                         fontSize = 9.sp,
                         maxLines = 3
@@ -476,7 +476,7 @@ internal fun ConfirmedPortfolioTabContent(
                     modifier = Modifier.padding(top = 4.dp)
                 )
                 Text(
-                    text = "Одна карточка = одна спрэд-позиция по журналу. Две строки — бумаги TATN и TATNP; итог внизу — общий PnL по движению спрэда (не сумма двух отдельных акций).",
+                    text = "Одна карточка = одна спрэд-позиция по симуляции. Две строки — бумаги TATN и TATNP; итог внизу — общий PnL по движению спрэда (не сумма двух отдельных акций).",
                     color = Color(0xFF616161),
                     fontSize = 9.sp,
                     maxLines = 3

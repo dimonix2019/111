@@ -64,7 +64,7 @@ internal fun MoexScreen() {
     val landscapeMarketsChartsOnly =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
             selectedTab == MainTab.Markets
-    /** Закрытые сделки с подтверждённым входом и выходом в журнале. */
+    /** Закрытые сделки по тем же правилам 15м Z, что «Тест страт.» (без капитализации). */
     var confirmedPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     /** Симуляция по порогам |Z| на 15м ряду. */
     var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
@@ -186,6 +186,22 @@ internal fun MoexScreen() {
         }
     }
 
+    LaunchedEffect(dynamicThresholds.entry, dynamicThresholds.exit) {
+        if (portfolioEntryThreshold == null || portfolioExitThreshold == null) {
+            val saved = loadPortfolioZThresholds(context, dynamicThresholds)
+            if (portfolioEntryThreshold == null) portfolioEntryThreshold = saved.entry
+            if (portfolioExitThreshold == null) portfolioExitThreshold = saved.exit
+        }
+    }
+
+    LaunchedEffect(portfolioEntryThreshold, portfolioExitThreshold) {
+        val entry = portfolioEntryThreshold ?: return@LaunchedEffect
+        val exit = portfolioExitThreshold ?: return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            savePortfolioZThresholds(context, entry, exit)
+        }
+    }
+
     LaunchedEffect(chartSuccess?.points, signalEvents) {
         val pts = chartSuccess?.points
         if (pts != null && pts.isNotEmpty()) {
@@ -233,17 +249,14 @@ internal fun MoexScreen() {
                 exit = exitThreshold,
                 calculatedDate = dynamicThresholds.calculatedDate
             )
-            val events = loadStrategySignalEvents(
-                context = context,
-                fromTimestampMillis = points.firstOrNull()?.timestampMillis
-            )
-            confirmedPortfolioMetrics = buildExecutedPortfolioMetrics(
+            confirmedPortfolioMetrics = buildZStrategyPortfolioMetrics(
                 points = points,
-                events = events,
+                thresholds = portfolioThresholds,
                 notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                 leverage = portfolioLeverage,
                 commissionPercentPerSide = portfolioCommissionPercent,
-                periodDescription = desc
+                periodDescription = "$desc · 15м Z (как «Тест страт.»)",
+                compoundReturns = false
             )
             strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(
                 points = points,
@@ -254,6 +267,9 @@ internal fun MoexScreen() {
                 periodDescription = desc,
                 compoundReturns = strategyTestCompoundReturns
             )
+            val simPosition = strategyTestPortfolioMetrics?.openPosition?.direction
+            zStrategyPosition = simPosition ?: ZStrategyPosition.Flat
+            saveStrategyPosition(context, zStrategyPosition)
             portfolioError = null
         } finally {
             portfolioLoading = false
@@ -325,17 +341,31 @@ internal fun MoexScreen() {
                     }
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
                     if (!fromDiskCache) {
-                        val latestPoint = next.points.lastOrNull()
-                        val latestZScore = latestPoint?.zScore
-                        if (latestZScore != null) {
-                            val latestTimestampMillis = latestPoint.timestampMillis
-                            val prevZ = previousZScoreForAlert
+                        val signalThresholds = DynamicThresholds(
+                            entry = (portfolioEntryThreshold ?: dynamicThresholds.entry)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            exit = (portfolioExitThreshold ?: dynamicThresholds.exit)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            calculatedDate = dynamicThresholds.calculatedDate
+                        )
+                        val m15ForSignal = withContext(Dispatchers.IO) {
+                            val till = LocalDate.now()
+                            loadPortfolio15mDataPoints(
+                                context,
+                                till.minusDays(10),
+                                till,
+                                PortfolioM15LoadMode.INCREMENTAL
+                            )
+                        }
+                        if (m15ForSignal.size >= 2) {
+                            val lastPt = m15ForSignal.last()
+                            val latestZScore = lastPt.zScore
+                            val latestTimestampMillis = lastPt.timestampMillis
                             when (
-                                determineZStrategySignal(
-                                    previousZ = prevZ,
-                                    currentZ = latestZScore,
+                                zStrategySignalOnLast15mBar(
+                                    points = m15ForSignal,
                                     position = zStrategyPosition,
-                                    thresholds = dynamicThresholds
+                                    thresholds = signalThresholds
                                 )
                             ) {
                                 ZStrategySignal.EnterLong -> {
@@ -355,7 +385,7 @@ internal fun MoexScreen() {
                                         body = String.format(
                                             Locale.US,
                                             "Z <= -%.1f (текущий Z=%.2f)",
-                                            dynamicThresholds.entry,
+                                            signalThresholds.entry,
                                             latestZScore
                                         ),
                                         virtualTradeTap = VirtualTradeTapIntent(
@@ -402,7 +432,7 @@ internal fun MoexScreen() {
                                         body = String.format(
                                             Locale.US,
                                             "Z >= +%.1f (текущий Z=%.2f)",
-                                            dynamicThresholds.entry,
+                                            signalThresholds.entry,
                                             latestZScore
                                         ),
                                         virtualTradeTap = VirtualTradeTapIntent(
@@ -450,7 +480,7 @@ internal fun MoexScreen() {
                                         body = String.format(
                                             Locale.US,
                                             "Z >= -%.1f (текущий Z=%.2f)",
-                                            dynamicThresholds.exit,
+                                            signalThresholds.exit,
                                             latestZScore
                                         )
                                     )
@@ -479,7 +509,7 @@ internal fun MoexScreen() {
                                         body = String.format(
                                             Locale.US,
                                             "Z <= +%.1f (текущий Z=%.2f)",
-                                            dynamicThresholds.exit,
+                                            signalThresholds.exit,
                                             latestZScore
                                         )
                                     )
@@ -491,9 +521,9 @@ internal fun MoexScreen() {
                             }
 
                             ZStrategySignal.None -> Unit
+                            }
+                            previousZScoreForAlert = latestZScore
                         }
-                        previousZScoreForAlert = latestZScore
-                    }
                     }
                     signalEvents = loadStrategySignalEvents(context)
                 }
