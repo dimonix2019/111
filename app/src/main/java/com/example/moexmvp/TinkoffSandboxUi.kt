@@ -221,57 +221,66 @@ internal fun TinkoffSandboxTabContent(
             )
         }
 
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = "Режим входа (тест)",
                 color = Color(0xFFE0E0E0),
                 fontSize = 12.sp,
-                modifier = Modifier.weight(1f)
+                fontWeight = FontWeight.Medium
             )
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        withContext(Dispatchers.IO) {
-                            TinkoffSandboxStorage.setSandboxEntryAuto(context, false)
-                        }
-                        entryModeAuto = false
-                        onSandboxPrefsChanged()
-                    }
-                },
-                enabled = entryModeAuto,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Ручной", fontSize = 11.sp)
-            }
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        withContext(Dispatchers.IO) {
-                            TinkoffSandboxStorage.setSandboxEntryAuto(context, true)
+                Text(
+                    text = "Ручной",
+                    color = if (!entryModeAuto) Color(0xFF81D4FA) else Color(0xFF757575),
+                    fontSize = 12.sp,
+                    fontWeight = if (!entryModeAuto) FontWeight.SemiBold else FontWeight.Normal
+                )
+                Switch(
+                    checked = entryModeAuto,
+                    onCheckedChange = { auto ->
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    TinkoffSandboxStorage.setSandboxEntryAuto(context, auto)
+                                }
+                                entryModeAuto = auto
+                                onSandboxPrefsChanged()
+                            } catch (e: Throwable) {
+                                status = e.message ?: e.javaClass.simpleName
+                            }
                         }
-                        entryModeAuto = true
-                        onSandboxPrefsChanged()
-                    }
-                },
-                enabled = !entryModeAuto,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text("Авто", fontSize = 11.sp)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFF81D4FA),
+                        checkedTrackColor = Color(0xFF0277BD),
+                        uncheckedThumbColor = Color(0xFFB0BEC5),
+                        uncheckedTrackColor = Color(0xFF455A64)
+                    )
+                )
+                Text(
+                    text = "Авто",
+                    color = if (entryModeAuto) Color(0xFF81D4FA) else Color(0xFF757575),
+                    fontSize = 12.sp,
+                    fontWeight = if (entryModeAuto) FontWeight.SemiBold else FontWeight.Normal
+                )
             }
+            Text(
+                text = if (entryModeAuto) {
+                    "Авто: после сигнала входа заявки на песочницу отправляются сами (нужны токен и счёт). По каждой ноге — отдельное уведомление: время, тикер, заявка, номинал и плечо, баланс портфеля после ноги. Карточка «Принять» не показывается."
+                } else {
+                    "Ручной: уведомление о сигнале и карточка «Принять». Плечо в тексте уведомлений о сделке берётся с вкладки «Портфель» (параметр плеча)."
+                },
+                color = Color(0xFF757575),
+                fontSize = 10.sp
+            )
         }
-        Text(
-            text = if (entryModeAuto) {
-                "Авто: после сигнала входа заявки на песочницу отправляются сами (нужны токен и счёт). По каждой ноге — отдельное уведомление: время, тикер, заявка, номинал и плечо, баланс портфеля после ноги. Карточка «Принять» не показывается."
-            } else {
-                "Ручной: как раньше — уведомление о сигнале и карточка «Принять». Плечо в тексте уведомлений о сделке берётся с вкладки «Портфель» (параметр плеча)."
-            },
-            color = Color(0xFF757575),
-            fontSize = 10.sp
-        )
 
         OutlinedTextField(
             value = tokenInput,
