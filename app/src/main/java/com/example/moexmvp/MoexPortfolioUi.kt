@@ -339,7 +339,8 @@ internal fun ConfirmedPortfolioTabContent(
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
     /** Увеличить после успешного «Принять» на песочнице, чтобы подтянуть блок «2 ноги». */
-    sandboxSpreadExecReload: Int = 0
+    sandboxSpreadExecReload: Int = 0,
+    dailyReconciliation: DailyPortfolioReconciliation? = null
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -490,6 +491,9 @@ internal fun ConfirmedPortfolioTabContent(
                 }
             }
         }
+        dailyReconciliation?.let { rec ->
+            DailyReconciliationSection(rec)
+        }
     }
 }
 
@@ -516,7 +520,8 @@ internal fun StrategyTestTabContent(
     onDeletePreset: (String) -> Unit,
     onSavePreset: (String) -> Unit,
     onWalkForward: () -> Unit,
-    walkForwardBusy: Boolean
+    walkForwardBusy: Boolean,
+    dailyReconciliation: DailyPortfolioReconciliation? = null
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -672,6 +677,79 @@ internal fun StrategyTestTabContent(
                         PortfolioTradeRow(index = index + 1, t = t)
                     }
                 }
+            }
+        }
+        dailyReconciliation?.let { rec ->
+            DailyReconciliationSection(rec)
+        }
+    }
+}
+
+@Composable
+internal fun DailyReconciliationSection(rec: DailyPortfolioReconciliation) {
+    val dayStr = rec.day.toString()
+    PortfolioCollapsibleSection(
+        title = "Сверка за день ($dayStr, МСК)",
+        subtitle = "журнал ${rec.journalEnters} вх. / ${rec.journalExits} вых. · подтв. ${rec.confirmedClosedOnDay} · тест ${rec.simClosedOnDay}",
+        defaultExpanded = true
+    ) {
+        Text(
+            text = rec.simThresholdsNote,
+            color = Color(0xFF757575),
+            fontSize = 9.sp,
+            maxLines = 4
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "PnL закрытых за день",
+                color = Color(0xFF9E9E9E),
+                fontSize = 10.sp
+            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "подтв. ${formatRubSigned(rec.confirmedPnlRubOnDay)}",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 11.sp
+                )
+                Text(
+                    text = "тест ${formatRubSigned(rec.simPnlRubOnDay)}",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 11.sp
+                )
+            }
+        }
+        Text(
+            text = "Закрытые сделки — с датой выхода в этот день на 15м ряду. Вход без выхода до конца дня попадает в причины ниже.",
+            color = Color(0xFF616161),
+            fontSize = 9.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        rec.rows.forEach { row ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
+                    .background(
+                        if (row.isOk) Color(0xFF1B2E1F) else Color(0xFF2E1F1F),
+                        RoundedCornerShape(6.dp)
+                    )
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = row.headline,
+                    color = if (row.isOk) Color(0xFF81C784) else Color(0xFFFFAB91),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = row.detail,
+                    color = Color(0xFFB0BEC5),
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
             }
         }
     }

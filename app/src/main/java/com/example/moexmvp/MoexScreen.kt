@@ -53,6 +53,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Locale
 
 @Composable
@@ -260,6 +261,25 @@ internal fun MoexScreen() {
     }
 
     val signalJournalFingerprint = signalEvents.size to signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
+
+    val dailyReconciliation = remember(
+        signalJournalFingerprint,
+        confirmedPortfolioMetrics,
+        strategyTestPortfolioMetrics,
+        portfolioEntryThreshold,
+        portfolioExitThreshold,
+        dynamicThresholds.entry,
+        dynamicThresholds.exit
+    ) {
+        buildDailyPortfolioReconciliation(
+            day = LocalDate.now(ZoneId.of("Europe/Moscow")),
+            journalEvents = signalEvents,
+            confirmed = confirmedPortfolioMetrics,
+            simulation = strategyTestPortfolioMetrics,
+            simEntryThreshold = portfolioEntryThreshold ?: dynamicThresholds.entry,
+            simExitThreshold = portfolioExitThreshold ?: dynamicThresholds.exit
+        )
+    }
 
     LaunchedEffect(
         selectedTab,
@@ -734,7 +754,8 @@ internal fun MoexScreen() {
                             commissionPercentPerSide = portfolioCommissionPercent,
                             onLeverageChange = { portfolioLeverage = it },
                             onCommissionChange = { portfolioCommissionPercent = it },
-                            sandboxSpreadExecReload = sandboxSpreadExecReload
+                            sandboxSpreadExecReload = sandboxSpreadExecReload,
+                            dailyReconciliation = dailyReconciliation
                         )
                     }
                 }
@@ -831,7 +852,8 @@ internal fun MoexScreen() {
                                     }
                                 }
                             },
-                            walkForwardBusy = walkForwardBusy
+                            walkForwardBusy = walkForwardBusy,
+                            dailyReconciliation = dailyReconciliation
                         )
                     }
                 }
