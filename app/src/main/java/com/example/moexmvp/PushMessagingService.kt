@@ -84,6 +84,22 @@ internal fun showPushNotification(
     virtualTradeTap: VirtualTradeTapIntent? = null,
     skipDuplicateCheck: Boolean = false
 ): Boolean {
+    val app = context.applicationContext
+    fun trace(posted: Boolean, skipReason: String?) {
+        appendPushNotificationLogEntry(
+            app,
+            PushNotificationLogEntry(
+                wallTimestampMillis = System.currentTimeMillis(),
+                title = title,
+                body = body,
+                posted = posted,
+                skipReason = skipReason,
+                virtualTapSignalType = virtualTradeTap?.signalType?.name,
+                virtualTapZ = virtualTradeTap?.zScore,
+                virtualTapBarTimestampMillis = virtualTradeTap?.timestampMillis
+            )
+        )
+    }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         val granted = ContextCompat.checkSelfPermission(
             context,
@@ -91,11 +107,13 @@ internal fun showPushNotification(
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) {
             Log.w(PUSH_LOG_TAG, "Skipping notification: POST_NOTIFICATIONS is not granted")
+            trace(false, PushNotificationLogSkipReason.POST_NOTIFICATIONS_DENIED)
             return false
         }
     }
     if (!skipDuplicateCheck && shouldSkipDuplicatePush(context, title, body)) {
         Log.d(PUSH_LOG_TAG, "Skipping duplicate notification: $title | $body")
+        trace(false, PushNotificationLogSkipReason.DUPLICATE_WITHIN_WINDOW)
         return false
     }
 
@@ -126,6 +144,7 @@ internal fun showPushNotification(
         .build()
 
     NotificationManagerCompat.from(context).notify(notificationId, notification)
+    trace(true, null)
     return true
 }
 
