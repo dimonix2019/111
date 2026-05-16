@@ -520,7 +520,8 @@ internal fun PortfolioSandboxOrdersSection(
         } else {
             PortfolioTradeOrdersGroupedTable(
                 groups = openGroups,
-                caption = "Ордера по сделкам (2 строки на пару). Вход — время исполнения на демо; Zвх — на входе; Z сейч. и PnL — оценка по последнему 15м бару (обновите портфель).",
+                caption = "Ордера по сделкам (2 строки на пару). PnL ≈ (Δ спрэда в п.п.) × номинал × плечо − комиссия входа; " +
+                    "не рыночный P&L счёта Tinkoff. Обновите портфель после новых 15м баров.",
                 exitZColumnTitle = "Z сейч."
             )
         }

@@ -8,26 +8,33 @@ class MoexOpenTradeMtmTest {
 
     @Test
     fun longMtm_positiveWhenSpreadWidens() {
-        val rub = estimateOpenSpreadMtmRub(
+        val rub = estimateOpenSpreadMtmGrossRub(
             signalType = StrategySignalType.EnterLong,
             entrySpreadPercent = 1.0,
             currentSpreadPercent = 1.5,
             notionalRub = 100_000.0,
             leverage = 7.0
         )
-        assertTrue(rub > 0.0)
+        assertEquals(3_500.0, rub, 1.0)
     }
 
     @Test
-    fun shortMtm_positiveWhenSpreadNarrows() {
-        val rub = estimateOpenSpreadMtmRub(
-            signalType = StrategySignalType.EnterShort,
-            entrySpreadPercent = 2.0,
-            currentSpreadPercent = 1.0,
-            notionalRub = 100_000.0,
-            leverage = 7.0
+    fun zeroEntrySpread_usesBarFromPoints_notEntireCurrentSpread() {
+        val points = listOf(
+            DataPoint(1_000L, "a", 0.0, 0.0, 1.0, 0.0, 0.0),
+            DataPoint(2_000L, "b", 0.0, 0.0, 2.5, 0.0, 0.0)
         )
-        assertTrue(rub > 0.0)
+        val rub = estimateOpenSpreadMtmGrossRub(
+            signalType = StrategySignalType.EnterLong,
+            entrySpreadPercent = 0.0,
+            currentSpreadPercent = 2.5,
+            notionalRub = 100_000.0,
+            leverage = 7.0,
+            points = points,
+            barTimestampMillis = 1_000L
+        )
+        // (2.5 - 1.0) * 700_000 / 100 = 10_500, not (2.5 - 0) * 700_000 / 100 = 17_500
+        assertEquals(10_500.0, rub, 1.0)
     }
 
     @Test
@@ -38,7 +45,7 @@ class MoexOpenTradeMtmTest {
             zScore = PORTFOLIO_TEST_SIGNAL_Z_MARKER,
             barTimestampMillis = 1_000L,
             executedAtMillis = 2_000L,
-            entrySpreadPercent = 1.0,
+            entrySpreadPercent = 0.0,
             source = PortfolioExecSource.MANUAL,
             directionLabel = "long",
             entryTimeMsk = "2026-05-16 10:00",
@@ -53,12 +60,14 @@ class MoexOpenTradeMtmTest {
             legs = emptyList()
         )
         val points = listOf(
-            DataPoint(0L, "a", 0.0, 0.0, 1.0, 0.0, 0.0),
-            DataPoint(1L, "b", 0.0, 0.0, 2.0, 0.0, 1.5)
+            DataPoint(1_000L, "a", 0.0, 0.0, 1.0, 0.0, 0.0),
+            DataPoint(2_000L, "b", 0.0, 0.0, 2.0, 0.0, 1.5)
         )
-        val out = enrichOpenSandboxExecutions(listOf(exec), points, 100_000.0, 7.0).single()
+        val out = enrichOpenSandboxExecutions(listOf(exec), points, 100_000.0, 7.0, 0.04).single()
+        assertEquals(1.0, out.entrySpreadPercent, 0.001)
         assertEquals(1.5, out.exitZDisplay, 0.001)
         assertEquals(1.5, out.zScore, 0.001)
         assertTrue(out.netPnlRubApprox > 0.0)
+        assertTrue(out.netPnlRubApprox < 17_000.0)
     }
 }

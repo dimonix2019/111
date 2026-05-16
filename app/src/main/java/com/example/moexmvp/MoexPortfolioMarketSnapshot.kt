@@ -57,19 +57,72 @@ internal suspend fun resolveSpreadPercentAtBar(
     return points.minByOrNull { abs(it.timestampMillis - barTimestampMillis) }?.spreadPercent ?: fallback
 }
 
-/** Нереализованный PnL открытой спрэд-сделки по текущему спрэду (оценка, без комиссии выхода). */
-internal fun estimateOpenSpreadMtmRub(
+/** Спрэд % на баре, ближайшем к [barTimestampMillis]. */
+internal fun spreadPercentAtBar(
+    points: List<DataPoint>,
+    barTimestampMillis: Long,
+    fallback: Double = 0.0
+): Double {
+    if (points.isEmpty()) return fallback
+    return points.minByOrNull { abs(it.timestampMillis - barTimestampMillis) }?.spreadPercent ?: fallback
+}
+
+/**
+ * Спрэд на входе: из записи сделки или с 15м-бара входа.
+ * [entrySpreadPercent] == 0 — legacy/битая запись; иначе PnL завышается (весь текущий спрэд × плечо).
+ */
+internal fun resolveEntrySpreadPercent(
+    entrySpreadPercent: Double,
+    barTimestampMillis: Long,
+    points: List<DataPoint>
+): Double {
+    if (entrySpreadPercent != 0.0) return entrySpreadPercent
+    if (points.isEmpty()) return 0.0
+    return spreadPercentAtBar(points, barTimestampMillis, 0.0)
+}
+
+/** Изменение спрэда в п.п. для открытой позиции. */
+internal fun openSpreadMtmPoints(
+    signalType: StrategySignalType,
+    entrySpreadPercent: Double,
+    currentSpreadPercent: Double
+): Double = when (signalType) {
+    StrategySignalType.EnterLong -> currentSpreadPercent - entrySpreadPercent
+    StrategySignalType.EnterShort -> entrySpreadPercent - currentSpreadPercent
+    else -> 0.0
+}
+
+/** Валовый нереализованный PnL (без комиссии выхода). */
+internal fun estimateOpenSpreadMtmGrossRub(
     signalType: StrategySignalType,
     entrySpreadPercent: Double,
     currentSpreadPercent: Double,
     notionalRub: Double,
-    leverage: Double
+    leverage: Double,
+    points: List<DataPoint> = emptyList(),
+    barTimestampMillis: Long = 0L
 ): Double {
     if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return 0.0
-    val mtmSpread = when (signalType) {
-        StrategySignalType.EnterLong -> currentSpreadPercent - entrySpreadPercent
-        StrategySignalType.EnterShort -> entrySpreadPercent - currentSpreadPercent
-        else -> 0.0
-    }
+    val entrySpread = resolveEntrySpreadPercent(entrySpreadPercent, barTimestampMillis, points)
+    val mtmSpread = openSpreadMtmPoints(signalType, entrySpread, currentSpreadPercent)
     return spreadPnlToRubApprox(mtmSpread, notionalRub * leverage)
+}
+
+/** Оценка с вычетом комиссии входа (одна сторона), как в симуляции портфеля. */
+internal fun estimateOpenSpreadMtmNetRub(
+    signalType: StrategySignalType,
+    entrySpreadPercent: Double,
+    currentSpreadPercent: Double,
+    notionalRub: Double,
+    leverage: Double,
+    commissionPercentPerSide: Double,
+    points: List<DataPoint> = emptyList(),
+    barTimestampMillis: Long = 0L
+): Double {
+    val gross = estimateOpenSpreadMtmGrossRub(
+        signalType, entrySpreadPercent, currentSpreadPercent,
+        notionalRub, leverage, points, barTimestampMillis
+    )
+    val commissionRub = notionalRub * leverage * (commissionPercentPerSide / 100.0)
+    return gross - commissionRub
 }

@@ -331,7 +331,8 @@ internal fun MoexScreen() {
                     executions = TinkoffSandboxSpreadExecLog.loadRecent(context),
                     points = points,
                     notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                    leverage = portfolioLeverage
+                    leverage = portfolioLeverage,
+                    commissionPercentPerSide = portfolioCommissionPercent
                 )
             }
             strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(

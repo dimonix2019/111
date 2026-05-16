@@ -191,7 +191,8 @@ internal object TinkoffSandboxSpreadExecLog {
         executions: List<SandboxSpreadExecUi>,
         points: List<DataPoint> = emptyList(),
         notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-        leverage: Double = 7.0
+        leverage: Double = 7.0,
+        commissionPercentPerSide: Double = 0.04
     ): List<SandboxSpreadExecUi> {
         if (executions.isEmpty()) return executions
         val pushLog = loadPushNotificationLog(context)
@@ -202,7 +203,13 @@ internal object TinkoffSandboxSpreadExecLog {
                 if (ids == exec.notificationIdsText) exec else exec.copy(notificationIdsText = ids)
             }
         }
-        return enrichOpenSandboxExecutions(withPush, points, notionalRub, leverage)
+        return enrichOpenSandboxExecutions(
+            withPush,
+            points,
+            notionalRub,
+            leverage,
+            commissionPercentPerSide
+        )
     }
 
     fun clear(context: Context) {
