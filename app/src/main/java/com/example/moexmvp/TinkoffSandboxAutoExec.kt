@@ -58,6 +58,7 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
     val app = context.applicationContext
     return try {
         val legs = tinkoffSandboxExecuteSpreadEntryDetailed(token, accountId, signalType)
+        val executedAt = System.currentTimeMillis()
         synchronized(autoSpreadDedupLock) {
             app.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_LAST_AUTO, dedupKey).commit()
@@ -69,7 +70,15 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             signalType = signalType,
             source = PortfolioExecSource.AUTO
         )
-        TinkoffSandboxSpreadExecLog.record(app, signalType, zScore, System.currentTimeMillis())
+        TinkoffSandboxSpreadExecLog.recordFromLegs(
+            app,
+            signalType,
+            zScore,
+            barTimestampMillis = barTimestampMillis,
+            executedAtMillis = executedAt,
+            source = PortfolioExecSource.AUTO,
+            legs = legs
+        )
         notifySandboxSpreadLegExecutionResults(
             app,
             legs,

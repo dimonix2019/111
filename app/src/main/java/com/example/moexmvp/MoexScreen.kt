@@ -117,6 +117,9 @@ internal fun MoexScreen() {
     var sandboxAccountInput by remember { mutableStateOf("") }
     /** Сдвигается после успешного «Принять» / тестовой пары на песочнице — пересчёт метрик портфеля. */
     var sandboxSpreadExecReload by remember { mutableStateOf(0) }
+    var sandboxSpreadExecutions by remember(context) {
+        mutableStateOf(TinkoffSandboxSpreadExecLog.loadRecent(context))
+    }
     var portfolioLedgerIncludeAuto by remember {
         mutableStateOf(TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context))
     }
@@ -322,6 +325,9 @@ internal fun MoexScreen() {
             }
             confirmedPortfolioMetrics = executed.metrics
             confirmedPortfolioTableRows = executed.tableRows
+            sandboxSpreadExecutions = withContext(Dispatchers.IO) {
+                TinkoffSandboxSpreadExecLog.loadRecent(context)
+            }
             strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(
                 points = points,
                 thresholds = strategyTestThresholds,
@@ -831,11 +837,14 @@ internal fun MoexScreen() {
                                             proposal.signalType
                                         )
                                         clearPendingVirtualTradeProposal(context, proposal)
-                                        TinkoffSandboxSpreadExecLog.record(
+                                        TinkoffSandboxSpreadExecLog.recordFromLegs(
                                             context,
                                             proposal.signalType,
                                             proposal.zScore,
-                                            nowMs
+                                            barTimestampMillis = proposal.timestampMillis,
+                                            executedAtMillis = nowMs,
+                                            source = PortfolioExecSource.MANUAL,
+                                            legs = legsInner
                                         )
                                         appendPortfolioExecutionLedger(
                                             context,
@@ -970,6 +979,7 @@ internal fun MoexScreen() {
                         ConfirmedPortfolioTabContent(
                             metrics = confirmedPortfolioMetrics,
                             confirmedTradeTableRows = confirmedPortfolioTableRows,
+                            sandboxSpreadExecutions = sandboxSpreadExecutions,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,
                             onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },

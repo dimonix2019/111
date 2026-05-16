@@ -51,6 +51,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -444,11 +447,86 @@ private fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTabl
     }
 }
 
+private val sandboxExecTimeFormatter =
+    DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss").withZone(ZoneId.of("Europe/Moscow"))
+
 /** Портфель: сделки по журналу; вход в метриках — только при записи в реестре исполнений под выбранным режимом. */
+
+private fun formatSandboxExecTimeMs(ms: Long): String =
+    sandboxExecTimeFormatter.format(Instant.ofEpochMilli(ms))
+
+@Composable
+internal fun PortfolioSandboxOrdersSection(
+    executions: List<SandboxSpreadExecUi>,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1A237E).copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Ордера на демо (${executions.size} сделок)",
+            color = Color(0xFFBBDEFB),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = "Сделка = две ноги спрэда (2 ордера). Здесь — всё, что реально отправлено на песочницу. " +
+                "Таблица «Закрытые сделки» ниже появляется только после выхода по Z.",
+            color = Color(0xFF90CAF9),
+            fontSize = 10.sp,
+            maxLines = 4
+        )
+        if (executions.isEmpty()) {
+            Text(
+                text = "Пока нет ордеров. Нажмите тестовый сигнал / тестовую пару или «Принять» при включённом исполнении на демо.",
+                color = Color(0xFF9E9E9E),
+                fontSize = 11.sp
+            )
+        } else {
+            executions.asReversed().take(12).forEach { trade ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0x22000000), RoundedCornerShape(8.dp))
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "${trade.tradeTitleRu} · ${trade.sourceLabelRu} · ${formatSandboxExecTimeMs(trade.executedAtMillis)}",
+                        color = Color(0xFFE3F2FD),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (trade.zScore == PORTFOLIO_TEST_SIGNAL_Z_MARKER) {
+                        Text(
+                            text = "Тест (Z=${PORTFOLIO_TEST_SIGNAL_Z_MARKER.toInt()})",
+                            color = Color(0xFFFFCC80),
+                            fontSize = 10.sp
+                        )
+                    }
+                    trade.legs.forEachIndexed { index, leg ->
+                        Text(
+                            text = "Ордер ${index + 1}: ${leg.ticker} — ${leg.sideRu} · ${leg.orderBrief}",
+                            color = Color(0xFFB3E5FC),
+                            fontSize = 10.sp,
+                            maxLines = 3
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 internal fun ConfirmedPortfolioTabContent(
     metrics: PortfolioMetrics?,
     confirmedTradeTableRows: List<PortfolioConfirmedTradeTableRow>,
+    sandboxSpreadExecutions: List<SandboxSpreadExecUi>,
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
@@ -667,6 +745,7 @@ internal fun ConfirmedPortfolioTabContent(
                 }
             }
         }
+        PortfolioSandboxOrdersSection(executions = sandboxSpreadExecutions)
         Text(
             text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",
             color = Color(0xFF9E9E9E),

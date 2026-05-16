@@ -108,12 +108,16 @@ internal suspend fun executeTestSandboxSpreadPair(
         val acc = TinkoffSandboxStorage.getAccountId(app) ?: error("Нет счёта.")
         val barTs = journalBarTimestampMillis ?: System.currentTimeMillis()
         val legs = tinkoffSandboxExecuteSpreadEntryDetailed(tok, acc, signalType)
+        val executedAt = System.currentTimeMillis()
         markVirtualTradeConsumedForJournalEntry(app, signalType, barTs)
-        TinkoffSandboxSpreadExecLog.record(
+        TinkoffSandboxSpreadExecLog.recordFromLegs(
             app,
             signalType,
             PORTFOLIO_TEST_SIGNAL_Z_MARKER,
-            System.currentTimeMillis()
+            barTimestampMillis = barTs,
+            executedAtMillis = executedAt,
+            source = PortfolioExecSource.MANUAL,
+            legs = legs
         )
         appendPortfolioExecutionLedger(
             app,
