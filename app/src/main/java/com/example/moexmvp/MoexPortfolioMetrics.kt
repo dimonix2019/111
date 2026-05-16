@@ -289,7 +289,7 @@ internal data class ExecutedPortfolioBuildResult(
 private val executionTableMskFormatter: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.of("Europe/Moscow"))
 
-private fun formatExecutionTableMsk(epochMillis: Long): String =
+internal fun formatPortfolioExecutionTableMsk(epochMillis: Long): String =
     executionTableMskFormatter.format(Instant.ofEpochMilli(epochMillis))
 
 private data class SnappedSignalForExecution(
@@ -331,20 +331,26 @@ private fun snapStrategySignalEventsToExecutionPoints(
         .toList()
 }
 
-private data class LegSpreadDisplay(
+internal data class LegSpreadDisplay(
     val longTicker: String,
     val shortTicker: String,
     val longSideRu: String,
     val shortSideRu: String
 )
 
+internal fun legSpreadDisplayForEntry(signalType: StrategySignalType): LegSpreadDisplay = when (signalType) {
+    StrategySignalType.EnterLong -> LegSpreadDisplay("TATN", "TATNP", "LONG покупка", "SHORT продажа")
+    StrategySignalType.EnterShort -> LegSpreadDisplay("TATNP", "TATN", "LONG покупка", "SHORT продажа")
+    else -> LegSpreadDisplay("—", "—", "—", "—")
+}
+
 private fun legSpreadDisplay(direction: ZStrategyPosition): LegSpreadDisplay = when (direction) {
-    ZStrategyPosition.Long -> LegSpreadDisplay("TATN", "TATNP", "LONG покупка", "SHORT продажа")
-    ZStrategyPosition.Short -> LegSpreadDisplay("TATNP", "TATN", "LONG покупка", "SHORT продажа")
+    ZStrategyPosition.Long -> legSpreadDisplayForEntry(StrategySignalType.EnterLong)
+    ZStrategyPosition.Short -> legSpreadDisplayForEntry(StrategySignalType.EnterShort)
     ZStrategyPosition.Flat -> LegSpreadDisplay("—", "—", "—", "—")
 }
 
-private fun formatPushIdsForCorrelation(pushLog: List<PushNotificationLogEntry>, tag: String): String {
+internal fun formatPushIdsForCorrelation(pushLog: List<PushNotificationLogEntry>, tag: String): String {
     val ids = pushLog
         .asSequence()
         .filter { it.posted && it.correlationTag == tag && it.notificationId != null }
@@ -459,8 +465,8 @@ internal fun buildExecutedPortfolioWithTable(
                             tableRows += PortfolioConfirmedTradeTableRow(
                                 tradeId = "T-%03d".format(Locale.US, tradeSeq),
                                 directionLabel = "long",
-                                entryTimeMsk = formatExecutionTableMsk(ec.point.timestampMillis),
-                                exitTimeMsk = formatExecutionTableMsk(point.timestampMillis),
+                                entryTimeMsk = formatPortfolioExecutionTableMsk(ec.point.timestampMillis),
+                                exitTimeMsk = formatPortfolioExecutionTableMsk(point.timestampMillis),
                                 longLegTicker = legs.longTicker,
                                 shortLegTicker = legs.shortTicker,
                                 longLegSideRu = legs.longSideRu,
@@ -511,8 +517,8 @@ internal fun buildExecutedPortfolioWithTable(
                             tableRows += PortfolioConfirmedTradeTableRow(
                                 tradeId = "T-%03d".format(Locale.US, tradeSeq),
                                 directionLabel = "short",
-                                entryTimeMsk = formatExecutionTableMsk(ec.point.timestampMillis),
-                                exitTimeMsk = formatExecutionTableMsk(point.timestampMillis),
+                                entryTimeMsk = formatPortfolioExecutionTableMsk(ec.point.timestampMillis),
+                                exitTimeMsk = formatPortfolioExecutionTableMsk(point.timestampMillis),
                                 longLegTicker = legs.longTicker,
                                 shortLegTicker = legs.shortTicker,
                                 longLegSideRu = legs.longSideRu,

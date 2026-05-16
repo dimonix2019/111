@@ -23,7 +23,8 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
     context: Context,
     signalType: StrategySignalType,
     zScore: Double,
-    barTimestampMillis: Long
+    barTimestampMillis: Long,
+    fromTestButton: Boolean = false
 ): Boolean {
     if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) {
         return false
@@ -70,6 +71,13 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             signalType = signalType,
             source = PortfolioExecSource.AUTO
         )
+        notifySandboxSpreadLegExecutionResults(
+            app,
+            legs,
+            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage,
+            spreadLegPushCorrelationTag(barTimestampMillis, signalType)
+        )
         TinkoffSandboxSpreadExecLog.recordFromLegs(
             app,
             signalType,
@@ -77,14 +85,8 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             barTimestampMillis = barTimestampMillis,
             executedAtMillis = executedAt,
             source = PortfolioExecSource.AUTO,
-            legs = legs
-        )
-        notifySandboxSpreadLegExecutionResults(
-            app,
-            legs,
-            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage,
-            spreadLegPushCorrelationTag(barTimestampMillis, signalType)
+            legs = legs,
+            fromTestButton = fromTestButton
         )
         true
     } catch (e: Exception) {

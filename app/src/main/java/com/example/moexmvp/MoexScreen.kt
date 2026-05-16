@@ -118,7 +118,12 @@ internal fun MoexScreen() {
     /** Сдвигается после успешного «Принять» / тестовой пары на песочнице — пересчёт метрик портфеля. */
     var sandboxSpreadExecReload by remember { mutableStateOf(0) }
     var sandboxSpreadExecutions by remember(context) {
-        mutableStateOf(TinkoffSandboxSpreadExecLog.loadRecent(context))
+        mutableStateOf(
+            TinkoffSandboxSpreadExecLog.enrichForDisplay(
+                context,
+                TinkoffSandboxSpreadExecLog.loadRecent(context)
+            )
+        )
     }
     var portfolioLedgerIncludeAuto by remember {
         mutableStateOf(TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context))
@@ -326,7 +331,10 @@ internal fun MoexScreen() {
             confirmedPortfolioMetrics = executed.metrics
             confirmedPortfolioTableRows = executed.tableRows
             sandboxSpreadExecutions = withContext(Dispatchers.IO) {
-                TinkoffSandboxSpreadExecLog.loadRecent(context)
+                TinkoffSandboxSpreadExecLog.enrichForDisplay(
+                    context,
+                    TinkoffSandboxSpreadExecLog.loadRecent(context)
+                )
             }
             strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(
                 points = points,
@@ -837,15 +845,6 @@ internal fun MoexScreen() {
                                             proposal.signalType
                                         )
                                         clearPendingVirtualTradeProposal(context, proposal)
-                                        TinkoffSandboxSpreadExecLog.recordFromLegs(
-                                            context,
-                                            proposal.signalType,
-                                            proposal.zScore,
-                                            barTimestampMillis = proposal.timestampMillis,
-                                            executedAtMillis = nowMs,
-                                            source = PortfolioExecSource.MANUAL,
-                                            legs = legsInner
-                                        )
                                         appendPortfolioExecutionLedger(
                                             context,
                                             barTimestampMillis = proposal.timestampMillis,
@@ -879,6 +878,18 @@ internal fun MoexScreen() {
                                             proposal.signalType
                                         )
                                     )
+                                    withContext(Dispatchers.IO) {
+                                        TinkoffSandboxSpreadExecLog.recordFromLegs(
+                                            context,
+                                            proposal.signalType,
+                                            proposal.zScore,
+                                            barTimestampMillis = proposal.timestampMillis,
+                                            executedAtMillis = nowMs,
+                                            source = PortfolioExecSource.MANUAL,
+                                            legs = legs,
+                                            fromTestButton = false
+                                        )
+                                    }
                                     pendingVirtualTrade = null
                                     sandboxSpreadExecReload++
                                     signalEvents = loadStrategySignalEvents(context)
@@ -1112,12 +1123,15 @@ internal fun MoexScreen() {
                                             else -> StrategySignalType.EnterLong
                                         }
                                         val journalTs = proposal?.timestampMillis
+                                        val journalZ = proposal?.zScore
                                         val r = withContext(Dispatchers.IO) {
                                             executeTestSandboxSpreadPair(
                                                 context.applicationContext,
                                                 pairType,
                                                 journalBarTimestampMillis = journalTs,
-                                                skipStrategyJournalIfAlreadyRecorded = false
+                                                zScore = journalZ,
+                                                skipStrategyJournalIfAlreadyRecorded = false,
+                                                fromTestButton = true
                                             )
                                         }
                                         if (r.isSuccess) {

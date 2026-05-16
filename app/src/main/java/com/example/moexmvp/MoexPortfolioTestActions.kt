@@ -3,9 +3,7 @@ package com.example.moexmvp
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
-/** Маркер Z в журнале для кнопок «тестовый сигнал» / «тестовая пара» (не с реального бара). */
-internal const val PORTFOLIO_TEST_SIGNAL_Z_MARKER = 999.0
+import java.util.Locale
 
 internal data class PortfolioTestEntrySignalResult(
     val toastMessage: String,
@@ -13,8 +11,8 @@ internal data class PortfolioTestEntrySignalResult(
 )
 
 /**
- * Полный путь тестового входа: как у реального сигнала — позиция Z, журнал, при готовой песочнице
- * две заявки (авто или сразу «как Принять»), без второй строки журнала для того же [barTs].
+ * Полный путь тестового входа: Z и время бара — с последней 15м точки рынка; позиция Z, журнал;
+ * при готовой песочнице две заявки (авто или «как Принять»).
  */
 internal suspend fun runPortfolioTestEntrySignalFull(
     context: Context,
@@ -23,8 +21,11 @@ internal suspend fun runPortfolioTestEntrySignalFull(
     runCatching {
         require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
         val app = context.applicationContext
-        val barTs = System.currentTimeMillis()
+        val market = loadCurrentPortfolioMarketSnapshot(app)
+        val barTs = market.timestampMillis
+        val z = market.zScore
         val dir = if (signalType == StrategySignalType.EnterShort) "SHORT" else "LONG"
+        val zText = String.format(Locale.US, "%.2f", z)
         val position = when (signalType) {
             StrategySignalType.EnterLong -> ZStrategyPosition.Long
             StrategySignalType.EnterShort -> ZStrategyPosition.Short
@@ -34,7 +35,7 @@ internal suspend fun runPortfolioTestEntrySignalFull(
         recordStrategySignalEvent(
             context = app,
             signalType = signalType,
-            zScore = PORTFOLIO_TEST_SIGNAL_Z_MARKER,
+            zScore = z,
             timestampMillis = barTs,
             skipJournalWallDedup = true,
             savePendingVirtualTradeIfEntry = true
@@ -43,8 +44,8 @@ internal suspend fun runPortfolioTestEntrySignalFull(
         val execState = TinkoffSandboxStorage.resolveExecUiState(app)
         if (!execOn || execState != SandboxExecUiState.Ready) {
             return@runCatching PortfolioTestEntrySignalResult(
-                toastMessage = "Тестовый сигнал $dir: журнал и позиция Z обновлены (Z=${PORTFOLIO_TEST_SIGNAL_Z_MARKER.toInt()} — метка теста). " +
-                    "Включите «Исполнять вход на демо» и укажите токен/счёт песочницы, чтобы отправлялись заявки.",
+                toastMessage = "Тестовый сигнал $dir: журнал и позиция Z (Z=$zText). " +
+                    "Включите «Исполнять вход на демо» и укажите токен/счёт песочницы, чтобы отправлялись ордера.",
                 sandboxSpreadExecReloadDelta = 0
             )
         }
@@ -52,17 +53,18 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             val ran = runSandboxAutoEntryIfNeeded(
                 app,
                 signalType,
-                PORTFOLIO_TEST_SIGNAL_Z_MARKER,
-                barTs
+                z,
+                barTs,
+                fromTestButton = true
             )
             return@runCatching if (ran) {
                 PortfolioTestEntrySignalResult(
-                    toastMessage = "Тестовый $dir: авто-вход в песочницу — отправлены 2 заявки (Z=${PORTFOLIO_TEST_SIGNAL_Z_MARKER.toInt()}).",
+                    toastMessage = "Тестовый $dir: авто-вход на демо — 2 ордера (Z=$zText).",
                     sandboxSpreadExecReloadDelta = 1
                 )
             } else {
                 PortfolioTestEntrySignalResult(
-                    toastMessage = "Тестовый $dir записан в журнал. Авто-вход не выполнен (см. уведомление или повтор с другим временем).",
+                    toastMessage = "Тестовый $dir записан (Z=$zText). Авто-вход не выполнен (см. уведомление).",
                     sandboxSpreadExecReloadDelta = 0
                 )
             }
@@ -71,27 +73,28 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             app,
             signalType,
             journalBarTimestampMillis = barTs,
-            skipStrategyJournalIfAlreadyRecorded = true
+            zScore = z,
+            skipStrategyJournalIfAlreadyRecorded = true,
+            fromTestButton = true
         )
         r.getOrThrow()
         PortfolioTestEntrySignalResult(
-            toastMessage = "Тестовый $dir: в песочнице отправлены 2 заявки (как «Принять»), Z=${PORTFOLIO_TEST_SIGNAL_Z_MARKER.toInt()}.",
+            toastMessage = "Тестовый $dir: 2 ордера на демо (Z=$zText).",
             sandboxSpreadExecReloadDelta = 1
         )
     }
 }
 
 /**
- * Две рыночные заявки на демо (как «Принять»): журнал + реестр исполнений с [PortfolioExecSource.MANUAL], позиция Z.
- *
- * @param journalBarTimestampMillis если задан — тот же штамп, что в журнале (ledger / push correlation).
- * @param skipStrategyJournalIfAlreadyRecorded не писать вторую строку в журнал (уже записана вызывающим кодом).
+ * Две рыночные заявки на демо: журнал + реестр [PortfolioExecSource.MANUAL], позиция Z.
  */
 internal suspend fun executeTestSandboxSpreadPair(
     context: Context,
     signalType: StrategySignalType,
     journalBarTimestampMillis: Long? = null,
-    skipStrategyJournalIfAlreadyRecorded: Boolean = false
+    zScore: Double? = null,
+    skipStrategyJournalIfAlreadyRecorded: Boolean = false,
+    fromTestButton: Boolean = false
 ): Result<Unit> = withContext(Dispatchers.IO) {
     runCatching {
         require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
@@ -104,21 +107,14 @@ internal suspend fun executeTestSandboxSpreadPair(
             SandboxExecUiState.MissingCredentials -> error("Укажите токен и счёт песочницы (вкладка «Песочница»).")
             SandboxExecUiState.Ready -> Unit
         }
+        val market = loadCurrentPortfolioMarketSnapshot(app)
+        val barTs = journalBarTimestampMillis ?: market.timestampMillis
+        val z = zScore ?: market.zScore
         val tok = TinkoffSandboxStorage.getToken(app) ?: error("Нет токена.")
         val acc = TinkoffSandboxStorage.getAccountId(app) ?: error("Нет счёта.")
-        val barTs = journalBarTimestampMillis ?: System.currentTimeMillis()
         val legs = tinkoffSandboxExecuteSpreadEntryDetailed(tok, acc, signalType)
         val executedAt = System.currentTimeMillis()
         markVirtualTradeConsumedForJournalEntry(app, signalType, barTs)
-        TinkoffSandboxSpreadExecLog.recordFromLegs(
-            app,
-            signalType,
-            PORTFOLIO_TEST_SIGNAL_Z_MARKER,
-            barTimestampMillis = barTs,
-            executedAtMillis = executedAt,
-            source = PortfolioExecSource.MANUAL,
-            legs = legs
-        )
         appendPortfolioExecutionLedger(
             app,
             barTimestampMillis = barTs,
@@ -135,7 +131,7 @@ internal suspend fun executeTestSandboxSpreadPair(
                 recordStrategySignalEvent(
                     context = app,
                     signalType = signalType,
-                    zScore = PORTFOLIO_TEST_SIGNAL_Z_MARKER,
+                    zScore = z,
                     timestampMillis = barTs,
                     skipJournalWallDedup = true,
                     savePendingVirtualTradeIfEntry = false
@@ -154,6 +150,16 @@ internal suspend fun executeTestSandboxSpreadPair(
             DEFAULT_PORTFOLIO_NOTIONAL_RUB,
             TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
             spreadLegPushCorrelationTag(barTs, signalType)
+        )
+        TinkoffSandboxSpreadExecLog.recordFromLegs(
+            app,
+            signalType,
+            z,
+            barTimestampMillis = barTs,
+            executedAtMillis = executedAt,
+            source = PortfolioExecSource.MANUAL,
+            legs = legs,
+            fromTestButton = fromTestButton
         )
     }
 }

@@ -51,9 +51,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -329,6 +326,12 @@ private fun PortfolioCompactHeroInline(metrics: PortfolioMetrics) {
     }
 }
 
+private fun formatPortfolioTableZ(z: Double): String =
+    if (z.isNaN()) "—" else String.format(Locale.US, "%.2f", z)
+
+private fun formatPortfolioTableRub(value: Double): String =
+    if (value.isNaN()) "—" else formatRubSigned(value)
+
 @Composable
 private fun PortfolioTradeTableCell(
     text: String,
@@ -399,11 +402,11 @@ private fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTabl
                     PortfolioTradeTableCell(r.volumeText, Modifier.widthIn(min = 54.dp).width(54.dp))
                     PortfolioTradeTableCell(r.confirmLabel, Modifier.widthIn(min = 54.dp).width(54.dp))
                     PortfolioTradeTableCell(
-                        String.format(Locale.US, "%.2f", r.entryZ),
+                        formatPortfolioTableZ(r.entryZ),
                         Modifier.widthIn(min = 40.dp).width(40.dp)
                     )
                     PortfolioTradeTableCell(
-                        String.format(Locale.US, "%.2f", r.exitZ),
+                        formatPortfolioTableZ(r.exitZ),
                         Modifier.widthIn(min = 40.dp).width(40.dp)
                     )
                     PortfolioTradeTableCell(
@@ -412,25 +415,30 @@ private fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTabl
                         Color(0xFFB3E5FC)
                     )
                     PortfolioTradeTableCell(
-                        formatRubSigned(r.legLongPnlSplitRubApprox),
+                        formatPortfolioTableRub(r.legLongPnlSplitRubApprox),
                         Modifier.widthIn(min = 58.dp).width(58.dp),
-                        rubDeltaColor(r.legLongPnlSplitRubApprox)
+                        if (r.legLongPnlSplitRubApprox.isNaN()) Color(0xFF757575) else rubDeltaColor(r.legLongPnlSplitRubApprox)
                     )
                     PortfolioTradeTableCell(
-                        formatRubSigned(r.legShortPnlSplitRubApprox),
+                        formatPortfolioTableRub(r.legShortPnlSplitRubApprox),
                         Modifier.widthIn(min = 58.dp).width(58.dp),
-                        rubDeltaColor(r.legShortPnlSplitRubApprox)
+                        if (r.legShortPnlSplitRubApprox.isNaN()) Color(0xFF757575) else rubDeltaColor(r.legShortPnlSplitRubApprox)
                     )
                     PortfolioTradeTableCell(
-                        formatRubSigned(r.netPnlRubApprox),
+                        formatPortfolioTableRub(r.netPnlRubApprox),
                         Modifier.widthIn(min = 68.dp).width(68.dp),
-                        rubDeltaColor(r.netPnlRubApprox)
+                        if (r.netPnlRubApprox.isNaN()) Color(0xFF757575) else rubDeltaColor(r.netPnlRubApprox)
                     )
                 }
+                val legsDetail = if (r.netPnlRubApprox.isNaN()) {
+                    "Ордер 1: ${r.longLegTicker} (${r.longLegSideRu})  |  Ордер 2: ${r.shortLegTicker} (${r.shortLegSideRu})  |  PnL после выхода"
+                } else {
+                    "Ноги: ${r.longLegTicker} (${r.longLegSideRu}) · ${formatPortfolioTableRub(r.legLongPnlSplitRubApprox)}  " +
+                        "|  ${r.shortLegTicker} (${r.shortLegSideRu}) · ${formatPortfolioTableRub(r.legShortPnlSplitRubApprox)}  " +
+                        "|  валовый спрэд ${formatPortfolioTableRub(r.grossPnlRubApprox)}"
+                }
                 Text(
-                    text = "Ноги: ${r.longLegTicker} (${r.longLegSideRu}) · ${formatRubSigned(r.legLongPnlSplitRubApprox)}  " +
-                        "|  ${r.shortLegTicker} (${r.shortLegSideRu}) · ${formatRubSigned(r.legShortPnlSplitRubApprox)}  " +
-                        "|  валовый спрэд ${formatRubSigned(r.grossPnlRubApprox)}",
+                    text = legsDetail,
                     color = Color(0xFF9E9E9E),
                     fontSize = 8.sp,
                     modifier = Modifier.padding(start = 6.dp, top = 2.dp, end = 4.dp)
@@ -447,19 +455,13 @@ private fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTabl
     }
 }
 
-private val sandboxExecTimeFormatter =
-    DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss").withZone(ZoneId.of("Europe/Moscow"))
-
 /** Портфель: сделки по журналу; вход в метриках — только при записи в реестре исполнений под выбранным режимом. */
-
-private fun formatSandboxExecTimeMs(ms: Long): String =
-    sandboxExecTimeFormatter.format(Instant.ofEpochMilli(ms))
-
 @Composable
 internal fun PortfolioSandboxOrdersSection(
     executions: List<SandboxSpreadExecUi>,
     modifier: Modifier = Modifier
 ) {
+    val openRows = executions.asReversed().map { it.toOpenPortfolioTableRow() }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -468,56 +470,25 @@ internal fun PortfolioSandboxOrdersSection(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = "Ордера на демо (${executions.size} сделок)",
+            text = "Сделки на демо — открытые (${openRows.size})",
             color = Color(0xFFBBDEFB),
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )
         Text(
-            text = "Сделка = две ноги спрэда (2 ордера). Здесь — всё, что реально отправлено на песочницу. " +
-                "Таблица «Закрытые сделки» ниже появляется только после выхода по Z.",
+            text = "Сделка = 2 ордера (ноги). Те же столбцы, что у закрытых сделок; выход и PnL — после закрытия позиции.",
             color = Color(0xFF90CAF9),
             fontSize = 10.sp,
-            maxLines = 4
+            maxLines = 3
         )
-        if (executions.isEmpty()) {
+        if (openRows.isEmpty()) {
             Text(
-                text = "Пока нет ордеров. Нажмите тестовый сигнал / тестовую пару или «Принять» при включённом исполнении на демо.",
+                text = "Пока нет сделок на демо. Тестовый сигнал / пара или «Принять» при включённом исполнении.",
                 color = Color(0xFF9E9E9E),
                 fontSize = 11.sp
             )
         } else {
-            executions.asReversed().take(12).forEach { trade ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0x22000000), RoundedCornerShape(8.dp))
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "${trade.tradeTitleRu} · ${trade.sourceLabelRu} · ${formatSandboxExecTimeMs(trade.executedAtMillis)}",
-                        color = Color(0xFFE3F2FD),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    if (trade.zScore == PORTFOLIO_TEST_SIGNAL_Z_MARKER) {
-                        Text(
-                            text = "Тест (Z=${PORTFOLIO_TEST_SIGNAL_Z_MARKER.toInt()})",
-                            color = Color(0xFFFFCC80),
-                            fontSize = 10.sp
-                        )
-                    }
-                    trade.legs.forEachIndexed { index, leg ->
-                        Text(
-                            text = "Ордер ${index + 1}: ${leg.ticker} — ${leg.sideRu} · ${leg.orderBrief}",
-                            color = Color(0xFFB3E5FC),
-                            fontSize = 10.sp,
-                            maxLines = 3
-                        )
-                    }
-                }
-            }
+            PortfolioConfirmedTradesTable(openRows)
         }
     }
 }

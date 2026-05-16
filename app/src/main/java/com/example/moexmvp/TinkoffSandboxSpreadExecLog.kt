@@ -3,11 +3,15 @@ package com.example.moexmvp
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 
 private const val PREFS = "moex_sandbox_spread_exec"
 private const val KEY_HISTORY_JSON = "spread_exec_history_json"
 private const val KEY_JSON_LEGACY = "last_spread_exec_json"
 private const val MAX_HISTORY = 30
+
+/** @deprecated Старые записи журнала с Z=999; новые тесты пишут рыночный Z. */
+internal const val PORTFOLIO_TEST_SIGNAL_Z_MARKER = 999.0
 
 internal data class SandboxSpreadOrderLegUi(
     val ticker: String,
@@ -15,27 +19,45 @@ internal data class SandboxSpreadOrderLegUi(
     val orderBrief: String
 )
 
-/** Одна сделка на демо = два ордера (ноги спрэда). */
+/** Одна сделка на демо = два ордера (ноги спрэда), те же поля что в таблице закрытых сделок. */
 internal data class SandboxSpreadExecUi(
+    val tradeId: String,
     val signalType: StrategySignalType,
     val zScore: Double,
     val barTimestampMillis: Long,
     val executedAtMillis: Long,
     val source: PortfolioExecSource,
+    val directionLabel: String,
+    val entryTimeMsk: String,
+    val longLegTicker: String,
+    val shortLegTicker: String,
+    val longLegSideRu: String,
+    val shortLegSideRu: String,
+    val volumeText: String,
+    val confirmLabel: String,
+    val correlationTag: String,
+    val notificationIdsText: String,
     val legs: List<SandboxSpreadOrderLegUi>
 ) {
-    val tradeTitleRu: String
-        get() = when (signalType) {
-            StrategySignalType.EnterLong -> "Сделка LONG TATN / SHORT TATNP"
-            StrategySignalType.EnterShort -> "Сделка LONG TATNP / SHORT TATN"
-            else -> "Сделка"
-        }
-
-    val sourceLabelRu: String
-        get() = when (source) {
-            PortfolioExecSource.MANUAL -> "ручное"
-            PortfolioExecSource.AUTO -> "авто демо"
-        }
+    fun toOpenPortfolioTableRow(): PortfolioConfirmedTradeTableRow = PortfolioConfirmedTradeTableRow(
+        tradeId = tradeId,
+        directionLabel = directionLabel,
+        entryTimeMsk = entryTimeMsk,
+        exitTimeMsk = "—",
+        longLegTicker = longLegTicker,
+        shortLegTicker = shortLegTicker,
+        longLegSideRu = longLegSideRu,
+        shortLegSideRu = shortLegSideRu,
+        volumeText = volumeText,
+        confirmLabel = confirmLabel,
+        entryZ = zScore,
+        exitZ = Double.NaN,
+        notificationIdsText = notificationIdsText,
+        legLongPnlSplitRubApprox = Double.NaN,
+        legShortPnlSplitRubApprox = Double.NaN,
+        grossPnlRubApprox = Double.NaN,
+        netPnlRubApprox = Double.NaN
+    )
 }
 
 internal object TinkoffSandboxSpreadExecLog {
@@ -47,7 +69,8 @@ internal object TinkoffSandboxSpreadExecLog {
         barTimestampMillis: Long,
         executedAtMillis: Long,
         source: PortfolioExecSource,
-        legs: List<SandboxLegOrderResult>
+        legs: List<SandboxLegOrderResult>,
+        fromTestButton: Boolean = false
     ) {
         if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return
         val legUi = legs.map { leg ->
@@ -58,55 +81,54 @@ internal object TinkoffSandboxSpreadExecLog {
             )
         }
         if (legUi.isEmpty()) {
-            recordTemplate(context, signalType, zScore, barTimestampMillis, executedAtMillis, source)
+            recordTemplate(
+                context,
+                signalType,
+                zScore,
+                barTimestampMillis,
+                executedAtMillis,
+                source,
+                fromTestButton
+            )
             return
         }
         appendExecution(
             context,
-            SandboxSpreadExecUi(
-                signalType = signalType,
-                zScore = zScore,
-                barTimestampMillis = barTimestampMillis,
-                executedAtMillis = executedAtMillis,
-                source = source,
-                legs = legUi
+            buildEntry(
+                context,
+                signalType,
+                zScore,
+                barTimestampMillis,
+                executedAtMillis,
+                source,
+                legUi,
+                fromTestButton
             )
         )
     }
 
-    /** Без ответа API — только шаблон ног (не вызывать после успешного PostOrder). */
     fun recordTemplate(
         context: Context,
         signalType: StrategySignalType,
         zScore: Double,
         barTimestampMillis: Long,
         executedAtMillis: Long,
-        source: PortfolioExecSource
+        source: PortfolioExecSource,
+        fromTestButton: Boolean = false
     ) {
         if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return
-        val legs = templateLegUi(signalType)
         appendExecution(
             context,
-            SandboxSpreadExecUi(
-                signalType = signalType,
-                zScore = zScore,
-                barTimestampMillis = barTimestampMillis,
-                executedAtMillis = executedAtMillis,
-                source = source,
-                legs = legs
+            buildEntry(
+                context,
+                signalType,
+                zScore,
+                barTimestampMillis,
+                executedAtMillis,
+                source,
+                templateLegUi(signalType),
+                fromTestButton
             )
-        )
-    }
-
-    @Deprecated("Use recordFromLegs", ReplaceWith("recordFromLegs(context, signalType, zScore, barTimestampMillis, executedAtMillis, source, legs)"))
-    fun record(context: Context, signalType: StrategySignalType, zScore: Double, timestampMillis: Long) {
-        recordTemplate(
-            context,
-            signalType,
-            zScore,
-            barTimestampMillis = timestampMillis,
-            executedAtMillis = timestampMillis,
-            source = PortfolioExecSource.MANUAL
         )
     }
 
@@ -123,7 +145,16 @@ internal object TinkoffSandboxSpreadExecLog {
         }.takeLast(limit)
     }
 
-    fun load(context: Context): SandboxSpreadExecUi? = loadRecent(context, 1).lastOrNull()
+    fun enrichForDisplay(context: Context, executions: List<SandboxSpreadExecUi>): List<SandboxSpreadExecUi> {
+        if (executions.isEmpty()) return executions
+        val pushLog = loadPushNotificationLog(context)
+        return executions.map { exec ->
+            if (exec.correlationTag.isBlank()) return@map exec
+            val ids = formatPushIdsForCorrelation(pushLog, exec.correlationTag)
+            if (ids == exec.notificationIdsText) exec
+            else exec.copy(notificationIdsText = ids)
+        }
+    }
 
     fun clear(context: Context) {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -133,20 +164,60 @@ internal object TinkoffSandboxSpreadExecLog {
             .apply()
     }
 
+    private fun buildEntry(
+        context: Context,
+        signalType: StrategySignalType,
+        zScore: Double,
+        barTimestampMillis: Long,
+        executedAtMillis: Long,
+        source: PortfolioExecSource,
+        legUi: List<SandboxSpreadOrderLegUi>,
+        fromTestButton: Boolean
+    ): SandboxSpreadExecUi {
+        val app = context.applicationContext
+        val spread = legSpreadDisplayForEntry(signalType)
+        val tag = spreadLegPushCorrelationTag(barTimestampMillis, signalType)
+        val pushLog = loadPushNotificationLog(app)
+        val seq = loadRecent(app, MAX_HISTORY).size + 1
+        val confirm = when (source) {
+            PortfolioExecSource.AUTO -> "авто"
+            PortfolioExecSource.MANUAL -> "ручное"
+        } + if (fromTestButton) " · тест" else ""
+        return SandboxSpreadExecUi(
+            tradeId = "D-%03d".format(Locale.US, seq),
+            signalType = signalType,
+            zScore = zScore,
+            barTimestampMillis = barTimestampMillis,
+            executedAtMillis = executedAtMillis,
+            source = source,
+            directionLabel = if (signalType == StrategySignalType.EnterShort) "short" else "long",
+            entryTimeMsk = formatPortfolioExecutionTableMsk(barTimestampMillis),
+            longLegTicker = spread.longTicker,
+            shortLegTicker = spread.shortTicker,
+            longLegSideRu = spread.longSideRu,
+            shortLegSideRu = spread.shortSideRu,
+            volumeText = "1+1 лот",
+            confirmLabel = confirm,
+            correlationTag = tag,
+            notificationIdsText = formatPushIdsForCorrelation(pushLog, tag),
+            legs = legUi
+        )
+    }
+
     private fun appendExecution(context: Context, entry: SandboxSpreadExecUi) {
         val app = context.applicationContext
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         migrateLegacyIfNeeded(prefs)
         val list = loadRecent(app, MAX_HISTORY).toMutableList()
-        val dup = list.lastOrNull()?.let { last ->
-            last.signalType == entry.signalType &&
-                last.barTimestampMillis == entry.barTimestampMillis &&
-                last.source == entry.source
-        } == true
-        if (!dup) {
-            list += entry
+        val dupIndex = list.indexOfLast {
+            it.signalType == entry.signalType &&
+                it.barTimestampMillis == entry.barTimestampMillis &&
+                it.source == entry.source
+        }
+        if (dupIndex >= 0) {
+            list[dupIndex] = entry.copy(tradeId = list[dupIndex].tradeId)
         } else {
-            list[list.lastIndex] = entry
+            list += entry
         }
         val trimmed = list.takeLast(MAX_HISTORY)
         prefs.edit()
@@ -162,17 +233,27 @@ internal object TinkoffSandboxSpreadExecLog {
         val type = runCatching { StrategySignalType.valueOf(o.optString("signalType")) }.getOrNull()
             ?: return
         if (type != StrategySignalType.EnterLong && type != StrategySignalType.EnterShort) return
-        val legsRu = o.optString("legsRu", "")
-        val legs = legsRu.lines().filter { it.isNotBlank() }.map { line ->
-            SandboxSpreadOrderLegUi("?", line.trim(), "—")
-        }
+        val barTs = o.optLong("timestampMillis", 0L)
+        val z = o.optDouble("zScore", 0.0)
+        val spread = legSpreadDisplayForEntry(type)
         val entry = SandboxSpreadExecUi(
+            tradeId = "D-001",
             signalType = type,
-            zScore = o.optDouble("zScore", 0.0),
-            barTimestampMillis = o.optLong("timestampMillis", 0L),
-            executedAtMillis = o.optLong("timestampMillis", 0L),
+            zScore = z,
+            barTimestampMillis = barTs,
+            executedAtMillis = barTs,
             source = PortfolioExecSource.MANUAL,
-            legs = legs.ifEmpty { templateLegUi(type) }
+            directionLabel = if (type == StrategySignalType.EnterShort) "short" else "long",
+            entryTimeMsk = formatPortfolioExecutionTableMsk(barTs),
+            longLegTicker = spread.longTicker,
+            shortLegTicker = spread.shortTicker,
+            longLegSideRu = spread.longSideRu,
+            shortLegSideRu = spread.shortSideRu,
+            volumeText = "1+1 лот",
+            confirmLabel = "ручное",
+            correlationTag = spreadLegPushCorrelationTag(barTs, type),
+            notificationIdsText = "—",
+            legs = templateLegUi(type)
         )
         prefs.edit()
             .putString(KEY_HISTORY_JSON, encodeHistory(listOf(entry)).toString())
@@ -209,11 +290,22 @@ internal object TinkoffSandboxSpreadExecLog {
             )
         }
         return JSONObject()
+            .put("tradeId", e.tradeId)
             .put("signalType", e.signalType.name)
             .put("zScore", e.zScore)
             .put("barTimestampMillis", e.barTimestampMillis)
             .put("executedAtMillis", e.executedAtMillis)
             .put("source", e.source.name)
+            .put("directionLabel", e.directionLabel)
+            .put("entryTimeMsk", e.entryTimeMsk)
+            .put("longLegTicker", e.longLegTicker)
+            .put("shortLegTicker", e.shortLegTicker)
+            .put("longLegSideRu", e.longLegSideRu)
+            .put("shortLegSideRu", e.shortLegSideRu)
+            .put("volumeText", e.volumeText)
+            .put("confirmLabel", e.confirmLabel)
+            .put("correlationTag", e.correlationTag)
+            .put("notificationIdsText", e.notificationIdsText)
             .put("legs", legsArr)
     }
 
@@ -241,12 +333,31 @@ internal object TinkoffSandboxSpreadExecLog {
             templateLegUi(type)
         }
         val barTs = o.optLong("barTimestampMillis", o.optLong("timestampMillis", 0L))
+        val spread = legSpreadDisplayForEntry(type)
+        val tag = o.optString("correlationTag").ifBlank {
+            spreadLegPushCorrelationTag(barTs, type)
+        }
         return SandboxSpreadExecUi(
+            tradeId = o.optString("tradeId", "D-000"),
             signalType = type,
             zScore = o.optDouble("zScore", 0.0),
             barTimestampMillis = barTs,
             executedAtMillis = o.optLong("executedAtMillis", barTs),
             source = src,
+            directionLabel = o.optString("directionLabel").ifBlank {
+                if (type == StrategySignalType.EnterShort) "short" else "long"
+            },
+            entryTimeMsk = o.optString("entryTimeMsk").ifBlank {
+                formatPortfolioExecutionTableMsk(barTs)
+            },
+            longLegTicker = o.optString("longLegTicker", spread.longTicker),
+            shortLegTicker = o.optString("shortLegTicker", spread.shortTicker),
+            longLegSideRu = o.optString("longLegSideRu", spread.longSideRu),
+            shortLegSideRu = o.optString("shortLegSideRu", spread.shortSideRu),
+            volumeText = o.optString("volumeText", "1+1 лот"),
+            confirmLabel = o.optString("confirmLabel", if (src == PortfolioExecSource.AUTO) "авто" else "ручное"),
+            correlationTag = tag,
+            notificationIdsText = o.optString("notificationIdsText", "—"),
             legs = legs
         )
     }
