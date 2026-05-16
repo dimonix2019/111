@@ -26,6 +26,7 @@ internal data class SandboxSpreadExecUi(
     val zScore: Double,
     val barTimestampMillis: Long,
     val executedAtMillis: Long,
+    val entrySpreadPercent: Double,
     val source: PortfolioExecSource,
     val directionLabel: String,
     val entryTimeMsk: String,
@@ -37,7 +38,12 @@ internal data class SandboxSpreadExecUi(
     val confirmLabel: String,
     val correlationTag: String,
     val notificationIdsText: String,
-    val legs: List<SandboxSpreadOrderLegUi>
+    val legs: List<SandboxSpreadOrderLegUi>,
+    /** Текущий Z при пересчёте портфеля (колонка Zвых для открытой сделки). */
+    val exitZDisplay: Double = Double.NaN,
+    val legLongPnlSplitRubApprox: Double = Double.NaN,
+    val legShortPnlSplitRubApprox: Double = Double.NaN,
+    val netPnlRubApprox: Double = Double.NaN
 ) {
     fun toTradeGroup(): PortfolioTradeGroupRow {
         val orderRows = if (legs.size >= 2) {
@@ -79,12 +85,13 @@ internal data class SandboxSpreadExecUi(
             volumeText = volumeText,
             confirmLabel = confirmLabel,
             entryZ = zScore,
-            exitZ = Double.NaN,
+            exitZ = exitZDisplay,
             notificationIdsText = notificationIdsText,
-            legLongPnlSplitRubApprox = Double.NaN,
-            legShortPnlSplitRubApprox = Double.NaN,
-            netPnlRubApprox = Double.NaN,
-            orders = orderRows
+            legLongPnlSplitRubApprox = legLongPnlSplitRubApprox,
+            legShortPnlSplitRubApprox = legShortPnlSplitRubApprox,
+            netPnlRubApprox = netPnlRubApprox,
+            orders = orderRows,
+            isOpen = true
         )
     }
 }
@@ -97,6 +104,7 @@ internal object TinkoffSandboxSpreadExecLog {
         zScore: Double,
         barTimestampMillis: Long,
         executedAtMillis: Long,
+        entrySpreadPercent: Double,
         source: PortfolioExecSource,
         legs: List<SandboxLegOrderResult>,
         fromTestButton: Boolean = false
@@ -116,6 +124,7 @@ internal object TinkoffSandboxSpreadExecLog {
                 zScore,
                 barTimestampMillis,
                 executedAtMillis,
+                entrySpreadPercent,
                 source,
                 fromTestButton
             )
@@ -129,6 +138,7 @@ internal object TinkoffSandboxSpreadExecLog {
                 zScore,
                 barTimestampMillis,
                 executedAtMillis,
+                entrySpreadPercent,
                 source,
                 legUi,
                 fromTestButton
@@ -142,6 +152,7 @@ internal object TinkoffSandboxSpreadExecLog {
         zScore: Double,
         barTimestampMillis: Long,
         executedAtMillis: Long,
+        entrySpreadPercent: Double,
         source: PortfolioExecSource,
         fromTestButton: Boolean = false
     ) {
@@ -154,6 +165,7 @@ internal object TinkoffSandboxSpreadExecLog {
                 zScore,
                 barTimestampMillis,
                 executedAtMillis,
+                entrySpreadPercent,
                 source,
                 templateLegUi(signalType),
                 fromTestButton
@@ -174,15 +186,23 @@ internal object TinkoffSandboxSpreadExecLog {
         }.takeLast(limit)
     }
 
-    fun enrichForDisplay(context: Context, executions: List<SandboxSpreadExecUi>): List<SandboxSpreadExecUi> {
+    fun enrichForDisplay(
+        context: Context,
+        executions: List<SandboxSpreadExecUi>,
+        points: List<DataPoint> = emptyList(),
+        notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+        leverage: Double = 7.0
+    ): List<SandboxSpreadExecUi> {
         if (executions.isEmpty()) return executions
         val pushLog = loadPushNotificationLog(context)
-        return executions.map { exec ->
-            if (exec.correlationTag.isBlank()) return@map exec
-            val ids = formatPushIdsForCorrelation(pushLog, exec.correlationTag)
-            if (ids == exec.notificationIdsText) exec
-            else exec.copy(notificationIdsText = ids)
+        val withPush = executions.map { exec ->
+            if (exec.correlationTag.isBlank()) exec
+            else {
+                val ids = formatPushIdsForCorrelation(pushLog, exec.correlationTag)
+                if (ids == exec.notificationIdsText) exec else exec.copy(notificationIdsText = ids)
+            }
         }
+        return enrichOpenSandboxExecutions(withPush, points, notionalRub, leverage)
     }
 
     fun clear(context: Context) {
@@ -199,6 +219,7 @@ internal object TinkoffSandboxSpreadExecLog {
         zScore: Double,
         barTimestampMillis: Long,
         executedAtMillis: Long,
+        entrySpreadPercent: Double,
         source: PortfolioExecSource,
         legUi: List<SandboxSpreadOrderLegUi>,
         fromTestButton: Boolean
@@ -218,9 +239,10 @@ internal object TinkoffSandboxSpreadExecLog {
             zScore = zScore,
             barTimestampMillis = barTimestampMillis,
             executedAtMillis = executedAtMillis,
+            entrySpreadPercent = entrySpreadPercent,
             source = source,
             directionLabel = if (signalType == StrategySignalType.EnterShort) "short" else "long",
-            entryTimeMsk = formatPortfolioExecutionTableMsk(barTimestampMillis),
+            entryTimeMsk = formatPortfolioExecutionTableMsk(executedAtMillis),
             longLegTicker = spread.longTicker,
             shortLegTicker = spread.shortTicker,
             longLegSideRu = spread.longSideRu,
@@ -271,6 +293,7 @@ internal object TinkoffSandboxSpreadExecLog {
             zScore = z,
             barTimestampMillis = barTs,
             executedAtMillis = barTs,
+            entrySpreadPercent = 0.0,
             source = PortfolioExecSource.MANUAL,
             directionLabel = if (type == StrategySignalType.EnterShort) "short" else "long",
             entryTimeMsk = formatPortfolioExecutionTableMsk(barTs),
@@ -324,6 +347,7 @@ internal object TinkoffSandboxSpreadExecLog {
             .put("zScore", e.zScore)
             .put("barTimestampMillis", e.barTimestampMillis)
             .put("executedAtMillis", e.executedAtMillis)
+            .put("entrySpreadPercent", e.entrySpreadPercent)
             .put("source", e.source.name)
             .put("directionLabel", e.directionLabel)
             .put("entryTimeMsk", e.entryTimeMsk)
@@ -372,12 +396,13 @@ internal object TinkoffSandboxSpreadExecLog {
             zScore = o.optDouble("zScore", 0.0),
             barTimestampMillis = barTs,
             executedAtMillis = o.optLong("executedAtMillis", barTs),
+            entrySpreadPercent = o.optDouble("entrySpreadPercent", 0.0),
             source = src,
             directionLabel = o.optString("directionLabel").ifBlank {
                 if (type == StrategySignalType.EnterShort) "short" else "long"
             },
             entryTimeMsk = o.optString("entryTimeMsk").ifBlank {
-                formatPortfolioExecutionTableMsk(barTs)
+                formatPortfolioExecutionTableMsk(o.optLong("executedAtMillis", barTs))
             },
             longLegTicker = o.optString("longLegTicker", spread.longTicker),
             shortLegTicker = o.optString("shortLegTicker", spread.shortTicker),

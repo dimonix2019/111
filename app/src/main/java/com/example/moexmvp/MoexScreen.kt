@@ -118,12 +118,7 @@ internal fun MoexScreen() {
     /** Сдвигается после успешного «Принять» / тестовой пары на песочнице — пересчёт метрик портфеля. */
     var sandboxSpreadExecReload by remember { mutableStateOf(0) }
     var sandboxSpreadExecutions by remember(context) {
-        mutableStateOf(
-            TinkoffSandboxSpreadExecLog.enrichForDisplay(
-                context,
-                TinkoffSandboxSpreadExecLog.loadRecent(context)
-            )
-        )
+        mutableStateOf(TinkoffSandboxSpreadExecLog.loadRecent(context))
     }
     var portfolioLedgerIncludeAuto by remember {
         mutableStateOf(TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context))
@@ -332,8 +327,11 @@ internal fun MoexScreen() {
             confirmedPortfolioTableRows = executed.tableRows
             sandboxSpreadExecutions = withContext(Dispatchers.IO) {
                 TinkoffSandboxSpreadExecLog.enrichForDisplay(
-                    context,
-                    TinkoffSandboxSpreadExecLog.loadRecent(context)
+                    context = context,
+                    executions = TinkoffSandboxSpreadExecLog.loadRecent(context),
+                    points = points,
+                    notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                    leverage = portfolioLeverage
                 )
             }
             strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(
@@ -439,6 +437,7 @@ internal fun MoexScreen() {
                         if (m15ForSignal.size >= 2) {
                             val lastPt = m15ForSignal.last()
                             val latestZScore = lastPt.zScore
+                            val latestSpreadPercent = lastPt.spreadPercent
                             val latestTimestampMillis = lastPt.timestampMillis
                             val edgeSignal = zStrategySignalOnLast15mBar(
                                 points = m15ForSignal,
@@ -489,7 +488,8 @@ internal fun MoexScreen() {
                                         context.applicationContext,
                                         StrategySignalType.EnterLong,
                                         latestZScore,
-                                        latestTimestampMillis
+                                        latestTimestampMillis,
+                                        latestSpreadPercent
                                     )
                                     if (ran) {
                                         withContext(Dispatchers.Main) {
@@ -536,7 +536,8 @@ internal fun MoexScreen() {
                                         context.applicationContext,
                                         StrategySignalType.EnterShort,
                                         latestZScore,
-                                        latestTimestampMillis
+                                        latestTimestampMillis,
+                                        latestSpreadPercent
                                     )
                                     if (ran) {
                                         withContext(Dispatchers.Main) {
@@ -879,12 +880,17 @@ internal fun MoexScreen() {
                                         )
                                     )
                                     withContext(Dispatchers.IO) {
+                                        val entrySpread = resolveSpreadPercentAtBar(
+                                            context,
+                                            proposal.timestampMillis
+                                        )
                                         TinkoffSandboxSpreadExecLog.recordFromLegs(
                                             context,
                                             proposal.signalType,
                                             proposal.zScore,
                                             barTimestampMillis = proposal.timestampMillis,
                                             executedAtMillis = nowMs,
+                                            entrySpreadPercent = entrySpread,
                                             source = PortfolioExecSource.MANUAL,
                                             legs = legs,
                                             fromTestButton = false
@@ -1122,21 +1128,18 @@ internal fun MoexScreen() {
                                             StrategySignalType.EnterShort -> StrategySignalType.EnterShort
                                             else -> StrategySignalType.EnterLong
                                         }
-                                        val journalTs = proposal?.timestampMillis
-                                        val journalZ = proposal?.zScore
                                         val r = withContext(Dispatchers.IO) {
                                             executeTestSandboxSpreadPair(
                                                 context.applicationContext,
                                                 pairType,
-                                                journalBarTimestampMillis = journalTs,
-                                                zScore = journalZ,
                                                 skipStrategyJournalIfAlreadyRecorded = false,
                                                 fromTestButton = true
                                             )
                                         }
                                         if (r.isSuccess) {
+                                            clearPendingVirtualTradeProposal(context)
                                             zStrategyPosition = loadSavedStrategyPosition(context)
-                                            pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+                                            pendingVirtualTrade = null
                                             signalEvents = loadStrategySignalEvents(context)
                                             sandboxSpreadExecReload++
                                             val dir =

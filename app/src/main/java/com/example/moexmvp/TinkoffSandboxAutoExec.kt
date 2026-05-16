@@ -24,6 +24,7 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
     signalType: StrategySignalType,
     zScore: Double,
     barTimestampMillis: Long,
+    entrySpreadPercent: Double,
     fromTestButton: Boolean = false
 ): Boolean {
     if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) {
@@ -84,6 +85,7 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             zScore,
             barTimestampMillis = barTimestampMillis,
             executedAtMillis = executedAt,
+            entrySpreadPercent = entrySpreadPercent,
             source = PortfolioExecSource.AUTO,
             legs = legs,
             fromTestButton = fromTestButton

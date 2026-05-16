@@ -178,7 +178,8 @@ class SignalForegroundService : Service() {
                         applicationContext,
                         StrategySignalType.EnterLong,
                         snapshot.latestZ,
-                        snapshot.latestTimestampMillis
+                        snapshot.latestTimestampMillis,
+                        snapshot.latestSpreadPercent
                     )
                 }
             }
@@ -216,7 +217,8 @@ class SignalForegroundService : Service() {
                         applicationContext,
                         StrategySignalType.EnterShort,
                         snapshot.latestZ,
-                        snapshot.latestTimestampMillis
+                        snapshot.latestTimestampMillis,
+                        snapshot.latestSpreadPercent
                     )
                 }
             }
@@ -312,6 +314,7 @@ class SignalForegroundService : Service() {
         return BgSnapshot(
             prevZ = prevZ,
             latestZ = (latestSpread - mean) / stdDev,
+            latestSpreadPercent = latestSpread,
             latestTimestampMillis = latestTimestampMillis
         )
     }
@@ -557,6 +560,7 @@ class SignalForegroundService : Service() {
 private data class BgSnapshot(
     val prevZ: Double,
     val latestZ: Double,
+    val latestSpreadPercent: Double,
     val latestTimestampMillis: Long
 )
 

@@ -4,7 +4,6 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
-
 internal data class PortfolioTestEntrySignalResult(
     val toastMessage: String,
     val sandboxSpreadExecReloadDelta: Int
@@ -21,7 +20,7 @@ internal suspend fun runPortfolioTestEntrySignalFull(
     runCatching {
         require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
         val app = context.applicationContext
-        val market = loadCurrentPortfolioMarketSnapshot(app)
+        val market = loadCurrentPortfolioMarketSnapshot(app, forceNetworkRefresh = true)
         val barTs = market.timestampMillis
         val z = market.zScore
         val dir = if (signalType == StrategySignalType.EnterShort) "SHORT" else "LONG"
@@ -44,7 +43,7 @@ internal suspend fun runPortfolioTestEntrySignalFull(
         val execState = TinkoffSandboxStorage.resolveExecUiState(app)
         if (!execOn || execState != SandboxExecUiState.Ready) {
             return@runCatching PortfolioTestEntrySignalResult(
-                toastMessage = "Тестовый сигнал $dir: журнал и позиция Z (Z=$zText). " +
+                toastMessage = "Тестовый сигнал $dir: журнал и позиция Z (Z=$zText, бар ${market.tradeDateLabel}). " +
                     "Включите «Исполнять вход на демо» и укажите токен/счёт песочницы, чтобы отправлялись ордера.",
                 sandboxSpreadExecReloadDelta = 0
             )
@@ -55,6 +54,7 @@ internal suspend fun runPortfolioTestEntrySignalFull(
                 signalType,
                 z,
                 barTs,
+                market.entrySpreadPercent,
                 fromTestButton = true
             )
             return@runCatching if (ran) {
@@ -74,6 +74,7 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             signalType,
             journalBarTimestampMillis = barTs,
             zScore = z,
+            entrySpreadPercent = market.spreadPercent,
             skipStrategyJournalIfAlreadyRecorded = true,
             fromTestButton = true
         )
@@ -87,12 +88,15 @@ internal suspend fun runPortfolioTestEntrySignalFull(
 
 /**
  * Две рыночные заявки на демо: журнал + реестр [PortfolioExecSource.MANUAL], позиция Z.
+ *
+ * При [fromTestButton] всегда берётся свежий рынок (не дата/Z из карточки «Принять»).
  */
 internal suspend fun executeTestSandboxSpreadPair(
     context: Context,
     signalType: StrategySignalType,
     journalBarTimestampMillis: Long? = null,
     zScore: Double? = null,
+    entrySpreadPercent: Double? = null,
     skipStrategyJournalIfAlreadyRecorded: Boolean = false,
     fromTestButton: Boolean = false
 ): Result<Unit> = withContext(Dispatchers.IO) {
@@ -107,9 +111,22 @@ internal suspend fun executeTestSandboxSpreadPair(
             SandboxExecUiState.MissingCredentials -> error("Укажите токен и счёт песочницы (вкладка «Песочница»).")
             SandboxExecUiState.Ready -> Unit
         }
-        val market = loadCurrentPortfolioMarketSnapshot(app)
-        val barTs = journalBarTimestampMillis ?: market.timestampMillis
-        val z = zScore ?: market.zScore
+        val market = loadCurrentPortfolioMarketSnapshot(app, forceNetworkRefresh = fromTestButton)
+        val barTs = if (fromTestButton) {
+            market.timestampMillis
+        } else {
+            journalBarTimestampMillis ?: market.timestampMillis
+        }
+        val z = if (fromTestButton) {
+            market.zScore
+        } else {
+            zScore ?: market.zScore
+        }
+        val entrySpread = if (fromTestButton) {
+            market.spreadPercent
+        } else {
+            entrySpreadPercent ?: resolveSpreadPercentAtBar(app, barTs, market.spreadPercent)
+        }
         val tok = TinkoffSandboxStorage.getToken(app) ?: error("Нет токена.")
         val acc = TinkoffSandboxStorage.getAccountId(app) ?: error("Нет счёта.")
         val legs = tinkoffSandboxExecuteSpreadEntryDetailed(tok, acc, signalType)
@@ -157,6 +174,7 @@ internal suspend fun executeTestSandboxSpreadPair(
             z,
             barTimestampMillis = barTs,
             executedAtMillis = executedAt,
+            entrySpreadPercent = entrySpread,
             source = PortfolioExecSource.MANUAL,
             legs = legs,
             fromTestButton = fromTestButton

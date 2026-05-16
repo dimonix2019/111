@@ -295,7 +295,8 @@ internal data class PortfolioTradeGroupRow(
     val legLongPnlSplitRubApprox: Double,
     val legShortPnlSplitRubApprox: Double,
     val netPnlRubApprox: Double,
-    val orders: List<PortfolioOrderTableRow>
+    val orders: List<PortfolioOrderTableRow>,
+    val isOpen: Boolean = false
 )
 
 /** Один ордер (нога спрэда) внутри сделки. */
@@ -338,7 +339,8 @@ internal fun PortfolioConfirmedTradeTableRow.toTradeGroup(): PortfolioTradeGroup
             orderBrief = "—",
             volumeText = "1 лот"
         )
-    )
+    ),
+    isOpen = false
 )
 
 internal data class ExecutedPortfolioBuildResult(

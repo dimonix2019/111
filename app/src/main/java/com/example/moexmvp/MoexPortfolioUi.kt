@@ -351,7 +351,8 @@ private fun PortfolioTradeTableCell(
 @Composable
 private fun PortfolioTradeOrdersGroupedTable(
     groups: List<PortfolioTradeGroupRow>,
-    caption: String
+    caption: String,
+    exitZColumnTitle: String = "Zвых"
 ) {
     if (groups.isEmpty()) return
     val scroll = rememberScrollState()
@@ -378,7 +379,7 @@ private fun PortfolioTradeOrdersGroupedTable(
                 "Объём" to 48.dp,
                 "Подтв." to 52.dp,
                 "Zвх" to 36.dp,
-                "Zвых" to 36.dp,
+                exitZColumnTitle to 36.dp,
                 "Push" to 88.dp,
                 "PnL L" to 52.dp,
                 "PnL S" to 52.dp,
@@ -519,7 +520,8 @@ internal fun PortfolioSandboxOrdersSection(
         } else {
             PortfolioTradeOrdersGroupedTable(
                 groups = openGroups,
-                caption = "Ордера сгруппированы по сделкам (парам): у каждой сделки 2 строки — ордер 1 и ордер 2. Выход и PnL сделки — после закрытия."
+                caption = "Ордера по сделкам (2 строки на пару). Вход — время исполнения на демо; Zвх — на входе; Z сейч. и PnL — оценка по последнему 15м бару (обновите портфель).",
+                exitZColumnTitle = "Z сейч."
             )
         }
     }
