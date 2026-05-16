@@ -11,6 +11,10 @@
 # (2) релиз ещё не создан — дождитесь успешного «Publish rolling debug release» после push в default branch или cursor/*.
 #
 # PRs only build and upload a CI artifact (no release).
+#
+# Термины в коде и UI (единый смысл):
+#   «ордер» / заявка — одна нога (один инструмент, Long или Short в смысле ноги спрэда);
+#   «сделка» — полноценная пара ног (вход/выход по спрэду: обе ноги TATN/TATNP).
 
 name: Build APK
 
