@@ -1,7 +1,10 @@
 package com.example.moexmvp
 
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -258,17 +261,126 @@ internal fun buildZStrategyPortfolioMetrics(
     )
 }
 
-internal fun buildExecutedPortfolioMetrics(
+internal data class PortfolioConfirmedTradeTableRow(
+    val tradeId: String,
+    val directionLabel: String,
+    val entryTimeMsk: String,
+    val exitTimeMsk: String,
+    val longLegTicker: String,
+    val shortLegTicker: String,
+    val longLegSideRu: String,
+    val shortLegSideRu: String,
+    val volumeText: String,
+    val confirmLabel: String,
+    val entryZ: Double,
+    val exitZ: Double,
+    val notificationIdsText: String,
+    val legLongPnlSplitRubApprox: Double,
+    val legShortPnlSplitRubApprox: Double,
+    val grossPnlRubApprox: Double,
+    val netPnlRubApprox: Double
+)
+
+internal data class ExecutedPortfolioBuildResult(
+    val metrics: PortfolioMetrics?,
+    val tableRows: List<PortfolioConfirmedTradeTableRow>
+)
+
+private val executionTableMskFormatter: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.of("Europe/Moscow"))
+
+private fun formatExecutionTableMsk(epochMillis: Long): String =
+    executionTableMskFormatter.format(Instant.ofEpochMilli(epochMillis))
+
+private data class SnappedSignalForExecution(
+    val index: Int,
+    val point: DataPoint,
+    val event: StrategySignalEvent
+)
+
+private fun snapStrategySignalEventsToExecutionPoints(
+    points: List<DataPoint>,
+    events: List<StrategySignalEvent>
+): List<SnappedSignalForExecution> {
+    if (points.isEmpty()) return emptyList()
+    val rangeStart = points.first().timestampMillis
+    val rangeEnd = points.last().timestampMillis
+    val bucketMs = 15 * 60 * 1000L
+    val maxSnapMs = bucketMs * 2
+    val edgeGraceMs = 48 * 60 * 60 * 1000L
+    return events
+        .asSequence()
+        .filter { it.timestampMillis in (rangeStart - bucketMs - edgeGraceMs)..(rangeEnd + bucketMs + edgeGraceMs) }
+        .distinctBy { "${it.signalType}:${it.timestampMillis}" }
+        .mapNotNull { event ->
+            val idxNearest = points.indices.minByOrNull { index ->
+                abs(points[index].timestampMillis - event.timestampMillis)
+            } ?: return@mapNotNull null
+            val diffNearest = abs(points[idxNearest].timestampMillis - event.timestampMillis)
+            val idx = when {
+                diffNearest <= maxSnapMs -> idxNearest
+                event.timestampMillis > rangeEnd && event.timestampMillis <= rangeEnd + edgeGraceMs ->
+                    points.lastIndex
+                event.timestampMillis < rangeStart && event.timestampMillis >= rangeStart - edgeGraceMs ->
+                    0
+                else -> return@mapNotNull null
+            }
+            SnappedSignalForExecution(index = idx, point = points[idx], event = event)
+        }
+        .sortedWith(compareBy({ it.index }, { it.event.timestampMillis }))
+        .toList()
+}
+
+private data class LegSpreadDisplay(
+    val longTicker: String,
+    val shortTicker: String,
+    val longSideRu: String,
+    val shortSideRu: String
+)
+
+private fun legSpreadDisplay(direction: ZStrategyPosition): LegSpreadDisplay = when (direction) {
+    ZStrategyPosition.Long -> LegSpreadDisplay("TATN", "TATNP", "LONG покупка", "SHORT продажа")
+    ZStrategyPosition.Short -> LegSpreadDisplay("TATNP", "TATN", "LONG покупка", "SHORT продажа")
+    ZStrategyPosition.Flat -> LegSpreadDisplay("—", "—", "—", "—")
+}
+
+private fun formatPushIdsForCorrelation(pushLog: List<PushNotificationLogEntry>, tag: String): String {
+    val ids = pushLog
+        .asSequence()
+        .filter { it.posted && it.correlationTag == tag && it.notificationId != null }
+        .sortedBy { it.wallTimestampMillis }
+        .mapNotNull { it.notificationId }
+        .distinct()
+        .toList()
+    return if (ids.isEmpty()) "—" else ids.joinToString(", ")
+}
+
+private fun ledgerConfirmLabel(
+    ledger: List<PortfolioExecutionLedgerEntry>,
+    entryType: StrategySignalType,
+    entryBarTs: Long
+): String {
+    val src = ledger.firstOrNull { it.signalType == entryType && it.barTimestampMillis == entryBarTs }?.source
+        ?: return "—"
+    return when (src) {
+        PortfolioExecSource.AUTO -> "авто"
+        PortfolioExecSource.MANUAL -> "ручное"
+    }
+}
+
+internal fun buildExecutedPortfolioWithTable(
     points: List<DataPoint>,
     events: List<StrategySignalEvent>,
+    ledger: List<PortfolioExecutionLedgerEntry>,
+    pushLog: List<PushNotificationLogEntry>,
     notionalRub: Double,
     leverage: Double,
     commissionPercentPerSide: Double,
     periodDescription: String
-): PortfolioMetrics? {
-    if (points.size < 2) return null
-    val markers = buildZScoreSignalMarkersFromEvents(points, events)
-    if (markers.isEmpty()) return null
+): ExecutedPortfolioBuildResult {
+    if (points.size < 2) return ExecutedPortfolioBuildResult(null, emptyList())
+    val orderedSnaps = snapStrategySignalEventsToExecutionPoints(points, events)
+    if (orderedSnaps.isEmpty()) return ExecutedPortfolioBuildResult(null, emptyList())
 
     val effectiveNotionalRub = notionalRub * leverage
     val commissionPerSideRub = effectiveNotionalRub * (commissionPercentPerSide / 100.0)
@@ -284,40 +396,40 @@ internal fun buildExecutedPortfolioMetrics(
     var entryDate = ""
     val closed = mutableListOf<PortfolioClosedTrade>()
     val equityRubSeries = mutableListOf<Double>()
-
-    val eventsWithBar = markers
-        .mapNotNull { marker ->
-            val point = points.getOrNull(marker.index) ?: return@mapNotNull null
-            Triple(point, marker.label, marker.index)
-        }
-        .sortedWith(compareBy({ it.third }, { it.first.timestampMillis }))
+    val tableRows = mutableListOf<PortfolioConfirmedTradeTableRow>()
+    var entryContext: SnappedSignalForExecution? = null
+    var tradeSeq = 0
 
     var eventCursor = 0
     for (index in points.indices) {
-        while (eventCursor < eventsWithBar.size && eventsWithBar[eventCursor].third == index) {
-            val (point, label) = eventsWithBar[eventCursor].let { it.first to it.second }
-            when (label) {
-                "Enter LONG" -> {
+        while (eventCursor < orderedSnaps.size && orderedSnaps[eventCursor].index == index) {
+            val snap = orderedSnaps[eventCursor]
+            val point = snap.point
+            val ev = snap.event
+            when (ev.signalType) {
+                StrategySignalType.EnterLong -> {
                     if (currentPosition == ZStrategyPosition.Flat) {
                         currentPosition = ZStrategyPosition.Long
                         entrySpread = point.spreadPercent
                         entryDate = point.tradeDate
                         totalCommissionRub += commissionPerSideRub
                         realizedRub -= commissionPerSideRub
+                        entryContext = snap
                     }
                 }
 
-                "Enter SHORT" -> {
+                StrategySignalType.EnterShort -> {
                     if (currentPosition == ZStrategyPosition.Flat) {
                         currentPosition = ZStrategyPosition.Short
                         entrySpread = point.spreadPercent
                         entryDate = point.tradeDate
                         totalCommissionRub += commissionPerSideRub
                         realizedRub -= commissionPerSideRub
+                        entryContext = snap
                     }
                 }
 
-                "Exit LONG" -> {
+                StrategySignalType.ExitLong -> {
                     if (currentPosition == ZStrategyPosition.Long) {
                         val pnlSpread = point.spreadPercent - entrySpread
                         val grossPnlRub = spreadPnlToRubApprox(pnlSpread, effectiveNotionalRub)
@@ -337,11 +449,39 @@ internal fun buildExecutedPortfolioMetrics(
                             grossPnlRubApprox = grossPnlRub,
                             pnlRubApprox = grossPnlRub - (2 * commissionPerSideRub) - overnightRub
                         )
+                        val c = closed.last()
+                        val ec = entryContext
+                        if (ec != null) {
+                            tradeSeq += 1
+                            val legs = legSpreadDisplay(c.direction)
+                            val tag = spreadLegPushCorrelationTag(ec.event.timestampMillis, ec.event.signalType)
+                            val halfNet = c.pnlRubApprox / 2.0
+                            tableRows += PortfolioConfirmedTradeTableRow(
+                                tradeId = "T-%03d".format(Locale.US, tradeSeq),
+                                directionLabel = "long",
+                                entryTimeMsk = formatExecutionTableMsk(ec.point.timestampMillis),
+                                exitTimeMsk = formatExecutionTableMsk(point.timestampMillis),
+                                longLegTicker = legs.longTicker,
+                                shortLegTicker = legs.shortTicker,
+                                longLegSideRu = legs.longSideRu,
+                                shortLegSideRu = legs.shortSideRu,
+                                volumeText = "1+1 лот",
+                                confirmLabel = ledgerConfirmLabel(ledger, ec.event.signalType, ec.event.timestampMillis),
+                                entryZ = ec.event.zScore,
+                                exitZ = ev.zScore,
+                                notificationIdsText = formatPushIdsForCorrelation(pushLog, tag),
+                                legLongPnlSplitRubApprox = halfNet,
+                                legShortPnlSplitRubApprox = halfNet,
+                                grossPnlRubApprox = c.grossPnlRubApprox,
+                                netPnlRubApprox = c.pnlRubApprox
+                            )
+                        }
                         currentPosition = ZStrategyPosition.Flat
+                        entryContext = null
                     }
                 }
 
-                "Exit SHORT" -> {
+                StrategySignalType.ExitShort -> {
                     if (currentPosition == ZStrategyPosition.Short) {
                         val pnlSpread = entrySpread - point.spreadPercent
                         val grossPnlRub = spreadPnlToRubApprox(pnlSpread, effectiveNotionalRub)
@@ -361,7 +501,35 @@ internal fun buildExecutedPortfolioMetrics(
                             grossPnlRubApprox = grossPnlRub,
                             pnlRubApprox = grossPnlRub - (2 * commissionPerSideRub) - overnightRub
                         )
+                        val c = closed.last()
+                        val ec = entryContext
+                        if (ec != null) {
+                            tradeSeq += 1
+                            val legs = legSpreadDisplay(c.direction)
+                            val tag = spreadLegPushCorrelationTag(ec.event.timestampMillis, ec.event.signalType)
+                            val halfNet = c.pnlRubApprox / 2.0
+                            tableRows += PortfolioConfirmedTradeTableRow(
+                                tradeId = "T-%03d".format(Locale.US, tradeSeq),
+                                directionLabel = "short",
+                                entryTimeMsk = formatExecutionTableMsk(ec.point.timestampMillis),
+                                exitTimeMsk = formatExecutionTableMsk(point.timestampMillis),
+                                longLegTicker = legs.longTicker,
+                                shortLegTicker = legs.shortTicker,
+                                longLegSideRu = legs.longSideRu,
+                                shortLegSideRu = legs.shortSideRu,
+                                volumeText = "1+1 лот",
+                                confirmLabel = ledgerConfirmLabel(ledger, ec.event.signalType, ec.event.timestampMillis),
+                                entryZ = ec.event.zScore,
+                                exitZ = ev.zScore,
+                                notificationIdsText = formatPushIdsForCorrelation(pushLog, tag),
+                                legLongPnlSplitRubApprox = halfNet,
+                                legShortPnlSplitRubApprox = halfNet,
+                                grossPnlRubApprox = c.grossPnlRubApprox,
+                                netPnlRubApprox = c.pnlRubApprox
+                            )
+                        }
                         currentPosition = ZStrategyPosition.Flat
+                        entryContext = null
                     }
                 }
             }
@@ -427,14 +595,18 @@ internal fun buildExecutedPortfolioMetrics(
     val largestWin = winRubList.maxOrNull() ?: 0.0
     val largestLoss = lossRubList.minOrNull() ?: 0.0
 
-    return PortfolioMetrics(
+    val metrics = PortfolioMetrics(
         periodDescription = "$periodDescription · портфель: журнал + исполнения демо (ручн./авто)",
         notionalRub = notionalRub,
         leverage = leverage,
         commissionPercentPerSide = commissionPercentPerSide,
         totalCommissionRub = totalCommissionRub,
         totalOvernightRub = totalOvernightRub +
-            if (currentPosition != ZStrategyPosition.Flat) overnightFeePerDayRub * overnightDays(entryDate, last.tradeDate) else 0.0,
+            if (currentPosition != ZStrategyPosition.Flat) {
+                overnightFeePerDayRub * overnightDays(entryDate, last.tradeDate)
+            } else {
+                0.0
+            },
         closedTrades = closed,
         openPosition = openPosition,
         cumulativeRealizedSpread = realizedSpread,
@@ -454,7 +626,27 @@ internal fun buildExecutedPortfolioMetrics(
         largestWinRub = largestWin,
         largestLossRub = largestLoss
     )
+    return ExecutedPortfolioBuildResult(metrics, tableRows.asReversed())
 }
+
+internal fun buildExecutedPortfolioMetrics(
+    points: List<DataPoint>,
+    events: List<StrategySignalEvent>,
+    notionalRub: Double,
+    leverage: Double,
+    commissionPercentPerSide: Double,
+    periodDescription: String
+): PortfolioMetrics? =
+    buildExecutedPortfolioWithTable(
+        points = points,
+        events = events,
+        ledger = emptyList(),
+        pushLog = emptyList(),
+        notionalRub = notionalRub,
+        leverage = leverage,
+        commissionPercentPerSide = commissionPercentPerSide,
+        periodDescription = periodDescription
+    ).metrics
 
 private fun fmtRubHint(v: Double): String = String.format(Locale.US, "%+.0f ₽", v)
 

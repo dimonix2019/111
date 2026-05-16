@@ -63,6 +63,9 @@ internal data class StrategySignalEvent(
     val zScore: Double
 )
 
+internal fun spreadLegPushCorrelationTag(barTimestampMillis: Long, signalType: StrategySignalType): String =
+    "spreadLeg|${barTimestampMillis}|${signalType.name}"
+
 internal fun createPushNotificationChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val channel = NotificationChannel(
@@ -82,10 +85,11 @@ internal fun showPushNotification(
     body: String,
     notificationId: Int = System.currentTimeMillis().toInt(),
     virtualTradeTap: VirtualTradeTapIntent? = null,
-    skipDuplicateCheck: Boolean = false
+    skipDuplicateCheck: Boolean = false,
+    correlationTag: String? = null
 ): Boolean {
     val app = context.applicationContext
-    fun trace(posted: Boolean, skipReason: String?) {
+    fun trace(posted: Boolean, skipReason: String?, nid: Int? = null) {
         appendPushNotificationLogEntry(
             app,
             PushNotificationLogEntry(
@@ -96,7 +100,9 @@ internal fun showPushNotification(
                 skipReason = skipReason,
                 virtualTapSignalType = virtualTradeTap?.signalType?.name,
                 virtualTapZ = virtualTradeTap?.zScore,
-                virtualTapBarTimestampMillis = virtualTradeTap?.timestampMillis
+                virtualTapBarTimestampMillis = virtualTradeTap?.timestampMillis,
+                notificationId = if (posted) nid else null,
+                correlationTag = correlationTag
             )
         )
     }
@@ -107,13 +113,13 @@ internal fun showPushNotification(
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) {
             Log.w(PUSH_LOG_TAG, "Skipping notification: POST_NOTIFICATIONS is not granted")
-            trace(false, PushNotificationLogSkipReason.POST_NOTIFICATIONS_DENIED)
+            trace(false, PushNotificationLogSkipReason.POST_NOTIFICATIONS_DENIED, null)
             return false
         }
     }
     if (!skipDuplicateCheck && shouldSkipDuplicatePush(context, title, body)) {
         Log.d(PUSH_LOG_TAG, "Skipping duplicate notification: $title | $body")
-        trace(false, PushNotificationLogSkipReason.DUPLICATE_WITHIN_WINDOW)
+        trace(false, PushNotificationLogSkipReason.DUPLICATE_WITHIN_WINDOW, null)
         return false
     }
 
@@ -144,7 +150,7 @@ internal fun showPushNotification(
         .build()
 
     NotificationManagerCompat.from(context).notify(notificationId, notification)
-    trace(true, null)
+    trace(true, null, notificationId)
     return true
 }
 
@@ -153,7 +159,8 @@ internal fun notifySandboxSpreadLegExecutionResults(
     context: Context,
     legs: List<SandboxLegOrderResult>,
     notionalRub: Double,
-    leverage: Double
+    leverage: Double,
+    correlationTag: String?
 ) {
     val app = context.applicationContext
     legs.forEachIndexed { index, leg ->
@@ -187,7 +194,8 @@ internal fun notifySandboxSpreadLegExecutionResults(
             body = body,
             notificationId = nid,
             virtualTradeTap = null,
-            skipDuplicateCheck = true
+            skipDuplicateCheck = true,
+            correlationTag = correlationTag
         )
     }
 }

@@ -66,6 +66,7 @@ internal fun MoexScreen() {
             selectedTab == MainTab.Markets
     /** Портфель: исполнения песочницы + журнал (фильтр ручной/авто). */
     var confirmedPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
+    var confirmedPortfolioTableRows by remember { mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList()) }
     /** Симуляция по порогам |Z| на 15м ряду. */
     var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     /** Реинвестирование PnL в размер следующей сделки (только симуляция «Тест страт.»). */
@@ -263,6 +264,7 @@ internal fun MoexScreen() {
             val loaded = loadPortfolio15mDataPoints(context, from, till, m15Mode)
             if (loaded.size < 2) {
                 confirmedPortfolioMetrics = null
+                confirmedPortfolioTableRows = emptyList()
                 strategyTestPortfolioMetrics = null
                 portfolioError = when (m15Mode) {
                     PortfolioM15LoadMode.CACHE_ONLY ->
@@ -305,14 +307,21 @@ internal fun MoexScreen() {
                 ledger = ledger,
                 portfolioLedgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
             )
-            confirmedPortfolioMetrics = buildExecutedPortfolioMetrics(
-                points = points,
-                events = filteredEvents,
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                leverage = portfolioLeverage,
-                commissionPercentPerSide = portfolioCommissionPercent,
-                periodDescription = desc
-            )
+            val pushLog = withContext(Dispatchers.IO) { loadPushNotificationLog(context) }
+            val executed = withContext(Dispatchers.Default) {
+                buildExecutedPortfolioWithTable(
+                    points = points,
+                    events = filteredEvents,
+                    ledger = ledger,
+                    pushLog = pushLog,
+                    notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                    leverage = portfolioLeverage,
+                    commissionPercentPerSide = portfolioCommissionPercent,
+                    periodDescription = desc
+                )
+            }
+            confirmedPortfolioMetrics = executed.metrics
+            confirmedPortfolioTableRows = executed.tableRows
             strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(
                 points = points,
                 thresholds = strategyTestThresholds,
@@ -855,7 +864,11 @@ internal fun MoexScreen() {
                                         context,
                                         legs,
                                         DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                                        TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
+                                        TinkoffSandboxStorage.getSandboxNotifyLeverage(context),
+                                        spreadLegPushCorrelationTag(
+                                            proposal.timestampMillis,
+                                            proposal.signalType
+                                        )
                                     )
                                     pendingVirtualTrade = null
                                     sandboxSpreadExecReload++
@@ -956,6 +969,7 @@ internal fun MoexScreen() {
                     item {
                         ConfirmedPortfolioTabContent(
                             metrics = confirmedPortfolioMetrics,
+                            confirmedTradeTableRows = confirmedPortfolioTableRows,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,
                             onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },

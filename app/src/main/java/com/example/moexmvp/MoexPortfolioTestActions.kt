@@ -81,7 +81,8 @@ internal suspend fun executeTestSandboxSpreadPair(
             app,
             legs,
             DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            TinkoffSandboxStorage.getSandboxNotifyLeverage(app)
+            TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
+            spreadLegPushCorrelationTag(barTs, signalType)
         )
     }
 }

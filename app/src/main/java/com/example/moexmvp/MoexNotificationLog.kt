@@ -29,7 +29,11 @@ internal data class PushNotificationLogEntry(
     val skipReason: String?,
     val virtualTapSignalType: String?,
     val virtualTapZ: Double?,
-    val virtualTapBarTimestampMillis: Long?
+    val virtualTapBarTimestampMillis: Long?,
+    /** Android notification id (только при posted). */
+    val notificationId: Int? = null,
+    /** Связка с исполнением спрэда на демо (см. [spreadLegPushCorrelationTag]). */
+    val correlationTag: String? = null
 )
 
 private val pushNotificationLogLock = Any()
@@ -91,6 +95,8 @@ private fun entryToJson(e: PushNotificationLogEntry): JSONObject =
         e.virtualTapSignalType?.let { put("virtualTapSignalType", it) }
         e.virtualTapZ?.let { put("virtualTapZ", it) }
         e.virtualTapBarTimestampMillis?.let { put("virtualTapBarTimestampMillis", it) }
+        e.notificationId?.let { put("notificationId", it) }
+        e.correlationTag?.let { put("correlationTag", it) }
     }
 
 private fun entryFromJson(o: JSONObject): PushNotificationLogEntry? =
@@ -107,7 +113,9 @@ private fun entryFromJson(o: JSONObject): PushNotificationLogEntry? =
                 o.optLong("virtualTapBarTimestampMillis", 0L)
             } else {
                 null
-            }
+            },
+            notificationId = if (o.has("notificationId")) o.optInt("notificationId", 0) else null,
+            correlationTag = o.optString("correlationTag", "").takeIf { it.isNotEmpty() }
         )
     } catch (_: Exception) {
         null

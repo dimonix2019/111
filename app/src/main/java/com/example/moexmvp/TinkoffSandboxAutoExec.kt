@@ -74,7 +74,8 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             app,
             legs,
             DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage
+            leverage,
+            spreadLegPushCorrelationTag(barTimestampMillis, signalType)
         )
         true
     } catch (e: Exception) {

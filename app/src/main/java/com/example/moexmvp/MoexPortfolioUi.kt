@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -325,10 +326,129 @@ private fun PortfolioCompactHeroInline(metrics: PortfolioMetrics) {
     }
 }
 
+@Composable
+private fun PortfolioTradeTableCell(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color(0xFFE0E0E0)
+) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 9.sp,
+        maxLines = 4,
+        lineHeight = 11.sp,
+        modifier = modifier.padding(horizontal = 3.dp, vertical = 2.dp)
+    )
+}
+
+@Composable
+private fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTableRow>) {
+    if (rows.isEmpty()) return
+    val scroll = rememberScrollState()
+    Text(
+        text = "Таблица: ${rows.size} закрытых сделок. Прокрутка вправо — все столбцы. PnL по ногам — равная доля чистого PnL сделки (оценка, без разнесения комиссий по бумагам).",
+        color = Color(0xFF757575),
+        fontSize = 9.sp,
+        modifier = Modifier.padding(bottom = 4.dp)
+    )
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scroll)
+            .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
+            .padding(vertical = 6.dp)
+    ) {
+        Row(Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
+            val heads = listOf(
+                "ID" to 46.dp,
+                "Тип" to 40.dp,
+                "Вход" to 112.dp,
+                "Выход" to 112.dp,
+                "Long" to 42.dp,
+                "Short" to 42.dp,
+                "Объём" to 54.dp,
+                "Подтв." to 54.dp,
+                "Zвх" to 40.dp,
+                "Zвых" to 40.dp,
+                "Push ID" to 100.dp,
+                "PnL L" to 58.dp,
+                "PnL S" to 58.dp,
+                "Чистый" to 68.dp
+            )
+            heads.forEach { (title, w) ->
+                PortfolioTradeTableCell(
+                    text = title,
+                    modifier = Modifier.widthIn(min = w).width(w),
+                    color = Color(0xFF90A4AE)
+                )
+            }
+        }
+        rows.take(60).forEach { r ->
+            Column(Modifier.padding(vertical = 4.dp)) {
+                Row(Modifier.padding(horizontal = 2.dp)) {
+                    PortfolioTradeTableCell(r.tradeId, Modifier.widthIn(min = 46.dp).width(46.dp))
+                    PortfolioTradeTableCell(r.directionLabel, Modifier.widthIn(min = 40.dp).width(40.dp))
+                    PortfolioTradeTableCell(r.entryTimeMsk, Modifier.widthIn(min = 112.dp).width(112.dp))
+                    PortfolioTradeTableCell(r.exitTimeMsk, Modifier.widthIn(min = 112.dp).width(112.dp))
+                    PortfolioTradeTableCell(r.longLegTicker, Modifier.widthIn(min = 42.dp).width(42.dp), Color(0xFF81C784))
+                    PortfolioTradeTableCell(r.shortLegTicker, Modifier.widthIn(min = 42.dp).width(42.dp), Color(0xFFFFAB91))
+                    PortfolioTradeTableCell(r.volumeText, Modifier.widthIn(min = 54.dp).width(54.dp))
+                    PortfolioTradeTableCell(r.confirmLabel, Modifier.widthIn(min = 54.dp).width(54.dp))
+                    PortfolioTradeTableCell(
+                        String.format(Locale.US, "%.2f", r.entryZ),
+                        Modifier.widthIn(min = 40.dp).width(40.dp)
+                    )
+                    PortfolioTradeTableCell(
+                        String.format(Locale.US, "%.2f", r.exitZ),
+                        Modifier.widthIn(min = 40.dp).width(40.dp)
+                    )
+                    PortfolioTradeTableCell(
+                        r.notificationIdsText,
+                        Modifier.widthIn(min = 100.dp).width(100.dp),
+                        Color(0xFFB3E5FC)
+                    )
+                    PortfolioTradeTableCell(
+                        formatRubSigned(r.legLongPnlSplitRubApprox),
+                        Modifier.widthIn(min = 58.dp).width(58.dp),
+                        rubDeltaColor(r.legLongPnlSplitRubApprox)
+                    )
+                    PortfolioTradeTableCell(
+                        formatRubSigned(r.legShortPnlSplitRubApprox),
+                        Modifier.widthIn(min = 58.dp).width(58.dp),
+                        rubDeltaColor(r.legShortPnlSplitRubApprox)
+                    )
+                    PortfolioTradeTableCell(
+                        formatRubSigned(r.netPnlRubApprox),
+                        Modifier.widthIn(min = 68.dp).width(68.dp),
+                        rubDeltaColor(r.netPnlRubApprox)
+                    )
+                }
+                Text(
+                    text = "Ноги: ${r.longLegTicker} (${r.longLegSideRu}) · ${formatRubSigned(r.legLongPnlSplitRubApprox)}  " +
+                        "|  ${r.shortLegTicker} (${r.shortLegSideRu}) · ${formatRubSigned(r.legShortPnlSplitRubApprox)}  " +
+                        "|  валовый спрэд ${formatRubSigned(r.grossPnlRubApprox)}",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 8.sp,
+                    modifier = Modifier.padding(start = 6.dp, top = 2.dp, end = 4.dp)
+                )
+                Spacer(
+                    Modifier
+                        .padding(top = 4.dp)
+                        .height(1.dp)
+                        .fillMaxWidth()
+                        .background(Color(0xFF303030))
+                )
+            }
+        }
+    }
+}
+
 /** Портфель: сделки по журналу; вход в метриках — только при записи в реестре исполнений под выбранным режимом. */
 @Composable
 internal fun ConfirmedPortfolioTabContent(
     metrics: PortfolioMetrics?,
+    confirmedTradeTableRows: List<PortfolioConfirmedTradeTableRow>,
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
@@ -609,25 +729,16 @@ internal fun ConfirmedPortfolioTabContent(
                     PortfolioMetricGrid(m, showHeroDuplicate = false)
                 }
                 Text(
-                    text = "Сделки (${m.closedTrades.size}) — связанные ноги LONG + SHORT",
+                    text = "Закрытые сделки (${confirmedTradeTableRows.size})",
                     color = Color(0xFFE0E0E0),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
                 )
-                Text(
-                    text = "Одна карточка = один круг вход→выход по журналу с учётом демо-исполнения входа.",
-                    color = Color(0xFF616161),
-                    fontSize = 9.sp,
-                    maxLines = 3
-                )
-                val recent = m.closedTrades.takeLast(25).asReversed()
-                if (recent.isEmpty()) {
+                if (confirmedTradeTableRows.isEmpty()) {
                     Text("Закрытых сделок за период нет.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
                 } else {
-                    recent.forEachIndexed { index, t ->
-                        ConfirmedSpreadTradeCard(index = index + 1, t = t)
-                    }
+                    PortfolioConfirmedTradesTable(confirmedTradeTableRows)
                 }
             }
         }
@@ -1133,149 +1244,6 @@ private fun rubDeltaColor(v: Double): Color = when {
     v > 0 -> Color(0xFF81C784)
     v < 0 -> Color(0xFFE57373)
     else -> Color(0xFFBDBDBD)
-}
-
-@Composable
-private fun ConfirmedSpreadTradeCard(index: Int, t: PortfolioClosedTrade) {
-    val spreadTitle = when (t.direction) {
-        ZStrategyPosition.Long -> "LONG спрэд TATN / TATNP"
-        ZStrategyPosition.Short -> "SHORT спрэд TATNP / TATN"
-        ZStrategyPosition.Flat -> "Спрэд"
-    }
-    val longTicker: String
-    val longLabel: String
-    val shortTicker: String
-    val shortLabel: String
-    when (t.direction) {
-        ZStrategyPosition.Long -> {
-            longTicker = "TATN"
-            longLabel = "LONG · покупка базы (нога 1)"
-            shortTicker = "TATNP"
-            shortLabel = "SHORT · продажа префа (нога 2)"
-        }
-        ZStrategyPosition.Short -> {
-            longTicker = "TATNP"
-            longLabel = "LONG · покупка префа (нога 1)"
-            shortTicker = "TATN"
-            shortLabel = "SHORT · продажа базы (нога 2)"
-        }
-        ZStrategyPosition.Flat -> {
-            longTicker = "—"
-            longLabel = "—"
-            shortTicker = "—"
-            shortLabel = "—"
-        }
-    }
-    val pnlColor = rubDeltaColor(t.pnlRubApprox)
-    val grossColor = rubDeltaColor(t.grossPnlRubApprox)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(Color(0xFF263238), RoundedCornerShape(8.dp))
-            .padding(10.dp)
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Спрэд #$index  $spreadTitle",
-                color = Color(0xFFB0BEC5),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "${t.entryDate} → ${t.exitDate}",
-                color = Color(0xFF78909C),
-                fontSize = 10.sp
-            )
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF1B3D2F), RoundedCornerShape(6.dp))
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(longTicker, color = Color(0xFF81C784), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Text(longLabel, color = Color(0xFFCFD8DC), fontSize = 10.sp)
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF3D2626), RoundedCornerShape(6.dp))
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(shortTicker, color = Color(0xFFFFAB91), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Text(shortLabel, color = Color(0xFFCFD8DC), fontSize = 10.sp)
-            }
-        }
-        Text(
-            text = "⟷  Обе ноги одной позиции; в ₽: валовый — только движение спрэда (номинал×плечо), чистый — минус комиссии вход/выход и овернайт из настроек выше.",
-            color = Color(0xFF90A4AE),
-            fontSize = 9.sp,
-            modifier = Modifier.padding(top = 6.dp),
-            maxLines = 4
-        )
-        Text(
-            text = "Спрэд ${String.format(Locale.US, "%.2f", t.entrySpreadPercent)}% → ${String.format(Locale.US, "%.2f", t.exitSpreadPercent)}% (${String.format(Locale.US, "%+.2f", t.pnlSpreadPoints)} п.п.)",
-            color = Color(0xFF9E9E9E),
-            fontSize = 10.sp,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp)
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Чистый (комиссии + овернайт)",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = formatRubSigned(t.pnlRubApprox),
-                    color = pnlColor,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Валовый (только спрэд в ₽)",
-                    color = Color(0xFF9E9E9E),
-                    fontSize = 10.sp
-                )
-                Text(
-                    text = formatRubSigned(t.grossPnlRubApprox),
-                    color = grossColor,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-    }
 }
 
 @Composable
