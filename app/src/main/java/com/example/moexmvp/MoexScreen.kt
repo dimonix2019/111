@@ -114,11 +114,18 @@ internal fun MoexScreen() {
     /** Поля песочницы держим здесь: при переключении вкладок `TinkoffSandboxTabContent` пересоздаётся, иначе токен «терялся» из UI до повторной загрузки. */
     var sandboxTokenInput by remember { mutableStateOf("") }
     var sandboxAccountInput by remember { mutableStateOf("") }
-    /** Сдвигается после успешного «Принять» на песочнице — портфель перечитывает блок «2 ноги». */
+    /** Сдвигается после успешного «Принять» / тестовой пары на песочнице — пересчёт метрик портфеля. */
     var sandboxSpreadExecReload by remember { mutableStateOf(0) }
     var portfolioLedgerIncludeAuto by remember {
         mutableStateOf(TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context))
     }
+    var executeSignalsOnSandbox by remember {
+        mutableStateOf(TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context))
+    }
+    var sandboxSpreadAutoExecute by remember {
+        mutableStateOf(TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context))
+    }
+    var portfolioTestBusy by remember { mutableStateOf(false) }
     var showCloseAllPortfolioDialog by remember { mutableStateOf(false) }
     var closeAllPortfolioBusy by remember { mutableStateOf(false) }
     var bgMonitorToggleEpoch by remember { mutableStateOf(0) }
@@ -158,6 +165,8 @@ internal fun MoexScreen() {
             restorePendingVirtualTradeFromJournalIfNeeded(context)
             pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
             sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+            executeSignalsOnSandbox = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
+            sandboxSpreadAutoExecute = TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)
         }
         hydrateVirtualTradeAndSandboxUi()
         val observer = LifecycleEventObserver { _, event ->
@@ -875,7 +884,7 @@ internal fun MoexScreen() {
                                 pendingVirtualTrade = null
                                 val msg = when (st) {
                                     SandboxExecUiState.Off ->
-                                        "Принято без заявок. Включите «Исполнять на демо-счёте» во вкладке «Песочница»."
+                                        "Принято без заявок. Включите «Исполнять вход по сигналу на демо-счёт» на вкладке «Портфель»."
                                     SandboxExecUiState.MissingCredentials ->
                                         "Принято без заявок: сохраните sandbox-токен и счёт во вкладке «Песочница»."
                                     else -> ""
@@ -907,7 +916,7 @@ internal fun MoexScreen() {
                         sandboxSpreadExecReload++
                         Toast.makeText(
                             context,
-                            "Журнал очищен; позиция Z — FLAT; карточка «Принять» и блок песочницы в портфеле сброшены.",
+                            "Журнал очищен; позиция Z — FLAT; карточка «Принять» и локальный лог спрэда сброшены.",
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -931,6 +940,8 @@ internal fun MoexScreen() {
                         onAccountInputChange = { sandboxAccountInput = it },
                         onSandboxPrefsChanged = {
                             sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+                            executeSignalsOnSandbox = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
+                            sandboxSpreadAutoExecute = TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)
                         },
                         onSandboxAccountRecreated = { sandboxSpreadExecReload++ }
                     )
@@ -973,7 +984,104 @@ internal fun MoexScreen() {
                                 TinkoffSandboxStorage.setPortfolioLedgerIncludeAuto(context, v)
                                 portfolioLedgerIncludeAuto = v
                             },
-                            sandboxSpreadExecReload = sandboxSpreadExecReload,
+                            executeSignalsOnSandbox = executeSignalsOnSandbox,
+                            onExecuteSignalsOnSandboxChange = { v ->
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        TinkoffSandboxStorage.setExecuteSignalsOnSandbox(context, v)
+                                    }
+                                    executeSignalsOnSandbox = v
+                                    sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+                                }
+                            },
+                            sandboxSpreadAutoExecute = sandboxSpreadAutoExecute,
+                            onSandboxSpreadAutoExecuteChange = { v ->
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        TinkoffSandboxStorage.setSandboxSpreadAutoExecute(context, v)
+                                    }
+                                    sandboxSpreadAutoExecute = v
+                                }
+                            },
+                            portfolioTestBusy = portfolioTestBusy,
+                            onTestSignalLong = {
+                                scope.launch {
+                                    portfolioTestBusy = true
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            emitTestStrategyEntrySignal(
+                                                context.applicationContext,
+                                                StrategySignalType.EnterLong
+                                            )
+                                        }
+                                        signalEvents = loadStrategySignalEvents(context)
+                                        Toast.makeText(
+                                            context,
+                                            "Тестовый сигнал LONG записан в журнал (Z=${PORTFOLIO_TEST_SIGNAL_Z_MARKER.toInt()} — метка теста).",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    } finally {
+                                        portfolioTestBusy = false
+                                    }
+                                }
+                            },
+                            onTestSignalShort = {
+                                scope.launch {
+                                    portfolioTestBusy = true
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            emitTestStrategyEntrySignal(
+                                                context.applicationContext,
+                                                StrategySignalType.EnterShort
+                                            )
+                                        }
+                                        signalEvents = loadStrategySignalEvents(context)
+                                        Toast.makeText(
+                                            context,
+                                            "Тестовый сигнал SHORT записан в журнал (Z=${PORTFOLIO_TEST_SIGNAL_Z_MARKER.toInt()} — метка теста).",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    } finally {
+                                        portfolioTestBusy = false
+                                    }
+                                }
+                            },
+                            onTestSpreadPairClick = {
+                                scope.launch {
+                                    portfolioTestBusy = true
+                                    try {
+                                        val pairType = when (pendingVirtualTrade?.signalType) {
+                                            StrategySignalType.EnterShort -> StrategySignalType.EnterShort
+                                            else -> StrategySignalType.EnterLong
+                                        }
+                                        val r = withContext(Dispatchers.IO) {
+                                            executeTestSandboxSpreadPair(context.applicationContext, pairType)
+                                        }
+                                        if (r.isSuccess) {
+                                            zStrategyPosition = loadSavedStrategyPosition(context)
+                                            pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+                                            signalEvents = loadStrategySignalEvents(context)
+                                            sandboxSpreadExecReload++
+                                            val dir =
+                                                if (pairType == StrategySignalType.EnterShort) "SHORT" else "LONG"
+                                            Toast.makeText(
+                                                context,
+                                                "Тестовая пара на демо ($dir). Уведомления по ногам — как при «Принять».",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } else {
+                                            val err = r.exceptionOrNull()
+                                            Toast.makeText(
+                                                context,
+                                                err?.message?.take(400) ?: err?.javaClass?.simpleName ?: "Ошибка",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    } finally {
+                                        portfolioTestBusy = false
+                                    }
+                                }
+                            },
                             closeAllPortfolioBusy = closeAllPortfolioBusy,
                             onCloseAllTradesClick = { showCloseAllPortfolioDialog = true },
                             dailyReconciliation = dailyReconciliation

@@ -37,7 +37,7 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
     }
     when (TinkoffSandboxStorage.resolveExecUiState(context)) {
         SandboxExecUiState.Off -> {
-            notifySandboxAutoEntrySkipped(context, "Включите «Исполнять вход» на вкладке «Песочница».")
+            notifySandboxAutoEntrySkipped(context, "Включите «Исполнять вход по сигналу на демо-счёт» на вкладке «Портфель».")
             return false
         }
         SandboxExecUiState.MissingCredentials -> {

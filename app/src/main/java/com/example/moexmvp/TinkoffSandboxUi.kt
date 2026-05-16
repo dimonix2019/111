@@ -21,8 +21,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -64,9 +62,6 @@ internal fun TinkoffSandboxTabContent(
     var loading by remember { mutableStateOf(false) }
     var accounts by remember { mutableStateOf<List<SandboxAccountRow>>(emptyList()) }
     var showToken by remember { mutableStateOf(false) }
-    var executeSignalsOnSandbox by remember {
-        mutableStateOf(TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context))
-    }
     var portfolioRubLine by remember { mutableStateOf<String?>(null) }
     var showResetSandboxDialog by remember { mutableStateOf(false) }
     fun hasToken(): Boolean =
@@ -124,7 +119,7 @@ internal fun TinkoffSandboxTabContent(
                 text = {
                     Text(
                         "Текущий демо-счёт будет закрыт на стороне T‑Invest (все позиции и баланс этого счёта удалятся), " +
-                            "затем откроется новый пустой счёт. Локальный токен не меняется. Блок «последнее Принять» в портфеле очищается.",
+                            "затем откроется новый пустой счёт. Локальный токен не меняется. Локальный лог последнего спрэда на устройстве очищается.",
                         color = Color(0xFFB0BEC5),
                         fontSize = 13.sp
                     )
@@ -185,87 +180,11 @@ internal fun TinkoffSandboxTabContent(
             fontSize = 11.sp
         )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Исполнять вход по сигналу на демо-счёт (покупка 1 лота + продажа 1 лота по спрэду TATN/TATNP)",
-                color = Color(0xFFE0E0E0),
-                fontSize = 12.sp,
-                modifier = Modifier.weight(1f).padding(end = 8.dp)
-            )
-            Switch(
-                checked = executeSignalsOnSandbox,
-                onCheckedChange = { newVal ->
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                TinkoffSandboxStorage.setExecuteSignalsOnSandbox(context, newVal)
-                            }
-                            executeSignalsOnSandbox = newVal
-                            onSandboxPrefsChanged()
-                        } catch (e: Throwable) {
-                            status = e.message ?: e.javaClass.simpleName
-                        }
-                    }
-                },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color(0xFF81D4FA),
-                    checkedTrackColor = Color(0xFF0277BD)
-                )
-            )
-        }
-
         Text(
-            text = "Какие входы показывать в списке сделок на «Портфеле» (ручной / авто по журналу исполнений) настраивается там, в розовом блоке — отдельно от песочницы.",
+            text = "Включение заявок на демо и режим «сразу 2 заявки без Принять» настраиваются на вкладке «Портфель» (розовый блок). Здесь — токен, счёт и пополнение.",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-
-        var spreadAutoExec by remember {
-            mutableStateOf(TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context))
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Сразу отправлять 2 заявки на демо без карточки «Принять»",
-                color = Color(0xFFE0E0E0),
-                fontSize = 11.sp,
-                modifier = Modifier.weight(1f).padding(end = 8.dp)
-            )
-            Switch(
-                checked = spreadAutoExec,
-                onCheckedChange = { v ->
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                TinkoffSandboxStorage.setSandboxSpreadAutoExecute(context, v)
-                            }
-                            spreadAutoExec = v
-                            onSandboxPrefsChanged()
-                        } catch (e: Throwable) {
-                            status = e.message ?: e.javaClass.simpleName
-                        }
-                    }
-                },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color(0xFF81D4FA),
-                    checkedTrackColor = Color(0xFF0277BD),
-                    uncheckedThumbColor = Color(0xFFB0BEC5),
-                    uncheckedTrackColor = Color(0xFF455A64)
-                )
-            )
-        }
-        Text(
-            text = "Независимо от фильтра «Ручное / Авто демо» на вкладке «Портфель».",
-            color = Color(0xFF757575),
-            fontSize = 9.sp
+            modifier = Modifier.padding(bottom = 2.dp)
         )
 
         OutlinedTextField(
@@ -315,9 +234,6 @@ internal fun TinkoffSandboxTabContent(
                             onTokenInputChange("")
                             onAccountInputChange("")
                             accounts = emptyList()
-                            executeSignalsOnSandbox = withContext(Dispatchers.IO) {
-                                TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
-                            }
                             status = "Токен и счёт очищены."
                             onSandboxPrefsChanged()
                         } catch (e: Throwable) {

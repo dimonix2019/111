@@ -39,7 +39,6 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,8 +50,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.time.Instant
-import java.time.ZoneId
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -328,7 +325,7 @@ private fun PortfolioCompactHeroInline(metrics: PortfolioMetrics) {
     }
 }
 
-/** Портфель: сделки по журналу, но вход учитывается только после исполнения на демо (ручное «Принять» или авто‑режим). */
+/** Портфель: сделки по журналу; вход в метриках — только при записи в реестре исполнений под выбранным режимом. */
 @Composable
 internal fun ConfirmedPortfolioTabContent(
     metrics: PortfolioMetrics?,
@@ -345,7 +342,14 @@ internal fun ConfirmedPortfolioTabContent(
     onRealTradeExitChange: (Double) -> Unit,
     portfolioLedgerIncludeAuto: Boolean,
     onPortfolioLedgerIncludeAutoChange: (Boolean) -> Unit,
-    sandboxSpreadExecReload: Int = 0,
+    executeSignalsOnSandbox: Boolean,
+    onExecuteSignalsOnSandboxChange: (Boolean) -> Unit,
+    sandboxSpreadAutoExecute: Boolean,
+    onSandboxSpreadAutoExecuteChange: (Boolean) -> Unit,
+    portfolioTestBusy: Boolean,
+    onTestSignalLong: () -> Unit,
+    onTestSignalShort: () -> Unit,
+    onTestSpreadPairClick: () -> Unit,
     closeAllPortfolioBusy: Boolean,
     onCloseAllTradesClick: () -> Unit,
     dailyReconciliation: DailyPortfolioReconciliation? = null
@@ -378,26 +382,57 @@ internal fun ConfirmedPortfolioTabContent(
                 )
             }
         }
-        val context = LocalContext.current
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color(0x33F48FB1), RoundedCornerShape(10.dp))
                 .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(
-                text = "Пороги |Z| для рыночных сигналов (не связаны с «Тест страт.»)",
-                color = Color(0xFFF8BBD0),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "Какие входы показывать в списке сделок портфеля (только фильтр по журналу исполнений)",
-                color = Color(0xFFFCE4EC),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Исполнять вход по сигналу на демо-счёт (покупка 1 лота + продажа 1 лота по спрэду TATN/TATNP)",
+                    color = Color(0xFFFCE4EC),
+                    fontSize = 11.sp,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                )
+                Switch(
+                    checked = executeSignalsOnSandbox,
+                    onCheckedChange = onExecuteSignalsOnSandboxChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFFF48FB1),
+                        checkedTrackColor = Color(0xFF880E4F),
+                        uncheckedThumbColor = Color(0xFFB0BEC5),
+                        uncheckedTrackColor = Color(0xFF455A64)
+                    )
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Сразу отправлять 2 заявки на демо без карточки «Принять»",
+                    color = Color(0xFFFCE4EC),
+                    fontSize = 11.sp,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                )
+                Switch(
+                    checked = sandboxSpreadAutoExecute,
+                    onCheckedChange = onSandboxSpreadAutoExecuteChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFFF48FB1),
+                        checkedTrackColor = Color(0xFF880E4F),
+                        uncheckedThumbColor = Color(0xFFB0BEC5),
+                        uncheckedTrackColor = Color(0xFF455A64)
+                    )
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -426,12 +461,6 @@ internal fun ConfirmedPortfolioTabContent(
                     fontWeight = if (portfolioLedgerIncludeAuto) FontWeight.SemiBold else FontWeight.Normal
                 )
             }
-            Text(
-                text = "Не влияет на отправку заявок на демо (это ниже во вкладке «Песочница»: «Сразу отправлять…»). Только фильтр для списка сделок портфеля.",
-                color = Color(0xFFCE93D8),
-                fontSize = 9.sp,
-                maxLines = 4
-            )
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 ParamStepper(
                     title = "Вход |Z|",
@@ -470,6 +499,53 @@ internal fun ConfirmedPortfolioTabContent(
                     valueTextColor = Color(0xFFFFF8F9)
                 )
             }
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onTestSignalLong,
+                    enabled = !portfolioTestBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF8BBD0))
+                ) {
+                    Text("Тестовый сигнал на вход LONG", fontSize = 11.sp, maxLines = 2)
+                }
+                OutlinedButton(
+                    onClick = onTestSignalShort,
+                    enabled = !portfolioTestBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF8BBD0))
+                ) {
+                    Text("Тестовый сигнал на вход SHORT", fontSize = 11.sp, maxLines = 2)
+                }
+                OutlinedButton(
+                    onClick = onTestSpreadPairClick,
+                    enabled = !portfolioTestBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB2DFDB))
+                ) {
+                    Text("Тестовая пара (нога 1 + нога 2)", fontSize = 11.sp, maxLines = 2)
+                }
+                if (portfolioTestBusy) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color(0xFFF48FB1),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Выполняется…", color = Color(0xFFCE93D8), fontSize = 10.sp)
+                    }
+                }
+            }
         }
         Text(
             text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",
@@ -477,10 +553,6 @@ internal fun ConfirmedPortfolioTabContent(
             fontSize = 10.sp,
             maxLines = 3
         )
-        var sandboxExec by remember { mutableStateOf<SandboxSpreadExecUi?>(null) }
-        LaunchedEffect(sandboxSpreadExecReload) {
-            sandboxExec = TinkoffSandboxSpreadExecLog.load(context)
-        }
         PortfolioCollapsibleSection(
             title = "Плечо, комиссия, пояснения",
             defaultExpanded = false
@@ -501,50 +573,6 @@ internal fun ConfirmedPortfolioTabContent(
                 color = Color(0xFF757575),
                 fontSize = 10.sp
             )
-        }
-        PortfolioCollapsibleSection(
-            title = "Песочница: последнее «Принять» (2 ноги)",
-            defaultExpanded = false
-        ) {
-            val ex = sandboxExec
-            if (ex == null) {
-                Text(
-                    text = "Пока нет записи последнего исполнения двух биржевых заявок на демо-счёте.",
-                    color = Color(0xFF9E9E9E),
-                    fontSize = 11.sp
-                )
-            } else {
-                val mskWhen = Instant.ofEpochMilli(ex.timestampMillis)
-                    .atZone(ZoneId.of("Europe/Moscow"))
-                    .toLocalDateTime()
-                    .format(portfolio15mLabelFormatter)
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF1B2A20), RoundedCornerShape(10.dp))
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "Последнее «Принять» на песочнице — 2 биржевые заявки (ноги спрэда)",
-                        color = Color(0xFFB2DFDB),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    val title = when (ex.signalType) {
-                        StrategySignalType.EnterLong -> "LONG спрэд (TATN / TATNP)"
-                        StrategySignalType.EnterShort -> "SHORT спрэд (TATNP / TATN)"
-                        else -> ""
-                    }
-                    Text(title, color = Color(0xFFE0E0E0), fontSize = 11.sp)
-                    Text(
-                        text = "Z = ${String.format(Locale.US, "%.2f", ex.zScore)} · $mskWhen (МСК)",
-                        color = Color(0xFF9E9E9E),
-                        fontSize = 10.sp
-                    )
-                    Text(ex.legsRu, color = Color(0xFFC8E6C9), fontSize = 11.sp)
-                }
-            }
         }
 
         if (portfolioError != null) {
