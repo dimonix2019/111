@@ -281,6 +281,66 @@ internal data class PortfolioConfirmedTradeTableRow(
     val netPnlRubApprox: Double
 )
 
+/** Одна сделка (пара ног) и её ордера для таблицы портфеля. */
+internal data class PortfolioTradeGroupRow(
+    val tradeId: String,
+    val directionLabel: String,
+    val entryTimeMsk: String,
+    val exitTimeMsk: String,
+    val volumeText: String,
+    val confirmLabel: String,
+    val entryZ: Double,
+    val exitZ: Double,
+    val notificationIdsText: String,
+    val legLongPnlSplitRubApprox: Double,
+    val legShortPnlSplitRubApprox: Double,
+    val netPnlRubApprox: Double,
+    val orders: List<PortfolioOrderTableRow>
+)
+
+/** Один ордер (нога спрэда) внутри сделки. */
+internal data class PortfolioOrderTableRow(
+    val orderIndex: Int,
+    val legRole: String,
+    val ticker: String,
+    val sideRu: String,
+    val orderBrief: String,
+    val volumeText: String
+)
+
+internal fun PortfolioConfirmedTradeTableRow.toTradeGroup(): PortfolioTradeGroupRow = PortfolioTradeGroupRow(
+    tradeId = tradeId,
+    directionLabel = directionLabel,
+    entryTimeMsk = entryTimeMsk,
+    exitTimeMsk = exitTimeMsk,
+    volumeText = volumeText,
+    confirmLabel = confirmLabel,
+    entryZ = entryZ,
+    exitZ = exitZ,
+    notificationIdsText = notificationIdsText,
+    legLongPnlSplitRubApprox = legLongPnlSplitRubApprox,
+    legShortPnlSplitRubApprox = legShortPnlSplitRubApprox,
+    netPnlRubApprox = netPnlRubApprox,
+    orders = listOf(
+        PortfolioOrderTableRow(
+            orderIndex = 1,
+            legRole = "Long",
+            ticker = longLegTicker,
+            sideRu = longLegSideRu,
+            orderBrief = "—",
+            volumeText = "1 лот"
+        ),
+        PortfolioOrderTableRow(
+            orderIndex = 2,
+            legRole = "Short",
+            ticker = shortLegTicker,
+            sideRu = shortLegSideRu,
+            orderBrief = "—",
+            volumeText = "1 лот"
+        )
+    )
+)
+
 internal data class ExecutedPortfolioBuildResult(
     val metrics: PortfolioMetrics?,
     val tableRows: List<PortfolioConfirmedTradeTableRow>

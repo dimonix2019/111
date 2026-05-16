@@ -39,25 +39,54 @@ internal data class SandboxSpreadExecUi(
     val notificationIdsText: String,
     val legs: List<SandboxSpreadOrderLegUi>
 ) {
-    fun toOpenPortfolioTableRow(): PortfolioConfirmedTradeTableRow = PortfolioConfirmedTradeTableRow(
-        tradeId = tradeId,
-        directionLabel = directionLabel,
-        entryTimeMsk = entryTimeMsk,
-        exitTimeMsk = "—",
-        longLegTicker = longLegTicker,
-        shortLegTicker = shortLegTicker,
-        longLegSideRu = longLegSideRu,
-        shortLegSideRu = shortLegSideRu,
-        volumeText = volumeText,
-        confirmLabel = confirmLabel,
-        entryZ = zScore,
-        exitZ = Double.NaN,
-        notificationIdsText = notificationIdsText,
-        legLongPnlSplitRubApprox = Double.NaN,
-        legShortPnlSplitRubApprox = Double.NaN,
-        grossPnlRubApprox = Double.NaN,
-        netPnlRubApprox = Double.NaN
-    )
+    fun toTradeGroup(): PortfolioTradeGroupRow {
+        val orderRows = if (legs.size >= 2) {
+            listOf(
+                PortfolioOrderTableRow(
+                    orderIndex = 1,
+                    legRole = "Long",
+                    ticker = legs[0].ticker,
+                    sideRu = legs[0].sideRu,
+                    orderBrief = legs[0].orderBrief,
+                    volumeText = "1 лот"
+                ),
+                PortfolioOrderTableRow(
+                    orderIndex = 2,
+                    legRole = "Short",
+                    ticker = legs[1].ticker,
+                    sideRu = legs[1].sideRu,
+                    orderBrief = legs[1].orderBrief,
+                    volumeText = "1 лот"
+                )
+            )
+        } else {
+            legs.mapIndexed { index, leg ->
+                PortfolioOrderTableRow(
+                    orderIndex = index + 1,
+                    legRole = if (index == 0) "Long" else "Short",
+                    ticker = leg.ticker,
+                    sideRu = leg.sideRu,
+                    orderBrief = leg.orderBrief,
+                    volumeText = "1 лот"
+                )
+            }
+        }
+        return PortfolioTradeGroupRow(
+            tradeId = tradeId,
+            directionLabel = directionLabel,
+            entryTimeMsk = entryTimeMsk,
+            exitTimeMsk = "—",
+            volumeText = volumeText,
+            confirmLabel = confirmLabel,
+            entryZ = zScore,
+            exitZ = Double.NaN,
+            notificationIdsText = notificationIdsText,
+            legLongPnlSplitRubApprox = Double.NaN,
+            legShortPnlSplitRubApprox = Double.NaN,
+            netPnlRubApprox = Double.NaN,
+            orders = orderRows
+        )
+    }
 }
 
 internal object TinkoffSandboxSpreadExecLog {
