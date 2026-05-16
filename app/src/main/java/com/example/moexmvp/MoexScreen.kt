@@ -1022,18 +1022,34 @@ internal fun MoexScreen() {
                                 scope.launch {
                                     portfolioTestBusy = true
                                     try {
-                                        withContext(Dispatchers.IO) {
-                                            emitTestStrategyEntrySignal(
+                                        val r = withContext(Dispatchers.IO) {
+                                            runPortfolioTestEntrySignalFull(
                                                 context.applicationContext,
                                                 StrategySignalType.EnterLong
                                             )
                                         }
-                                        signalEvents = loadStrategySignalEvents(context)
-                                        Toast.makeText(
-                                            context,
-                                            "Тестовый сигнал LONG записан в журнал (Z=${PORTFOLIO_TEST_SIGNAL_Z_MARKER.toInt()} — метка теста).",
-                                            Toast.LENGTH_LONG
-                                        ).show()
+                                        if (r.isSuccess) {
+                                            val out = r.getOrNull()!!
+                                            zStrategyPosition = loadSavedStrategyPosition(context)
+                                            pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+                                            signalEvents = loadStrategySignalEvents(context)
+                                            repeat(out.sandboxSpreadExecReloadDelta) {
+                                                sandboxSpreadExecReload++
+                                            }
+                                            Toast.makeText(
+                                                context,
+                                                out.toastMessage,
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } else {
+                                            val err = r.exceptionOrNull()
+                                            Toast.makeText(
+                                                context,
+                                                err?.message?.take(400)
+                                                    ?: err?.javaClass?.simpleName ?: "Ошибка",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
                                     } finally {
                                         portfolioTestBusy = false
                                     }
@@ -1043,18 +1059,34 @@ internal fun MoexScreen() {
                                 scope.launch {
                                     portfolioTestBusy = true
                                     try {
-                                        withContext(Dispatchers.IO) {
-                                            emitTestStrategyEntrySignal(
+                                        val r = withContext(Dispatchers.IO) {
+                                            runPortfolioTestEntrySignalFull(
                                                 context.applicationContext,
                                                 StrategySignalType.EnterShort
                                             )
                                         }
-                                        signalEvents = loadStrategySignalEvents(context)
-                                        Toast.makeText(
-                                            context,
-                                            "Тестовый сигнал SHORT записан в журнал (Z=${PORTFOLIO_TEST_SIGNAL_Z_MARKER.toInt()} — метка теста).",
-                                            Toast.LENGTH_LONG
-                                        ).show()
+                                        if (r.isSuccess) {
+                                            val out = r.getOrNull()!!
+                                            zStrategyPosition = loadSavedStrategyPosition(context)
+                                            pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+                                            signalEvents = loadStrategySignalEvents(context)
+                                            repeat(out.sandboxSpreadExecReloadDelta) {
+                                                sandboxSpreadExecReload++
+                                            }
+                                            Toast.makeText(
+                                                context,
+                                                out.toastMessage,
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } else {
+                                            val err = r.exceptionOrNull()
+                                            Toast.makeText(
+                                                context,
+                                                err?.message?.take(400)
+                                                    ?: err?.javaClass?.simpleName ?: "Ошибка",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
                                     } finally {
                                         portfolioTestBusy = false
                                     }
@@ -1064,12 +1096,19 @@ internal fun MoexScreen() {
                                 scope.launch {
                                     portfolioTestBusy = true
                                     try {
-                                        val pairType = when (pendingVirtualTrade?.signalType) {
+                                        val proposal = pendingVirtualTrade
+                                        val pairType = when (proposal?.signalType) {
                                             StrategySignalType.EnterShort -> StrategySignalType.EnterShort
                                             else -> StrategySignalType.EnterLong
                                         }
+                                        val journalTs = proposal?.timestampMillis
                                         val r = withContext(Dispatchers.IO) {
-                                            executeTestSandboxSpreadPair(context.applicationContext, pairType)
+                                            executeTestSandboxSpreadPair(
+                                                context.applicationContext,
+                                                pairType,
+                                                journalBarTimestampMillis = journalTs,
+                                                skipStrategyJournalIfAlreadyRecorded = false
+                                            )
                                         }
                                         if (r.isSuccess) {
                                             zStrategyPosition = loadSavedStrategyPosition(context)
