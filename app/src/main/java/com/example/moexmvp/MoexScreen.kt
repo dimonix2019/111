@@ -1298,7 +1298,11 @@ internal fun MoexScreen() {
                                 }
                             },
                             walkForwardBusy = walkForwardBusy,
-                            dailyReconciliation = dailyReconciliation
+                            dailyReconciliation = dailyReconciliation,
+                            portfolioEntryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            portfolioExitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
                         )
                     }
                 }

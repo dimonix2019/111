@@ -29,7 +29,13 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
     val borrowedRub = notionalRub * (leverage - 1.0).coerceAtLeast(0.0)
     val overnightFeePerDayRub = borrowedRub * (TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY / 100.0)
 
-    val eventsByTime = allJournalEvents.sortedBy { it.timestampMillis }
+    val remainingExits = allJournalEvents
+        .filter {
+            it.signalType == StrategySignalType.ExitLong ||
+                it.signalType == StrategySignalType.ExitShort
+        }
+        .sortedBy { it.timestampMillis }
+        .toMutableList()
     val closedRows = mutableListOf<PortfolioConfirmedTradeTableRow>()
     val stillOpen = mutableListOf<SandboxSpreadExecUi>()
     var tradeSeq = 0
@@ -47,13 +53,14 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
                 continue
             }
         }
-        val exitEvent = eventsByTime.firstOrNull { ev ->
+        val exitIdx = remainingExits.indexOfFirst { ev ->
             ev.signalType == exitType && ev.timestampMillis >= open.barTimestampMillis
         }
-        if (exitEvent == null) {
+        if (exitIdx < 0) {
             stillOpen += open
             continue
         }
+        val exitEvent = remainingExits.removeAt(exitIdx)
         val entrySnaps = snapStrategySignalEventsToExecutionPoints(points, listOf(open.toSyntheticEnterEvent()))
         val exitSnaps = snapStrategySignalEventsToExecutionPoints(points, listOf(exitEvent))
         val entryPoint = entrySnaps.firstOrNull()?.point

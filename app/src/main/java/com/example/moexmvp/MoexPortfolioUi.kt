@@ -543,8 +543,8 @@ internal fun PortfolioTradesWindowSection(
             fontWeight = FontWeight.Medium
         )
         Text(
-            text = "Открытые — по времени исполнения на демо; закрытые — по времени выхода. " +
-                "PnL группы — сумма по сделкам в таблице.",
+            text = "Открытые — исполнение на демо; закрытые — журнал вход/выход + демо (не симуляция «Тест страт.»). " +
+                "PnL группы — сумма по сделкам в таблице. Окно: ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. (МСК).",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
             maxLines = 3
@@ -915,7 +915,9 @@ internal fun StrategyTestTabContent(
     onSavePreset: (String) -> Unit,
     onWalkForward: () -> Unit,
     walkForwardBusy: Boolean,
-    dailyReconciliation: DailyPortfolioReconciliation? = null
+    dailyReconciliation: DailyPortfolioReconciliation? = null,
+    portfolioEntryThreshold: Double? = null,
+    portfolioExitThreshold: Double? = null
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -988,10 +990,24 @@ internal fun StrategyTestTabContent(
             }
         }
         Text(
-            text = "Сделки ниже — результат пересечения порогов на истории (не журнал исполнения).",
+            text = "Сделки ниже — пересечение порогов Z на всём 15м ряду (252 дн.), не журнал и не демо-исполнение.",
             color = Color(0xFF757575),
             fontSize = 10.sp
         )
+        if (portfolioEntryThreshold != null && portfolioExitThreshold != null) {
+            val entryDiffers = kotlin.math.abs(entryThreshold - portfolioEntryThreshold) > 0.009
+            val exitDiffers = kotlin.math.abs(exitThreshold - portfolioExitThreshold) > 0.009
+            if (entryDiffers || exitDiffers) {
+                Text(
+                    text = "Пороги «Тест страт.» (±${String.format(Locale.US, "%.2f", entryThreshold)} / ±${String.format(Locale.US, "%.2f", exitThreshold)}) " +
+                        "не совпадают с розовыми на «Портфеле» (±${String.format(Locale.US, "%.2f", portfolioEntryThreshold)} / ±${String.format(Locale.US, "%.2f", portfolioExitThreshold)}). " +
+                        "Сделки на вкладках будут различаться.",
+                    color = Color(0xFFFFCC80),
+                    fontSize = 10.sp,
+                    maxLines = 4
+                )
+            }
+        }
         PortfolioCollapsibleSection(
             title = "Сводка: Итого PnL и просадка",
             subtitle = metrics?.let { m ->
@@ -1062,19 +1078,40 @@ internal fun StrategyTestTabContent(
                     )
                     PortfolioMetricGrid(m, showHeroDuplicate = false)
                 }
+                val windowStart = portfolioTradesWindowStartMillis()
+                val inWindow = filterSimClosedTradesInWindow(m.closedTrades, windowStart)
                 Text(
-                    text = "Сделки симуляции (${m.closedTrades.size})",
+                    text = "Сделки симуляции: за ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. (МСК) — ${inWindow.size}; " +
+                        "за весь 15м ряд — ${m.closedTrades.size}",
                     color = Color(0xFFE0E0E0),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
                 )
-                val recent = m.closedTrades.takeLast(25).asReversed()
+                val recent = inWindow.asReversed()
                 if (recent.isEmpty()) {
-                    Text("Закрытых сделок в симуляции нет.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
+                    if (m.closedTrades.isNotEmpty()) {
+                        Text(
+                            text = "За последние ${PORTFOLIO_TRADES_WINDOW_DAYS} дня при порогах тестера пересечений нет. " +
+                                "На «Портфеле» закрытые могут идти из журнала сигналов и демо (другой источник).",
+                            color = Color(0xFF9E9E9E),
+                            fontSize = 11.sp,
+                            maxLines = 4
+                        )
+                    } else {
+                        Text("Закрытых сделок в симуляции нет.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
+                    }
                 } else {
                     recent.forEachIndexed { index, t ->
                         PortfolioTradeRow(index = index + 1, t = t)
+                    }
+                    if (m.closedTrades.size > inWindow.size) {
+                        Text(
+                            text = "Показаны только сделки с датой выхода за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня (как в «Закрытые» на портфеле).",
+                            color = Color(0xFF616161),
+                            fontSize = 9.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
                     }
                 }
             }

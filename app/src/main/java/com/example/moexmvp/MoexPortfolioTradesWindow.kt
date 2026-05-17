@@ -48,6 +48,30 @@ internal fun filterClosedTradeRowsInWindow(
         exitMs >= windowStartMillis
     }
 
+/** Парсинг даты/времени выхода в симуляции (15м метка или только день). */
+internal fun parseSimTradeExitMillis(label: String): Long? {
+    if (label.isBlank() || label == "—") return null
+    parsePortfolioExecutionTableMsk(label)?.let { return it }
+    if (label.length >= 10) {
+        return runCatching {
+            java.time.LocalDate.parse(label.trim().take(10))
+                .atStartOfDay(ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli()
+        }.getOrNull()
+    }
+    return null
+}
+
+internal fun filterSimClosedTradesInWindow(
+    trades: List<PortfolioClosedTrade>,
+    windowStartMillis: Long = portfolioTradesWindowStartMillis()
+): List<PortfolioClosedTrade> =
+    trades.filter { t ->
+        val exitMs = parseSimTradeExitMillis(t.exitDate) ?: return@filter false
+        exitMs >= windowStartMillis
+    }
+
 internal fun sumTradeGroupsNetPnl(groups: List<PortfolioTradeGroupRow>): Double =
     groups.sumOf { g -> if (g.netPnlRubApprox.isNaN()) 0.0 else g.netPnlRubApprox }
 
