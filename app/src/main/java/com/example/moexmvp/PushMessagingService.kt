@@ -16,9 +16,6 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import org.json.JSONArray
 import org.json.JSONObject
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 internal const val PUSH_CHANNEL_ID = "moex_push_channel"
@@ -47,9 +44,6 @@ private const val MAX_SIGNAL_EVENTS = 800
 private val pushDedupLock = Any()
 private val signalEventsLock = Any()
 
-private val sandboxLegNotifyTimeFormatter: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Europe/Moscow"))
-
 internal enum class StrategySignalType {
     EnterLong,
     EnterShort,
@@ -58,9 +52,12 @@ internal enum class StrategySignalType {
 }
 
 internal data class StrategySignalEvent(
+    /** Время 15м бара сигнала. */
     val timestampMillis: Long,
     val signalType: StrategySignalType,
-    val zScore: Double
+    val zScore: Double,
+    /** Когда запись попала в журнал (wall clock, МСК в UI). */
+    val receivedAtMillis: Long = timestampMillis
 )
 
 internal fun spreadLegPushCorrelationTag(barTimestampMillis: Long, signalType: StrategySignalType): String =
@@ -89,13 +86,15 @@ internal fun showPushNotification(
     correlationTag: String? = null
 ): Boolean {
     val app = context.applicationContext
+    val receivedAtMillis = System.currentTimeMillis()
+    val displayBody = ensureMessageBodyHasReceivedTime(body, receivedAtMillis)
     fun trace(posted: Boolean, skipReason: String?, nid: Int? = null) {
         appendPushNotificationLogEntry(
             app,
             PushNotificationLogEntry(
-                wallTimestampMillis = System.currentTimeMillis(),
+                wallTimestampMillis = receivedAtMillis,
                 title = title,
-                body = body,
+                body = displayBody,
                 posted = posted,
                 skipReason = skipReason,
                 virtualTapSignalType = virtualTradeTap?.signalType?.name,
@@ -118,7 +117,7 @@ internal fun showPushNotification(
         }
     }
     if (!skipDuplicateCheck && shouldSkipDuplicatePush(context, title, body)) {
-        Log.d(PUSH_LOG_TAG, "Skipping duplicate notification: $title | $body")
+        Log.d(PUSH_LOG_TAG, "Skipping duplicate notification: $title | $displayBody")
         trace(false, PushNotificationLogSkipReason.DUPLICATE_WITHIN_WINDOW, null)
         return false
     }
@@ -143,7 +142,7 @@ internal fun showPushNotification(
     val notification = NotificationCompat.Builder(context, PUSH_CHANNEL_ID)
         .setSmallIcon(android.R.drawable.ic_dialog_info)
         .setContentTitle(title)
-        .setContentText(body)
+        .setContentText(displayBody)
         .setAutoCancel(true)
         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
         .setContentIntent(pendingIntent)
@@ -164,10 +163,11 @@ internal fun notifySandboxSpreadLegExecutionResults(
 ) {
     val app = context.applicationContext
     legs.forEachIndexed { index, leg ->
-        val msk = sandboxLegNotifyTimeFormatter.format(Instant.ofEpochMilli(leg.completedAtMillis))
+        val execMsk = formatMessageReceivedAtMsk(leg.completedAtMillis)
         val brief = formatPostSandboxOrderBrief(leg.orderJson)
         val body = buildString {
-            append(msk)
+            append("Исполнено: ")
+            append(execMsk)
             append(" (МСК)\n")
             append("Тикер: ")
             append(leg.ticker)
@@ -320,16 +320,20 @@ internal fun recordStrategySignalEvent(
             val item = source.optJSONObject(index) ?: continue
             val typeName = item.optString("signalType")
             val type = runCatching { StrategySignalType.valueOf(typeName) }.getOrNull() ?: continue
+            val barTs = item.optLong("timestampMillis", 0L)
             events += StrategySignalEvent(
-                timestampMillis = item.optLong("timestampMillis", 0L),
+                timestampMillis = barTs,
                 signalType = type,
-                zScore = item.optDouble("zScore", 0.0)
+                zScore = item.optDouble("zScore", 0.0),
+                receivedAtMillis = item.optLong("receivedAtMillis", barTs)
             )
         }
+        val receivedAt = System.currentTimeMillis()
         events += StrategySignalEvent(
             timestampMillis = timestampMillis,
             signalType = signalType,
-            zScore = zScore
+            zScore = zScore,
+            receivedAtMillis = receivedAt
         )
         val trimmed = events
             .sortedBy { it.timestampMillis }
@@ -341,6 +345,7 @@ internal fun recordStrategySignalEvent(
                     .put("timestampMillis", event.timestampMillis)
                     .put("signalType", event.signalType.name)
                     .put("zScore", event.zScore)
+                    .put("receivedAtMillis", event.receivedAtMillis)
             )
         }
         prefs.edit()
@@ -382,7 +387,8 @@ internal fun loadStrategySignalEvents(
                     StrategySignalEvent(
                         timestampMillis = timestampMillis,
                         signalType = type,
-                        zScore = item.optDouble("zScore", 0.0)
+                        zScore = item.optDouble("zScore", 0.0),
+                        receivedAtMillis = item.optLong("receivedAtMillis", timestampMillis)
                     )
                 )
             }

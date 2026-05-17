@@ -13,7 +13,8 @@ internal data class PendingVirtualTradeProposal(
     val zScore: Double,
     val timestampMillis: Long,
     val entryThreshold: Double,
-    val exitThreshold: Double
+    val exitThreshold: Double,
+    val receivedAtMillis: Long
 ) {
     val titleRu: String
         get() = when (signalType) {
@@ -23,13 +24,19 @@ internal data class PendingVirtualTradeProposal(
         }
 
     val bodyRu: String
-        get() = String.format(
-            java.util.Locale.US,
-            "Z = %.2f · порог входа ±%.2f, выход ±%.2f\n(подтверждение в приложении; при песочнице — 2 заявки: 1×покупка + 1×продажа по ногам спрэда TATN/TATNP)",
-            zScore,
-            entryThreshold,
-            exitThreshold
-        )
+        get() = buildString {
+            append(formatMessageReceivedLine(receivedAtMillis))
+            append('\n')
+            append(
+                String.format(
+                    java.util.Locale.US,
+                    "Z = %.2f · порог входа ±%.2f, выход ±%.2f\n(подтверждение в приложении; при песочнице — 2 заявки: 1×покупка + 1×продажа по ногам спрэда TATN/TATNP)",
+                    zScore,
+                    entryThreshold,
+                    exitThreshold
+                )
+            )
+        }
 }
 
 internal fun savePendingVirtualTradeProposal(
@@ -48,10 +55,12 @@ internal fun savePendingVirtualTradeProposal(
                 calculatedDate = null
             )
     )
+    val receivedAt = System.currentTimeMillis()
     val json = JSONObject()
         .put("signalType", signalType.name)
         .put("zScore", zScore)
         .put("timestampMillis", timestampMillis)
+        .put("receivedAtMillis", receivedAt)
         .put("entryThreshold", th.entry)
         .put("exitThreshold", th.exit)
     context.getSharedPreferences(VIRTUAL_TRADE_PREFS, Context.MODE_PRIVATE)
@@ -69,12 +78,14 @@ internal fun loadPendingVirtualTradeProposal(context: Context): PendingVirtualTr
     val typeName = o.optString("signalType")
     val type = runCatching { StrategySignalType.valueOf(typeName) }.getOrNull() ?: return null
     if (type != StrategySignalType.EnterLong && type != StrategySignalType.EnterShort) return null
+    val barTs = o.optLong("timestampMillis", 0L)
     return PendingVirtualTradeProposal(
         signalType = type,
         zScore = o.optDouble("zScore", 0.0),
-        timestampMillis = o.optLong("timestampMillis", 0L),
+        timestampMillis = barTs,
         entryThreshold = o.optDouble("entryThreshold", DEFAULT_DYNAMIC_Z_ENTRY),
-        exitThreshold = o.optDouble("exitThreshold", DEFAULT_DYNAMIC_Z_EXIT)
+        exitThreshold = o.optDouble("exitThreshold", DEFAULT_DYNAMIC_Z_EXIT),
+        receivedAtMillis = o.optLong("receivedAtMillis", barTs)
     )
 }
 

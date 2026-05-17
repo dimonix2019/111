@@ -140,7 +140,8 @@ internal fun JournalTabContent(
             items = filtered,
             key = { index, ev -> "${index}_${ev.timestampMillis}_${ev.signalType.name}" }
         ) { _, ev ->
-            val ts = Instant.ofEpochMilli(ev.timestampMillis).atZone(zone)
+            val barTs = Instant.ofEpochMilli(ev.timestampMillis).atZone(zone)
+            val receivedLine = formatMessageReceivedLine(ev.receivedAtMillis)
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -148,7 +149,13 @@ internal fun JournalTabContent(
                     .padding(10.dp)
             ) {
                 Text(
-                    "${ts.toLocalDate()} ${ts.toLocalTime()} · ${ev.signalType.name}",
+                    receivedLine,
+                    color = Color(0xFF81D4FA),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    "Бар 15м: ${barTs.toLocalDate()} ${barTs.toLocalTime()} · ${ev.signalType.name}",
                     color = Color(0xFFE0E0E0),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium
