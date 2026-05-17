@@ -255,7 +255,7 @@ internal fun MoexScreen() {
         }
     }
 
-    suspend fun refreshPortfolio(m15LoadHint: PortfolioM15LoadMode? = null) {
+    suspend fun refreshPortfolioUnlocked(m15LoadHint: PortfolioM15LoadMode? = null) {
         portfolioLoading = true
         portfolioError = null
         try {
@@ -274,7 +274,7 @@ internal fun MoexScreen() {
                     else ->
                         "Нет 15-мин данных (ISS / сеть). Попробуйте «MOEX заново»."
                 }
-                return@refreshPortfolio
+                return@refreshPortfolioUnlocked
             }
             val points = loaded
             val desc =
@@ -382,13 +382,20 @@ internal fun MoexScreen() {
                 strategyTestPortfolioMetrics?.closedTrades.orEmpty()
             )
             portfolioError = if (portfolio15mSeriesTailStale(points)) {
-                "15м ряд обрывается на ${points.last().tradeDate} (нет свежих баров с MOEX). " +
-                    "Нажмите «MOEX заново» или проверьте сеть."
+                val todayMsk = LocalDate.now(moexZoneId)
+                "15м ряд обрывается на ${points.last().tradeDate} (сегодня МСК $todayMsk, нужны свежие бары с MOEX). " +
+                    "Нажмите «Обновить» или «MOEX заново» при сети."
             } else {
                 null
             }
         } finally {
             portfolioLoading = false
+        }
+    }
+
+    suspend fun refreshPortfolio(m15LoadHint: PortfolioM15LoadMode? = null) {
+        refreshMutex.withLock {
+            refreshPortfolioUnlocked(m15LoadHint)
         }
     }
 
@@ -469,7 +476,7 @@ internal fun MoexScreen() {
                             calculatedDate = dynamicThresholds.calculatedDate
                         )
                         val m15ForSignal = withContext(Dispatchers.IO) {
-                            val till = LocalDate.now()
+                            val till = LocalDate.now(moexZoneId)
                             loadPortfolio15mDataPoints(
                                 context,
                                 till.minusDays(10),
@@ -777,7 +784,7 @@ internal fun MoexScreen() {
                                 }
                                 val tsExit = System.currentTimeMillis()
                                 val lastZ = withContext(Dispatchers.IO) {
-                                    val till = LocalDate.now()
+                                    val till = LocalDate.now(moexZoneId)
                                     val pts = loadPortfolio15mDataPoints(
                                         context,
                                         till.minusDays(3),
@@ -1274,7 +1281,7 @@ internal fun MoexScreen() {
                                 scope.launch {
                                     walkForwardBusy = true
                                     try {
-                                        val till = LocalDate.now()
+                                        val till = LocalDate.now(moexZoneId)
                                         val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
                                         val pts = withContext(Dispatchers.IO) {
                                             loadPortfolio15mDataPoints(

@@ -378,9 +378,6 @@ internal suspend fun fetchPortfolio15mSpreadEntities(
     }
 }
 
-/** Если кэш старше этого интервала — подгружаем хвост с MOEX, иначе только SQLite. */
-private const val PORTFOLIO_M15_CACHE_STALE_MS = 6L * 60L * 60L * 1000L
-
 /** MOEX ISS: параметр till — как правило до начала следующего календарного дня (включить сегодня). */
 internal fun portfolioM15MoexFetchTillDate(): LocalDate =
     LocalDate.now(moexZoneId).plusDays(1)
@@ -395,10 +392,9 @@ internal suspend fun resolvePortfolioM15LoadMode(context: Context): PortfolioM15
     if (dao.count() == 0) return PortfolioM15LoadMode.INCREMENTAL
     val lastTs = dao.maxTsMillis() ?: return PortfolioM15LoadMode.INCREMENTAL
     val today = LocalDate.now(moexZoneId)
-    val lastDay = Instant.ofEpochMilli(lastTs).atZone(moexZoneId).toLocalDate()
-    if (lastDay.isBefore(today)) return PortfolioM15LoadMode.INCREMENTAL
-    val stale = System.currentTimeMillis() - lastTs > PORTFOLIO_M15_CACHE_STALE_MS
-    return if (stale) PortfolioM15LoadMode.INCREMENTAL else PortfolioM15LoadMode.CACHE_ONLY
+    val lastDay = portfolioM15LastBarDayFromTs(lastTs)
+    val lastTsAgeMs = System.currentTimeMillis() - lastTs
+    return resolvePortfolioM15LoadModeForLastBar(lastDay, today, lastTsAgeMs)
 }
 
 /**
@@ -410,8 +406,19 @@ internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
     preferredMode: PortfolioM15LoadMode
 ): List<DataPoint> {
     val till = LocalDate.now(moexZoneId)
+    val today = till
     var points = loadPortfolio15mDataPoints(context, from, till, preferredMode)
     if (!portfolio15mSeriesTailStale(points)) return points
+
+    val lastDay = points.lastOrNull()?.timestampMillis?.let { portfolioM15LastBarDayFromTs(it) }
+    if (preferredMode != PortfolioM15LoadMode.FULL_REFRESH &&
+        lastDay != null &&
+        lastDay.isBefore(today.minusDays(1))
+    ) {
+        points = loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.FULL_REFRESH)
+        if (!portfolio15mSeriesTailStale(points)) return points
+    }
+
     if (preferredMode != PortfolioM15LoadMode.INCREMENTAL) {
         points = loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.INCREMENTAL)
         if (!portfolio15mSeriesTailStale(points)) return points
@@ -432,57 +439,52 @@ internal suspend fun loadPortfolio15mDataPoints(
     till: LocalDate,
     mode: PortfolioM15LoadMode
 ): List<DataPoint> = withContext(Dispatchers.IO) {
-    val dao = PortfolioM15Database.get(context).dao()
-    val zone = moexZoneId
-    val moexFetchTill = portfolioM15MoexFetchTillDate()
-    val cutoffMillis = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
+    withPortfolioM15LoadLock {
+        val dao = PortfolioM15Database.get(context).dao()
+        val zone = moexZoneId
+        val moexFetchTill = portfolioM15MoexFetchTillDate()
+        val cutoffMillis = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
 
-    dao.deleteOlderThan(cutoffMillis)
+        dao.deleteOlderThan(cutoffMillis)
 
-    when (mode) {
-        PortfolioM15LoadMode.CACHE_ONLY -> {
-            val rows = dao.getAll()
-            if (rows.isEmpty()) return@withContext emptyList()
-            applyZScores(rows.map { it.toDataPoint() })
-        }
+        when (mode) {
+            PortfolioM15LoadMode.CACHE_ONLY -> Unit
 
-        PortfolioM15LoadMode.FULL_REFRESH -> {
-            dao.deleteAll()
-            val entities = fetchPortfolio15mSpreadEntitiesChunked(from, moexFetchTill)
-            insertPortfolio15mEntitiesBatched(dao, entities)
-        }
-
-        PortfolioM15LoadMode.INCREMENTAL -> {
-            val cached = dao.getAll()
-            val mergeFrom = if (cached.isEmpty()) {
-                from
-            } else {
-                val lastTs = cached.last().tsMillis
-                val lastDay = Instant.ofEpochMilli(lastTs).atZone(zone).toLocalDate()
-                val overlapStart = lastDay.minusDays(PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS)
-                maxOf(from, overlapStart)
+            PortfolioM15LoadMode.FULL_REFRESH -> {
+                downloadPortfolio15mFullRangeToDao(dao, from, moexFetchTill)
             }
-            if (mergeFrom <= moexFetchTill) {
-                val fresh = fetchPortfolio15mSpreadEntitiesChunked(mergeFrom, moexFetchTill)
-                insertPortfolio15mEntitiesBatched(dao, fresh)
+
+            PortfolioM15LoadMode.INCREMENTAL -> {
+                val lastTs = dao.maxTsMillis()
+                val mergeFrom = if (lastTs == null) {
+                    from
+                } else {
+                    val lastDay = Instant.ofEpochMilli(lastTs).atZone(zone).toLocalDate()
+                    val overlapStart = lastDay.minusDays(PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS)
+                    maxOf(from, overlapStart)
+                }
+                if (mergeFrom <= moexFetchTill) {
+                    val fresh = fetchPortfolio15mSpreadEntitiesChunked(mergeFrom, moexFetchTill)
+                    insertPortfolio15mEntitiesBatched(dao, fresh)
+                }
             }
         }
-    }
 
-    val needsTailMerge = when (mode) {
-        PortfolioM15LoadMode.CACHE_ONLY -> {
-            val lastTs = dao.maxTsMillis() ?: 0L
-            System.currentTimeMillis() - lastTs > PORTFOLIO_M15_TAIL_MAX_AGE_MS
+        val needsTailMerge = when (mode) {
+            PortfolioM15LoadMode.CACHE_ONLY -> {
+                val lastTs = dao.maxTsMillis() ?: 0L
+                System.currentTimeMillis() - lastTs > PORTFOLIO_M15_TAIL_MAX_AGE_MS
+            }
+            PortfolioM15LoadMode.INCREMENTAL,
+            PortfolioM15LoadMode.FULL_REFRESH -> true
         }
-        PortfolioM15LoadMode.INCREMENTAL,
-        PortfolioM15LoadMode.FULL_REFRESH -> true
+        if (needsTailMerge) {
+            mergePortfolio15mRecentTailFromMoex(dao)
+        }
+        val rows = dao.getSince(cutoffMillis)
+        if (rows.isEmpty()) return@withPortfolioM15LoadLock emptyList()
+        applyZScores(rows.map { it.toDataPoint() })
     }
-    if (needsTailMerge) {
-        mergePortfolio15mRecentTailFromMoex(dao)
-    }
-    val all = dao.getAll()
-    if (all.isEmpty()) return@withContext emptyList()
-    applyZScores(all.map { it.toDataPoint() })
 }
 
 internal fun isBeforeDynamicZRecalcWallClock(now: LocalDateTime): Boolean {

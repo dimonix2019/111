@@ -22,7 +22,7 @@ internal suspend fun loadCurrentPortfolioMarketSnapshot(
     forceNetworkRefresh: Boolean = true
 ): PortfolioMarketBarSnapshot {
     val app = context.applicationContext
-    val till = LocalDate.now()
+    val till = LocalDate.now(moexZoneId)
     val from = till.minusDays(10)
     val mode = if (forceNetworkRefresh) PortfolioM15LoadMode.INCREMENTAL else PortfolioM15LoadMode.CACHE_ONLY
     val points = loadPortfolio15mDataPoints(app, from, till, mode)
@@ -50,7 +50,7 @@ internal suspend fun resolveSpreadPercentAtBar(
     barTimestampMillis: Long,
     fallback: Double = 0.0
 ): Double {
-    val till = LocalDate.now()
+    val till = LocalDate.now(moexZoneId)
     val from = till.minusDays(10)
     val points = loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.CACHE_ONLY)
     if (points.isEmpty()) return fallback

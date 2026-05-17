@@ -68,6 +68,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.55 — 15м кэш: при разрыве >1 дня (МСК) авто FULL_REFRESH; полная загрузка чанками сразу в SQLite; mutex загрузок; INCREMENTAL по MAX(ts); чтение getSince.
 1.6.54 — 15м кэш: загрузка MOEX по чанкам 21 дн., пакетный INSERT (исправлен обрыв ~13.05), отдельная догрузка хвоста 45 дн.; retry HTTP свечей.
 1.6.53 — 15м ряд: догрузка до сегодня (МСК), till+1 для MOEX, принудительный INCREMENTAL/FULL если хвост старше ~40 ч; предупреждение если данные обрываются.
 1.6.52 — «Тест страт.»: в списке все закрытые сделки полной симуляции за 255 дн. 15м (до сегодня), без окна 3 дн. и без журнала портфеля. Lookback 15м: 255 дней.

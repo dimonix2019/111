@@ -27,6 +27,9 @@ internal interface PortfolioM15Dao {
     @Query("SELECT * FROM portfolio_m15_spread ORDER BY tsMillis ASC")
     suspend fun getAll(): List<PortfolioM15SpreadEntity>
 
+    @Query("SELECT * FROM portfolio_m15_spread WHERE tsMillis >= :cutoffMillis ORDER BY tsMillis ASC")
+    suspend fun getSince(cutoffMillis: Long): List<PortfolioM15SpreadEntity>
+
     @Query("SELECT COUNT(*) FROM portfolio_m15_spread")
     suspend fun count(): Int
 
