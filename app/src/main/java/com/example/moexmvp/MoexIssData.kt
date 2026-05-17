@@ -492,28 +492,51 @@ internal fun isBeforeDynamicZRecalcWallClock(now: LocalDateTime): Boolean {
     return now.toLocalTime().isBefore(trigger)
 }
 
-internal fun ensureDynamicThresholds(context: Context): DynamicThresholdUpdate {
-    val saved = loadSavedDynamicThresholds(context)
-    val now = LocalDateTime.now()
-    val today = now.toLocalDate()
-    val todayIso = today.toString()
-    val fallback = saved ?: DynamicThresholds(
+internal fun portfolioChartZThresholds(
+    realTradeEntry: Double?,
+    realTradeExit: Double?,
+    fallback: DynamicThresholds = DynamicThresholds(
         entry = DEFAULT_DYNAMIC_Z_ENTRY,
         exit = DEFAULT_DYNAMIC_Z_EXIT,
         calculatedDate = null
     )
+): DynamicThresholds {
+    val entry = (realTradeEntry ?: fallback.entry)
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val exit = (realTradeExit ?: fallback.exit)
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    return DynamicThresholds(entry = entry, exit = exit, calculatedDate = null)
+}
+
+internal fun ensureDynamicThresholds(context: Context): DynamicThresholdUpdate {
+    val fallback = DynamicThresholds(
+        entry = DEFAULT_DYNAMIC_Z_ENTRY,
+        exit = DEFAULT_DYNAMIC_Z_EXIT,
+        calculatedDate = null
+    )
+    if (!DYNAMIC_Z_DAILY_RECALC_ENABLED) {
+        return DynamicThresholdUpdate(
+            thresholds = loadRealTradeZThresholds(context, fallback),
+            recalculated = false
+        )
+    }
+    val saved = loadSavedDynamicThresholds(context)
+    val now = LocalDateTime.now()
+    val today = now.toLocalDate()
+    val todayIso = today.toString()
+    val savedOrFallback = saved ?: fallback
     if (saved?.calculatedDate == todayIso) {
         return DynamicThresholdUpdate(thresholds = saved, recalculated = false)
     }
     if (isBeforeDynamicZRecalcWallClock(now)) {
-        return DynamicThresholdUpdate(thresholds = fallback, recalculated = false)
+        return DynamicThresholdUpdate(thresholds = savedOrFallback, recalculated = false)
     }
     val calculated = runCatching {
         calculateBestDynamicThresholds(
             from = today.minusDays(30),
             till = today
         )
-    }.getOrNull() ?: return DynamicThresholdUpdate(thresholds = fallback, recalculated = false)
+    }.getOrNull() ?: return DynamicThresholdUpdate(thresholds = savedOrFallback, recalculated = false)
     saveDynamicThresholds(context, calculated)
     return DynamicThresholdUpdate(thresholds = calculated, recalculated = true)
 }

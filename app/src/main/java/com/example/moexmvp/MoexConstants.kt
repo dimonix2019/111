@@ -12,6 +12,8 @@ internal val portfolio15mLabelFormatter = DateTimeFormatter.ofPattern("yyyy-MM-d
 /** Локальное время (часы устройства): до этого момента пороги Z не пересчитываются «за сегодня». */
 internal const val DYNAMIC_Z_RECALC_HOUR = 7
 internal const val DYNAMIC_Z_RECALC_MINUTE = 30
+/** Ежедневный автоподбор порогов Z (30 дн. MOEX). Выкл. — на графике и в сигналах только «Портфель». */
+internal const val DYNAMIC_Z_DAILY_RECALC_ENABLED = false
 internal const val DEFAULT_DYNAMIC_Z_ENTRY = 1.3
 internal const val DEFAULT_DYNAMIC_Z_EXIT = 1.2
 internal const val Z_STRATEGY_ENTRY_MIN_TENTHS = 8
@@ -68,6 +70,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.56 — Рынок: линии Z и подпись порогов = розовые степперы «Портфель»; ежедневный автоподбор порогов отключён.
 1.6.55 — 15м кэш: при разрыве >1 дня (МСК) авто FULL_REFRESH; полная загрузка чанками сразу в SQLite; mutex загрузок; INCREMENTAL по MAX(ts); чтение getSince.
 1.6.54 — 15м кэш: загрузка MOEX по чанкам 21 дн., пакетный INSERT (исправлен обрыв ~13.05), отдельная догрузка хвоста 45 дн.; retry HTTP свечей.
 1.6.53 — 15м ряд: догрузка до сегодня (МСК), till+1 для MOEX, принудительный INCREMENTAL/FULL если хвост старше ~40 ч; предупреждение если данные обрываются.

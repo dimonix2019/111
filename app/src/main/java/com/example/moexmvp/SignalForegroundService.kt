@@ -98,22 +98,14 @@ class SignalForegroundService : Service() {
         val snapshot = computeSignalSnapshot() ?: return
         val prefs = getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
 
-        val thresholdUpdate = ensureDynamicThresholds()
-        if (thresholdUpdate.recalculated) {
-            showDynamicZThresholdsPushNotification(
-                context = this,
-                entry = thresholdUpdate.thresholds.entry,
-                exit = thresholdUpdate.thresholds.exit,
-                dateText = thresholdUpdate.thresholds.calculatedDate ?: LocalDate.now().toString()
+        val portfolioTh = loadRealTradeZThresholds(
+            this,
+            DynamicThresholds(
+                entry = DEFAULT_DYNAMIC_Z_ENTRY_BG,
+                exit = DEFAULT_DYNAMIC_Z_EXIT_BG,
+                calculatedDate = null
             )
-        }
-
-        val dynFallback = DynamicThresholds(
-            entry = thresholdUpdate.thresholds.entry,
-            exit = thresholdUpdate.thresholds.exit,
-            calculatedDate = thresholdUpdate.thresholds.calculatedDate
         )
-        val portfolioTh = loadRealTradeZThresholds(this, dynFallback)
         val signalThresholds = BgThresholds(
             entry = portfolioTh.entry,
             exit = portfolioTh.exit,

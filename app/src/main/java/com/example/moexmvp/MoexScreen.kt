@@ -140,11 +140,17 @@ internal fun MoexScreen() {
     val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
     val staleMarkets = marketsStale || (realtimeError != null && chartSuccess != null)
 
+    val marketsChartThresholds = remember(
+        realTradeEntryThreshold,
+        realTradeExitThreshold
+    ) {
+        portfolioChartZThresholds(realTradeEntryThreshold, realTradeExitThreshold)
+    }
+
     val marketsZStrategyTapMetrics = remember(
         chartSuccess?.points,
-        dynamicThresholds.entry,
-        dynamicThresholds.exit,
-        dynamicThresholds.calculatedDate,
+        marketsChartThresholds.entry,
+        marketsChartThresholds.exit,
         portfolioLeverage,
         portfolioCommissionPercent,
         selectedPeriod
@@ -153,7 +159,7 @@ internal fun MoexScreen() {
         if (pts == null || pts.size < 2) return@remember null
         buildZStrategyPortfolioMetrics(
             points = pts,
-            thresholds = dynamicThresholds,
+            thresholds = marketsChartThresholds,
             notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
@@ -458,7 +464,11 @@ internal fun MoexScreen() {
                     val thresholdUpdate = ensureDynamicThresholds(context)
                     dynamicThresholds = thresholdUpdate.thresholds
                     val backgroundMonitorEnabled = SignalForegroundService.isBackgroundMonitorEnabled(context)
-                    if (thresholdUpdate.recalculated && !backgroundMonitorEnabled && !fromDiskCache) {
+                    if (thresholdUpdate.recalculated &&
+                        DYNAMIC_Z_DAILY_RECALC_ENABLED &&
+                        !backgroundMonitorEnabled &&
+                        !fromDiskCache
+                    ) {
                         showDynamicZThresholdsPushNotification(
                             context = context,
                             entry = dynamicThresholds.entry,
@@ -726,10 +736,21 @@ internal fun MoexScreen() {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        saveDynamicThresholds(context, cand)
-                        dynamicThresholds = cand
+                        saveRealTradeZThresholds(context, cand.entry, cand.exit)
+                        realTradeEntryThreshold = cand.entry.coerceIn(
+                            PORTFOLIO_Z_THRESHOLD_MIN,
+                            PORTFOLIO_Z_THRESHOLD_MAX
+                        )
+                        realTradeExitThreshold = cand.exit.coerceIn(
+                            PORTFOLIO_Z_THRESHOLD_MIN,
+                            PORTFOLIO_Z_THRESHOLD_MAX
+                        )
+                        dynamicThresholds = portfolioChartZThresholds(
+                            realTradeEntryThreshold,
+                            realTradeExitThreshold
+                        )
                         robustCandidate = null
-                        Toast.makeText(context, "Пороги применены", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Пороги портфеля применены", Toast.LENGTH_SHORT).show()
                     }
                 ) {
                     Text("Применить")
@@ -1411,7 +1432,7 @@ internal fun MoexScreen() {
                                                 ),
                                                 labels = c.points.map { it.tradeDate },
                                                 chartHeightDp = chartH,
-                                                referenceLines = buildZScoreReferenceLines(dynamicThresholds),
+                                                referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
                                                 pointMarkers = buildZScoreSignalMarkersFromEvents(
                                                     points = c.points,
                                                     events = signalEvents
@@ -1480,12 +1501,11 @@ internal fun MoexScreen() {
                             Text(
                                 text = String.format(
                                     Locale.US,
-                                    "Z-strategy thresholds: entry +/-%.1f, exit +/-%.1f%s",
-                                    dynamicThresholds.entry,
-                                    dynamicThresholds.exit,
-                                    dynamicThresholds.calculatedDate?.let { " (updated $it)" } ?: ""
+                                    "Пороги сделок (Портфель): вход ±%.2f, выход ±%.2f",
+                                    marketsChartThresholds.entry,
+                                    marketsChartThresholds.exit
                                 ),
-                                color = Color(0xFFE0E0E0),
+                                color = Color(0xFFF48FB1),
                                 fontSize = 12.sp
                             )
                         }
@@ -1584,7 +1604,7 @@ internal fun MoexScreen() {
                                     ),
                                     labels = c.points.map { it.tradeDate },
                                     chartHeightDp = 228,
-                                    referenceLines = buildZScoreReferenceLines(dynamicThresholds),
+                                    referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
                                     pointMarkers = buildZScoreSignalMarkersFromEvents(
                                         points = c.points,
                                         events = signalEvents
