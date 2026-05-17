@@ -30,6 +30,9 @@ internal interface PortfolioM15Dao {
     @Query("SELECT COUNT(*) FROM portfolio_m15_spread")
     suspend fun count(): Int
 
+    @Query("SELECT MAX(tsMillis) FROM portfolio_m15_spread")
+    suspend fun maxTsMillis(): Long?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(rows: List<PortfolioM15SpreadEntity>)
 

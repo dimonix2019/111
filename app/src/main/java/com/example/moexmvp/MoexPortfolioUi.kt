@@ -895,6 +895,8 @@ internal fun ConfirmedPortfolioTabContent(
 @Composable
 internal fun StrategyTestTabContent(
     metrics: PortfolioMetrics?,
+    windowMetrics: PortfolioMetrics?,
+    tradeItems: List<StrategyTestTradeItem>,
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
@@ -990,9 +992,11 @@ internal fun StrategyTestTabContent(
             }
         }
         Text(
-            text = "Сделки ниже — пересечение порогов Z на всём 15м ряду (252 дн.), не журнал и не демо-исполнение.",
+            text = "Сделки ниже: симуляция с FLAT на последних ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. 15м + журнал/демо портфеля (без дублей). " +
+                "Сводка PnL выше — за весь ряд (~252 дн.).",
             color = Color(0xFF757575),
-            fontSize = 10.sp
+            fontSize = 10.sp,
+            maxLines = 3
         )
         if (portfolioEntryThreshold != null && portfolioExitThreshold != null) {
             val entryDiffers = kotlin.math.abs(entryThreshold - portfolioEntryThreshold) > 0.009
@@ -1078,40 +1082,33 @@ internal fun StrategyTestTabContent(
                     )
                     PortfolioMetricGrid(m, showHeroDuplicate = false)
                 }
-                val windowStart = portfolioTradesWindowStartMillis()
-                val inWindow = filterSimClosedTradesInWindow(m.closedTrades, windowStart)
+                val simWindowCount = windowMetrics?.closedTrades?.size ?: 0
                 Text(
-                    text = "Сделки симуляции: за ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. (МСК) — ${inWindow.size}; " +
-                        "за весь 15м ряд — ${m.closedTrades.size}",
+                    text = "Сделки за ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. (МСК): ${tradeItems.size} " +
+                        "(симуляция $simWindowCount · весь ряд ${m.closedTrades.size})",
                     color = Color(0xFFE0E0E0),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
                 )
-                val recent = inWindow.asReversed()
-                if (recent.isEmpty()) {
-                    if (m.closedTrades.isNotEmpty()) {
-                        Text(
-                            text = "За последние ${PORTFOLIO_TRADES_WINDOW_DAYS} дня при порогах тестера пересечений нет. " +
-                                "На «Портфеле» закрытые могут идти из журнала сигналов и демо (другой источник).",
-                            color = Color(0xFF9E9E9E),
-                            fontSize = 11.sp,
-                            maxLines = 4
-                        )
-                    } else {
-                        Text("Закрытых сделок в симуляции нет.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
-                    }
+                windowMetrics?.periodDescription?.let { wDesc ->
+                    Text(
+                        text = "Окно симуляции: $wDesc",
+                        color = Color(0xFF616161),
+                        fontSize = 9.sp,
+                        maxLines = 2
+                    )
+                }
+                if (tradeItems.isEmpty()) {
+                    Text(
+                        text = "Нет закрытых сделок за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня. Проверьте пороги и нажмите «MOEX заново».",
+                        color = Color(0xFF9E9E9E),
+                        fontSize = 11.sp,
+                        maxLines = 3
+                    )
                 } else {
-                    recent.forEachIndexed { index, t ->
-                        PortfolioTradeRow(index = index + 1, t = t)
-                    }
-                    if (m.closedTrades.size > inWindow.size) {
-                        Text(
-                            text = "Показаны только сделки с датой выхода за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня (как в «Закрытые» на портфеле).",
-                            color = Color(0xFF616161),
-                            fontSize = 9.sp,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
+                    tradeItems.forEachIndexed { index, item ->
+                        StrategyTestTradeRow(index = index + 1, item = item)
                     }
                 }
             }
@@ -1424,6 +1421,19 @@ private fun rubDeltaColor(v: Double): Color = when {
     v > 0 -> Color(0xFF81C784)
     v < 0 -> Color(0xFFE57373)
     else -> Color(0xFFBDBDBD)
+}
+
+@Composable
+private fun StrategyTestTradeRow(index: Int, item: StrategyTestTradeItem) {
+    Column {
+        Text(
+            text = item.sourceLabel,
+            color = Color(0xFF9FA8DA),
+            fontSize = 9.sp,
+            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
+        )
+        PortfolioTradeRow(index = index, t = item.trade)
+    }
 }
 
 @Composable

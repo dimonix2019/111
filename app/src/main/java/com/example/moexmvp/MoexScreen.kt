@@ -69,6 +69,8 @@ internal fun MoexScreen() {
     var confirmedPortfolioTableRows by remember { mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList()) }
     /** Симуляция по порогам |Z| на 15м ряду. */
     var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
+    var strategyTestWindowMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
+    var strategyTestTradeItems by remember { mutableStateOf<List<StrategyTestTradeItem>>(emptyList()) }
     /** Реинвестирование PnL в размер следующей сделки (только симуляция «Тест страт.»). */
     var strategyTestCompoundReturns by remember { mutableStateOf(false) }
     var portfolioLoading by remember { mutableStateOf(false) }
@@ -260,15 +262,14 @@ internal fun MoexScreen() {
         try {
             val till = LocalDate.now()
             val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
-            val m15Mode = m15LoadHint ?: run {
-                val cnt = PortfolioM15Database.get(context).dao().count()
-                if (cnt > 0) PortfolioM15LoadMode.CACHE_ONLY else PortfolioM15LoadMode.INCREMENTAL
-            }
+            val m15Mode = m15LoadHint ?: resolvePortfolioM15LoadMode(context)
             val loaded = loadPortfolio15mDataPoints(context, from, till, m15Mode)
             if (loaded.size < 2) {
                 confirmedPortfolioMetrics = null
                 confirmedPortfolioTableRows = emptyList()
                 strategyTestPortfolioMetrics = null
+                strategyTestWindowMetrics = null
+                strategyTestTradeItems = emptyList()
                 portfolioError = when (m15Mode) {
                     PortfolioM15LoadMode.CACHE_ONLY ->
                         "Нет 15-мин данных в кэше. Нажмите «Обновить» для загрузки с MOEX."
@@ -379,6 +380,25 @@ internal fun MoexScreen() {
                 periodDescription = desc,
                 compoundReturns = strategyTestCompoundReturns
             )
+            val windowPoints = pointsForStrategyTestWindow(points)
+            val windowDesc = if (windowPoints.size >= 2) {
+                "3 дн. (МСК) · ${windowPoints.first().tradeDate}…${windowPoints.last().tradeDate}"
+            } else {
+                desc
+            }
+            strategyTestWindowMetrics = buildZStrategyPortfolioMetrics(
+                points = windowPoints,
+                thresholds = strategyTestThresholds,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+                periodDescription = windowDesc,
+                compoundReturns = strategyTestCompoundReturns
+            )
+            strategyTestTradeItems = buildStrategyTestTradeList(
+                simulationTrades = strategyTestWindowMetrics?.closedTrades.orEmpty(),
+                journalTrades = confirmedTableRowsToClosedTrades(confirmedPortfolioTableRows)
+            )
             portfolioError = null
         } finally {
             portfolioLoading = false
@@ -419,7 +439,8 @@ internal fun MoexScreen() {
         signalJournalFingerprint,
         strategyTestCompoundReturns,
         sandboxSpreadExecReload,
-        portfolioLedgerIncludeAuto
+        portfolioLedgerIncludeAuto,
+        confirmedPortfolioTableRows.size
     ) {
         if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
             refreshPortfolio(null)
@@ -1214,6 +1235,8 @@ internal fun MoexScreen() {
                     item {
                         StrategyTestTabContent(
                             metrics = strategyTestPortfolioMetrics,
+                            windowMetrics = strategyTestWindowMetrics,
+                            tradeItems = strategyTestTradeItems,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,
                             onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },

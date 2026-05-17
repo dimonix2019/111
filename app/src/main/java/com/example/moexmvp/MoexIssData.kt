@@ -366,6 +366,17 @@ internal suspend fun fetchPortfolio15mSpreadEntities(
     }
 }
 
+/** Если кэш старше этого интервала — подгружаем хвост с MOEX, иначе только SQLite. */
+private const val PORTFOLIO_M15_CACHE_STALE_MS = 6L * 60L * 60L * 1000L
+
+internal suspend fun resolvePortfolioM15LoadMode(context: Context): PortfolioM15LoadMode {
+    val dao = PortfolioM15Database.get(context).dao()
+    if (dao.count() == 0) return PortfolioM15LoadMode.INCREMENTAL
+    val lastTs = dao.maxTsMillis() ?: return PortfolioM15LoadMode.INCREMENTAL
+    val stale = System.currentTimeMillis() - lastTs > PORTFOLIO_M15_CACHE_STALE_MS
+    return if (stale) PortfolioM15LoadMode.INCREMENTAL else PortfolioM15LoadMode.CACHE_ONLY
+}
+
 /**
  * 15m portfolio series with local Room cache on device.
  *
