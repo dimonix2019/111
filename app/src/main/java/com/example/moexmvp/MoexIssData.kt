@@ -298,12 +298,24 @@ internal fun loadCandleBars(
             append("&start=").append(start)
         }
         val request = Request.Builder().url(url).build()
-        val page = httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("HTTP ${response.code} while loading candles for $secId")
+        var lastError: IOException? = null
+        var page: List<CandleBar> = emptyList()
+        for (attempt in 0 until 3) {
+            try {
+                page = httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw IOException("HTTP ${response.code} while loading candles for $secId")
+                    }
+                    parseCandleBars(response.body?.string().orEmpty())
+                }
+                lastError = null
+                break
+            } catch (e: IOException) {
+                lastError = e
+                if (attempt < 2) Thread.sleep(400L * (attempt + 1))
             }
-            parseCandleBars(response.body?.string().orEmpty())
         }
+        if (lastError != null) throw lastError
         if (page.isEmpty()) break
         allBars += page
         if (page.size < pageSize) break
@@ -435,14 +447,9 @@ internal suspend fun loadPortfolio15mDataPoints(
         }
 
         PortfolioM15LoadMode.FULL_REFRESH -> {
-            val entities = fetchPortfolio15mSpreadEntities(from, moexFetchTill)
             dao.deleteAll()
-            if (entities.isNotEmpty()) {
-                dao.insertAll(entities)
-            }
-            val all = dao.getAll()
-            if (all.isEmpty()) return@withContext emptyList()
-            applyZScores(all.map { it.toDataPoint() })
+            val entities = fetchPortfolio15mSpreadEntitiesChunked(from, moexFetchTill)
+            insertPortfolio15mEntitiesBatched(dao, entities)
         }
 
         PortfolioM15LoadMode.INCREMENTAL -> {
@@ -456,20 +463,26 @@ internal suspend fun loadPortfolio15mDataPoints(
                 maxOf(from, overlapStart)
             }
             if (mergeFrom <= moexFetchTill) {
-                val fresh = fetchPortfolio15mSpreadEntities(mergeFrom, moexFetchTill)
-                val byTs = LinkedHashMap<Long, PortfolioM15SpreadEntity>()
-                cached.filter { it.tsMillis >= cutoffMillis }.forEach { byTs[it.tsMillis] = it }
-                fresh.forEach { byTs[it.tsMillis] = it }
-                val merged = byTs.values.sortedBy { it.tsMillis }
-                if (merged.isNotEmpty()) {
-                    dao.insertAll(merged)
-                }
+                val fresh = fetchPortfolio15mSpreadEntitiesChunked(mergeFrom, moexFetchTill)
+                insertPortfolio15mEntitiesBatched(dao, fresh)
             }
-            val all = dao.getAll()
-            if (all.isEmpty()) return@withContext emptyList()
-            applyZScores(all.map { it.toDataPoint() })
         }
     }
+
+    val needsTailMerge = when (mode) {
+        PortfolioM15LoadMode.CACHE_ONLY -> {
+            val lastTs = dao.maxTsMillis() ?: 0L
+            System.currentTimeMillis() - lastTs > PORTFOLIO_M15_TAIL_MAX_AGE_MS
+        }
+        PortfolioM15LoadMode.INCREMENTAL,
+        PortfolioM15LoadMode.FULL_REFRESH -> true
+    }
+    if (needsTailMerge) {
+        mergePortfolio15mRecentTailFromMoex(dao)
+    }
+    val all = dao.getAll()
+    if (all.isEmpty()) return@withContext emptyList()
+    applyZScores(all.map { it.toDataPoint() })
 }
 
 internal fun isBeforeDynamicZRecalcWallClock(now: LocalDateTime): Boolean {
