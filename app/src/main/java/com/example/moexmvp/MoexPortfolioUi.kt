@@ -493,37 +493,104 @@ private fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTabl
 
 /** Портфель: сделки по журналу; вход в метриках — только при записи в реестре исполнений под выбранным режимом. */
 @Composable
-internal fun PortfolioSandboxOrdersSection(
-    executions: List<SandboxSpreadExecUi>,
+private fun PortfolioTradesBucketHeader(
+    bucket: PortfolioTradesBucketUi,
     modifier: Modifier = Modifier
 ) {
-    val openGroups = executions.asReversed().map { it.toTradeGroup() }
+    val pnlColor = when {
+        bucket.totalPnlRub > 0 -> Color(0xFF81C784)
+        bucket.totalPnlRub < 0 -> Color(0xFFE57373)
+        else -> Color(0xFFBDBDBD)
+    }
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "${bucket.title} · ${bucket.tradeCount} сделок",
+            color = Color(0xFFE0E0E0),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = "PnL ${formatRubSigned(bucket.totalPnlRub)}",
+            color = pnlColor,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+internal fun PortfolioTradesWindowSection(
+    openExecutions: List<SandboxSpreadExecUi>,
+    closedRows: List<PortfolioConfirmedTradeTableRow>,
+    modifier: Modifier = Modifier
+) {
+    val (openBucket, closedBucket) = buildPortfolioTradesBuckets(openExecutions, closedRows)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color(0xFF1A237E).copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+            .background(Color(0xFF1A1A1A), RoundedCornerShape(10.dp))
             .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "Сделки на демо — открытые (${openGroups.size})",
-            color = Color(0xFFBBDEFB),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold
+            text = "Сделки за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня (МСК)",
+            color = Color(0xFFE0E0E0),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
         )
-        if (openGroups.isEmpty()) {
-            Text(
-                text = "Пока нет сделок на демо. Тестовый сигнал / пара или «Принять» при включённом исполнении.",
-                color = Color(0xFF9E9E9E),
-                fontSize = 11.sp
-            )
-        } else {
-            PortfolioTradeOrdersGroupedTable(
-                groups = openGroups,
-                caption = "Ордера по сделкам (2 строки на пару). PnL ≈ (Δ спрэда в п.п.) × номинал × плечо − комиссия входа; " +
-                    "не рыночный P&L счёта Tinkoff. Обновите портфель после новых 15м баров.",
-                exitZColumnTitle = "Z сейч."
-            )
+        Text(
+            text = "Открытые — по времени исполнения на демо; закрытые — по времени выхода. " +
+                "PnL группы — сумма по сделкам в таблице.",
+            color = Color(0xFF9E9E9E),
+            fontSize = 10.sp,
+            maxLines = 3
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF1A237E).copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            PortfolioTradesBucketHeader(openBucket)
+            if (openBucket.groups.isEmpty()) {
+                Text(
+                    text = "Нет открытых сделок за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня.",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 11.sp
+                )
+            } else {
+                PortfolioTradeOrdersGroupedTable(
+                    groups = openBucket.groups,
+                    caption = "Ордера сгруппированы по сделкам (2 строки). PnL открытых — оценка по Δ спрэда 15м.",
+                    exitZColumnTitle = "Z сейч."
+                )
+            }
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF263238), RoundedCornerShape(8.dp))
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            PortfolioTradesBucketHeader(closedBucket)
+            if (closedBucket.groups.isEmpty()) {
+                Text(
+                    text = "Нет закрытых сделок за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня.",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 11.sp
+                )
+            } else {
+                PortfolioTradeOrdersGroupedTable(
+                    groups = closedBucket.groups,
+                    caption = "Закрытые сделки: реализованный PnL по паре вход→выход (журнал + демо)."
+                )
+            }
         }
     }
 }
@@ -751,7 +818,10 @@ internal fun ConfirmedPortfolioTabContent(
                 }
             }
         }
-        PortfolioSandboxOrdersSection(executions = sandboxSpreadExecutions)
+        PortfolioTradesWindowSection(
+            openExecutions = sandboxSpreadExecutions,
+            closedRows = confirmedTradeTableRows
+        )
         Text(
             text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",
             color = Color(0xFF9E9E9E),
@@ -812,18 +882,6 @@ internal fun ConfirmedPortfolioTabContent(
                         fontSize = 10.sp
                     )
                     PortfolioMetricGrid(m, showHeroDuplicate = false)
-                }
-                Text(
-                    text = "Закрытые сделки (${confirmedTradeTableRows.size})",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                if (confirmedTradeTableRows.isEmpty()) {
-                    Text("Закрытых сделок за период нет.", color = Color(0xFF9E9E9E), fontSize = 11.sp)
-                } else {
-                    PortfolioConfirmedTradesTable(confirmedTradeTableRows)
                 }
             }
         }
