@@ -369,12 +369,42 @@ internal suspend fun fetchPortfolio15mSpreadEntities(
 /** Если кэш старше этого интервала — подгружаем хвост с MOEX, иначе только SQLite. */
 private const val PORTFOLIO_M15_CACHE_STALE_MS = 6L * 60L * 60L * 1000L
 
+/** MOEX ISS: параметр till — как правило до начала следующего календарного дня (включить сегодня). */
+internal fun portfolioM15MoexFetchTillDate(): LocalDate =
+    LocalDate.now(moexZoneId).plusDays(1)
+
+internal fun portfolio15mSeriesTailStale(points: List<DataPoint>): Boolean {
+    val lastTs = points.lastOrNull()?.timestampMillis ?: return true
+    return System.currentTimeMillis() - lastTs > PORTFOLIO_M15_TAIL_MAX_AGE_MS
+}
+
 internal suspend fun resolvePortfolioM15LoadMode(context: Context): PortfolioM15LoadMode {
     val dao = PortfolioM15Database.get(context).dao()
     if (dao.count() == 0) return PortfolioM15LoadMode.INCREMENTAL
     val lastTs = dao.maxTsMillis() ?: return PortfolioM15LoadMode.INCREMENTAL
+    val today = LocalDate.now(moexZoneId)
+    val lastDay = Instant.ofEpochMilli(lastTs).atZone(moexZoneId).toLocalDate()
+    if (lastDay.isBefore(today)) return PortfolioM15LoadMode.INCREMENTAL
     val stale = System.currentTimeMillis() - lastTs > PORTFOLIO_M15_CACHE_STALE_MS
     return if (stale) PortfolioM15LoadMode.INCREMENTAL else PortfolioM15LoadMode.CACHE_ONLY
+}
+
+/**
+ * Загрузка 15м ряда с догрузкой до «сегодня» (МСК): INCREMENTAL, при необходимости FULL_REFRESH.
+ */
+internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
+    context: Context,
+    from: LocalDate,
+    preferredMode: PortfolioM15LoadMode
+): List<DataPoint> {
+    val till = LocalDate.now(moexZoneId)
+    var points = loadPortfolio15mDataPoints(context, from, till, preferredMode)
+    if (!portfolio15mSeriesTailStale(points)) return points
+    if (preferredMode != PortfolioM15LoadMode.INCREMENTAL) {
+        points = loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.INCREMENTAL)
+        if (!portfolio15mSeriesTailStale(points)) return points
+    }
+    return loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.FULL_REFRESH)
 }
 
 /**
@@ -391,7 +421,8 @@ internal suspend fun loadPortfolio15mDataPoints(
     mode: PortfolioM15LoadMode
 ): List<DataPoint> = withContext(Dispatchers.IO) {
     val dao = PortfolioM15Database.get(context).dao()
-    val zone = ZoneId.of("Europe/Moscow")
+    val zone = moexZoneId
+    val moexFetchTill = portfolioM15MoexFetchTillDate()
     val cutoffMillis = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
 
     dao.deleteOlderThan(cutoffMillis)
@@ -404,7 +435,7 @@ internal suspend fun loadPortfolio15mDataPoints(
         }
 
         PortfolioM15LoadMode.FULL_REFRESH -> {
-            val entities = fetchPortfolio15mSpreadEntities(from, till)
+            val entities = fetchPortfolio15mSpreadEntities(from, moexFetchTill)
             dao.deleteAll()
             if (entities.isNotEmpty()) {
                 dao.insertAll(entities)
@@ -424,8 +455,8 @@ internal suspend fun loadPortfolio15mDataPoints(
                 val overlapStart = lastDay.minusDays(PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS)
                 maxOf(from, overlapStart)
             }
-            if (mergeFrom <= till) {
-                val fresh = fetchPortfolio15mSpreadEntities(mergeFrom, till)
+            if (mergeFrom <= moexFetchTill) {
+                val fresh = fetchPortfolio15mSpreadEntities(mergeFrom, moexFetchTill)
                 val byTs = LinkedHashMap<Long, PortfolioM15SpreadEntity>()
                 cached.filter { it.tsMillis >= cutoffMillis }.forEach { byTs[it.tsMillis] = it }
                 fresh.forEach { byTs[it.tsMillis] = it }

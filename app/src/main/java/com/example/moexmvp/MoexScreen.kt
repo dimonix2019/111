@@ -259,10 +259,10 @@ internal fun MoexScreen() {
         portfolioLoading = true
         portfolioError = null
         try {
-            val till = LocalDate.now()
+            val till = LocalDate.now(moexZoneId)
             val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
             val m15Mode = m15LoadHint ?: resolvePortfolioM15LoadMode(context)
-            val loaded = loadPortfolio15mDataPoints(context, from, till, m15Mode)
+            val loaded = loadPortfolio15mSeriesEnsuringRecentTail(context, from, m15Mode)
             if (loaded.size < 2) {
                 confirmedPortfolioMetrics = null
                 confirmedPortfolioTableRows = emptyList()
@@ -381,7 +381,12 @@ internal fun MoexScreen() {
             strategyTestTradeItems = buildStrategyTestTradeListFromSimulation(
                 strategyTestPortfolioMetrics?.closedTrades.orEmpty()
             )
-            portfolioError = null
+            portfolioError = if (portfolio15mSeriesTailStale(points)) {
+                "15м ряд обрывается на ${points.last().tradeDate} (нет свежих баров с MOEX). " +
+                    "Нажмите «MOEX заново» или проверьте сеть."
+            } else {
+                null
+            }
         } finally {
             portfolioLoading = false
         }

@@ -1057,8 +1057,9 @@ internal fun StrategyTestTabContent(
             )
         }
 
-        if (portfolioError != null) {
-            Text(portfolioError, color = Color(0xFFEF9A9A), fontSize = 11.sp)
+        val dataTailWarning = portfolioError
+        if (dataTailWarning != null && metrics == null) {
+            Text(dataTailWarning, color = Color(0xFFEF9A9A), fontSize = 11.sp)
             Button(onClick = onRefresh, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -1088,6 +1089,14 @@ internal fun StrategyTestTabContent(
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
                 )
+                if (!dataTailWarning.isNullOrBlank()) {
+                    Text(
+                        text = dataTailWarning,
+                        color = Color(0xFFFFCC80),
+                        fontSize = 10.sp,
+                        maxLines = 3
+                    )
+                }
                 if (tradeItems.isEmpty()) {
                     Text(
                         text = "Нет закрытых сделок в симуляции. Проверьте пороги и нажмите «MOEX заново».",
