@@ -305,10 +305,18 @@ internal fun MoexScreen() {
                 fromTimestampMillis = points.firstOrNull()?.timestampMillis
             )
             val ledger = loadPortfolioExecutionLedger(context)
+            var ledgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
+            if (!ledgerIncludeAuto &&
+                ledger.any { it.source == PortfolioExecSource.AUTO } &&
+                ledger.none { it.source == PortfolioExecSource.MANUAL }
+            ) {
+                ledgerIncludeAuto = true
+                TinkoffSandboxStorage.setPortfolioLedgerIncludeAuto(context, true)
+            }
             val filteredEvents = journalEventsForExecutionPortfolioTab(
                 allEvents = eventsAll,
                 ledger = ledger,
-                portfolioLedgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
+                portfolioLedgerIncludeAuto = ledgerIncludeAuto
             )
             val pushLog = withContext(Dispatchers.IO) { loadPushNotificationLog(context) }
             val executed = withContext(Dispatchers.Default) {
@@ -324,16 +332,43 @@ internal fun MoexScreen() {
                 )
             }
             confirmedPortfolioMetrics = executed.metrics
-            confirmedPortfolioTableRows = executed.tableRows
+            val sandboxRaw = withContext(Dispatchers.IO) {
+                TinkoffSandboxSpreadExecLog.loadRecent(context)
+            }
+            val (closedFromOpens, opensAfterJournalClose) = withContext(Dispatchers.Default) {
+                buildClosedRowsFromSandboxOpensAndJournalExits(
+                    openExecutions = sandboxRaw,
+                    allJournalEvents = eventsAll,
+                    points = points,
+                    ledger = ledger,
+                    pushLog = pushLog,
+                    notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                    leverage = portfolioLeverage,
+                    commissionPercentPerSide = portfolioCommissionPercent,
+                    portfolioLedgerIncludeAuto = ledgerIncludeAuto
+                )
+            }
+            val mergedClosed = mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens)
+            confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
+                mergedClosed,
+                ledgerIncludeAuto
+            )
             sandboxSpreadExecutions = withContext(Dispatchers.IO) {
+                val modeFiltered = filterSandboxExecutionsByPortfolioMode(
+                    opensAfterJournalClose,
+                    ledgerIncludeAuto
+                )
                 TinkoffSandboxSpreadExecLog.enrichForDisplay(
                     context = context,
-                    executions = TinkoffSandboxSpreadExecLog.loadRecent(context),
+                    executions = modeFiltered,
                     points = points,
                     notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                     leverage = portfolioLeverage,
                     commissionPercentPerSide = portfolioCommissionPercent
                 )
+            }
+            if (portfolioLedgerIncludeAuto != ledgerIncludeAuto) {
+                portfolioLedgerIncludeAuto = ledgerIncludeAuto
             }
             strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(
                 points = points,

@@ -354,13 +354,13 @@ private val executionTableMskFormatter: DateTimeFormatter =
 internal fun formatPortfolioExecutionTableMsk(epochMillis: Long): String =
     executionTableMskFormatter.format(Instant.ofEpochMilli(epochMillis))
 
-private data class SnappedSignalForExecution(
+internal data class SnappedSignalForExecution(
     val index: Int,
     val point: DataPoint,
     val event: StrategySignalEvent
 )
 
-private fun snapStrategySignalEventsToExecutionPoints(
+internal fun snapStrategySignalEventsToExecutionPoints(
     points: List<DataPoint>,
     events: List<StrategySignalEvent>
 ): List<SnappedSignalForExecution> {
@@ -406,7 +406,7 @@ internal fun legSpreadDisplayForEntry(signalType: StrategySignalType): LegSpread
     else -> LegSpreadDisplay("—", "—", "—", "—")
 }
 
-private fun legSpreadDisplay(direction: ZStrategyPosition): LegSpreadDisplay = when (direction) {
+internal fun legSpreadDisplay(direction: ZStrategyPosition): LegSpreadDisplay = when (direction) {
     ZStrategyPosition.Long -> legSpreadDisplayForEntry(StrategySignalType.EnterLong)
     ZStrategyPosition.Short -> legSpreadDisplayForEntry(StrategySignalType.EnterShort)
     ZStrategyPosition.Flat -> LegSpreadDisplay("—", "—", "—", "—")

@@ -101,26 +101,93 @@ private fun saveLedgerUnsafe(app: Context, entries: List<PortfolioExecutionLedge
 }
 
 /**
- * Выходы оставляем все из журнала сигналов; вход Enter* — только если был реальный билд на демо
- * под текущим режимом ручной/авто на песочнице.
+ * Пары (тип входа, время бара) из журнала исполнений на демо для выбранного режима.
+ * Если в выбранном режиме записей нет, но в другом есть — подставляем их (чтобы выходы не «висели» без входа).
+ */
+internal fun ledgerEntryPairsForPortfolioReplay(
+    ledger: List<PortfolioExecutionLedgerEntry>,
+    portfolioLedgerIncludeAuto: Boolean
+): Set<Pair<StrategySignalType, Long>> {
+    val primarySource = if (portfolioLedgerIncludeAuto) PortfolioExecSource.AUTO else PortfolioExecSource.MANUAL
+    val fallbackSource = if (portfolioLedgerIncludeAuto) PortfolioExecSource.MANUAL else PortfolioExecSource.AUTO
+    val primary = ledger.filter { it.source == primarySource }
+        .map { Pair(it.signalType, it.barTimestampMillis) }
+        .toSet()
+    if (primary.isNotEmpty()) return primary
+    return ledger.filter { it.source == fallbackSource }
+        .map { Pair(it.signalType, it.barTimestampMillis) }
+        .toSet()
+}
+
+/**
+ * Вход Enter* — только если был реальный вход на демо (см. [ledgerEntryPairsForPortfolioReplay]).
+ * Выход — только если в том же отфильтрованном потоке был соответствующий вход (иначе replay не закроет сделку).
  */
 internal fun journalEventsForExecutionPortfolioTab(
     allEvents: List<StrategySignalEvent>,
     ledger: List<PortfolioExecutionLedgerEntry>,
     portfolioLedgerIncludeAuto: Boolean
 ): List<StrategySignalEvent> {
-    val allowedEntryPairs = ledger
-        .filter { e ->
-            if (portfolioLedgerIncludeAuto) e.source == PortfolioExecSource.AUTO else e.source == PortfolioExecSource.MANUAL
-        }
-        .map { Pair(it.signalType, it.barTimestampMillis) }
-        .toSet()
+    val ledgerPairs = ledgerEntryPairsForPortfolioReplay(ledger, portfolioLedgerIncludeAuto)
+    /** Нет записей демо — закрытые сделки всё равно строим по парам вход/выход в журнале сигналов. */
+    val allowAllJournalEnters = ledgerPairs.isEmpty()
 
-    return allEvents.filter { ev ->
+    val sorted = allEvents.sortedBy { it.timestampMillis }
+    val out = mutableListOf<StrategySignalEvent>()
+    var position = ZStrategyPosition.Flat
+
+    for (ev in sorted) {
         when (ev.signalType) {
-            StrategySignalType.ExitLong, StrategySignalType.ExitShort -> true
-            StrategySignalType.EnterLong, StrategySignalType.EnterShort ->
-                Pair(ev.signalType, ev.timestampMillis) in allowedEntryPairs
+            StrategySignalType.EnterLong -> {
+                if (position == ZStrategyPosition.Flat &&
+                    (allowAllJournalEnters || Pair(ev.signalType, ev.timestampMillis) in ledgerPairs)
+                ) {
+                    out += ev
+                    position = ZStrategyPosition.Long
+                }
+            }
+            StrategySignalType.EnterShort -> {
+                if (position == ZStrategyPosition.Flat &&
+                    (allowAllJournalEnters || Pair(ev.signalType, ev.timestampMillis) in ledgerPairs)
+                ) {
+                    out += ev
+                    position = ZStrategyPosition.Short
+                }
+            }
+            StrategySignalType.ExitLong -> {
+                if (position == ZStrategyPosition.Long) {
+                    out += ev
+                    position = ZStrategyPosition.Flat
+                }
+            }
+            StrategySignalType.ExitShort -> {
+                if (position == ZStrategyPosition.Short) {
+                    out += ev
+                    position = ZStrategyPosition.Flat
+                }
+            }
         }
     }
+    return out
 }
+
+internal fun filterSandboxExecutionsByPortfolioMode(
+    executions: List<SandboxSpreadExecUi>,
+    portfolioLedgerIncludeAuto: Boolean
+): List<SandboxSpreadExecUi> =
+    executions.filter { exec ->
+        val isAuto = exec.source == PortfolioExecSource.AUTO
+        portfolioLedgerIncludeAuto == isAuto
+    }
+
+internal fun filterConfirmedTableRowsByPortfolioMode(
+    rows: List<PortfolioConfirmedTradeTableRow>,
+    portfolioLedgerIncludeAuto: Boolean
+): List<PortfolioConfirmedTradeTableRow> =
+    rows.filter { row ->
+        when {
+            row.confirmLabel.startsWith("авто") -> portfolioLedgerIncludeAuto
+            row.confirmLabel.startsWith("ручное") -> !portfolioLedgerIncludeAuto
+            else -> true
+        }
+    }
