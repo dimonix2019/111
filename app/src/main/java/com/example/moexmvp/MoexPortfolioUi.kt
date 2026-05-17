@@ -895,7 +895,6 @@ internal fun ConfirmedPortfolioTabContent(
 @Composable
 internal fun StrategyTestTabContent(
     metrics: PortfolioMetrics?,
-    windowMetrics: PortfolioMetrics?,
     tradeItems: List<StrategyTestTradeItem>,
     portfolioLoading: Boolean,
     portfolioError: String?,
@@ -992,8 +991,8 @@ internal fun StrategyTestTabContent(
             }
         }
         Text(
-            text = "Сделки ниже: симуляция с FLAT на последних ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. 15м + журнал/демо портфеля (без дублей). " +
-                "Сводка PnL выше — за весь ряд (~252 дн.).",
+            text = "Сделки ниже — все закрытые круги симуляции на 15м ряду за ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. " +
+                "до сегодня включительно (пересечение порогов Z на истории, не журнал и не демо).",
             color = Color(0xFF757575),
             fontSize = 10.sp,
             maxLines = 3
@@ -1082,26 +1081,16 @@ internal fun StrategyTestTabContent(
                     )
                     PortfolioMetricGrid(m, showHeroDuplicate = false)
                 }
-                val simWindowCount = windowMetrics?.closedTrades?.size ?: 0
                 Text(
-                    text = "Сделки за ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. (МСК): ${tradeItems.size} " +
-                        "(симуляция $simWindowCount · весь ряд ${m.closedTrades.size})",
+                    text = "Сделки симуляции (${tradeItems.size}) · ${m.periodDescription}",
                     color = Color(0xFFE0E0E0),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
                 )
-                windowMetrics?.periodDescription?.let { wDesc ->
-                    Text(
-                        text = "Окно симуляции: $wDesc",
-                        color = Color(0xFF616161),
-                        fontSize = 9.sp,
-                        maxLines = 2
-                    )
-                }
                 if (tradeItems.isEmpty()) {
                     Text(
-                        text = "Нет закрытых сделок за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня. Проверьте пороги и нажмите «MOEX заново».",
+                        text = "Нет закрытых сделок в симуляции. Проверьте пороги и нажмите «MOEX заново».",
                         color = Color(0xFF9E9E9E),
                         fontSize = 11.sp,
                         maxLines = 3
@@ -1425,15 +1414,7 @@ private fun rubDeltaColor(v: Double): Color = when {
 
 @Composable
 private fun StrategyTestTradeRow(index: Int, item: StrategyTestTradeItem) {
-    Column {
-        Text(
-            text = item.sourceLabel,
-            color = Color(0xFF9FA8DA),
-            fontSize = 9.sp,
-            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
-        )
-        PortfolioTradeRow(index = index, t = item.trade)
-    }
+    PortfolioTradeRow(index = index, t = item.trade)
 }
 
 @Composable

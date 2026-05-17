@@ -69,7 +69,6 @@ internal fun MoexScreen() {
     var confirmedPortfolioTableRows by remember { mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList()) }
     /** Симуляция по порогам |Z| на 15м ряду. */
     var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
-    var strategyTestWindowMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     var strategyTestTradeItems by remember { mutableStateOf<List<StrategyTestTradeItem>>(emptyList()) }
     /** Реинвестирование PnL в размер следующей сделки (только симуляция «Тест страт.»). */
     var strategyTestCompoundReturns by remember { mutableStateOf(false) }
@@ -268,7 +267,6 @@ internal fun MoexScreen() {
                 confirmedPortfolioMetrics = null
                 confirmedPortfolioTableRows = emptyList()
                 strategyTestPortfolioMetrics = null
-                strategyTestWindowMetrics = null
                 strategyTestTradeItems = emptyList()
                 portfolioError = when (m15Mode) {
                     PortfolioM15LoadMode.CACHE_ONLY ->
@@ -380,24 +378,8 @@ internal fun MoexScreen() {
                 periodDescription = desc,
                 compoundReturns = strategyTestCompoundReturns
             )
-            val windowPoints = pointsForStrategyTestWindow(points)
-            val windowDesc = if (windowPoints.size >= 2) {
-                "3 дн. (МСК) · ${windowPoints.first().tradeDate}…${windowPoints.last().tradeDate}"
-            } else {
-                desc
-            }
-            strategyTestWindowMetrics = buildZStrategyPortfolioMetrics(
-                points = windowPoints,
-                thresholds = strategyTestThresholds,
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                leverage = portfolioLeverage,
-                commissionPercentPerSide = portfolioCommissionPercent,
-                periodDescription = windowDesc,
-                compoundReturns = strategyTestCompoundReturns
-            )
-            strategyTestTradeItems = buildStrategyTestTradeList(
-                simulationTrades = strategyTestWindowMetrics?.closedTrades.orEmpty(),
-                journalTrades = confirmedTableRowsToClosedTrades(confirmedPortfolioTableRows)
+            strategyTestTradeItems = buildStrategyTestTradeListFromSimulation(
+                strategyTestPortfolioMetrics?.closedTrades.orEmpty()
             )
             portfolioError = null
         } finally {
@@ -439,8 +421,7 @@ internal fun MoexScreen() {
         signalJournalFingerprint,
         strategyTestCompoundReturns,
         sandboxSpreadExecReload,
-        portfolioLedgerIncludeAuto,
-        confirmedPortfolioTableRows.size
+        portfolioLedgerIncludeAuto
     ) {
         if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
             refreshPortfolio(null)
@@ -1235,7 +1216,6 @@ internal fun MoexScreen() {
                     item {
                         StrategyTestTabContent(
                             metrics = strategyTestPortfolioMetrics,
-                            windowMetrics = strategyTestWindowMetrics,
                             tradeItems = strategyTestTradeItems,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,

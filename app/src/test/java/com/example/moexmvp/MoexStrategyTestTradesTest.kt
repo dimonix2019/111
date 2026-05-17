@@ -1,56 +1,43 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.LocalDate
-import java.time.ZoneId
 
 class MoexStrategyTestTradesTest {
 
     @Test
-    fun pointsForStrategyTestWindow_includesBarBeforeWindowStart() {
-        val zone = ZoneId.of("Europe/Moscow")
-        val day = LocalDate.of(2026, 5, 13)
-        val windowStart = day.atStartOfDay(zone).toInstant().toEpochMilli()
-        val points = (0 until 6).map { i ->
-            val ms = windowStart - 15 * 60 * 1000L + i * 15 * 60 * 1000L
-            DataPoint(
-                timestampMillis = ms,
-                tradeDate = "2026-05-13 ${10 + i}:00",
-                tatnClose = 500.0,
-                tatnpClose = 400.0,
-                spreadPercent = 1.0 + i * 0.1,
-                diff = 0.0,
-                zScore = 0.0
-            )
-        }
-        val slice = pointsForStrategyTestWindow(points, windowStart)
-        assertTrue(slice.first().timestampMillis < windowStart)
-        assertEquals(points.last().timestampMillis, slice.last().timestampMillis)
-    }
-
-    @Test
-    fun buildStrategyTestTradeList_mergesJournalWithoutDuplicates() {
-        val zone = ZoneId.of("Europe/Moscow")
-        val day = LocalDate.of(2026, 5, 15)
-        val windowStart = day.minusDays(PORTFOLIO_TRADES_WINDOW_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
-        val trade = PortfolioClosedTrade(
+    fun buildStrategyTestTradeListFromSimulation_sortsNewestExitFirst() {
+        val older = PortfolioClosedTrade(
             direction = ZStrategyPosition.Long,
-            entryDate = "2026-05-14 10:00",
-            exitDate = "2026-05-15 11:00",
+            entryDate = "2026-05-01 10:00",
+            exitDate = "2026-05-01 12:00",
             entrySpreadPercent = 1.0,
             exitSpreadPercent = 1.1,
             pnlSpreadPoints = 0.1,
             grossPnlRubApprox = 100.0,
             pnlRubApprox = 90.0
         )
-        val items = buildStrategyTestTradeList(
-            simulationTrades = listOf(trade),
-            journalTrades = listOf(trade),
-            windowStartMillis = windowStart
-        )
-        assertEquals(1, items.size)
-        assertEquals("симуляция 3 дн.", items.single().sourceLabel)
+        val newer = older.copy(exitDate = "2026-05-17 15:00", entryDate = "2026-05-17 10:00")
+        val items = buildStrategyTestTradeListFromSimulation(listOf(older, newer))
+        assertEquals(2, items.size)
+        assertEquals("2026-05-17 15:00", items[0].trade.exitDate)
+        assertEquals("2026-05-01 12:00", items[1].trade.exitDate)
+    }
+
+    @Test
+    fun buildStrategyTestTradeListFromSimulation_includesAllTrades() {
+        val trades = (1..20).map { i ->
+            PortfolioClosedTrade(
+                direction = ZStrategyPosition.Long,
+                entryDate = "2026-01-${"%02d".format(i)} 10:00",
+                exitDate = "2026-01-${"%02d".format(i)} 11:00",
+                entrySpreadPercent = 1.0,
+                exitSpreadPercent = 1.1,
+                pnlSpreadPoints = 0.1,
+                grossPnlRubApprox = 1.0,
+                pnlRubApprox = 1.0
+            )
+        }
+        assertEquals(20, buildStrategyTestTradeListFromSimulation(trades).size)
     }
 }

@@ -51,7 +51,7 @@ internal const val PORTFOLIO_Z_THRESHOLD_MIN = 0.0
 internal const val PORTFOLIO_Z_THRESHOLD_MAX = 8.0
 internal const val PORTFOLIO_Z_THRESHOLD_STEP = 0.05
 /** Calendar days of history for 15m-style portfolio (10m ISS → 15m bars). ~1y; smaller than 365*1m traffic. */
-internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 252L
+internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 255L
 
 /** When refreshing from MOEX, re-fetch this many calendar days before last cached bar (overlap for ISS corrections). */
 internal const val PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS = 3L
@@ -65,6 +65,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.52 — «Тест страт.»: в списке все закрытые сделки полной симуляции за 255 дн. 15м (до сегодня), без окна 3 дн. и без журнала портфеля. Lookback 15м: 255 дней.
 1.6.51 — «Тест страт.»: сделки за 3 дн. — симуляция с FLAT на окне (не «залипшая» позиция с года) + журнал/демо портфеля; авто-догрузка 15м если кэш старше 6 ч.
 1.6.50 — «Тест страт.»: список сделок за 3 дня (МСК), как на портфеле; предупреждение если пороги ≠ розовых на портфеле. Портфель: пояснение источника закрытых (журнал/демо, не симуляция).
 1.6.49 — Портфель «Закрытые»: пары вход→выход из журнала (в т.ч. авто-демо при режиме «Ручное»); синтез закрытий по открытым на демо + выходу; без демо — закрытые по журналу.
