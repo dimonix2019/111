@@ -1,0 +1,183 @@
+package com.example.moexmvp
+
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.Locale
+internal data class PortfolioTestEntrySignalResult(
+    val toastMessage: String,
+    val sandboxSpreadExecReloadDelta: Int
+)
+
+/**
+ * Полный путь тестового входа: Z и время бара — с последней 15м точки рынка; позиция Z, журнал;
+ * при готовой песочнице две заявки (авто или «как Принять»).
+ */
+internal suspend fun runPortfolioTestEntrySignalFull(
+    context: Context,
+    signalType: StrategySignalType
+): Result<PortfolioTestEntrySignalResult> = withContext(Dispatchers.IO) {
+    runCatching {
+        require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
+        val app = context.applicationContext
+        val market = loadCurrentPortfolioMarketSnapshot(app, forceNetworkRefresh = true)
+        val barTs = market.timestampMillis
+        val z = market.zScore
+        val dir = if (signalType == StrategySignalType.EnterShort) "SHORT" else "LONG"
+        val zText = String.format(Locale.US, "%.2f", z)
+        val position = when (signalType) {
+            StrategySignalType.EnterLong -> ZStrategyPosition.Long
+            StrategySignalType.EnterShort -> ZStrategyPosition.Short
+            else -> ZStrategyPosition.Flat
+        }
+        saveStrategyPosition(app, position)
+        recordStrategySignalEvent(
+            context = app,
+            signalType = signalType,
+            zScore = z,
+            timestampMillis = barTs,
+            skipJournalWallDedup = true,
+            savePendingVirtualTradeIfEntry = true
+        )
+        val execOn = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(app)
+        val execState = TinkoffSandboxStorage.resolveExecUiState(app)
+        if (!execOn || execState != SandboxExecUiState.Ready) {
+            return@runCatching PortfolioTestEntrySignalResult(
+                toastMessage = "Тестовый сигнал $dir: журнал и позиция Z (Z=$zText, бар ${market.tradeDateLabel}). " +
+                    "Включите «Исполнять вход на демо» и укажите токен/счёт песочницы, чтобы отправлялись ордера.",
+                sandboxSpreadExecReloadDelta = 0
+            )
+        }
+        if (TinkoffSandboxStorage.isSandboxSpreadAutoExecute(app)) {
+            val ran = runSandboxAutoEntryIfNeeded(
+                app,
+                signalType,
+                z,
+                barTs,
+                market.entrySpreadPercent,
+                fromTestButton = true
+            )
+            return@runCatching if (ran) {
+                PortfolioTestEntrySignalResult(
+                    toastMessage = "Тестовый $dir: авто-вход на демо — 2 ордера (Z=$zText).",
+                    sandboxSpreadExecReloadDelta = 1
+                )
+            } else {
+                PortfolioTestEntrySignalResult(
+                    toastMessage = "Тестовый $dir записан (Z=$zText). Авто-вход не выполнен (см. уведомление).",
+                    sandboxSpreadExecReloadDelta = 0
+                )
+            }
+        }
+        val r = executeTestSandboxSpreadPair(
+            app,
+            signalType,
+            journalBarTimestampMillis = barTs,
+            zScore = z,
+            entrySpreadPercent = market.spreadPercent,
+            skipStrategyJournalIfAlreadyRecorded = true,
+            fromTestButton = true
+        )
+        r.getOrThrow()
+        PortfolioTestEntrySignalResult(
+            toastMessage = "Тестовый $dir: 2 ордера на демо (Z=$zText).",
+            sandboxSpreadExecReloadDelta = 1
+        )
+    }
+}
+
+/**
+ * Две рыночные заявки на демо: журнал + реестр [PortfolioExecSource.MANUAL], позиция Z.
+ *
+ * При [fromTestButton] всегда берётся свежий рынок (не дата/Z из карточки «Принять»).
+ */
+internal suspend fun executeTestSandboxSpreadPair(
+    context: Context,
+    signalType: StrategySignalType,
+    journalBarTimestampMillis: Long? = null,
+    zScore: Double? = null,
+    entrySpreadPercent: Double? = null,
+    skipStrategyJournalIfAlreadyRecorded: Boolean = false,
+    fromTestButton: Boolean = false
+): Result<Unit> = withContext(Dispatchers.IO) {
+    runCatching {
+        require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
+        val app = context.applicationContext
+        if (!TinkoffSandboxStorage.isExecuteSignalsOnSandbox(app)) {
+            error("Включите «Исполнять вход по сигналу на демо-счёт».")
+        }
+        when (TinkoffSandboxStorage.resolveExecUiState(app)) {
+            SandboxExecUiState.Off -> error("Исполнение на демо выключено.")
+            SandboxExecUiState.MissingCredentials -> error("Укажите токен и счёт песочницы (вкладка «Песочница»).")
+            SandboxExecUiState.Ready -> Unit
+        }
+        val market = loadCurrentPortfolioMarketSnapshot(app, forceNetworkRefresh = fromTestButton)
+        val barTs = if (fromTestButton) {
+            market.timestampMillis
+        } else {
+            journalBarTimestampMillis ?: market.timestampMillis
+        }
+        val z = if (fromTestButton) {
+            market.zScore
+        } else {
+            zScore ?: market.zScore
+        }
+        val entrySpread = if (fromTestButton) {
+            market.spreadPercent
+        } else {
+            entrySpreadPercent ?: resolveSpreadPercentAtBar(app, barTs, market.spreadPercent)
+        }
+        val tok = TinkoffSandboxStorage.getToken(app) ?: error("Нет токена.")
+        val acc = TinkoffSandboxStorage.getAccountId(app) ?: error("Нет счёта.")
+        val legs = tinkoffSandboxExecuteSpreadEntryDetailed(tok, acc, signalType)
+        val executedAt = System.currentTimeMillis()
+        markVirtualTradeConsumedForJournalEntry(app, signalType, barTs)
+        appendPortfolioExecutionLedger(
+            app,
+            barTimestampMillis = barTs,
+            signalType = signalType,
+            source = PortfolioExecSource.MANUAL
+        )
+        if (!skipStrategyJournalIfAlreadyRecorded) {
+            val recent = loadStrategySignalEvents(app)
+            val last = recent.lastOrNull()
+            val skipDup = last != null &&
+                last.signalType == signalType &&
+                last.timestampMillis == barTs
+            if (!skipDup) {
+                recordStrategySignalEvent(
+                    context = app,
+                    signalType = signalType,
+                    zScore = z,
+                    timestampMillis = barTs,
+                    skipJournalWallDedup = true,
+                    savePendingVirtualTradeIfEntry = false
+                )
+            }
+        }
+        val position = when (signalType) {
+            StrategySignalType.EnterLong -> ZStrategyPosition.Long
+            StrategySignalType.EnterShort -> ZStrategyPosition.Short
+            else -> ZStrategyPosition.Flat
+        }
+        saveStrategyPosition(app, position)
+        notifySandboxSpreadLegExecutionResults(
+            app,
+            legs,
+            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
+            spreadLegPushCorrelationTag(barTs, signalType)
+        )
+        TinkoffSandboxSpreadExecLog.recordFromLegs(
+            app,
+            signalType,
+            z,
+            barTimestampMillis = barTs,
+            executedAtMillis = executedAt,
+            entrySpreadPercent = entrySpread,
+            source = PortfolioExecSource.MANUAL,
+            legs = legs,
+            fromTestButton = fromTestButton
+        )
+    }
+}

@@ -1,0 +1,16 @@
+*.iml
+.gradle/
+local.properties
+# Optional sandbox API defaults for local APK builds only (never commit real tokens).
+sandbox-token.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+android-sdk/
+automation/.state/
+**/__pycache__/
+*.pyc
+.aider*
