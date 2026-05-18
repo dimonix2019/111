@@ -369,7 +369,8 @@ internal fun MoexScreen() {
                     points = points,
                     notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                     leverage = portfolioLeverage,
-                    commissionPercentPerSide = portfolioCommissionPercent
+                    commissionPercentPerSide = portfolioCommissionPercent,
+                    journalEvents = eventsAll
                 )
             }
             if (portfolioLedgerIncludeAuto != ledgerIncludeAuto) {

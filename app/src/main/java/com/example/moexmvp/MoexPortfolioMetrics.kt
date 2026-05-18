@@ -299,7 +299,10 @@ internal data class PortfolioConfirmedTradeTableRow(
     val grossPnlRubApprox: Double,
     val netPnlRubApprox: Double,
     val commissionRubApprox: Double = 0.0,
-    val overnightRubApprox: Double = 0.0
+    val overnightRubApprox: Double = 0.0,
+    val entrySignalId: String = "—",
+    val entrySignalBarTimeMsk: String = "—",
+    val entrySignalReceivedMsk: String = "—"
 )
 
 /** Одна сделка (пара ног) и её ордера для таблицы портфеля. */
@@ -318,6 +321,9 @@ internal data class PortfolioTradeGroupRow(
     val netPnlRubApprox: Double,
     val commissionRubApprox: Double = 0.0,
     val overnightRubApprox: Double = 0.0,
+    val entrySignalId: String = "—",
+    val entrySignalBarTimeMsk: String = "—",
+    val entrySignalReceivedMsk: String = "—",
     val orders: List<PortfolioOrderTableRow>,
     val isOpen: Boolean = false
 )
@@ -347,6 +353,9 @@ internal fun PortfolioConfirmedTradeTableRow.toTradeGroup(): PortfolioTradeGroup
     netPnlRubApprox = netPnlRubApprox,
     commissionRubApprox = commissionRubApprox,
     overnightRubApprox = overnightRubApprox,
+    entrySignalId = entrySignalId,
+    entrySignalBarTimeMsk = entrySignalBarTimeMsk,
+    entrySignalReceivedMsk = entrySignalReceivedMsk,
     orders = listOf(
         PortfolioOrderTableRow(
             orderIndex = 1,
@@ -557,6 +566,7 @@ internal fun buildExecutedPortfolioWithTable(
                                 exitDateLabel = point.tradeDate,
                                 includeExitCommission = true
                             )
+                            val entrySig = strategySignalDisplay(ec.event)
                             tableRows += PortfolioConfirmedTradeTableRow(
                                 tradeId = "T-%03d".format(Locale.US, tradeSeq),
                                 directionLabel = "long",
@@ -576,7 +586,10 @@ internal fun buildExecutedPortfolioWithTable(
                                 grossPnlRubApprox = c.grossPnlRubApprox,
                                 netPnlRubApprox = c.pnlRubApprox,
                                 commissionRubApprox = commRub,
-                                overnightRubApprox = ovnRub
+                                overnightRubApprox = ovnRub,
+                                entrySignalId = entrySig.signalId,
+                                entrySignalBarTimeMsk = entrySig.barTimeMsk,
+                                entrySignalReceivedMsk = entrySig.receivedTimeMsk
                             )
                         }
                         currentPosition = ZStrategyPosition.Flat
@@ -619,6 +632,7 @@ internal fun buildExecutedPortfolioWithTable(
                                 exitDateLabel = point.tradeDate,
                                 includeExitCommission = true
                             )
+                            val entrySig = strategySignalDisplay(ec.event)
                             tableRows += PortfolioConfirmedTradeTableRow(
                                 tradeId = "T-%03d".format(Locale.US, tradeSeq),
                                 directionLabel = "short",
@@ -638,7 +652,10 @@ internal fun buildExecutedPortfolioWithTable(
                                 grossPnlRubApprox = c.grossPnlRubApprox,
                                 netPnlRubApprox = c.pnlRubApprox,
                                 commissionRubApprox = commRub,
-                                overnightRubApprox = ovnRub
+                                overnightRubApprox = ovnRub,
+                                entrySignalId = entrySig.signalId,
+                                entrySignalBarTimeMsk = entrySig.barTimeMsk,
+                                entrySignalReceivedMsk = entrySig.receivedTimeMsk
                             )
                         }
                         currentPosition = ZStrategyPosition.Flat

@@ -377,6 +377,9 @@ private fun PortfolioTradeOrdersGroupedTable(
         Row(Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
             val heads = listOf(
                 "ID сделки" to 52.dp,
+                "ID сигн." to 72.dp,
+                "Бар сигн." to 100.dp,
+                "Получен" to 96.dp,
                 "Вход" to 100.dp,
                 "Выход" to 100.dp,
                 "Объём" to 48.dp,
@@ -420,6 +423,21 @@ private fun PortfolioTradeOrdersGroupedTable(
                     Row(Modifier.padding(horizontal = 2.dp, vertical = 1.dp)) {
                         if (isFirstOrder) {
                             PortfolioTradeTableCell(group.tradeId, Modifier.widthIn(min = 52.dp).width(52.dp))
+                            PortfolioTradeTableCell(
+                                group.entrySignalId,
+                                Modifier.widthIn(min = 72.dp).width(72.dp),
+                                Color(0xFFCE93D8)
+                            )
+                            PortfolioTradeTableCell(
+                                group.entrySignalBarTimeMsk,
+                                Modifier.widthIn(min = 100.dp).width(100.dp),
+                                Color(0xFFCE93D8)
+                            )
+                            PortfolioTradeTableCell(
+                                group.entrySignalReceivedMsk,
+                                Modifier.widthIn(min = 96.dp).width(96.dp),
+                                Color(0xFF81D4FA)
+                            )
                             PortfolioTradeTableCell(group.entryTimeMsk, Modifier.widthIn(min = 100.dp).width(100.dp))
                             PortfolioTradeTableCell(group.exitTimeMsk, Modifier.widthIn(min = 100.dp).width(100.dp))
                             PortfolioTradeTableCell(group.volumeText, Modifier.widthIn(min = 48.dp).width(48.dp))
@@ -466,7 +484,7 @@ private fun PortfolioTradeOrdersGroupedTable(
                                 Color(0xFFFFAB91)
                             )
                         } else {
-                            listOf(52, 100, 100, 48, 52, 36, 36, 88, 52, 52, 58, 52, 52).forEach { w ->
+                            listOf(52, 72, 100, 96, 100, 100, 48, 52, 36, 36, 88, 52, 52, 58, 52, 52).forEach { w ->
                                 PortfolioTradeTableCell(
                                     "·",
                                     Modifier.widthIn(min = w.dp).width(w.dp),
@@ -558,7 +576,9 @@ internal fun PortfolioTradesWindowSection(
         )
         Text(
             text = "Открытые — исполнение на демо; закрытые — журнал вход/выход + демо (не симуляция «Тест страт.»). " +
-                "PnL группы — сумма по сделкам в таблице. Окно: ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. (МСК).",
+                "ID сигн. / бар / «Получен» — вход из журнала сигналов (сверка с авто-заявками). " +
+                "Если сигнал в журнале есть, а сделки нет — проверьте «Исполнять на демо» и реестр входа (авто). " +
+                "Окно: ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. (МСК).",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
             maxLines = 3

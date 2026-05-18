@@ -45,7 +45,10 @@ internal data class SandboxSpreadExecUi(
     val legShortPnlSplitRubApprox: Double = Double.NaN,
     val netPnlRubApprox: Double = Double.NaN,
     val commissionRubApprox: Double = Double.NaN,
-    val overnightRubApprox: Double = Double.NaN
+    val overnightRubApprox: Double = Double.NaN,
+    val entrySignalId: String = "—",
+    val entrySignalBarTimeMsk: String = "—",
+    val entrySignalReceivedMsk: String = "—"
 ) {
     fun toTradeGroup(): PortfolioTradeGroupRow {
         val orderRows = if (legs.size >= 2) {
@@ -94,6 +97,9 @@ internal data class SandboxSpreadExecUi(
             netPnlRubApprox = netPnlRubApprox,
             commissionRubApprox = commissionRubApprox,
             overnightRubApprox = overnightRubApprox,
+            entrySignalId = entrySignalId,
+            entrySignalBarTimeMsk = entrySignalBarTimeMsk,
+            entrySignalReceivedMsk = entrySignalReceivedMsk,
             orders = orderRows,
             isOpen = true
         )
@@ -196,7 +202,8 @@ internal object TinkoffSandboxSpreadExecLog {
         points: List<DataPoint> = emptyList(),
         notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
         leverage: Double = 7.0,
-        commissionPercentPerSide: Double = 0.04
+        commissionPercentPerSide: Double = 0.04,
+        journalEvents: List<StrategySignalEvent> = emptyList()
     ): List<SandboxSpreadExecUi> {
         if (executions.isEmpty()) return executions
         val pushLog = loadPushNotificationLog(context)
@@ -207,8 +214,21 @@ internal object TinkoffSandboxSpreadExecLog {
                 if (ids == exec.notificationIdsText) exec else exec.copy(notificationIdsText = ids)
             }
         }
+        val withSignals = withPush.map { exec ->
+            val (sigId, sigBar, sigRecv) = entrySignalDisplayFields(
+                journalEvents = journalEvents,
+                barTimestampMillis = exec.barTimestampMillis,
+                signalType = exec.signalType,
+                fallbackReceivedAtMillis = exec.executedAtMillis
+            )
+            exec.copy(
+                entrySignalId = sigId,
+                entrySignalBarTimeMsk = sigBar,
+                entrySignalReceivedMsk = sigRecv
+            )
+        }
         return enrichOpenSandboxExecutions(
-            withPush,
+            withSignals,
             points,
             notionalRub,
             leverage,
@@ -244,6 +264,12 @@ internal object TinkoffSandboxSpreadExecLog {
             PortfolioExecSource.AUTO -> "авто"
             PortfolioExecSource.MANUAL -> "ручное"
         } + if (fromTestButton) " · тест" else ""
+        val (sigId, sigBar, sigRecv) = entrySignalDisplayFields(
+            journalEvents = loadStrategySignalEvents(app),
+            barTimestampMillis = barTimestampMillis,
+            signalType = signalType,
+            fallbackReceivedAtMillis = executedAtMillis
+        )
         return SandboxSpreadExecUi(
             tradeId = "D-%03d".format(Locale.US, seq),
             signalType = signalType,
@@ -254,6 +280,9 @@ internal object TinkoffSandboxSpreadExecLog {
             source = source,
             directionLabel = if (signalType == StrategySignalType.EnterShort) "short" else "long",
             entryTimeMsk = formatPortfolioExecutionTableMsk(executedAtMillis),
+            entrySignalId = sigId,
+            entrySignalBarTimeMsk = sigBar,
+            entrySignalReceivedMsk = sigRecv,
             longLegTicker = spread.longTicker,
             shortLegTicker = spread.shortTicker,
             longLegSideRu = spread.longSideRu,

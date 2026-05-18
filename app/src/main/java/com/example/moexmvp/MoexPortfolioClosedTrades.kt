@@ -111,6 +111,12 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
             exitDateLabel = exitPoint.tradeDate,
             includeExitCommission = true
         )
+        val (sigId, sigBar, sigRecv) = entrySignalDisplayFields(
+            journalEvents = allJournalEvents,
+            barTimestampMillis = open.barTimestampMillis,
+            signalType = open.signalType,
+            fallbackReceivedAtMillis = open.executedAtMillis
+        )
         closedRows += PortfolioConfirmedTradeTableRow(
             tradeId = "T-O%03d".format(Locale.US, tradeSeq),
             directionLabel = if (direction == ZStrategyPosition.Short) "short" else "long",
@@ -130,7 +136,10 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
             grossPnlRubApprox = grossPnlRub,
             netPnlRubApprox = netPnlRub,
             commissionRubApprox = commRub,
-            overnightRubApprox = ovnRub
+            overnightRubApprox = ovnRub,
+            entrySignalId = sigId,
+            entrySignalBarTimeMsk = sigBar,
+            entrySignalReceivedMsk = sigRecv
         )
     }
     return closedRows to stillOpen

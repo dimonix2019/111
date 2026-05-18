@@ -63,6 +63,59 @@ internal data class StrategySignalEvent(
 internal fun spreadLegPushCorrelationTag(barTimestampMillis: Long, signalType: StrategySignalType): String =
     "spreadLeg|${barTimestampMillis}|${signalType.name}"
 
+/** Короткий ID сигнала для таблицы сделок (тип + ts бара 15м). */
+internal fun strategySignalDisplayId(barTimestampMillis: Long, signalType: StrategySignalType): String {
+    val code = when (signalType) {
+        StrategySignalType.EnterLong -> "EL"
+        StrategySignalType.EnterShort -> "ES"
+        StrategySignalType.ExitLong -> "XL"
+        StrategySignalType.ExitShort -> "XS"
+    }
+    return "$code-$barTimestampMillis"
+}
+
+internal data class StrategySignalDisplay(
+    val signalId: String,
+    val barTimeMsk: String,
+    val receivedTimeMsk: String
+)
+
+internal fun strategySignalDisplay(event: StrategySignalEvent): StrategySignalDisplay =
+    StrategySignalDisplay(
+        signalId = strategySignalDisplayId(event.timestampMillis, event.signalType),
+        barTimeMsk = formatPortfolioExecutionTableMsk(event.timestampMillis),
+        receivedTimeMsk = formatMessageReceivedAtMsk(event.receivedAtMillis)
+    )
+
+internal fun strategySignalDisplay(
+    barTimestampMillis: Long,
+    signalType: StrategySignalType,
+    receivedAtMillis: Long = barTimestampMillis
+): StrategySignalDisplay =
+    StrategySignalDisplay(
+        signalId = strategySignalDisplayId(barTimestampMillis, signalType),
+        barTimeMsk = formatPortfolioExecutionTableMsk(barTimestampMillis),
+        receivedTimeMsk = formatMessageReceivedAtMsk(receivedAtMillis)
+    )
+
+/** Поля для таблицы сделок: ID сигнала входа, бар 15м, время записи в журнал. */
+internal fun entrySignalDisplayFields(
+    journalEvents: List<StrategySignalEvent>,
+    barTimestampMillis: Long,
+    signalType: StrategySignalType,
+    fallbackReceivedAtMillis: Long = barTimestampMillis
+): Triple<String, String, String> {
+    val ev = journalEvents.lastOrNull {
+        it.timestampMillis == barTimestampMillis && it.signalType == signalType
+    }
+    val d = if (ev != null) {
+        strategySignalDisplay(ev)
+    } else {
+        strategySignalDisplay(barTimestampMillis, signalType, fallbackReceivedAtMillis)
+    }
+    return Triple(d.signalId, d.barTimeMsk, d.receivedTimeMsk)
+}
+
 internal fun createPushNotificationChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val channel = NotificationChannel(
