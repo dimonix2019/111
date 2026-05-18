@@ -102,6 +102,9 @@ internal fun MoexScreen() {
     var signalEvents by remember(context) {
         mutableStateOf(loadStrategySignalEvents(context))
     }
+    var pushNotificationLog by remember(context) {
+        mutableStateOf(loadPushNotificationLog(context))
+    }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
     var lastGoodMarkets by remember { mutableStateOf<UiState.Success?>(null) }
     var marketsStale by remember { mutableStateOf(false) }
@@ -434,6 +437,14 @@ internal fun MoexScreen() {
     ) {
         if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
             refreshPortfolio(null)
+        }
+    }
+
+    LaunchedEffect(selectedTab, sandboxSpreadExecReload, signalJournalFingerprint) {
+        if (selectedTab == MainTab.Journal) {
+            pushNotificationLog = withContext(Dispatchers.IO) {
+                loadPushNotificationLog(context.applicationContext)
+            }
         }
     }
 
@@ -1020,6 +1031,7 @@ internal fun MoexScreen() {
             MainTab.Journal -> {
                 JournalTabContent(
                     events = signalEvents,
+                    pushNotifications = pushNotificationLog,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     onClearHistoryRequest = {
                         clearStrategySignalJournalAndLocalStrategyState(context)
@@ -1031,6 +1043,15 @@ internal fun MoexScreen() {
                             context,
                             "Журнал очищен; позиция Z — FLAT; карточка «Принять» и локальный лог спрэда сброшены.",
                             Toast.LENGTH_LONG
+                        ).show()
+                    },
+                    onClearPushLogRequest = {
+                        clearPushNotificationLog(context)
+                        pushNotificationLog = loadPushNotificationLog(context)
+                        Toast.makeText(
+                            context,
+                            "Журнал уведомлений (push) очищен.",
+                            Toast.LENGTH_SHORT
                         ).show()
                     }
                 )
