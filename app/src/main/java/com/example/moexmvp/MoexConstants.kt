@@ -70,6 +70,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.58 — Портфель: «Комис.» и «Оверн.» в таблицах сделок со знаком минус (расход).
 1.6.57 — Портфель: в таблицах сделок столбцы «Комис.» и «Оверн.»; убран «Тип»; убраны кнопки тестового сигнала LONG/SHORT (осталась «Тестовая пара»).
 1.6.56 — Рынок: линии Z и подпись порогов = розовые степперы «Портфель»; ежедневный автоподбор порогов отключён.
 1.6.55 — 15м кэш: при разрыве >1 дня (МСК) авто FULL_REFRESH; полная загрузка чанками сразу в SQLite; mutex загрузок; INCREMENTAL по MAX(ts); чтение getSince.

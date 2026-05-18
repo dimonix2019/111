@@ -332,6 +332,10 @@ private fun formatPortfolioTableZ(z: Double): String =
 private fun formatPortfolioTableRub(value: Double): String =
     if (value.isNaN()) "—" else formatRubSigned(value)
 
+/** Расход (комиссия, овернайт): в данных хранится модуль, в таблице — со знаком «−». */
+private fun formatPortfolioTableCostRub(value: Double): String =
+    if (value.isNaN()) "—" else formatRubSigned(-kotlin.math.abs(value))
+
 @Composable
 private fun PortfolioTradeTableCell(
     text: String,
@@ -452,14 +456,14 @@ private fun PortfolioTradeOrdersGroupedTable(
                                 else rubDeltaColor(group.netPnlRubApprox)
                             )
                             PortfolioTradeTableCell(
-                                formatPortfolioTableRub(group.commissionRubApprox),
+                                formatPortfolioTableCostRub(group.commissionRubApprox),
                                 Modifier.widthIn(min = 52.dp).width(52.dp),
-                                Color(0xFFFFCC80)
+                                Color(0xFFFFAB91)
                             )
                             PortfolioTradeTableCell(
-                                formatPortfolioTableRub(group.overnightRubApprox),
+                                formatPortfolioTableCostRub(group.overnightRubApprox),
                                 Modifier.widthIn(min = 52.dp).width(52.dp),
-                                Color(0xFFFFCC80)
+                                Color(0xFFFFAB91)
                             )
                         } else {
                             listOf(52, 100, 100, 48, 52, 36, 36, 88, 52, 52, 58, 52, 52).forEach { w ->
