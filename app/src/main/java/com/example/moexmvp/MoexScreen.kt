@@ -488,13 +488,7 @@ internal fun MoexScreen() {
                             calculatedDate = dynamicThresholds.calculatedDate
                         )
                         val m15ForSignal = withContext(Dispatchers.IO) {
-                            val till = LocalDate.now(moexZoneId)
-                            loadPortfolio15mDataPoints(
-                                context,
-                                till.minusDays(10),
-                                till,
-                                PortfolioM15LoadMode.INCREMENTAL
-                            )
+                            loadPortfolio15mPointsForSignalMonitor(context)
                         }
                         if (m15ForSignal.size >= 2) {
                             val lastPt = m15ForSignal.last()
