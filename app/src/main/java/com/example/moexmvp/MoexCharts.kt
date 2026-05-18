@@ -495,22 +495,22 @@ internal fun buildZScoreReferenceLines(thresholds: DynamicThresholds): List<Char
         ChartReferenceLine(
             value = thresholds.entry,
             color = Color(0xFFFFB74D),
-            label = String.format(Locale.US, "Entry +%.1f", thresholds.entry)
+            label = String.format(Locale.US, "+%.2f", thresholds.entry)
         ),
         ChartReferenceLine(
             value = -thresholds.entry,
             color = Color(0xFFFFB74D),
-            label = String.format(Locale.US, "Entry -%.1f", thresholds.entry)
+            label = String.format(Locale.US, "-%.2f", thresholds.entry)
         ),
         ChartReferenceLine(
             value = thresholds.exit,
             color = Color(0xFFA5D6A7),
-            label = String.format(Locale.US, "Exit +%.1f", thresholds.exit)
+            label = String.format(Locale.US, "+%.2f", thresholds.exit)
         ),
         ChartReferenceLine(
             value = -thresholds.exit,
             color = Color(0xFFA5D6A7),
-            label = String.format(Locale.US, "Exit -%.1f", thresholds.exit)
+            label = String.format(Locale.US, "-%.2f", thresholds.exit)
         )
     )
 }

@@ -37,8 +37,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -186,6 +188,15 @@ internal fun LineChart(
                 )
             )
         }
+        drawReferenceLineLabels(
+            referenceLines = referenceLines,
+            min = min,
+            range = range,
+            leftPadding = leftPadding,
+            topPadding = topPadding,
+            chartWidth = w,
+            chartHeight = h
+        )
 
         xTicks.forEach { tick ->
             val frac = fracForIndex(tick.index)
@@ -311,6 +322,33 @@ internal fun LineChart(
                 drawContext.canvas.nativeCanvas.restore()
             }
         }
+    }
+}
+
+/** Подписи порогов Z у правого края линии (вход ±entry, выход ±exit). */
+private fun DrawScope.drawReferenceLineLabels(
+    referenceLines: List<ChartReferenceLine>,
+    min: Double,
+    range: Double,
+    leftPadding: Float,
+    topPadding: Float,
+    chartWidth: Float,
+    chartHeight: Float
+) {
+    if (referenceLines.isEmpty()) return
+    val textSizePx = 9.sp.toPx()
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = textSizePx
+        textAlign = Paint.Align.RIGHT
+    }
+    val xRight = leftPadding + chartWidth - 4f
+    val yMin = topPadding + textSizePx * 0.85f
+    val yMax = topPadding + chartHeight - 2f
+    referenceLines.forEach { reference ->
+        val lineY = topPadding + chartHeight - (((reference.value - min) / range).toFloat() * chartHeight)
+        val textY = (lineY - 5f).coerceIn(yMin, yMax)
+        paint.color = reference.color.copy(alpha = 0.92f).toArgb()
+        drawContext.canvas.nativeCanvas.drawText(reference.label, xRight, textY, paint)
     }
 }
 
