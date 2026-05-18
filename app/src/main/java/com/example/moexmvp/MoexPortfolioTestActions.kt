@@ -161,13 +161,6 @@ internal suspend fun executeTestSandboxSpreadPair(
             else -> ZStrategyPosition.Flat
         }
         saveStrategyPosition(app, position)
-        notifySandboxSpreadLegExecutionResults(
-            app,
-            legs,
-            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
-            spreadLegPushCorrelationTag(barTs, signalType)
-        )
         TinkoffSandboxSpreadExecLog.recordFromLegs(
             app,
             signalType,
@@ -178,6 +171,89 @@ internal suspend fun executeTestSandboxSpreadPair(
             source = PortfolioExecSource.MANUAL,
             legs = legs,
             fromTestButton = fromTestButton
+        )
+        notifySandboxSpreadLegExecutionResults(
+            app,
+            legs,
+            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
+            spreadLegPushCorrelationTag(barTs, signalType)
+        )
+    }
+}
+
+/**
+ * Кнопка «Тестовая пара» на вкладке «Портфель»: свежий рынок, позиция Z, журнал;
+ * при авто-демо — [runSandboxAutoEntryIfNeeded], иначе две заявки как «Принять».
+ */
+internal suspend fun runPortfolioTestSpreadPairFull(
+    context: Context,
+    signalType: StrategySignalType
+): Result<PortfolioTestEntrySignalResult> = withContext(Dispatchers.IO) {
+    runCatching {
+        require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
+        val app = context.applicationContext
+        val market = loadCurrentPortfolioMarketSnapshot(app, forceNetworkRefresh = true)
+        val barTs = market.timestampMillis
+        val z = market.zScore
+        val dir = if (signalType == StrategySignalType.EnterShort) "SHORT" else "LONG"
+        val zText = String.format(Locale.US, "%.2f", z)
+        val position = when (signalType) {
+            StrategySignalType.EnterLong -> ZStrategyPosition.Long
+            StrategySignalType.EnterShort -> ZStrategyPosition.Short
+            else -> ZStrategyPosition.Flat
+        }
+        saveStrategyPosition(app, position)
+        recordStrategySignalEvent(
+            context = app,
+            signalType = signalType,
+            zScore = z,
+            timestampMillis = barTs,
+            skipJournalWallDedup = true,
+            savePendingVirtualTradeIfEntry = false
+        )
+        val execOn = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(app)
+        val execState = TinkoffSandboxStorage.resolveExecUiState(app)
+        if (!execOn || execState != SandboxExecUiState.Ready) {
+            return@runCatching PortfolioTestEntrySignalResult(
+                toastMessage = "Тестовая пара $dir: журнал и позиция Z (Z=$zText). " +
+                    "Включите «Исполнять вход на демо» и укажите токен/счёт песочницы.",
+                sandboxSpreadExecReloadDelta = 0
+            )
+        }
+        if (TinkoffSandboxStorage.isSandboxSpreadAutoExecute(app)) {
+            val ran = runSandboxAutoEntryIfNeeded(
+                app,
+                signalType,
+                z,
+                barTs,
+                market.entrySpreadPercent,
+                fromTestButton = true
+            )
+            return@runCatching if (ran) {
+                PortfolioTestEntrySignalResult(
+                    toastMessage = "Тестовая пара $dir: авто-вход на демо — 2 ордера (Z=$zText).",
+                    sandboxSpreadExecReloadDelta = 1
+                )
+            } else {
+                PortfolioTestEntrySignalResult(
+                    toastMessage = "Тестовая пара $dir записана (Z=$zText). Авто-вход не выполнен (см. уведомление).",
+                    sandboxSpreadExecReloadDelta = 0
+                )
+            }
+        }
+        executeTestSandboxSpreadPair(
+            app,
+            signalType,
+            journalBarTimestampMillis = barTs,
+            zScore = z,
+            entrySpreadPercent = market.spreadPercent,
+            skipStrategyJournalIfAlreadyRecorded = true,
+            fromTestButton = true
+        ).getOrThrow()
+        PortfolioTestEntrySignalResult(
+            toastMessage = "Тестовая пара на демо ($dir). Уведомления по ногам — как при «Принять».",
+            sandboxSpreadExecReloadDelta = 1
         )
     }
 }

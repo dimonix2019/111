@@ -108,6 +108,8 @@ internal data class SandboxSpreadExecUi(
 
 internal object TinkoffSandboxSpreadExecLog {
 
+    private val spreadExecLogLock = Any()
+
     fun recordFromLegs(
         context: Context,
         signalType: StrategySignalType,
@@ -297,24 +299,37 @@ internal object TinkoffSandboxSpreadExecLog {
 
     private fun appendExecution(context: Context, entry: SandboxSpreadExecUi) {
         val app = context.applicationContext
-        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        migrateLegacyIfNeeded(prefs)
-        val list = loadRecent(app, MAX_HISTORY).toMutableList()
-        val dupIndex = list.indexOfLast {
-            it.signalType == entry.signalType &&
-                it.barTimestampMillis == entry.barTimestampMillis &&
-                it.source == entry.source
+        synchronized(spreadExecLogLock) {
+            val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            migrateLegacyIfNeeded(prefs)
+            val list = loadRecentUnsafe(prefs).toMutableList()
+            val dupIndex = list.indexOfLast {
+                it.signalType == entry.signalType &&
+                    it.barTimestampMillis == entry.barTimestampMillis &&
+                    it.source == entry.source &&
+                    it.confirmLabel == entry.confirmLabel
+            }
+            if (dupIndex >= 0) {
+                list[dupIndex] = entry.copy(tradeId = list[dupIndex].tradeId)
+            } else {
+                list += entry
+            }
+            val trimmed = list.takeLast(MAX_HISTORY)
+            prefs.edit()
+                .putString(KEY_HISTORY_JSON, encodeHistory(trimmed).toString())
+                .remove(KEY_JSON_LEGACY)
+                .commit()
         }
-        if (dupIndex >= 0) {
-            list[dupIndex] = entry.copy(tradeId = list[dupIndex].tradeId)
-        } else {
-            list += entry
+    }
+
+    private fun loadRecentUnsafe(prefs: android.content.SharedPreferences): List<SandboxSpreadExecUi> {
+        val raw = prefs.getString(KEY_HISTORY_JSON, null) ?: return emptyList()
+        val arr = runCatching { JSONArray(raw) }.getOrElse { return emptyList() }
+        return buildList {
+            for (i in 0 until arr.length()) {
+                parseEntry(arr.optJSONObject(i) ?: continue)?.let { add(it) }
+            }
         }
-        val trimmed = list.takeLast(MAX_HISTORY)
-        prefs.edit()
-            .putString(KEY_HISTORY_JSON, encodeHistory(trimmed).toString())
-            .remove(KEY_JSON_LEGACY)
-            .apply()
     }
 
     private fun migrateLegacyIfNeeded(prefs: android.content.SharedPreferences) {

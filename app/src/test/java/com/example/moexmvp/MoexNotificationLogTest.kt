@@ -37,4 +37,22 @@ class MoexNotificationLogTest {
         )
         assertEquals(original, pushNotificationLogEntrySerializationRoundTrip(original))
     }
+
+    @Test
+    fun formatPushNotificationIdDisplay_matchesPortfolioColumn() {
+        val posted = PushNotificationLogEntry(
+            wallTimestampMillis = 1L,
+            title = "T",
+            body = "B",
+            posted = true,
+            skipReason = null,
+            virtualTapSignalType = null,
+            virtualTapZ = null,
+            virtualTapBarTimestampMillis = null,
+            notificationId = 42_001
+        )
+        assertEquals("42001", formatPushNotificationIdDisplay(posted))
+        val skipped = posted.copy(posted = false, notificationId = null)
+        assertEquals("—", formatPushNotificationIdDisplay(skipped))
+    }
 }

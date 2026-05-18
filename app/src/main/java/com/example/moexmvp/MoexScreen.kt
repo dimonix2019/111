@@ -102,6 +102,9 @@ internal fun MoexScreen() {
     var signalEvents by remember(context) {
         mutableStateOf(loadStrategySignalEvents(context))
     }
+    var pushNotificationLog by remember(context) {
+        mutableStateOf(loadPushNotificationLog(context))
+    }
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
     var lastGoodMarkets by remember { mutableStateOf<UiState.Success?>(null) }
     var marketsStale by remember { mutableStateOf(false) }
@@ -310,14 +313,7 @@ internal fun MoexScreen() {
                 fromTimestampMillis = points.firstOrNull()?.timestampMillis
             )
             val ledger = loadPortfolioExecutionLedger(context)
-            var ledgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
-            if (!ledgerIncludeAuto &&
-                ledger.any { it.source == PortfolioExecSource.AUTO } &&
-                ledger.none { it.source == PortfolioExecSource.MANUAL }
-            ) {
-                ledgerIncludeAuto = true
-                TinkoffSandboxStorage.setPortfolioLedgerIncludeAuto(context, true)
-            }
+            val ledgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
             val filteredEvents = journalEventsForExecutionPortfolioTab(
                 allEvents = eventsAll,
                 ledger = ledger,
@@ -372,9 +368,6 @@ internal fun MoexScreen() {
                     commissionPercentPerSide = portfolioCommissionPercent,
                     journalEvents = eventsAll
                 )
-            }
-            if (portfolioLedgerIncludeAuto != ledgerIncludeAuto) {
-                portfolioLedgerIncludeAuto = ledgerIncludeAuto
             }
             strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(
                 points = points,
@@ -444,6 +437,14 @@ internal fun MoexScreen() {
     ) {
         if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
             refreshPortfolio(null)
+        }
+    }
+
+    LaunchedEffect(selectedTab, sandboxSpreadExecReload, signalJournalFingerprint) {
+        if (selectedTab == MainTab.Journal) {
+            pushNotificationLog = withContext(Dispatchers.IO) {
+                loadPushNotificationLog(context.applicationContext)
+            }
         }
     }
 
@@ -806,8 +807,7 @@ internal fun MoexScreen() {
                                         }
                                     }
                                 }
-                                val tsExit = System.currentTimeMillis()
-                                val lastZ = withContext(Dispatchers.IO) {
+                                val (tsExit, lastZ) = withContext(Dispatchers.IO) {
                                     val till = LocalDate.now(moexZoneId)
                                     val pts = loadPortfolio15mDataPoints(
                                         context,
@@ -815,7 +815,11 @@ internal fun MoexScreen() {
                                         till,
                                         PortfolioM15LoadMode.INCREMENTAL
                                     )
-                                    pts.lastOrNull()?.zScore ?: 0.0
+                                    val lastPt = pts.lastOrNull()
+                                    Pair(
+                                        lastPt?.timestampMillis ?: System.currentTimeMillis(),
+                                        lastPt?.zScore ?: 0.0
+                                    )
                                 }
                                 when (pos) {
                                     ZStrategyPosition.Long -> {
@@ -942,19 +946,6 @@ internal fun MoexScreen() {
                                                 savePendingVirtualTradeIfEntry = false
                                             )
                                         }
-                                        Pair(skipDup, legsInner)
-                                    }
-                                    notifySandboxSpreadLegExecutionResults(
-                                        context,
-                                        legs,
-                                        DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                                        TinkoffSandboxStorage.getSandboxNotifyLeverage(context),
-                                        spreadLegPushCorrelationTag(
-                                            proposal.timestampMillis,
-                                            proposal.signalType
-                                        )
-                                    )
-                                    withContext(Dispatchers.IO) {
                                         val entrySpread = resolveSpreadPercentAtBar(
                                             context,
                                             proposal.timestampMillis
@@ -967,10 +958,28 @@ internal fun MoexScreen() {
                                             executedAtMillis = nowMs,
                                             entrySpreadPercent = entrySpread,
                                             source = PortfolioExecSource.MANUAL,
-                                            legs = legs,
+                                            legs = legsInner,
                                             fromTestButton = false
                                         )
+                                        val position = when (proposal.signalType) {
+                                            StrategySignalType.EnterLong -> ZStrategyPosition.Long
+                                            StrategySignalType.EnterShort -> ZStrategyPosition.Short
+                                            else -> ZStrategyPosition.Flat
+                                        }
+                                        saveStrategyPosition(context, position)
+                                        Pair(skipDup, legsInner)
                                     }
+                                    notifySandboxSpreadLegExecutionResults(
+                                        context,
+                                        legs,
+                                        DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                                        TinkoffSandboxStorage.getSandboxNotifyLeverage(context),
+                                        spreadLegPushCorrelationTag(
+                                            proposal.timestampMillis,
+                                            proposal.signalType
+                                        )
+                                    )
+                                    zStrategyPosition = loadSavedStrategyPosition(context)
                                     pendingVirtualTrade = null
                                     sandboxSpreadExecReload++
                                     signalEvents = loadStrategySignalEvents(context)
@@ -1022,6 +1031,7 @@ internal fun MoexScreen() {
             MainTab.Journal -> {
                 JournalTabContent(
                     events = signalEvents,
+                    pushNotifications = pushNotificationLog,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     onClearHistoryRequest = {
                         clearStrategySignalJournalAndLocalStrategyState(context)
@@ -1033,6 +1043,15 @@ internal fun MoexScreen() {
                             context,
                             "Журнал очищен; позиция Z — FLAT; карточка «Принять» и локальный лог спрэда сброшены.",
                             Toast.LENGTH_LONG
+                        ).show()
+                    },
+                    onClearPushLogRequest = {
+                        clearPushNotificationLog(context)
+                        pushNotificationLog = loadPushNotificationLog(context)
+                        Toast.makeText(
+                            context,
+                            "Журнал уведомлений (push) очищен.",
+                            Toast.LENGTH_SHORT
                         ).show()
                     }
                 )
@@ -1135,24 +1154,21 @@ internal fun MoexScreen() {
                                             else -> StrategySignalType.EnterLong
                                         }
                                         val r = withContext(Dispatchers.IO) {
-                                            executeTestSandboxSpreadPair(
+                                            runPortfolioTestSpreadPairFull(
                                                 context.applicationContext,
-                                                pairType,
-                                                skipStrategyJournalIfAlreadyRecorded = false,
-                                                fromTestButton = true
+                                                pairType
                                             )
                                         }
                                         if (r.isSuccess) {
+                                            val result = r.getOrThrow()
                                             clearPendingVirtualTradeProposal(context)
                                             zStrategyPosition = loadSavedStrategyPosition(context)
                                             pendingVirtualTrade = null
                                             signalEvents = loadStrategySignalEvents(context)
-                                            sandboxSpreadExecReload++
-                                            val dir =
-                                                if (pairType == StrategySignalType.EnterShort) "SHORT" else "LONG"
+                                            sandboxSpreadExecReload += result.sandboxSpreadExecReloadDelta
                                             Toast.makeText(
                                                 context,
-                                                "Тестовая пара на демо ($dir). Уведомления по ногам — как при «Принять».",
+                                                result.toastMessage,
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         } else {

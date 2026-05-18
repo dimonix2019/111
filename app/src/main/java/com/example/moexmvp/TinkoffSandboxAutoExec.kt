@@ -72,13 +72,6 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             signalType = signalType,
             source = PortfolioExecSource.AUTO
         )
-        notifySandboxSpreadLegExecutionResults(
-            app,
-            legs,
-            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage,
-            spreadLegPushCorrelationTag(barTimestampMillis, signalType)
-        )
         TinkoffSandboxSpreadExecLog.recordFromLegs(
             app,
             signalType,
@@ -89,6 +82,13 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             source = PortfolioExecSource.AUTO,
             legs = legs,
             fromTestButton = fromTestButton
+        )
+        notifySandboxSpreadLegExecutionResults(
+            app,
+            legs,
+            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage,
+            spreadLegPushCorrelationTag(barTimestampMillis, signalType)
         )
         true
     } catch (e: Exception) {

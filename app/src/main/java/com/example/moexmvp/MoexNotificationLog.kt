@@ -76,6 +76,13 @@ internal fun loadPushNotificationLog(context: Context): List<PushNotificationLog
     }
 }
 
+/** Как колонка «Push» в таблице сделок на «Портфеле». */
+internal fun formatPushNotificationIdDisplay(entry: PushNotificationLogEntry): String =
+    when {
+        entry.posted && entry.notificationId != null -> entry.notificationId.toString()
+        else -> "—"
+    }
+
 internal fun clearPushNotificationLog(context: Context) {
     synchronized(pushNotificationLogLock) {
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

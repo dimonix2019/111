@@ -22,7 +22,10 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
         return emptyList<PortfolioConfirmedTradeTableRow>() to openExecutions
     }
     val allowedPairs = ledgerEntryPairsForPortfolioReplay(ledger, portfolioLedgerIncludeAuto)
-    if (allowedPairs.isEmpty()) return emptyList<PortfolioConfirmedTradeTableRow>() to openExecutions
+    val allowAllOpens = ledger.isEmpty()
+    if (!allowAllOpens && allowedPairs.isEmpty()) {
+        return emptyList<PortfolioConfirmedTradeTableRow>() to openExecutions
+    }
 
     val effectiveNotionalRub = notionalRub * leverage
     val commissionPerSideRub = effectiveNotionalRub * (commissionPercentPerSide / 100.0)
@@ -41,7 +44,9 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
     var tradeSeq = 0
 
     for (open in openExecutions.sortedBy { it.barTimestampMillis }) {
-        if (Pair(open.signalType, open.barTimestampMillis) !in allowedPairs) {
+        if (!allowAllOpens &&
+            !ledgerEntryMatchesSignalBar(allowedPairs, open.signalType, open.barTimestampMillis)
+        ) {
             stillOpen += open
             continue
         }
