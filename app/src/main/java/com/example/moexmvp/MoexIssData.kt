@@ -427,6 +427,25 @@ internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
 }
 
 /**
+ * 15м ряд и Z для фонового монитора, UI-сигналов и тестовых входов —
+ * тот же кэш ISS 10m→15m и lookback, что вкладка «Портфель».
+ */
+internal suspend fun loadPortfolio15mPointsForSignalMonitor(
+    context: Context,
+    mode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL
+): List<DataPoint> {
+    val app = context.applicationContext
+    val till = LocalDate.now(moexZoneId)
+    val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
+    return when (mode) {
+        PortfolioM15LoadMode.CACHE_ONLY ->
+            loadPortfolio15mDataPoints(app, from, till, mode)
+        else ->
+            loadPortfolio15mSeriesEnsuringRecentTail(app, from, mode)
+    }
+}
+
+/**
  * 15m portfolio series with local Room cache on device.
  *
  * INCREMENTAL: merge cache with a short tail fetch from MOEX.
