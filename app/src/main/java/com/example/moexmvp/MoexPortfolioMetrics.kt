@@ -19,6 +19,25 @@ private fun overnightDays(entryDate: String, endDate: String): Long {
     return kotlin.math.max(0L, java.time.temporal.ChronoUnit.DAYS.between(entry, end))
 }
 
+/** Комиссия (1 или 2 стороны) и овернайт за период удержания сделки. */
+internal fun portfolioTradeCommissionAndOvernightRub(
+    notionalRub: Double,
+    leverage: Double,
+    commissionPercentPerSide: Double,
+    entryDateLabel: String,
+    exitDateLabel: String,
+    includeExitCommission: Boolean
+): Pair<Double, Double> {
+    val effectiveNotional = notionalRub * leverage
+    val commissionPerSideRub = effectiveNotional * (commissionPercentPerSide / 100.0)
+    val commissionRub = commissionPerSideRub * if (includeExitCommission) 2 else 1
+    val borrowedRub = notionalRub * (leverage - 1.0).coerceAtLeast(0.0)
+    val overnightPerDayRub =
+        borrowedRub * (TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY / 100.0)
+    val days = overnightDays(entryDateLabel, exitDateLabel)
+    return commissionRub to (overnightPerDayRub * days)
+}
+
 /** Daily labels `yyyy-MM-dd` or 15m labels `yyyy-MM-dd HH:mm` from [portfolio15mLabelFormatter]. */
 private fun parseChartDateLabel(label: String): LocalDate? {
     val trimmed = label.trim()
@@ -278,7 +297,9 @@ internal data class PortfolioConfirmedTradeTableRow(
     val legLongPnlSplitRubApprox: Double,
     val legShortPnlSplitRubApprox: Double,
     val grossPnlRubApprox: Double,
-    val netPnlRubApprox: Double
+    val netPnlRubApprox: Double,
+    val commissionRubApprox: Double = 0.0,
+    val overnightRubApprox: Double = 0.0
 )
 
 /** Одна сделка (пара ног) и её ордера для таблицы портфеля. */
@@ -295,6 +316,8 @@ internal data class PortfolioTradeGroupRow(
     val legLongPnlSplitRubApprox: Double,
     val legShortPnlSplitRubApprox: Double,
     val netPnlRubApprox: Double,
+    val commissionRubApprox: Double = 0.0,
+    val overnightRubApprox: Double = 0.0,
     val orders: List<PortfolioOrderTableRow>,
     val isOpen: Boolean = false
 )
@@ -322,6 +345,8 @@ internal fun PortfolioConfirmedTradeTableRow.toTradeGroup(): PortfolioTradeGroup
     legLongPnlSplitRubApprox = legLongPnlSplitRubApprox,
     legShortPnlSplitRubApprox = legShortPnlSplitRubApprox,
     netPnlRubApprox = netPnlRubApprox,
+    commissionRubApprox = commissionRubApprox,
+    overnightRubApprox = overnightRubApprox,
     orders = listOf(
         PortfolioOrderTableRow(
             orderIndex = 1,
@@ -524,6 +549,14 @@ internal fun buildExecutedPortfolioWithTable(
                             val legs = legSpreadDisplay(c.direction)
                             val tag = spreadLegPushCorrelationTag(ec.event.timestampMillis, ec.event.signalType)
                             val halfNet = c.pnlRubApprox / 2.0
+                            val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
+                                notionalRub = notionalRub,
+                                leverage = leverage,
+                                commissionPercentPerSide = commissionPercentPerSide,
+                                entryDateLabel = ec.point.tradeDate,
+                                exitDateLabel = point.tradeDate,
+                                includeExitCommission = true
+                            )
                             tableRows += PortfolioConfirmedTradeTableRow(
                                 tradeId = "T-%03d".format(Locale.US, tradeSeq),
                                 directionLabel = "long",
@@ -541,7 +574,9 @@ internal fun buildExecutedPortfolioWithTable(
                                 legLongPnlSplitRubApprox = halfNet,
                                 legShortPnlSplitRubApprox = halfNet,
                                 grossPnlRubApprox = c.grossPnlRubApprox,
-                                netPnlRubApprox = c.pnlRubApprox
+                                netPnlRubApprox = c.pnlRubApprox,
+                                commissionRubApprox = commRub,
+                                overnightRubApprox = ovnRub
                             )
                         }
                         currentPosition = ZStrategyPosition.Flat
@@ -576,6 +611,14 @@ internal fun buildExecutedPortfolioWithTable(
                             val legs = legSpreadDisplay(c.direction)
                             val tag = spreadLegPushCorrelationTag(ec.event.timestampMillis, ec.event.signalType)
                             val halfNet = c.pnlRubApprox / 2.0
+                            val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
+                                notionalRub = notionalRub,
+                                leverage = leverage,
+                                commissionPercentPerSide = commissionPercentPerSide,
+                                entryDateLabel = ec.point.tradeDate,
+                                exitDateLabel = point.tradeDate,
+                                includeExitCommission = true
+                            )
                             tableRows += PortfolioConfirmedTradeTableRow(
                                 tradeId = "T-%03d".format(Locale.US, tradeSeq),
                                 directionLabel = "short",
@@ -593,7 +636,9 @@ internal fun buildExecutedPortfolioWithTable(
                                 legLongPnlSplitRubApprox = halfNet,
                                 legShortPnlSplitRubApprox = halfNet,
                                 grossPnlRubApprox = c.grossPnlRubApprox,
-                                netPnlRubApprox = c.pnlRubApprox
+                                netPnlRubApprox = c.pnlRubApprox,
+                                commissionRubApprox = commRub,
+                                overnightRubApprox = ovnRub
                             )
                         }
                         currentPosition = ZStrategyPosition.Flat

@@ -103,6 +103,14 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
         val legs = legSpreadDisplay(direction)
         val tag = spreadLegPushCorrelationTag(open.barTimestampMillis, open.signalType)
         val halfNet = netPnlRub / 2.0
+        val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
+            notionalRub = notionalRub,
+            leverage = leverage,
+            commissionPercentPerSide = commissionPercentPerSide,
+            entryDateLabel = entryPoint.tradeDate,
+            exitDateLabel = exitPoint.tradeDate,
+            includeExitCommission = true
+        )
         closedRows += PortfolioConfirmedTradeTableRow(
             tradeId = "T-O%03d".format(Locale.US, tradeSeq),
             directionLabel = if (direction == ZStrategyPosition.Short) "short" else "long",
@@ -120,7 +128,9 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
             legLongPnlSplitRubApprox = halfNet,
             legShortPnlSplitRubApprox = halfNet,
             grossPnlRubApprox = grossPnlRub,
-            netPnlRubApprox = netPnlRub
+            netPnlRubApprox = netPnlRub,
+            commissionRubApprox = commRub,
+            overnightRubApprox = ovnRub
         )
     }
     return closedRows to stillOpen

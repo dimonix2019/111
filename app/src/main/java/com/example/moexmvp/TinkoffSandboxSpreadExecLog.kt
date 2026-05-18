@@ -43,7 +43,9 @@ internal data class SandboxSpreadExecUi(
     val exitZDisplay: Double = Double.NaN,
     val legLongPnlSplitRubApprox: Double = Double.NaN,
     val legShortPnlSplitRubApprox: Double = Double.NaN,
-    val netPnlRubApprox: Double = Double.NaN
+    val netPnlRubApprox: Double = Double.NaN,
+    val commissionRubApprox: Double = Double.NaN,
+    val overnightRubApprox: Double = Double.NaN
 ) {
     fun toTradeGroup(): PortfolioTradeGroupRow {
         val orderRows = if (legs.size >= 2) {
@@ -90,6 +92,8 @@ internal data class SandboxSpreadExecUi(
             legLongPnlSplitRubApprox = legLongPnlSplitRubApprox,
             legShortPnlSplitRubApprox = legShortPnlSplitRubApprox,
             netPnlRubApprox = netPnlRubApprox,
+            commissionRubApprox = commissionRubApprox,
+            overnightRubApprox = overnightRubApprox,
             orders = orderRows,
             isOpen = true
         )

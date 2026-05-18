@@ -373,7 +373,6 @@ private fun PortfolioTradeOrdersGroupedTable(
         Row(Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
             val heads = listOf(
                 "ID сделки" to 52.dp,
-                "Тип" to 36.dp,
                 "Вход" to 100.dp,
                 "Выход" to 100.dp,
                 "Объём" to 48.dp,
@@ -384,6 +383,8 @@ private fun PortfolioTradeOrdersGroupedTable(
                 "PnL L" to 52.dp,
                 "PnL S" to 52.dp,
                 "Чистый" to 58.dp,
+                "Комис." to 52.dp,
+                "Оверн." to 52.dp,
                 "№" to 24.dp,
                 "Нога" to 36.dp,
                 "Тикер" to 40.dp,
@@ -415,7 +416,6 @@ private fun PortfolioTradeOrdersGroupedTable(
                     Row(Modifier.padding(horizontal = 2.dp, vertical = 1.dp)) {
                         if (isFirstOrder) {
                             PortfolioTradeTableCell(group.tradeId, Modifier.widthIn(min = 52.dp).width(52.dp))
-                            PortfolioTradeTableCell(group.directionLabel, Modifier.widthIn(min = 36.dp).width(36.dp))
                             PortfolioTradeTableCell(group.entryTimeMsk, Modifier.widthIn(min = 100.dp).width(100.dp))
                             PortfolioTradeTableCell(group.exitTimeMsk, Modifier.widthIn(min = 100.dp).width(100.dp))
                             PortfolioTradeTableCell(group.volumeText, Modifier.widthIn(min = 48.dp).width(48.dp))
@@ -451,8 +451,18 @@ private fun PortfolioTradeOrdersGroupedTable(
                                 if (group.netPnlRubApprox.isNaN()) Color(0xFF757575)
                                 else rubDeltaColor(group.netPnlRubApprox)
                             )
+                            PortfolioTradeTableCell(
+                                formatPortfolioTableRub(group.commissionRubApprox),
+                                Modifier.widthIn(min = 52.dp).width(52.dp),
+                                Color(0xFFFFCC80)
+                            )
+                            PortfolioTradeTableCell(
+                                formatPortfolioTableRub(group.overnightRubApprox),
+                                Modifier.widthIn(min = 52.dp).width(52.dp),
+                                Color(0xFFFFCC80)
+                            )
                         } else {
-                            listOf(52, 36, 100, 100, 48, 52, 36, 36, 88, 52, 52, 58).forEach { w ->
+                            listOf(52, 100, 100, 48, 52, 36, 36, 88, 52, 52, 58, 52, 52).forEach { w ->
                                 PortfolioTradeTableCell(
                                     "·",
                                     Modifier.widthIn(min = w.dp).width(w.dp),
@@ -618,8 +628,6 @@ internal fun ConfirmedPortfolioTabContent(
     sandboxSpreadAutoExecute: Boolean,
     onSandboxSpreadAutoExecuteChange: (Boolean) -> Unit,
     portfolioTestBusy: Boolean,
-    onTestSignalLong: () -> Unit,
-    onTestSignalShort: () -> Unit,
     onTestSpreadPairClick: () -> Unit,
     closeAllPortfolioBusy: Boolean,
     onCloseAllTradesClick: () -> Unit,
@@ -774,24 +782,6 @@ internal fun ConfirmedPortfolioTabContent(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                OutlinedButton(
-                    onClick = onTestSignalLong,
-                    enabled = !portfolioTestBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF8BBD0))
-                ) {
-                    Text("Тестовый сигнал на вход LONG", fontSize = 11.sp, maxLines = 2)
-                }
-                OutlinedButton(
-                    onClick = onTestSignalShort,
-                    enabled = !portfolioTestBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF8BBD0))
-                ) {
-                    Text("Тестовый сигнал на вход SHORT", fontSize = 11.sp, maxLines = 2)
-                }
                 OutlinedButton(
                     onClick = onTestSpreadPairClick,
                     enabled = !portfolioTestBusy,

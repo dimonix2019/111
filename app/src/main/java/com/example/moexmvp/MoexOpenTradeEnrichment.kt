@@ -30,13 +30,25 @@ internal fun enrichOpenSandboxExecutions(
             barTimestampMillis = exec.barTimestampMillis
         )
         val half = mtmRub / 2.0
+        val entryDateLabel = points.minByOrNull { kotlin.math.abs(it.timestampMillis - exec.barTimestampMillis) }
+            ?.tradeDate ?: exec.entryTimeMsk
+        val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
+            notionalRub = notionalRub,
+            leverage = leverage,
+            commissionPercentPerSide = commissionPercentPerSide,
+            entryDateLabel = entryDateLabel,
+            exitDateLabel = last.tradeDate,
+            includeExitCommission = false
+        )
         exec.copy(
             zScore = entryZ,
             entrySpreadPercent = entrySpread,
             exitZDisplay = last.zScore,
             legLongPnlSplitRubApprox = half,
             legShortPnlSplitRubApprox = half,
-            netPnlRubApprox = mtmRub
+            netPnlRubApprox = mtmRub,
+            commissionRubApprox = commRub,
+            overnightRubApprox = ovnRub
         )
     }
 }
