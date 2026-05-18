@@ -648,17 +648,42 @@ internal fun saveStrategyTestZThresholds(context: Context, entry: Double, exit: 
         .apply()
 }
 
-/** Сигнал на последнем 15м баре (пересечение prev→last), те же правила что [buildZStrategyPortfolioMetrics]. */
+/**
+ * Сигнал на последнем **закрытом** 15м баре (пересечение prev→current), как в [buildZStrategyPortfolioMetrics].
+ * Не использует формирующийся бар [points.last()] — иначе при опросе каждые 5–15 с Z «дрожит» и сыпятся лишние push.
+ */
+internal data class Completed15mBarSignal(
+    val edge: ZStrategySignal,
+    val barTimestampMillis: Long,
+    val zScore: Double,
+    val spreadPercent: Double
+)
+
+internal fun zStrategySignalOnCompleted15mBar(
+    points: List<DataPoint>,
+    position: ZStrategyPosition,
+    thresholds: DynamicThresholds
+): Completed15mBarSignal? {
+    if (points.size < 3) return null
+    val prev = points[points.size - 3]
+    val current = points[points.size - 2]
+    val edge = determineZStrategySignal(prev.zScore, current.zScore, position, thresholds)
+    if (edge == ZStrategySignal.None) return null
+    return Completed15mBarSignal(
+        edge = edge,
+        barTimestampMillis = current.timestampMillis,
+        zScore = current.zScore,
+        spreadPercent = current.spreadPercent
+    )
+}
+
+/** @deprecated Используйте [zStrategySignalOnCompleted15mBar] для live-сигналов. */
 internal fun zStrategySignalOnLast15mBar(
     points: List<DataPoint>,
     position: ZStrategyPosition,
     thresholds: DynamicThresholds
-): ZStrategySignal {
-    if (points.size < 2) return ZStrategySignal.None
-    val prev = points[points.size - 2]
-    val current = points.last()
-    return determineZStrategySignal(prev.zScore, current.zScore, position, thresholds)
-}
+): ZStrategySignal =
+    zStrategySignalOnCompleted15mBar(points, position, thresholds)?.edge ?: ZStrategySignal.None
 
 private val consumed15mSignalEdgeLock = Any()
 

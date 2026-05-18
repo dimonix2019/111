@@ -17,6 +17,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -60,7 +61,7 @@ class SignalForegroundService : Service() {
         startForeground(SIGNAL_MONITOR_NOTIFICATION_ID, buildForegroundNotification())
         if (!workerStarted) {
             workerStarted = true
-            scope.launch {
+            scope.launch(Dispatchers.IO) {
                 while (isActive) {
                     runCatching { performSignalMonitorTick() }
                     delay(SIGNAL_MONITOR_INTERVAL_MS)
@@ -94,12 +95,14 @@ class SignalForegroundService : Service() {
             .build()
     }
 
-    private fun performSignalMonitorTick() {
-        val snapshot = computeSignalSnapshot() ?: return
-        val prefs = getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
+    private suspend fun performSignalMonitorTick() {
+        val app = applicationContext
+        val till = LocalDate.now(moexZoneId)
+        val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
+        val points = loadPortfolio15mDataPoints(app, from, till, PortfolioM15LoadMode.INCREMENTAL)
 
         val portfolioTh = loadRealTradeZThresholds(
-            this,
+            app,
             DynamicThresholds(
                 entry = DEFAULT_DYNAMIC_Z_ENTRY_BG,
                 exit = DEFAULT_DYNAMIC_Z_EXIT_BG,
@@ -111,130 +114,119 @@ class SignalForegroundService : Service() {
             exit = portfolioTh.exit,
             calculatedDate = portfolioTh.calculatedDate
         )
-
-        val dayLimit = loadDailySignalLimit(LocalDate.now())
-        val currentPosition = runCatching {
-            val sharedRaw = prefs.getString(PREF_SHARED_STRATEGY_POSITION, null)
-            val legacyRaw = prefs.getString(PREF_BACKGROUND_POSITION_LEGACY, null)
-            BgPosition.valueOf(sharedRaw ?: legacyRaw ?: BgPosition.Flat.name)
-        }.getOrDefault(BgPosition.Flat)
-
         val dynTh = DynamicThresholds(
             entry = signalThresholds.entry,
             exit = signalThresholds.exit,
             calculatedDate = signalThresholds.calculatedDate
         )
-        val edgeSignal = determineZStrategySignal(
-            previousZ = snapshot.prevZ,
-            currentZ = snapshot.latestZ,
-            position = currentPosition.toZStrategyPosition(),
-            thresholds = dynTh
-        )
 
-        var nextPosition = currentPosition
+        var strategyPosition = loadSavedStrategyPosition(app)
+        val completed = zStrategySignalOnCompleted15mBar(points, strategyPosition, dynTh) ?: return
+
+        val dayLimit = loadDailySignalLimit(app, till)
+        val edgeSignal = completed.edge
+        val barTs = completed.barTimestampMillis
+        val barZ = completed.zScore
+        val barSpread = completed.spreadPercent
+
+        if (!tryConsume15mStrategySignalEdge(app, barTs, edgeSignal)) return
+
         var nextLimit = dayLimit
-        if (edgeSignal != ZStrategySignal.None &&
-            tryConsume15mStrategySignalEdge(this, snapshot.latestTimestampMillis, edgeSignal)
-        ) {
         when (edgeSignal) {
             ZStrategySignal.EnterLong -> {
-                nextPosition = BgPosition.Long
+                strategyPosition = ZStrategyPosition.Long
                 recordStrategySignalEvent(
-                    context = this,
+                    context = app,
                     signalType = StrategySignalType.EnterLong,
-                    zScore = snapshot.latestZ,
-                    timestampMillis = snapshot.latestTimestampMillis
+                    zScore = barZ,
+                    timestampMillis = barTs
                 )
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
-                        context = this,
+                        context = app,
                         title = "Вход: LONG TATN / SHORT TATNP",
                         body = String.format(
                             Locale.US,
                             "Z <= -%.1f (текущий Z=%.2f)",
                             signalThresholds.entry,
-                            snapshot.latestZ
+                            barZ
                         ),
                         virtualTradeTap = entryVirtualTradeTapIfManualAccept(
-                            this,
+                            app,
                             StrategySignalType.EnterLong,
-                            snapshot.latestZ,
-                            snapshot.latestTimestampMillis
+                            barZ,
+                            barTs
                         )
                     )
                     if (sent) {
                         nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                     }
                 }
-                scope.launch(Dispatchers.IO) {
-                    runSandboxAutoEntryIfNeeded(
-                        applicationContext,
-                        StrategySignalType.EnterLong,
-                        snapshot.latestZ,
-                        snapshot.latestTimestampMillis,
-                        snapshot.latestSpreadPercent
-                    )
-                }
+                runSandboxAutoEntryIfNeeded(
+                    app,
+                    StrategySignalType.EnterLong,
+                    barZ,
+                    barTs,
+                    barSpread
+                )
             }
 
             ZStrategySignal.EnterShort -> {
-                nextPosition = BgPosition.Short
+                strategyPosition = ZStrategyPosition.Short
                 recordStrategySignalEvent(
-                    context = this,
+                    context = app,
                     signalType = StrategySignalType.EnterShort,
-                    zScore = snapshot.latestZ,
-                    timestampMillis = snapshot.latestTimestampMillis
+                    zScore = barZ,
+                    timestampMillis = barTs
                 )
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
-                        context = this,
+                        context = app,
                         title = "Вход: LONG TATNP / SHORT TATN",
                         body = String.format(
                             Locale.US,
                             "Z >= +%.1f (текущий Z=%.2f)",
                             signalThresholds.entry,
-                            snapshot.latestZ
+                            barZ
                         ),
                         virtualTradeTap = entryVirtualTradeTapIfManualAccept(
-                            this,
+                            app,
                             StrategySignalType.EnterShort,
-                            snapshot.latestZ,
-                            snapshot.latestTimestampMillis
+                            barZ,
+                            barTs
                         )
                     )
                     if (sent) {
                         nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                     }
                 }
-                scope.launch(Dispatchers.IO) {
-                    runSandboxAutoEntryIfNeeded(
-                        applicationContext,
-                        StrategySignalType.EnterShort,
-                        snapshot.latestZ,
-                        snapshot.latestTimestampMillis,
-                        snapshot.latestSpreadPercent
-                    )
-                }
+                runSandboxAutoEntryIfNeeded(
+                    app,
+                    StrategySignalType.EnterShort,
+                    barZ,
+                    barTs,
+                    barSpread
+                )
             }
 
             ZStrategySignal.ExitLong -> {
-                nextPosition = BgPosition.Flat
+                strategyPosition = ZStrategyPosition.Flat
                 recordStrategySignalEvent(
-                    context = this,
+                    context = app,
                     signalType = StrategySignalType.ExitLong,
-                    zScore = snapshot.latestZ,
-                    timestampMillis = snapshot.latestTimestampMillis
+                    zScore = barZ,
+                    timestampMillis = barTs
                 )
-                clearPendingVirtualTradeProposal(this)
+                clearPendingVirtualTradeProposal(app)
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
-                        context = this,
+                        context = app,
                         title = "Выход: закрыть LONG TATN / SHORT TATNP",
                         body = String.format(
                             Locale.US,
                             "Z >= -%.1f (текущий Z=%.2f)",
                             signalThresholds.exit,
-                            snapshot.latestZ
+                            barZ
                         )
                     )
                     if (sent) {
@@ -244,23 +236,23 @@ class SignalForegroundService : Service() {
             }
 
             ZStrategySignal.ExitShort -> {
-                nextPosition = BgPosition.Flat
+                strategyPosition = ZStrategyPosition.Flat
                 recordStrategySignalEvent(
-                    context = this,
+                    context = app,
                     signalType = StrategySignalType.ExitShort,
-                    zScore = snapshot.latestZ,
-                    timestampMillis = snapshot.latestTimestampMillis
+                    zScore = barZ,
+                    timestampMillis = barTs
                 )
-                clearPendingVirtualTradeProposal(this)
+                clearPendingVirtualTradeProposal(app)
                 if (dayLimit.sentCount < MAX_SIGNAL_NOTIFICATIONS_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
-                        context = this,
+                        context = app,
                         title = "Выход: закрыть LONG TATNP / SHORT TATN",
                         body = String.format(
                             Locale.US,
                             "Z <= +%.1f (текущий Z=%.2f)",
                             signalThresholds.exit,
-                            snapshot.latestZ
+                            barZ
                         )
                     )
                     if (sent) {
@@ -271,46 +263,9 @@ class SignalForegroundService : Service() {
 
             ZStrategySignal.None -> Unit
         }
-        }
 
-        saveDailySignalLimit(nextLimit)
-        prefs.edit()
-            .putString(PREF_SHARED_STRATEGY_POSITION, nextPosition.name)
-            .remove(PREF_BACKGROUND_POSITION_LEGACY)
-            .apply()
-    }
-
-    private fun computeSignalSnapshot(): BgSnapshot? {
-        val till = LocalDate.now()
-        val from = till.minusDays(1)
-        val tatn = fetch15mCloseSeries("TATN", from, till)
-        val tatnp = fetch15mCloseSeries("TATNP", from, till)
-        val alignedTimes = tatn.keys.intersect(tatnp.keys).sorted()
-        if (alignedTimes.isEmpty()) return null
-        val spreadSeries = alignedTimes.mapNotNull { ts ->
-            val t = tatn[ts] ?: return@mapNotNull null
-            val p = tatnp[ts] ?: return@mapNotNull null
-            if (p == 0.0) return@mapNotNull null
-            ts to ((t / p - 1.0) * 100.0)
-        }
-        if (spreadSeries.size < 2) return null
-        val spreads = spreadSeries.map { it.second }
-        val mean = spreads.average()
-        val variance = spreads.map { (it - mean) * (it - mean) }.average()
-        val stdDev = kotlin.math.sqrt(variance).takeIf { it > 0.0 } ?: 1.0
-        val prevSpread = spreads[spreads.size - 2]
-        val latestSpread = spreads.last()
-        val latestTimestampMillis = spreadSeries.last().first
-            .atZone(moexZoneId)
-            .toInstant()
-            .toEpochMilli()
-        val prevZ = (prevSpread - mean) / stdDev
-        return BgSnapshot(
-            prevZ = prevZ,
-            latestZ = (latestSpread - mean) / stdDev,
-            latestSpreadPercent = latestSpread,
-            latestTimestampMillis = latestTimestampMillis
-        )
+        saveDailySignalLimit(app, nextLimit)
+        saveStrategyPosition(app, strategyPosition)
     }
 
     private fun fetch15mCloseSeries(
@@ -471,37 +426,12 @@ class SignalForegroundService : Service() {
             .apply()
     }
 
-    private fun loadDailySignalLimit(day: LocalDate): BgDailyLimit {
-        val prefs = getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
-        val dayText = day.toString()
-        val savedDay = prefs.getString(PREF_Z_DAILY_SIGNAL_DATE, null)
-        if (savedDay != dayText) {
-            return BgDailyLimit(dayText, sentCount = 0)
-        }
-        return BgDailyLimit(
-            dayText,
-            sentCount = prefs.getInt(PREF_Z_DAILY_SIGNAL_COUNT, 0)
-        )
-    }
-
-    private fun saveDailySignalLimit(limit: BgDailyLimit) {
-        getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(PREF_Z_DAILY_SIGNAL_DATE, limit.date)
-            .putInt(PREF_Z_DAILY_SIGNAL_COUNT, limit.sentCount)
-            .apply()
-    }
-
     companion object {
         private const val MONITOR_PREFS_NAME = "moex_alert_prefs"
         private const val PREF_BACKGROUND_SIGNAL_ENABLED = "background_signal_enabled"
-        private const val PREF_BACKGROUND_POSITION_LEGACY = "bg_position"
-        private const val PREF_SHARED_STRATEGY_POSITION = "z_strategy_position"
         private const val PREF_DYNAMIC_Z_ENTRY = "dynamic_z_entry"
         private const val PREF_DYNAMIC_Z_EXIT = "dynamic_z_exit"
         private const val PREF_DYNAMIC_Z_DATE = "dynamic_z_date"
-        private const val PREF_Z_DAILY_SIGNAL_DATE = "z_daily_signal_date"
-        private const val PREF_Z_DAILY_SIGNAL_COUNT = "z_daily_signal_count"
 
         const val ACTION_START_SIGNAL_MONITOR = "com.example.moexmvp.action.START_SIGNAL_MONITOR"
         const val ACTION_STOP_SIGNAL_MONITOR = "com.example.moexmvp.action.STOP_SIGNAL_MONITOR"
@@ -551,19 +481,6 @@ class SignalForegroundService : Service() {
     }
 }
 
-private data class BgSnapshot(
-    val prevZ: Double,
-    val latestZ: Double,
-    val latestSpreadPercent: Double,
-    val latestTimestampMillis: Long
-)
-
-private fun BgPosition.toZStrategyPosition(): ZStrategyPosition = when (this) {
-    BgPosition.Flat -> ZStrategyPosition.Flat
-    BgPosition.Long -> ZStrategyPosition.Long
-    BgPosition.Short -> ZStrategyPosition.Short
-}
-
 private data class BgThresholds(
     val entry: Double,
     val exit: Double,
@@ -573,11 +490,6 @@ private data class BgThresholds(
 private data class BgThresholdUpdate(
     val thresholds: BgThresholds,
     val recalculated: Boolean
-)
-
-private data class BgDailyLimit(
-    val date: String,
-    val sentCount: Int
 )
 
 private enum class BgPosition {

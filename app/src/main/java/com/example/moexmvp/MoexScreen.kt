@@ -490,29 +490,27 @@ internal fun MoexScreen() {
                             val till = LocalDate.now(moexZoneId)
                             loadPortfolio15mDataPoints(
                                 context,
-                                till.minusDays(10),
+                                till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS),
                                 till,
                                 PortfolioM15LoadMode.INCREMENTAL
                             )
                         }
-                        if (m15ForSignal.size >= 2) {
-                            val lastPt = m15ForSignal.last()
-                            val latestZScore = lastPt.zScore
-                            val latestSpreadPercent = lastPt.spreadPercent
-                            val latestTimestampMillis = lastPt.timestampMillis
-                            val edgeSignal = zStrategySignalOnLast15mBar(
-                                points = m15ForSignal,
-                                position = zStrategyPosition,
-                                thresholds = signalThresholds
+                        val completedSignal = zStrategySignalOnCompleted15mBar(
+                            points = m15ForSignal,
+                            position = zStrategyPosition,
+                            thresholds = signalThresholds
+                        )
+                        if (completedSignal != null &&
+                            tryConsume15mStrategySignalEdge(
+                                context,
+                                completedSignal.barTimestampMillis,
+                                completedSignal.edge
                             )
-                            if (edgeSignal != ZStrategySignal.None &&
-                                tryConsume15mStrategySignalEdge(
-                                    context,
-                                    latestTimestampMillis,
-                                    edgeSignal
-                                )
-                            ) {
-                            when (edgeSignal) {
+                        ) {
+                            val latestZScore = completedSignal.zScore
+                            val latestSpreadPercent = completedSignal.spreadPercent
+                            val latestTimestampMillis = completedSignal.barTimestampMillis
+                            when (completedSignal.edge) {
                                 ZStrategySignal.EnterLong -> {
                                 zStrategyPosition = ZStrategyPosition.Long
                                 saveStrategyPosition(context, zStrategyPosition)
@@ -670,7 +668,6 @@ internal fun MoexScreen() {
                             }
 
                             ZStrategySignal.None -> Unit
-                            }
                             }
                             previousZScoreForAlert = latestZScore
                         }

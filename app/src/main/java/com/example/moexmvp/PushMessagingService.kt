@@ -206,7 +206,7 @@ internal fun showPushNotification(
     return true
 }
 
-/** Отдельное уведомление по каждой ноге спрэда после PostSandboxOrder (тест песочницы). */
+/** Одно сводное уведомление по двум ногам спрэда (вместо двух отдельных push на каждую ногу). */
 internal fun notifySandboxSpreadLegExecutionResults(
     context: Context,
     legs: List<SandboxLegOrderResult>,
@@ -215,42 +215,56 @@ internal fun notifySandboxSpreadLegExecutionResults(
     correlationTag: String?
 ) {
     val app = context.applicationContext
-    legs.forEachIndexed { index, leg ->
+    if (legs.isEmpty()) return
+    fun legBlock(index: Int, leg: SandboxLegOrderResult): String {
         val execMsk = formatMessageReceivedAtMsk(leg.completedAtMillis)
         val brief = formatPostSandboxOrderBrief(leg.orderJson)
-        val body = buildString {
-            append("Исполнено: ")
-            append(execMsk)
-            append(" (МСК)\n")
-            append("Тикер: ")
+        return buildString {
+            append("Нога ")
+            append(index + 1)
+            append("/")
+            append(legs.size)
+            append(": ")
             append(leg.ticker)
             append(" · ")
             append(leg.sideRu)
-            append("\nЗаявка: ")
+            append("\nИсполнено: ")
+            append(execMsk)
+            append(" (МСК)\nЗаявка: ")
             append(brief)
-            append("\n")
-            append(
-                String.format(
-                    Locale.US,
-                    "Сумма (тест, номинал стратегии): %.0f ₽ · плечо ×%.1f · лоты: 1\n",
-                    notionalRub,
-                    leverage
-                )
-            )
-            leg.portfolioTotalRub?.let { append("Баланс портфеля после ноги: $it\n") }
-            leg.portfolioCashRub?.let { append("Деньги (₽) после ноги: $it") }
+            leg.portfolioTotalRub?.let { append("\nБаланс после ноги: $it") }
+            leg.portfolioCashRub?.let { append(" · деньги: $it") }
         }
-        val nid = kotlin.math.abs((System.nanoTime() xor (index * 49999L)).toInt()) % 1_000_000_000
-        showPushNotification(
-            context = app,
-            title = "Песочница · нога ${index + 1}/${legs.size}: ${leg.ticker}",
-            body = body,
-            notificationId = nid,
-            virtualTradeTap = null,
-            skipDuplicateCheck = true,
-            correlationTag = correlationTag
-        )
     }
+    val body = buildString {
+        append(
+            String.format(
+                Locale.US,
+                "Номинал стратегии: %.0f ₽ · плечо ×%.1f · по 1 лоту на ногу\n\n",
+                notionalRub,
+                leverage
+            )
+        )
+        legs.forEachIndexed { index, leg ->
+            if (index > 0) append("\n\n")
+            append(legBlock(index, leg))
+        }
+    }
+    val title = if (legs.size == 2) {
+        "Песочница · спрэд: ${legs[0].ticker} + ${legs[1].ticker}"
+    } else {
+        "Песочница · ${legs.size} ног(и)"
+    }
+    val nid = kotlin.math.abs(System.nanoTime().toInt()) % 1_000_000_000
+    showPushNotification(
+        context = app,
+        title = title,
+        body = body,
+        notificationId = nid,
+        virtualTradeTap = null,
+        skipDuplicateCheck = true,
+        correlationTag = correlationTag
+    )
 }
 
 private fun shouldSkipDuplicatePush(context: Context, title: String, body: String): Boolean {
