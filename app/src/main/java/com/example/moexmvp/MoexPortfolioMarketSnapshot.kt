@@ -67,6 +67,28 @@ internal fun spreadPercentAtBar(
     return points.minByOrNull { abs(it.timestampMillis - barTimestampMillis) }?.spreadPercent ?: fallback
 }
 
+/** Время бара 15м, ближайшего к [timestampMillis] (для журнала исполнений и ledger). */
+internal fun snapTimestampToNearestPortfolioBar(
+    points: List<DataPoint>,
+    timestampMillis: Long
+): Long {
+    if (points.isEmpty()) return timestampMillis
+    return points.minByOrNull { abs(it.timestampMillis - timestampMillis) }?.timestampMillis
+        ?: timestampMillis
+}
+
+internal const val PORTFOLIO_LEDGER_BAR_MATCH_TOLERANCE_MS = 30L * 60L * 1000L
+
+internal fun ledgerEntryMatchesSignalBar(
+    ledgerPairs: Set<Pair<StrategySignalType, Long>>,
+    signalType: StrategySignalType,
+    timestampMillis: Long,
+    toleranceMs: Long = PORTFOLIO_LEDGER_BAR_MATCH_TOLERANCE_MS
+): Boolean =
+    ledgerPairs.any { (type, barTs) ->
+        type == signalType && abs(barTs - timestampMillis) <= toleranceMs
+    }
+
 /**
  * Спрэд на входе: из записи сделки или с 15м-бара входа.
  * [entrySpreadPercent] == 0 — legacy/битая запись; иначе PnL завышается (весь текущий спрэд × плечо).

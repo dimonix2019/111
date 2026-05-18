@@ -134,7 +134,7 @@ internal fun journalEventsForExecutionPortfolioTab(
 ): List<StrategySignalEvent> {
     val ledgerPairs = ledgerEntryPairsForPortfolioReplay(ledger, portfolioLedgerIncludeAuto)
     /** Нет записей демо — закрытые сделки всё равно строим по парам вход/выход в журнале сигналов. */
-    val allowAllJournalEnters = ledgerPairs.isEmpty()
+    val allowAllJournalEnters = ledger.isEmpty()
 
     val sorted = allEvents.sortedBy { it.timestampMillis }
     val out = mutableListOf<StrategySignalEvent>()
@@ -144,7 +144,8 @@ internal fun journalEventsForExecutionPortfolioTab(
         when (ev.signalType) {
             StrategySignalType.EnterLong -> {
                 if (position == ZStrategyPosition.Flat &&
-                    (allowAllJournalEnters || Pair(ev.signalType, ev.timestampMillis) in ledgerPairs)
+                    (allowAllJournalEnters ||
+                        ledgerEntryMatchesSignalBar(ledgerPairs, ev.signalType, ev.timestampMillis))
                 ) {
                     out += ev
                     position = ZStrategyPosition.Long
@@ -152,7 +153,8 @@ internal fun journalEventsForExecutionPortfolioTab(
             }
             StrategySignalType.EnterShort -> {
                 if (position == ZStrategyPosition.Flat &&
-                    (allowAllJournalEnters || Pair(ev.signalType, ev.timestampMillis) in ledgerPairs)
+                    (allowAllJournalEnters ||
+                        ledgerEntryMatchesSignalBar(ledgerPairs, ev.signalType, ev.timestampMillis))
                 ) {
                     out += ev
                     position = ZStrategyPosition.Short
@@ -193,6 +195,6 @@ internal fun filterConfirmedTableRowsByPortfolioMode(
             isPortfolioTestTradeConfirmLabel(row.confirmLabel) -> true
             row.confirmLabel.startsWith("авто") -> portfolioLedgerIncludeAuto
             row.confirmLabel.startsWith("ручное") -> !portfolioLedgerIncludeAuto
-            else -> true
+            else -> false
         }
     }
