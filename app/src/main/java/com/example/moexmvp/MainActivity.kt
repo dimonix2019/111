@@ -160,6 +160,8 @@ private const val PREF_DYNAMIC_Z_DATE = "dynamic_z_date"
 private const val PREF_Z_STRATEGY_POSITION = "z_strategy_position"
 private const val PREF_Z_DAILY_SIGNAL_DATE = "z_daily_signal_date"
 private const val PREF_Z_DAILY_SIGNAL_COUNT = "z_daily_signal_count"
+private const val PREF_Z_DAILY_OPEN_COUNT = "z_daily_open_count"
+private const val PREF_Z_DAILY_CLOSE_COUNT = "z_daily_close_count"
 private const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry_legacy"
 private const val PREF_Z_DAILY_SIGNAL_EXIT = "z_daily_signal_exit_legacy"
 private const val DAILY_SIGNAL_MAX_PER_DAY = 20
@@ -239,7 +241,10 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
+                                    dailySignalLimit = dailySignalLimit.copy(
+                                        sentCount = dailySignalLimit.sentCount + 1,
+                                        openCount = dailySignalLimit.openCount + 1
+                                    )
                                     saveDailySignalLimit(context, dailySignalLimit)
                                 }
                             }
@@ -258,7 +263,10 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
+                                    dailySignalLimit = dailySignalLimit.copy(
+                                        sentCount = dailySignalLimit.sentCount + 1,
+                                        openCount = dailySignalLimit.openCount + 1
+                                    )
                                     saveDailySignalLimit(context, dailySignalLimit)
                                 }
                             }
@@ -277,7 +285,10 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
+                                    dailySignalLimit = dailySignalLimit.copy(
+                                        sentCount = dailySignalLimit.sentCount + 1,
+                                        closeCount = dailySignalLimit.closeCount + 1
+                                    )
                                     saveDailySignalLimit(context, dailySignalLimit)
                                 }
                             }
@@ -296,7 +307,10 @@ private fun MoexScreen() {
                                             latestZScore
                                         )
                                     )
-                                    dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
+                                    dailySignalLimit = dailySignalLimit.copy(
+                                        sentCount = dailySignalLimit.sentCount + 1,
+                                        closeCount = dailySignalLimit.closeCount + 1
+                                    )
                                     saveDailySignalLimit(context, dailySignalLimit)
                                 }
                             }
@@ -1366,15 +1380,16 @@ private fun loadDailySignalLimit(context: Context, day: LocalDate): DailySignalL
     val savedDay = prefs.getString(PREF_Z_DAILY_SIGNAL_DATE, null)
     val dayText = day.toString()
     if (savedDay != dayText) {
-        return DailySignalLimit(date = dayText, sentCount = 0)
+        return DailySignalLimit(date = dayText, sentCount = 0, openCount = 0, closeCount = 0)
     }
-    val legacyCount = listOf(
-        prefs.getBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, false),
-        prefs.getBoolean(PREF_Z_DAILY_SIGNAL_EXIT, false)
-    ).count { it }
+    val legacyOpen = if (prefs.getBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, false)) 1 else 0
+    val legacyClose = if (prefs.getBoolean(PREF_Z_DAILY_SIGNAL_EXIT, false)) 1 else 0
+    val legacyCount = legacyOpen + legacyClose
     return DailySignalLimit(
         date = dayText,
-        sentCount = prefs.getInt(PREF_Z_DAILY_SIGNAL_COUNT, legacyCount)
+        sentCount = prefs.getInt(PREF_Z_DAILY_SIGNAL_COUNT, legacyCount),
+        openCount = prefs.getInt(PREF_Z_DAILY_OPEN_COUNT, legacyOpen),
+        closeCount = prefs.getInt(PREF_Z_DAILY_CLOSE_COUNT, legacyClose)
     )
 }
 
@@ -1383,8 +1398,11 @@ private fun saveDailySignalLimit(context: Context, limit: DailySignalLimit) {
         .edit()
         .putString(PREF_Z_DAILY_SIGNAL_DATE, limit.date)
         .putInt(PREF_Z_DAILY_SIGNAL_COUNT, limit.sentCount)
-        .remove(PREF_Z_DAILY_SIGNAL_ENTRY)
-        .remove(PREF_Z_DAILY_SIGNAL_EXIT)
+        .putInt(PREF_Z_DAILY_OPEN_COUNT, limit.openCount)
+        .putInt(PREF_Z_DAILY_CLOSE_COUNT, limit.closeCount)
+        // Keep legacy booleans for compatibility with older readers.
+        .putBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, limit.openCount > 0)
+        .putBoolean(PREF_Z_DAILY_SIGNAL_EXIT, limit.closeCount > 0)
         .apply()
 }
 
@@ -1927,7 +1945,9 @@ private data class BacktestResult(
 
 private data class DailySignalLimit(
     val date: String,
-    val sentCount: Int
+    val sentCount: Int,
+    val openCount: Int,
+    val closeCount: Int
 )
 
 private enum class ZStrategyPosition {

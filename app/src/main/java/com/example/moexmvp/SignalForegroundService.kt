@@ -133,7 +133,10 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    nextLimit = dayLimit.copy(
+                        sentCount = dayLimit.sentCount + 1,
+                        openCount = dayLimit.openCount + 1
+                    )
                 }
             }
 
@@ -150,7 +153,10 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    nextLimit = dayLimit.copy(
+                        sentCount = dayLimit.sentCount + 1,
+                        openCount = dayLimit.openCount + 1
+                    )
                 }
             }
 
@@ -167,7 +173,10 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    nextLimit = dayLimit.copy(
+                        sentCount = dayLimit.sentCount + 1,
+                        closeCount = dayLimit.closeCount + 1
+                    )
                 }
             }
 
@@ -184,7 +193,10 @@ class SignalForegroundService : Service() {
                             snapshot.latestZ
                         )
                     )
-                    nextLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                    nextLimit = dayLimit.copy(
+                        sentCount = dayLimit.sentCount + 1,
+                        closeCount = dayLimit.closeCount + 1
+                    )
                 }
             }
 
@@ -410,11 +422,16 @@ class SignalForegroundService : Service() {
         val dayText = day.toString()
         val savedDay = prefs.getString(PREF_Z_DAILY_SIGNAL_DATE, null)
         if (savedDay != dayText) {
-            return BgDailyLimit(dayText, sentCount = 0)
+            return BgDailyLimit(dayText, sentCount = 0, openCount = 0, closeCount = 0)
         }
+        val legacyOpen = if (prefs.getBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, false)) 1 else 0
+        val legacyClose = if (prefs.getBoolean(PREF_Z_DAILY_SIGNAL_EXIT, false)) 1 else 0
+        val legacyCount = legacyOpen + legacyClose
         return BgDailyLimit(
             dayText,
-            sentCount = prefs.getInt(PREF_Z_DAILY_SIGNAL_COUNT, 0)
+            sentCount = prefs.getInt(PREF_Z_DAILY_SIGNAL_COUNT, legacyCount),
+            openCount = prefs.getInt(PREF_Z_DAILY_OPEN_COUNT, legacyOpen),
+            closeCount = prefs.getInt(PREF_Z_DAILY_CLOSE_COUNT, legacyClose)
         )
     }
 
@@ -423,6 +440,10 @@ class SignalForegroundService : Service() {
             .edit()
             .putString(PREF_Z_DAILY_SIGNAL_DATE, limit.date)
             .putInt(PREF_Z_DAILY_SIGNAL_COUNT, limit.sentCount)
+            .putInt(PREF_Z_DAILY_OPEN_COUNT, limit.openCount)
+            .putInt(PREF_Z_DAILY_CLOSE_COUNT, limit.closeCount)
+            .putBoolean(PREF_Z_DAILY_SIGNAL_ENTRY, limit.openCount > 0)
+            .putBoolean(PREF_Z_DAILY_SIGNAL_EXIT, limit.closeCount > 0)
             .apply()
     }
 
@@ -436,6 +457,10 @@ class SignalForegroundService : Service() {
         private const val PREF_DYNAMIC_Z_DATE = "dynamic_z_date"
         private const val PREF_Z_DAILY_SIGNAL_DATE = "z_daily_signal_date"
         private const val PREF_Z_DAILY_SIGNAL_COUNT = "z_daily_signal_count"
+        private const val PREF_Z_DAILY_OPEN_COUNT = "z_daily_open_count"
+        private const val PREF_Z_DAILY_CLOSE_COUNT = "z_daily_close_count"
+        private const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry_legacy"
+        private const val PREF_Z_DAILY_SIGNAL_EXIT = "z_daily_signal_exit_legacy"
 
         const val ACTION_START_SIGNAL_MONITOR = "com.example.moexmvp.action.START_SIGNAL_MONITOR"
         const val ACTION_STOP_SIGNAL_MONITOR = "com.example.moexmvp.action.STOP_SIGNAL_MONITOR"
@@ -502,7 +527,9 @@ private data class BgThresholdUpdate(
 
 private data class BgDailyLimit(
     val date: String,
-    val sentCount: Int
+    val sentCount: Int,
+    val openCount: Int,
+    val closeCount: Int
 )
 
 private enum class BgPosition {
