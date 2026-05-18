@@ -13,6 +13,10 @@ internal enum class PortfolioExecSource {
     AUTO
 }
 
+/** Метка «· тест» в confirmLabel — сделка с кнопки «Тестовая пара» на вкладке «Портфель». */
+internal fun isPortfolioTestTradeConfirmLabel(confirmLabel: String): Boolean =
+    confirmLabel.contains("· тест")
+
 /**
  * Журнал фактических входов спрэда на песочнице (ручной «Принять» или авто‑заявки).
  * Портфель отображает сделки по журналу сигналов только если вход есть в этом списке (с фильтром по режиму).
@@ -97,7 +101,7 @@ private fun saveLedgerUnsafe(app: Context, entries: List<PortfolioExecutionLedge
     app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         .edit()
         .putString(KEY_JSON, arr.toString())
-        .apply()
+        .commit()
 }
 
 /**
@@ -176,8 +180,8 @@ internal fun filterSandboxExecutionsByPortfolioMode(
     portfolioLedgerIncludeAuto: Boolean
 ): List<SandboxSpreadExecUi> =
     executions.filter { exec ->
-        val isAuto = exec.source == PortfolioExecSource.AUTO
-        portfolioLedgerIncludeAuto == isAuto
+        isPortfolioTestTradeConfirmLabel(exec.confirmLabel) ||
+            portfolioLedgerIncludeAuto == (exec.source == PortfolioExecSource.AUTO)
     }
 
 internal fun filterConfirmedTableRowsByPortfolioMode(
@@ -186,6 +190,7 @@ internal fun filterConfirmedTableRowsByPortfolioMode(
 ): List<PortfolioConfirmedTradeTableRow> =
     rows.filter { row ->
         when {
+            isPortfolioTestTradeConfirmLabel(row.confirmLabel) -> true
             row.confirmLabel.startsWith("авто") -> portfolioLedgerIncludeAuto
             row.confirmLabel.startsWith("ручное") -> !portfolioLedgerIncludeAuto
             else -> true

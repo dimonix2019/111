@@ -314,7 +314,7 @@ internal object TinkoffSandboxSpreadExecLog {
         prefs.edit()
             .putString(KEY_HISTORY_JSON, encodeHistory(trimmed).toString())
             .remove(KEY_JSON_LEGACY)
-            .apply()
+            .commit()
     }
 
     private fun migrateLegacyIfNeeded(prefs: android.content.SharedPreferences) {

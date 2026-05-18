@@ -161,13 +161,6 @@ internal suspend fun executeTestSandboxSpreadPair(
             else -> ZStrategyPosition.Flat
         }
         saveStrategyPosition(app, position)
-        notifySandboxSpreadLegExecutionResults(
-            app,
-            legs,
-            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
-            spreadLegPushCorrelationTag(barTs, signalType)
-        )
         TinkoffSandboxSpreadExecLog.recordFromLegs(
             app,
             signalType,
@@ -178,6 +171,13 @@ internal suspend fun executeTestSandboxSpreadPair(
             source = PortfolioExecSource.MANUAL,
             legs = legs,
             fromTestButton = fromTestButton
+        )
+        notifySandboxSpreadLegExecutionResults(
+            app,
+            legs,
+            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
+            spreadLegPushCorrelationTag(barTs, signalType)
         )
     }
 }
