@@ -533,10 +533,11 @@ internal fun MoexScreen() {
                                             signalThresholds.entry,
                                             latestZScore
                                         ),
-                                        virtualTradeTap = VirtualTradeTapIntent(
-                                            signalType = StrategySignalType.EnterLong,
-                                            zScore = latestZScore,
-                                            timestampMillis = latestTimestampMillis
+                                        virtualTradeTap = entryVirtualTradeTapIfManualAccept(
+                                            context,
+                                            StrategySignalType.EnterLong,
+                                            latestZScore,
+                                            latestTimestampMillis
                                         )
                                     )
                                     if (sent) {
@@ -581,10 +582,11 @@ internal fun MoexScreen() {
                                             signalThresholds.entry,
                                             latestZScore
                                         ),
-                                        virtualTradeTap = VirtualTradeTapIntent(
-                                            signalType = StrategySignalType.EnterShort,
-                                            zScore = latestZScore,
-                                            timestampMillis = latestTimestampMillis
+                                        virtualTradeTap = entryVirtualTradeTapIfManualAccept(
+                                            context,
+                                            StrategySignalType.EnterShort,
+                                            latestZScore,
+                                            latestTimestampMillis
                                         )
                                     )
                                     if (sent) {
@@ -889,6 +891,7 @@ internal fun MoexScreen() {
                 selected = selectedTab,
                 onSelect = { selectedTab = it }
             )
+            if (!sandboxSpreadAutoExecute) {
             pendingVirtualTrade?.let { proposal ->
             PendingVirtualTradeProposalCard(
                 proposal = proposal,
@@ -1013,6 +1016,7 @@ internal fun MoexScreen() {
                 modifier = Modifier.padding(top = 6.dp)
             )
         }
+            }
         }
         when (selectedTab) {
             MainTab.Journal -> {
@@ -1114,6 +1118,10 @@ internal fun MoexScreen() {
                                         TinkoffSandboxStorage.setSandboxSpreadAutoExecute(context, v)
                                     }
                                     sandboxSpreadAutoExecute = v
+                                    if (v) {
+                                        clearPendingVirtualTradeProposal(context)
+                                        pendingVirtualTrade = null
+                                    }
                                 }
                             },
                             portfolioTestBusy = portfolioTestBusy,

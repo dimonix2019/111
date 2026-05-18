@@ -318,6 +318,13 @@ internal fun showZStrategySignalPushNotification(
 internal fun applyVirtualTradeTapIntent(context: Context, intent: Intent?) {
     if (intent == null) return
     if (!intent.getBooleanExtra(EXTRA_TAP_RESTORE_VIRTUAL_TRADE, false)) return
+    if (TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) {
+        intent.removeExtra(EXTRA_TAP_RESTORE_VIRTUAL_TRADE)
+        intent.removeExtra(EXTRA_TAP_SIGNAL_TYPE)
+        intent.removeExtra(EXTRA_TAP_Z)
+        intent.removeExtra(EXTRA_TAP_TS)
+        return
+    }
     val typeName = intent.getStringExtra(EXTRA_TAP_SIGNAL_TYPE) ?: return
     val type = runCatching { StrategySignalType.valueOf(typeName) }.getOrNull()
     if (type == null) {

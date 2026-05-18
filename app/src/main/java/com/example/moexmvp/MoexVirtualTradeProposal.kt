@@ -134,7 +134,20 @@ internal fun markVirtualTradeConsumedForJournalEntry(
 /**
  * Если карточки нет, а в журнале последняя запись — вход и позиция совпадает — восстановить pending (после сбоя prefs / гонки apply()).
  */
+/** PendingIntent в push: только если вход подтверждается карточкой «Принять» (не авто-режим). */
+internal fun entryVirtualTradeTapIfManualAccept(
+    context: Context,
+    signalType: StrategySignalType,
+    zScore: Double,
+    timestampMillis: Long
+): VirtualTradeTapIntent? {
+    if (TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return null
+    if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return null
+    return VirtualTradeTapIntent(signalType, zScore, timestampMillis)
+}
+
 internal fun restorePendingVirtualTradeFromJournalIfNeeded(context: Context) {
+    if (TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return
     if (loadPendingVirtualTradeProposal(context) != null) return
     val events = loadStrategySignalEvents(context)
     val last = events.lastOrNull() ?: return

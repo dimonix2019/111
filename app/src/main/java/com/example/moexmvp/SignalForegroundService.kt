@@ -155,10 +155,11 @@ class SignalForegroundService : Service() {
                             signalThresholds.entry,
                             snapshot.latestZ
                         ),
-                        virtualTradeTap = VirtualTradeTapIntent(
-                            signalType = StrategySignalType.EnterLong,
-                            zScore = snapshot.latestZ,
-                            timestampMillis = snapshot.latestTimestampMillis
+                        virtualTradeTap = entryVirtualTradeTapIfManualAccept(
+                            this,
+                            StrategySignalType.EnterLong,
+                            snapshot.latestZ,
+                            snapshot.latestTimestampMillis
                         )
                     )
                     if (sent) {
@@ -194,10 +195,11 @@ class SignalForegroundService : Service() {
                             signalThresholds.entry,
                             snapshot.latestZ
                         ),
-                        virtualTradeTap = VirtualTradeTapIntent(
-                            signalType = StrategySignalType.EnterShort,
-                            zScore = snapshot.latestZ,
-                            timestampMillis = snapshot.latestTimestampMillis
+                        virtualTradeTap = entryVirtualTradeTapIfManualAccept(
+                            this,
+                            StrategySignalType.EnterShort,
+                            snapshot.latestZ,
+                            snapshot.latestTimestampMillis
                         )
                     )
                     if (sent) {
