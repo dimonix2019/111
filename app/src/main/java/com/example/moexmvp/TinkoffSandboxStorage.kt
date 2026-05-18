@@ -142,17 +142,26 @@ internal object TinkoffSandboxStorage {
         prefsWithMigration(context).getBoolean(KEY_PORTFOLIO_LEDGER_INCLUDE_AUTO, false)
 
     fun setPortfolioLedgerIncludeAuto(context: Context, includeAutoTrades: Boolean) {
+        setPortfolioDemoEntryMode(context, includeAutoTrades)
+    }
+
+    /**
+     * Режим входа на «Портфеле»: false — карточка «Принять»; true — сразу 2 заявки на демо.
+     * Синхронно задаёт фильтр списка сделок (ручное / авто демо).
+     */
+    fun setPortfolioDemoEntryMode(context: Context, auto: Boolean) {
         prefsWithMigration(context).edit()
-            .putBoolean(KEY_PORTFOLIO_LEDGER_INCLUDE_AUTO, includeAutoTrades)
+            .putBoolean(KEY_PORTFOLIO_LEDGER_INCLUDE_AUTO, auto)
+            .putBoolean(KEY_SANDBOX_AUTO_EXECUTE_SPREAD, auto)
             .apply()
     }
 
-    /** Сразу отправлять две заявки на демо без «Принять» (перенос старого режима «Авто» до разделения настроек). */
+    /** Сразу отправлять две заявки на демо без «Принять». */
     fun isSandboxSpreadAutoExecute(context: Context): Boolean =
-        prefsWithMigration(context).getBoolean(KEY_SANDBOX_AUTO_EXECUTE_SPREAD, false)
+        isPortfolioLedgerIncludeAuto(context)
 
     fun setSandboxSpreadAutoExecute(context: Context, auto: Boolean) {
-        prefsWithMigration(context).edit().putBoolean(KEY_SANDBOX_AUTO_EXECUTE_SPREAD, auto).apply()
+        setPortfolioDemoEntryMode(context, auto)
     }
 
     fun isExecuteSignalsOnSandbox(context: Context): Boolean =
@@ -173,7 +182,6 @@ internal object TinkoffSandboxStorage {
     }
 
     fun resolveExecUiState(context: Context): SandboxExecUiState {
-        if (!isExecuteSignalsOnSandbox(context)) return SandboxExecUiState.Off
         val t = getToken(context)
         val a = getAccountId(context)
         if (t.isNullOrBlank() || a.isNullOrBlank()) return SandboxExecUiState.MissingCredentials
