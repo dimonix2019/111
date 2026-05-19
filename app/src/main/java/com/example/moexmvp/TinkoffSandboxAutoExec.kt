@@ -31,22 +31,18 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
         return false
     }
     if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
-    if (!TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)) return false
     val dedupKey = "${signalType.name}|$barTimestampMillis"
     synchronized(autoSpreadDedupLock) {
         val p = context.applicationContext.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
         if (p.getString(KEY_LAST_AUTO, null) == dedupKey) return false
     }
     when (TinkoffSandboxStorage.resolveExecUiState(context)) {
-        SandboxExecUiState.Off -> {
-            notifySandboxAutoEntrySkipped(context, "Включите «Исполнять вход по сигналу на демо-счёт» на вкладке «Портфель».")
-            return false
-        }
         SandboxExecUiState.MissingCredentials -> {
-            notifySandboxAutoEntrySkipped(context, "Укажите токен и счёт песочницы.")
+            notifySandboxAutoEntrySkipped(context, "Укажите токен и счёт песочницы (вкладка «Песочница»).")
             return false
         }
         SandboxExecUiState.Ready -> Unit
+        SandboxExecUiState.Off -> Unit
     }
     val token = TinkoffSandboxStorage.getToken(context) ?: run {
         notifySandboxAutoEntrySkipped(context, "Нет токена песочницы.")

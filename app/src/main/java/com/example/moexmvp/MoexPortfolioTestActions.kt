@@ -39,12 +39,11 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             skipJournalWallDedup = true,
             savePendingVirtualTradeIfEntry = true
         )
-        val execOn = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(app)
         val execState = TinkoffSandboxStorage.resolveExecUiState(app)
-        if (!execOn || execState != SandboxExecUiState.Ready) {
+        if (execState != SandboxExecUiState.Ready) {
             return@runCatching PortfolioTestEntrySignalResult(
-                toastMessage = "Тестовый сигнал $dir: журнал и позиция Z (Z=$zText, бар ${market.tradeDateLabel}). " +
-                    "Включите «Исполнять вход на демо» и укажите токен/счёт песочницы, чтобы отправлялись ордера.",
+                toastMessage = "Тестовый сигнал $dir: журнал и позиция Z (Z=$zText). " +
+                    "Укажите токен и счёт песочницы, чтобы отправлялись ордера.",
                 sandboxSpreadExecReloadDelta = 0
             )
         }
@@ -103,13 +102,10 @@ internal suspend fun executeTestSandboxSpreadPair(
     runCatching {
         require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
         val app = context.applicationContext
-        if (!TinkoffSandboxStorage.isExecuteSignalsOnSandbox(app)) {
-            error("Включите «Исполнять вход по сигналу на демо-счёт».")
-        }
         when (TinkoffSandboxStorage.resolveExecUiState(app)) {
-            SandboxExecUiState.Off -> error("Исполнение на демо выключено.")
             SandboxExecUiState.MissingCredentials -> error("Укажите токен и счёт песочницы (вкладка «Песочница»).")
             SandboxExecUiState.Ready -> Unit
+            SandboxExecUiState.Off -> Unit
         }
         val market = loadCurrentPortfolioMarketSnapshot(app, forceNetworkRefresh = fromTestButton)
         val barTs = if (fromTestButton) {
@@ -204,24 +200,24 @@ internal suspend fun runPortfolioTestSpreadPairFull(
             else -> ZStrategyPosition.Flat
         }
         saveStrategyPosition(app, position)
+        val autoMode = TinkoffSandboxStorage.isSandboxSpreadAutoExecute(app)
         recordStrategySignalEvent(
             context = app,
             signalType = signalType,
             zScore = z,
             timestampMillis = barTs,
             skipJournalWallDedup = true,
-            savePendingVirtualTradeIfEntry = false
+            savePendingVirtualTradeIfEntry = !autoMode
         )
-        val execOn = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(app)
         val execState = TinkoffSandboxStorage.resolveExecUiState(app)
-        if (!execOn || execState != SandboxExecUiState.Ready) {
+        if (execState != SandboxExecUiState.Ready) {
             return@runCatching PortfolioTestEntrySignalResult(
                 toastMessage = "Тестовая пара $dir: журнал и позиция Z (Z=$zText). " +
-                    "Включите «Исполнять вход на демо» и укажите токен/счёт песочницы.",
+                    "Укажите токен и счёт песочницы (вкладка «Песочница»).",
                 sandboxSpreadExecReloadDelta = 0
             )
         }
-        if (TinkoffSandboxStorage.isSandboxSpreadAutoExecute(app)) {
+        if (autoMode) {
             val ran = runSandboxAutoEntryIfNeeded(
                 app,
                 signalType,
@@ -242,18 +238,9 @@ internal suspend fun runPortfolioTestSpreadPairFull(
                 )
             }
         }
-        executeTestSandboxSpreadPair(
-            app,
-            signalType,
-            journalBarTimestampMillis = barTs,
-            zScore = z,
-            entrySpreadPercent = market.spreadPercent,
-            skipStrategyJournalIfAlreadyRecorded = true,
-            fromTestButton = true
-        ).getOrThrow()
         PortfolioTestEntrySignalResult(
-            toastMessage = "Тестовая пара на демо ($dir). Уведомления по ногам — как при «Принять».",
-            sandboxSpreadExecReloadDelta = 1
+            toastMessage = "Тестовая пара $dir: подтвердите «Принять» в карточке (Z=$zText).",
+            sandboxSpreadExecReloadDelta = 0
         )
     }
 }

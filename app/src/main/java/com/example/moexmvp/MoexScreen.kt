@@ -996,18 +996,16 @@ internal fun MoexScreen() {
                                     ).show()
                                 }
                             }
-                            SandboxExecUiState.Off, SandboxExecUiState.MissingCredentials -> {
+                            SandboxExecUiState.MissingCredentials -> {
                                 clearPendingVirtualTradeProposal(context, proposal)
                                 pendingVirtualTrade = null
-                                val msg = when (st) {
-                                    SandboxExecUiState.Off ->
-                                        "Принято без заявок. Включите «Исполнять вход по сигналу на демо-счёт» на вкладке «Портфель»."
-                                    SandboxExecUiState.MissingCredentials ->
-                                        "Принято без заявок: сохраните sandbox-токен и счёт во вкладке «Песочница»."
-                                    else -> ""
-                                }
-                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                Toast.makeText(
+                                    context,
+                                    "Принято без заявок: сохраните токен и счёт во вкладке «Песочница».",
+                                    Toast.LENGTH_LONG
+                                ).show()
                             }
+                            SandboxExecUiState.Off -> Unit
                         }
                     }
                 },
@@ -1111,30 +1109,12 @@ internal fun MoexScreen() {
                             },
                             portfolioLedgerIncludeAuto = portfolioLedgerIncludeAuto,
                             onPortfolioLedgerIncludeAutoChange = { v ->
-                                TinkoffSandboxStorage.setPortfolioLedgerIncludeAuto(context, v)
+                                TinkoffSandboxStorage.setPortfolioDemoEntryMode(context, v)
                                 portfolioLedgerIncludeAuto = v
-                            },
-                            executeSignalsOnSandbox = executeSignalsOnSandbox,
-                            onExecuteSignalsOnSandboxChange = { v ->
-                                scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        TinkoffSandboxStorage.setExecuteSignalsOnSandbox(context, v)
-                                    }
-                                    executeSignalsOnSandbox = v
-                                    sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
-                                }
-                            },
-                            sandboxSpreadAutoExecute = sandboxSpreadAutoExecute,
-                            onSandboxSpreadAutoExecuteChange = { v ->
-                                scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        TinkoffSandboxStorage.setSandboxSpreadAutoExecute(context, v)
-                                    }
-                                    sandboxSpreadAutoExecute = v
-                                    if (v) {
-                                        clearPendingVirtualTradeProposal(context)
-                                        pendingVirtualTrade = null
-                                    }
+                                sandboxSpreadAutoExecute = v
+                                if (v) {
+                                    clearPendingVirtualTradeProposal(context)
+                                    pendingVirtualTrade = null
                                 }
                             },
                             portfolioTestBusy = portfolioTestBusy,
@@ -1155,9 +1135,13 @@ internal fun MoexScreen() {
                                         }
                                         if (r.isSuccess) {
                                             val result = r.getOrThrow()
-                                            clearPendingVirtualTradeProposal(context)
                                             zStrategyPosition = loadSavedStrategyPosition(context)
-                                            pendingVirtualTrade = null
+                                            if (sandboxSpreadAutoExecute) {
+                                                clearPendingVirtualTradeProposal(context)
+                                                pendingVirtualTrade = null
+                                            } else {
+                                                pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+                                            }
                                             signalEvents = loadStrategySignalEvents(context)
                                             sandboxSpreadExecReload += result.sandboxSpreadExecReloadDelta
                                             Toast.makeText(
@@ -1295,11 +1279,12 @@ internal fun MoexScreen() {
                         val last = chartSuccess?.points?.lastOrNull()
                         val demoTail = TinkoffSandboxStorage.getAccountId(context)?.takeLast(8).orEmpty()
                         val sandboxDemoHint = when (sandboxExecState) {
-                            SandboxExecUiState.Off -> null
                             SandboxExecUiState.MissingCredentials ->
                                 "Т‑Инвест песочница: сохраните токен и счёт (вкладка «Песочница»), чтобы слать заявки по «Принять»."
                             SandboxExecUiState.Ready ->
                                 "Демо-счёт Т‑Инвест · …$demoTail · «Принять» → покупка 1 лота + продажа 1 лота (спрэд TATN/TATNP)."
+                            SandboxExecUiState.Off ->
+                                "Т‑Инвест песочница: сохраните токен и счёт (вкладка «Песочница»)."
                         }
                         MarketsSummaryStrip(
                             z = last?.zScore,

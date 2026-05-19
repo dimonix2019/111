@@ -647,10 +647,6 @@ internal fun ConfirmedPortfolioTabContent(
     onRealTradeExitChange: (Double) -> Unit,
     portfolioLedgerIncludeAuto: Boolean,
     onPortfolioLedgerIncludeAutoChange: (Boolean) -> Unit,
-    executeSignalsOnSandbox: Boolean,
-    onExecuteSignalsOnSandboxChange: (Boolean) -> Unit,
-    sandboxSpreadAutoExecute: Boolean,
-    onSandboxSpreadAutoExecuteChange: (Boolean) -> Unit,
     portfolioTestBusy: Boolean,
     onTestSpreadPairClick: () -> Unit,
     closeAllPortfolioBusy: Boolean,
@@ -698,53 +694,9 @@ internal fun ConfirmedPortfolioTabContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Исполнять вход по сигналу на демо-счёт (покупка 1 лота + продажа 1 лота по спрэду TATN/TATNP)",
-                    color = Color(0xFFFCE4EC),
-                    fontSize = 11.sp,
-                    modifier = Modifier.weight(1f).padding(end = 8.dp)
-                )
-                Switch(
-                    checked = executeSignalsOnSandbox,
-                    onCheckedChange = onExecuteSignalsOnSandboxChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFFF48FB1),
-                        checkedTrackColor = Color(0xFF880E4F),
-                        uncheckedThumbColor = Color(0xFFB0BEC5),
-                        uncheckedTrackColor = Color(0xFF455A64)
-                    )
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Сразу отправлять 2 заявки на демо без карточки «Принять»",
-                    color = Color(0xFFFCE4EC),
-                    fontSize = 11.sp,
-                    modifier = Modifier.weight(1f).padding(end = 8.dp)
-                )
-                Switch(
-                    checked = sandboxSpreadAutoExecute,
-                    onCheckedChange = onSandboxSpreadAutoExecuteChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFFF48FB1),
-                        checkedTrackColor = Color(0xFF880E4F),
-                        uncheckedThumbColor = Color(0xFFB0BEC5),
-                        uncheckedTrackColor = Color(0xFF455A64)
-                    )
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Ручное «Принять»",
+                    text = "Ручной",
                     color = if (!portfolioLedgerIncludeAuto) Color(0xFFF8BBD0) else Color(0xFF9E9E9E),
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = if (!portfolioLedgerIncludeAuto) FontWeight.SemiBold else FontWeight.Normal
                 )
                 Switch(
@@ -758,12 +710,27 @@ internal fun ConfirmedPortfolioTabContent(
                     )
                 )
                 Text(
-                    text = "Авто демо",
+                    text = "Авто",
                     color = if (portfolioLedgerIncludeAuto) Color(0xFFF8BBD0) else Color(0xFF9E9E9E),
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = if (portfolioLedgerIncludeAuto) FontWeight.SemiBold else FontWeight.Normal
                 )
             }
+            Text(
+                text = if (portfolioLedgerIncludeAuto) {
+                    "Авто: сигнал и «Тестовая пара» сразу открывают сделку на демо (2 заявки), без «Принять»."
+                } else {
+                    "Ручной: при сигнале или «Тестовая пара» — карточка «Принять» / «Отклонить», затем сделка в открытых."
+                },
+                color = Color(0xFFCE93D8),
+                fontSize = 10.sp,
+                lineHeight = 13.sp
+            )
+            Text(
+                text = "Пороги |Z| для сигналов, push, фона и линий на «Рынке»",
+                color = Color(0xFFFCE4EC),
+                fontSize = 10.sp
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 ParamStepper(
                     title = "Вход |Z|",
@@ -813,7 +780,7 @@ internal fun ConfirmedPortfolioTabContent(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB2DFDB))
                 ) {
-                    Text("Тестовая пара (нога 1 + нога 2)", fontSize = 11.sp, maxLines = 2)
+                    Text("Тестовая пара", fontSize = 12.sp)
                 }
                 if (portfolioTestBusy) {
                     Row(
@@ -858,7 +825,7 @@ internal fun ConfirmedPortfolioTabContent(
                 onExitThresholdChange = {}
             )
             Text(
-                text = "Метрики ниже — по парам вход→выход из журнала; начало цикла считается только если вход есть в журнале исполнений под выбранным выше режимом (ручное «Принять» или авто журнал демо).",
+                text = "Метрики ниже — по парам вход→выход из журнала исполнений на демо (ручной «Принять» или авто, см. переключатель выше).",
                 color = Color(0xFF757575),
                 fontSize = 10.sp
             )
