@@ -231,6 +231,10 @@ internal data class PortfolioClosedTrade(
     val pnlSpreadPoints: Double,
     /** PnL по движению спрэда в ₽ до вычета комиссий и овернайта (масштаб номинала × плечо). */
     val grossPnlRubApprox: Double,
+    /** Сумма комиссий вход+выход за круг в ₽. */
+    val commissionRubApprox: Double = 0.0,
+    /** Овернайт за дни удержания позиции в ₽. */
+    val overnightRubApprox: Double = 0.0,
     /** Чистый результат сделки в ₽ после комиссий вход/выход и овернайта. */
     val pnlRubApprox: Double
 )
@@ -268,5 +272,11 @@ internal data class PortfolioMetrics(
     val avgWinRub: Double,
     val avgLossRub: Double,
     val largestWinRub: Double,
-    val largestLossRub: Double
+    val largestLossRub: Double,
+    /** Подписи оси X для кривой эквити (по дням, последний снимок за день). */
+    val equityCurveLabels: List<String> = emptyList(),
+    /** Equity симуляции в ₽ (realized + MTM по барам, агрегировано по дням для графика). */
+    val equityCurveRub: List<Double> = emptyList(),
+    /** Просадка от пика equity в ₽ на тех же точках. */
+    val drawdownCurveRub: List<Double> = emptyList()
 )

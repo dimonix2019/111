@@ -8,6 +8,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
 internal fun spreadPnlToRubApprox(pnlSpreadPoints: Double, notionalRub: Double): Double {
     return notionalRub * (pnlSpreadPoints / 100.0)
@@ -39,6 +40,35 @@ internal fun portfolioTradeCommissionAndOvernightRub(
 }
 
 /** Daily labels `yyyy-MM-dd` or 15m labels `yyyy-MM-dd HH:mm` from [portfolio15mLabelFormatter]. */
+internal fun drawdownRubSeriesFromEquity(equityRub: List<Double>): List<Double> {
+    var peak = 0.0
+    return equityRub.map { eq ->
+        peak = max(peak, eq)
+        peak - eq
+    }
+}
+
+/** Последний снимок equity за календарный день (для графика на длинном 15м ряду). */
+internal fun equityCurveDailyForChart(
+    barLabels: List<String>,
+    equityRub: List<Double>
+): Triple<List<String>, List<Double>, List<Double>> {
+    if (barLabels.isEmpty() || equityRub.isEmpty()) {
+        return Triple(emptyList(), emptyList(), emptyList())
+    }
+    val n = min(barLabels.size, equityRub.size)
+    val byDay = linkedMapOf<String, Double>()
+    for (i in 0 until n) {
+        val label = barLabels[i].trim()
+        val day = if (label.length >= 10) label.take(10) else label
+        byDay[day] = equityRub[i]
+    }
+    val labels = byDay.keys.toList()
+    val equity = byDay.values.toList()
+    val drawdown = drawdownRubSeriesFromEquity(equity).map { -it }
+    return Triple(labels, equity, drawdown)
+}
+
 private fun parseChartDateLabel(label: String): LocalDate? {
     val trimmed = label.trim()
     if (trimmed.length >= 10) {
@@ -63,7 +93,9 @@ internal fun buildZStrategyPortfolioMetrics(
     leverage: Double,
     commissionPercentPerSide: Double,
     periodDescription: String,
-    compoundReturns: Boolean = false
+    compoundReturns: Boolean = false,
+    exitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
+    zPeakTrailZ: Double = 0.2
 ): PortfolioMetrics? {
     if (points.size < 2) return null
 
@@ -95,6 +127,7 @@ internal fun buildZStrategyPortfolioMetrics(
     }
 
     var entryCommissionRub = 0.0
+    var zBestSinceEntry = 0.0
 
     fun pushEquitySnapshot(atIndex: Int) {
         val bar = points[atIndex]
@@ -112,11 +145,19 @@ internal fun buildZStrategyPortfolioMetrics(
         val current = points[index]
         when (position) {
             ZStrategyPosition.Long -> {
-                if (prev.zScore < -exit && current.zScore >= -exit) {
+                zBestSinceEntry = updateZBestForLong(zBestSinceEntry, current.zScore)
+                val shouldExit = when (exitMode) {
+                    ZStrategyExitMode.FixedThreshold ->
+                        fixedThresholdExitLong(prev.zScore, current.zScore, exit)
+                    ZStrategyExitMode.ZPeakTrailing ->
+                        zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
+                }
+                if (shouldExit) {
                     val pnl = current.spreadPercent - entrySpread
                     val grossPnlRub = spreadPnlToRubApprox(pnl, tradeEffNotionalRub)
                     val overnightRub = tradeOvernightFeePerDayRub * overnightDays(entryDate, current.tradeDate)
-                    val netTradeRub = grossPnlRub - entryCommissionRub - tradeCommissionPerSideRub - overnightRub
+                    val commissionRub = entryCommissionRub + tradeCommissionPerSideRub
+                    val netTradeRub = grossPnlRub - commissionRub - overnightRub
                     realizedSpread += pnl
                     realizedRub += grossPnlRub - tradeCommissionPerSideRub
                     realizedRub -= overnightRub
@@ -130,19 +171,30 @@ internal fun buildZStrategyPortfolioMetrics(
                         exitSpreadPercent = current.spreadPercent,
                         pnlSpreadPoints = pnl,
                         grossPnlRubApprox = grossPnlRub,
+                        commissionRubApprox = commissionRub,
+                        overnightRubApprox = overnightRub,
                         pnlRubApprox = netTradeRub
                     )
                     position = ZStrategyPosition.Flat
                     entryCommissionRub = 0.0
+                    zBestSinceEntry = 0.0
                 }
             }
 
             ZStrategyPosition.Short -> {
-                if (prev.zScore > exit && current.zScore <= exit) {
+                zBestSinceEntry = updateZBestForShort(zBestSinceEntry, current.zScore)
+                val shouldExit = when (exitMode) {
+                    ZStrategyExitMode.FixedThreshold ->
+                        fixedThresholdExitShort(prev.zScore, current.zScore, exit)
+                    ZStrategyExitMode.ZPeakTrailing ->
+                        zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
+                }
+                if (shouldExit) {
                     val pnl = entrySpread - current.spreadPercent
                     val grossPnlRub = spreadPnlToRubApprox(pnl, tradeEffNotionalRub)
                     val overnightRub = tradeOvernightFeePerDayRub * overnightDays(entryDate, current.tradeDate)
-                    val netTradeRub = grossPnlRub - entryCommissionRub - tradeCommissionPerSideRub - overnightRub
+                    val commissionRub = entryCommissionRub + tradeCommissionPerSideRub
+                    val netTradeRub = grossPnlRub - commissionRub - overnightRub
                     realizedSpread += pnl
                     realizedRub += grossPnlRub - tradeCommissionPerSideRub
                     realizedRub -= overnightRub
@@ -156,10 +208,13 @@ internal fun buildZStrategyPortfolioMetrics(
                         exitSpreadPercent = current.spreadPercent,
                         pnlSpreadPoints = pnl,
                         grossPnlRubApprox = grossPnlRub,
+                        commissionRubApprox = commissionRub,
+                        overnightRubApprox = overnightRub,
                         pnlRubApprox = netTradeRub
                     )
                     position = ZStrategyPosition.Flat
                     entryCommissionRub = 0.0
+                    zBestSinceEntry = 0.0
                 }
             }
 
@@ -172,6 +227,7 @@ internal fun buildZStrategyPortfolioMetrics(
                 entrySpread = current.spreadPercent
                 entryDate = current.tradeDate
                 entryCommissionRub = tradeCommissionPerSideRub
+                zBestSinceEntry = current.zScore
                 totalCommissionRub += tradeCommissionPerSideRub
                 realizedRub -= tradeCommissionPerSideRub
             } else if (prev.zScore < entry && current.zScore >= entry) {
@@ -180,6 +236,7 @@ internal fun buildZStrategyPortfolioMetrics(
                 entrySpread = current.spreadPercent
                 entryDate = current.tradeDate
                 entryCommissionRub = tradeCommissionPerSideRub
+                zBestSinceEntry = current.zScore
                 totalCommissionRub += tradeCommissionPerSideRub
                 realizedRub -= tradeCommissionPerSideRub
             }
@@ -245,8 +302,16 @@ internal fun buildZStrategyPortfolioMetrics(
     val largestLoss = lossRubList.minOrNull() ?: 0.0
 
     val capNote = if (compoundReturns) " · капитализация PnL" else ""
+    val exitNote = when (exitMode) {
+        ZStrategyExitMode.FixedThreshold ->
+            "выход ±${String.format(Locale.US, "%.1f", exit)}"
+        ZStrategyExitMode.ZPeakTrailing ->
+            "выход трейл Z ${String.format(Locale.US, "%.2f", zPeakTrailZ)} от пика"
+    }
     val fullDescription =
-        "$periodDescription · Z-вход ±${String.format(Locale.US, "%.1f", entry)}, выход ±${String.format(Locale.US, "%.1f", exit)}$capNote"
+        "$periodDescription · Z-вход ±${String.format(Locale.US, "%.1f", entry)}, $exitNote$capNote"
+    val barLabels = points.drop(1).map { it.tradeDate }
+    val (curveLabels, curveEquity, curveDrawdown) = equityCurveDailyForChart(barLabels, equityRubSeries)
     return PortfolioMetrics(
         periodDescription = fullDescription,
         notionalRub = notionalRub,
@@ -276,7 +341,10 @@ internal fun buildZStrategyPortfolioMetrics(
         avgWinRub = avgWin,
         avgLossRub = avgLoss,
         largestWinRub = largestWin,
-        largestLossRub = largestLoss
+        largestLossRub = largestLoss,
+        equityCurveLabels = curveLabels,
+        equityCurveRub = curveEquity,
+        drawdownCurveRub = curveDrawdown
     )
 }
 
@@ -536,7 +604,8 @@ internal fun buildExecutedPortfolioWithTable(
                         val pnlSpread = point.spreadPercent - entrySpread
                         val grossPnlRub = spreadPnlToRubApprox(pnlSpread, effectiveNotionalRub)
                         val overnightRub = overnightFeePerDayRub * overnightDays(entryDate, point.tradeDate)
-                        val netPnlRub = grossPnlRub - commissionPerSideRub - overnightRub
+                        val commissionRub = 2 * commissionPerSideRub
+                        val netPnlRub = grossPnlRub - commissionRub - overnightRub
                         realizedSpread += pnlSpread
                         realizedRub += netPnlRub
                         totalOvernightRub += overnightRub
@@ -549,7 +618,9 @@ internal fun buildExecutedPortfolioWithTable(
                             exitSpreadPercent = point.spreadPercent,
                             pnlSpreadPoints = pnlSpread,
                             grossPnlRubApprox = grossPnlRub,
-                            pnlRubApprox = grossPnlRub - (2 * commissionPerSideRub) - overnightRub
+                            commissionRubApprox = commissionRub,
+                            overnightRubApprox = overnightRub,
+                            pnlRubApprox = netPnlRub
                         )
                         val c = closed.last()
                         val ec = entryContext
@@ -602,7 +673,8 @@ internal fun buildExecutedPortfolioWithTable(
                         val pnlSpread = entrySpread - point.spreadPercent
                         val grossPnlRub = spreadPnlToRubApprox(pnlSpread, effectiveNotionalRub)
                         val overnightRub = overnightFeePerDayRub * overnightDays(entryDate, point.tradeDate)
-                        val netPnlRub = grossPnlRub - commissionPerSideRub - overnightRub
+                        val commissionRub = 2 * commissionPerSideRub
+                        val netPnlRub = grossPnlRub - commissionRub - overnightRub
                         realizedSpread += pnlSpread
                         realizedRub += netPnlRub
                         totalOvernightRub += overnightRub
@@ -615,7 +687,9 @@ internal fun buildExecutedPortfolioWithTable(
                             exitSpreadPercent = point.spreadPercent,
                             pnlSpreadPoints = pnlSpread,
                             grossPnlRubApprox = grossPnlRub,
-                            pnlRubApprox = grossPnlRub - (2 * commissionPerSideRub) - overnightRub
+                            commissionRubApprox = commissionRub,
+                            overnightRubApprox = overnightRub,
+                            pnlRubApprox = netPnlRub
                         )
                         val c = closed.last()
                         val ec = entryContext
