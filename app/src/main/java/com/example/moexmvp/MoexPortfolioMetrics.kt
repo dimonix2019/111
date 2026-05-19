@@ -65,7 +65,7 @@ internal fun equityCurveDailyForChart(
     }
     val labels = byDay.keys.toList()
     val equity = byDay.values.toList()
-    val drawdown = drawdownRubSeriesFromEquity(equity)
+    val drawdown = drawdownRubSeriesFromEquity(equity).map { -it }
     return Triple(labels, equity, drawdown)
 }
 

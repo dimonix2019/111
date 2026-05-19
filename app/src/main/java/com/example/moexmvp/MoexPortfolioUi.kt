@@ -1009,7 +1009,7 @@ internal fun StrategyTestTabContent(
                 labels = metrics.equityCurveLabels,
                 equityRub = metrics.equityCurveRub,
                 drawdownRub = metrics.drawdownCurveRub,
-                chartHeightDp = 220
+                chartHeightDp = 280
             )
         }
         PortfolioPresetSection(

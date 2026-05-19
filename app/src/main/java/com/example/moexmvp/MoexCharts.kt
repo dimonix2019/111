@@ -46,8 +46,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -647,6 +650,35 @@ internal fun buildYTicks(min: Double, max: Double, count: Int): List<Double> {
     }
 }
 
+/** Подписи оси X: первый день каждого месяца в ряду `yyyy-MM-dd`. */
+internal fun buildXMonthTicks(dailyLabels: List<String>): List<XAxisTick> {
+    if (dailyLabels.isEmpty()) return emptyList()
+    val monthFormatter = DateTimeFormatter.ofPattern("LLL yy", Locale.forLanguageTag("ru"))
+    val seenMonths = linkedSetOf<String>()
+    return buildList {
+        dailyLabels.forEachIndexed { index, label ->
+            val date = runCatching { LocalDate.parse(label.trim().take(10)) }.getOrNull() ?: return@forEachIndexed
+            val key = "${date.year}-${date.monthValue.toString().padStart(2, '0')}"
+            if (key in seenMonths) return@forEachIndexed
+            seenMonths += key
+            val text = date.format(monthFormatter).replaceFirstChar { ch ->
+                if (ch.isLowerCase()) ch.titlecase(Locale.forLanguageTag("ru")) else ch.toString()
+            }
+            add(XAxisTick(index = index, label = text))
+        }
+    }
+}
+
+internal fun formatRubAxisValue(value: Double): String {
+    val v = value
+    val a = abs(v)
+    return when {
+        a >= 1_000_000 -> String.format(Locale.US, "%+.1fM ₽", v / 1_000_000.0)
+        a >= 10_000 -> String.format(Locale.US, "%+.0fk ₽", v / 1_000.0)
+        else -> String.format(Locale.US, "%+.0f ₽", v)
+    }
+}
+
 internal fun buildXTicks(labels: List<String>, desiredCount: Int = 5): List<XAxisTick> {
     if (labels.isEmpty()) return emptyList()
     if (labels.size == 1) return listOf(XAxisTick(index = 0, label = labels.first()))
@@ -690,8 +722,7 @@ internal fun StrategyTestEquityDrawdownChartCard(
             Text("— Drawdown", color = Color(0xFFFFAB40), fontSize = 10.sp)
         }
         Text(
-            text = "Equity = накопленный результат + MTM по 15м (по дням — последний бар дня). " +
-                "Drawdown = отклонение от пика equity. Чистый PnL сделки = валовый − комис. − оверн.",
+            text = "Верх: Equity (₽) от нулевой линии. Низ: Drawdown (отрицательный, ₽). По оси X — месяцы.",
             color = Color(0xFF9E9E9E),
             fontSize = 9.sp,
             lineHeight = 12.sp
