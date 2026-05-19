@@ -93,7 +93,9 @@ internal fun buildZStrategyPortfolioMetrics(
     leverage: Double,
     commissionPercentPerSide: Double,
     periodDescription: String,
-    compoundReturns: Boolean = false
+    compoundReturns: Boolean = false,
+    exitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
+    zPeakTrailZ: Double = 0.2
 ): PortfolioMetrics? {
     if (points.size < 2) return null
 
@@ -125,6 +127,7 @@ internal fun buildZStrategyPortfolioMetrics(
     }
 
     var entryCommissionRub = 0.0
+    var zBestSinceEntry = 0.0
 
     fun pushEquitySnapshot(atIndex: Int) {
         val bar = points[atIndex]
@@ -142,7 +145,14 @@ internal fun buildZStrategyPortfolioMetrics(
         val current = points[index]
         when (position) {
             ZStrategyPosition.Long -> {
-                if (prev.zScore < -exit && current.zScore >= -exit) {
+                zBestSinceEntry = updateZBestForLong(zBestSinceEntry, current.zScore)
+                val shouldExit = when (exitMode) {
+                    ZStrategyExitMode.FixedThreshold ->
+                        fixedThresholdExitLong(prev.zScore, current.zScore, exit)
+                    ZStrategyExitMode.ZPeakTrailing ->
+                        zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
+                }
+                if (shouldExit) {
                     val pnl = current.spreadPercent - entrySpread
                     val grossPnlRub = spreadPnlToRubApprox(pnl, tradeEffNotionalRub)
                     val overnightRub = tradeOvernightFeePerDayRub * overnightDays(entryDate, current.tradeDate)
@@ -167,11 +177,19 @@ internal fun buildZStrategyPortfolioMetrics(
                     )
                     position = ZStrategyPosition.Flat
                     entryCommissionRub = 0.0
+                    zBestSinceEntry = 0.0
                 }
             }
 
             ZStrategyPosition.Short -> {
-                if (prev.zScore > exit && current.zScore <= exit) {
+                zBestSinceEntry = updateZBestForShort(zBestSinceEntry, current.zScore)
+                val shouldExit = when (exitMode) {
+                    ZStrategyExitMode.FixedThreshold ->
+                        fixedThresholdExitShort(prev.zScore, current.zScore, exit)
+                    ZStrategyExitMode.ZPeakTrailing ->
+                        zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
+                }
+                if (shouldExit) {
                     val pnl = entrySpread - current.spreadPercent
                     val grossPnlRub = spreadPnlToRubApprox(pnl, tradeEffNotionalRub)
                     val overnightRub = tradeOvernightFeePerDayRub * overnightDays(entryDate, current.tradeDate)
@@ -196,6 +214,7 @@ internal fun buildZStrategyPortfolioMetrics(
                     )
                     position = ZStrategyPosition.Flat
                     entryCommissionRub = 0.0
+                    zBestSinceEntry = 0.0
                 }
             }
 
@@ -208,6 +227,7 @@ internal fun buildZStrategyPortfolioMetrics(
                 entrySpread = current.spreadPercent
                 entryDate = current.tradeDate
                 entryCommissionRub = tradeCommissionPerSideRub
+                zBestSinceEntry = current.zScore
                 totalCommissionRub += tradeCommissionPerSideRub
                 realizedRub -= tradeCommissionPerSideRub
             } else if (prev.zScore < entry && current.zScore >= entry) {
@@ -216,6 +236,7 @@ internal fun buildZStrategyPortfolioMetrics(
                 entrySpread = current.spreadPercent
                 entryDate = current.tradeDate
                 entryCommissionRub = tradeCommissionPerSideRub
+                zBestSinceEntry = current.zScore
                 totalCommissionRub += tradeCommissionPerSideRub
                 realizedRub -= tradeCommissionPerSideRub
             }
@@ -281,8 +302,14 @@ internal fun buildZStrategyPortfolioMetrics(
     val largestLoss = lossRubList.minOrNull() ?: 0.0
 
     val capNote = if (compoundReturns) " · капитализация PnL" else ""
+    val exitNote = when (exitMode) {
+        ZStrategyExitMode.FixedThreshold ->
+            "выход ±${String.format(Locale.US, "%.1f", exit)}"
+        ZStrategyExitMode.ZPeakTrailing ->
+            "выход трейл Z ${String.format(Locale.US, "%.2f", zPeakTrailZ)} от пика"
+    }
     val fullDescription =
-        "$periodDescription · Z-вход ±${String.format(Locale.US, "%.1f", entry)}, выход ±${String.format(Locale.US, "%.1f", exit)}$capNote"
+        "$periodDescription · Z-вход ±${String.format(Locale.US, "%.1f", entry)}, $exitNote$capNote"
     val barLabels = points.drop(1).map { it.tradeDate }
     val (curveLabels, curveEquity, curveDrawdown) = equityCurveDailyForChart(barLabels, equityRubSeries)
     return PortfolioMetrics(
