@@ -641,6 +641,10 @@ internal fun ConfirmedPortfolioTabContent(
     commissionPercentPerSide: Double,
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
+    realTradeEntryThreshold: Double,
+    realTradeExitThreshold: Double,
+    onRealTradeEntryChange: (Double) -> Unit,
+    onRealTradeExitChange: (Double) -> Unit,
     portfolioLedgerIncludeAuto: Boolean,
     onPortfolioLedgerIncludeAutoChange: (Boolean) -> Unit,
     portfolioTestBusy: Boolean,
@@ -722,6 +726,49 @@ internal fun ConfirmedPortfolioTabContent(
                 fontSize = 10.sp,
                 lineHeight = 13.sp
             )
+            Text(
+                text = "Пороги |Z| для сигналов, push, фона и линий на «Рынке»",
+                color = Color(0xFFFCE4EC),
+                fontSize = 10.sp
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                ParamStepper(
+                    title = "Вход |Z|",
+                    valueLabel = String.format(Locale.US, "%.2f", realTradeEntryThreshold),
+                    onMinus = {
+                        onRealTradeEntryChange(
+                            (realTradeEntryThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
+                        )
+                    },
+                    onPlus = {
+                        onRealTradeEntryChange(
+                            (realTradeEntryThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    containerColor = Color(0x22FFFFFF),
+                    titleColor = Color(0xFFFCE4EC),
+                    valueTextColor = Color(0xFFFFF8F9)
+                )
+                ParamStepper(
+                    title = "Выход |Z|",
+                    valueLabel = String.format(Locale.US, "%.2f", realTradeExitThreshold),
+                    onMinus = {
+                        onRealTradeExitChange(
+                            (realTradeExitThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
+                        )
+                    },
+                    onPlus = {
+                        onRealTradeExitChange(
+                            (realTradeExitThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    containerColor = Color(0x22FFFFFF),
+                    titleColor = Color(0xFFFCE4EC),
+                    valueTextColor = Color(0xFFFFF8F9)
+                )
+            }
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(6.dp)

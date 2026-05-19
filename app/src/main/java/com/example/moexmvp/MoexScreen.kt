@@ -1091,6 +1091,22 @@ internal fun MoexScreen() {
                             commissionPercentPerSide = portfolioCommissionPercent,
                             onLeverageChange = { portfolioLeverage = it },
                             onCommissionChange = { portfolioCommissionPercent = it },
+                            realTradeEntryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            realTradeExitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            onRealTradeEntryChange = { v ->
+                                realTradeEntryThreshold = v.coerceIn(
+                                    PORTFOLIO_Z_THRESHOLD_MIN,
+                                    PORTFOLIO_Z_THRESHOLD_MAX
+                                )
+                            },
+                            onRealTradeExitChange = { v ->
+                                realTradeExitThreshold = v.coerceIn(
+                                    PORTFOLIO_Z_THRESHOLD_MIN,
+                                    PORTFOLIO_Z_THRESHOLD_MAX
+                                )
+                            },
                             portfolioLedgerIncludeAuto = portfolioLedgerIncludeAuto,
                             onPortfolioLedgerIncludeAutoChange = { v ->
                                 TinkoffSandboxStorage.setPortfolioDemoEntryMode(context, v)
