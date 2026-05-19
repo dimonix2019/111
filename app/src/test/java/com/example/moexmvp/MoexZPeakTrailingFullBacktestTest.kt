@@ -13,6 +13,7 @@ import kotlin.math.roundToInt
  *
  * - `...MoexZPeakTrailingFullBacktestTest.fullSample_thresholdVsZPeakTrailing`
  * - `...MoexZPeakTrailingFullBacktestTest.fullSample_entrySweep_zPeakTrailing`
+ * - `...MoexZPeakTrailingFullBacktestTest.fullSample_compromise_entryThreshold_trailExit`
  */
 class MoexZPeakTrailingFullBacktestTest {
 
@@ -21,8 +22,9 @@ class MoexZPeakTrailingFullBacktestTest {
     private companion object {
         const val SWEEP_STEP = 0.1
         const val SWEEP_MAX = 2.1
-        const val DEFAULT_BASELINE_EXIT = 0.7
         val TRAIL_STEPS = listOf(0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40)
+        val COMPROMISE_ENTRY_STEPS = listOf(0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80)
+        val COMPROMISE_TRAIL_STEPS = listOf(0.25, 0.30, 0.35, 0.40)
     }
 
     @Test
@@ -115,6 +117,77 @@ class MoexZPeakTrailingFullBacktestTest {
         }
     }
 
+    @Test
+    fun fullSample_compromise_entryThreshold_trailExit() = runBlocking {
+        val (today, points) = loadFullSamplePoints()
+
+        val refMaxPnl = runMetrics(points, today, 0.6, ZStrategyExitMode.FixedThreshold, 0.5)!!
+        val refMinDdTrail = runMetrics(points, today, 0.8, ZStrategyExitMode.ZPeakTrailing, 0.40)!!
+        val refClassic = runMetrics(points, today, 0.8, ZStrategyExitMode.FixedThreshold, 0.7)!!
+
+        val grid = mutableListOf<CompromiseRow>()
+        for (entry in COMPROMISE_ENTRY_STEPS) {
+            for (trail in COMPROMISE_TRAIL_STEPS) {
+                val m = runMetrics(points, today, entry, ZStrategyExitMode.ZPeakTrailing, trail)!!
+                grid += CompromiseRow(entry, trail, m)
+            }
+        }
+
+        println("=== Вариант 3: компромисс — пороговый вход + трейлинг-выход (полная выборка) ===")
+        printSampleHeader(
+            points,
+            "Сетка вход ${COMPROMISE_ENTRY_STEPS} × trail ${COMPROMISE_TRAIL_STEPS} · выход только трейл от пика (|zBest|≥вход)"
+        )
+        println("Эталоны:")
+        println(
+            "  A макс.PnL (порог): вход 0.6 выход 0.5 → ${fmt(refMaxPnl.totalPnlRubApprox)} ₽, DD ${fmt(refMaxPnl.maxDrawdownRubApprox)} ₽"
+        )
+        println(
+            "  B мин.DD (трейл):  вход 0.8 trail 0.40 → ${fmt(refMinDdTrail.totalPnlRubApprox)} ₽, DD ${fmt(refMinDdTrail.maxDrawdownRubApprox)} ₽"
+        )
+        println(
+            "  C портфель:        вход 0.8 выход 0.7 → ${fmt(refClassic.totalPnlRubApprox)} ₽, DD ${fmt(refClassic.maxDrawdownRubApprox)} ₽"
+        )
+        println()
+        println("вход | trail | сделок | win% | PnL ₽     | maxDD ₽  | Calmar | vs A PnL | vs B DD")
+        println("-----+-------+--------+------+-----------+----------+--------+----------+--------")
+        grid.sortedWith(compareByDescending<CompromiseRow> { it.calmar }.thenByDescending { it.metrics.totalPnlRubApprox })
+            .forEach { println(it.formatLine(refMaxPnl, refMinDdTrail)) }
+
+        val bestCalmar = grid.maxByOrNull { it.calmar }!!
+        val bestPnlUnder20kDd = grid.filter { it.metrics.maxDrawdownRubApprox <= 20_000.0 }
+            .maxByOrNull { it.metrics.totalPnlRubApprox }
+        val bestPnlUnder15kDd = grid.filter { it.metrics.maxDrawdownRubApprox <= 15_000.0 }
+            .maxByOrNull { it.metrics.totalPnlRubApprox }
+
+        println("---")
+        println(
+            "Лучший Calmar (PnL/DD): вход ${fmt1(bestCalmar.entry)} trail ${fmt2(bestCalmar.trail)} → " +
+                "${fmt(bestCalmar.metrics.totalPnlRubApprox)} ₽, DD ${fmt(bestCalmar.metrics.maxDrawdownRubApprox)} ₽, " +
+                "Calmar ${fmt2(bestCalmar.calmar)}"
+        )
+        if (bestPnlUnder20kDd != null) {
+            println(
+                "Лучший PnL при DD≤20k: вход ${fmt1(bestPnlUnder20kDd.entry)} trail ${fmt2(bestPnlUnder20kDd.trail)} → " +
+                    "${fmt(bestPnlUnder20kDd.metrics.totalPnlRubApprox)} ₽, DD ${fmt(bestPnlUnder20kDd.metrics.maxDrawdownRubApprox)} ₽"
+            )
+        }
+        if (bestPnlUnder15kDd != null) {
+            println(
+                "Лучший PnL при DD≤15k: вход ${fmt1(bestPnlUnder15kDd.entry)} trail ${fmt2(bestPnlUnder15kDd.trail)} → " +
+                    "${fmt(bestPnlUnder15kDd.metrics.totalPnlRubApprox)} ₽, DD ${fmt(bestPnlUnder15kDd.metrics.maxDrawdownRubApprox)} ₽"
+            )
+        }
+        println()
+        println("ТОП-5 по Calmar:")
+        grid.sortedByDescending { it.calmar }.take(5).forEach { r ->
+            println(
+                "  ${fmt1(r.entry)}/${fmt2(r.trail)} → ${fmt(r.metrics.totalPnlRubApprox)} ₽, DD ${fmt(r.metrics.maxDrawdownRubApprox)} ₽, " +
+                    "Calmar ${fmt2(r.calmar)}"
+            )
+        }
+    }
+
     private suspend fun loadFullSamplePoints(): Pair<LocalDate, List<DataPoint>> {
         val today = LocalDate.now(zone)
         val from = today.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
@@ -169,6 +242,33 @@ class MoexZPeakTrailingFullBacktestTest {
         println("Период: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
         println("$extra · плечо 7× · комиссия 0.05%/сторона · notional ${DEFAULT_PORTFOLIO_NOTIONAL_RUB.toLong()} ₽")
         println()
+    }
+
+    private data class CompromiseRow(
+        val entry: Double,
+        val trail: Double,
+        val metrics: PortfolioMetrics
+    ) {
+        val calmar: Double = metrics.totalPnlRubApprox / metrics.maxDrawdownRubApprox.coerceAtLeast(1.0)
+
+        fun formatLine(refMaxPnl: PortfolioMetrics, refMinDd: PortfolioMetrics): String {
+            fun f(v: Double) = String.format(Locale.US, "%.2f", v)
+            val vsPnl = metrics.totalPnlRubApprox - refMaxPnl.totalPnlRubApprox
+            val vsDd = metrics.maxDrawdownRubApprox - refMinDd.maxDrawdownRubApprox
+            return String.format(
+                Locale.US,
+                " %4.2f | %5.2f | %6d | %4.1f | %9s | %8s | %6.2f | %+9.0f | %+6.0f",
+                entry,
+                trail,
+                metrics.closedTrades.size,
+                metrics.winRate,
+                f(metrics.totalPnlRubApprox),
+                f(metrics.maxDrawdownRubApprox),
+                calmar,
+                vsPnl,
+                vsDd
+            )
+        }
     }
 
     private data class EntrySweepRow(
