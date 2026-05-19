@@ -1001,6 +1001,17 @@ internal fun StrategyTestTabContent(
         ) {
             PortfolioHeroMetricsRow(metrics = metrics)
         }
+        if (metrics != null &&
+            metrics.equityCurveRub.isNotEmpty() &&
+            metrics.drawdownCurveRub.isNotEmpty()
+        ) {
+            StrategyTestEquityDrawdownChartCard(
+                labels = metrics.equityCurveLabels,
+                equityRub = metrics.equityCurveRub,
+                drawdownRub = metrics.drawdownCurveRub,
+                chartHeightDp = 220
+            )
+        }
         PortfolioPresetSection(
             presets = presets,
             onApply = onApplyPreset,
@@ -1441,12 +1452,17 @@ private fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "валовый ${formatRubSigned(t.grossPnlRubApprox)}",
-                    color = grossColor,
-                    fontSize = 9.sp
+                    text = "чистый",
+                    color = Color(0xFF757575),
+                    fontSize = 8.sp
                 )
             }
         }
+        Text(
+            text = "валовый ${formatRubSigned(t.grossPnlRubApprox)} · комис. ${formatRubExpense(t.commissionRubApprox)} · оверн. ${formatRubExpense(t.overnightRubApprox)}",
+            color = grossColor,
+            fontSize = 10.sp
+        )
         Text(
             "спрэд ${String.format(Locale.US, "%.2f", t.entrySpreadPercent)}% → ${String.format(Locale.US, "%.2f", t.exitSpreadPercent)}% (${String.format(Locale.US, "%+.2f", t.pnlSpreadPoints)} п.п.)",
             color = Color(0xFF9E9E9E),
@@ -1459,6 +1475,9 @@ private fun formatRubSigned(v: Double): String {
     val s = String.format(Locale.US, "%+.0f ₽", v)
     return s
 }
+
+private fun formatRubExpense(v: Double): String =
+    String.format(Locale.US, "−%.0f ₽", kotlin.math.abs(v))
 
 private fun formatPercentSigned(v: Double): String {
     return String.format(Locale.US, "%+.2f%%", v)

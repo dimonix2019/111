@@ -543,6 +543,99 @@ internal fun CandlestickChart(
     }
 }
 
+/**
+ * Equity (столбцы, ₽) и просадка от пика (линия, ₽) на одной шкале времени.
+ */
+@Composable
+internal fun EquityDrawdownComboChart(
+    labels: List<String>,
+    equityRub: List<Double>,
+    drawdownRub: List<Double>,
+    modifier: Modifier = Modifier,
+    chartHeightDp: Int = 220
+) {
+    val n = min(equityRub.size, drawdownRub.size)
+    if (n == 0 || labels.isEmpty()) {
+        Box(modifier = modifier.height(chartHeightDp.dp), contentAlignment = Alignment.Center) {
+            Text("Нет данных для графика equity", color = Color(0xFFD7E3F4), fontSize = 11.sp)
+        }
+        return
+    }
+    val equity = equityRub.take(n)
+    val drawdown = drawdownRub.take(n)
+    val xLabels = labels.take(n)
+    val xTicks = buildXTicks(xLabels, desiredCount = 6)
+    val equityMin = equity.minOrNull() ?: 0.0
+    val equityMax = equity.maxOrNull() ?: 1.0
+    val eqRange = (equityMax - equityMin).takeIf { it > 1.0 } ?: 1.0
+    val ddMax = (drawdown.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
+    val leftPadding = 48f
+    val rightPadding = 44f
+    val topPadding = 12f
+    val bottomPadding = 56f
+
+    Canvas(
+        modifier = modifier
+            .height(chartHeightDp.dp)
+            .fillMaxWidth()
+            .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
+    ) {
+        val w = size.width - leftPadding - rightPadding
+        val h = size.height - topPadding - bottomPadding
+        val maxIndex = (n - 1).coerceAtLeast(0)
+        fun xForIndex(index: Int): Float =
+            if (maxIndex == 0) leftPadding + w / 2f
+            else leftPadding + (index.toFloat() / maxIndex) * w
+        fun yEquity(v: Double): Float {
+            val rel = ((v - equityMin) / eqRange).toFloat().coerceIn(0f, 1f)
+            return topPadding + h * (1f - rel)
+        }
+        fun yDrawdown(v: Double): Float {
+            val rel = (v / ddMax).toFloat().coerceIn(0f, 1f)
+            return topPadding + h * (1f - rel)
+        }
+        val barW = (w / n.coerceAtLeast(1)) * 0.55f
+        drawLine(
+            color = Color(0xFF8AA6C1),
+            start = Offset(leftPadding, topPadding + h),
+            end = Offset(leftPadding + w, topPadding + h),
+            strokeWidth = 1.5f
+        )
+        equity.forEachIndexed { i, v ->
+            val cx = xForIndex(i)
+            val yTop = yEquity(v)
+            val yBase = topPadding + h
+            val barColor = if (v >= equity.firstOrNull() ?: 0.0) Color(0xFF4FC3F7) else Color(0xFFEF5350)
+            drawRect(
+                color = barColor.copy(alpha = 0.85f),
+                topLeft = Offset(cx - barW / 2f, yTop),
+                size = Size(barW, (yBase - yTop).coerceAtLeast(2f))
+            )
+        }
+        if (n >= 2) {
+            val path = Path()
+            drawdown.forEachIndexed { i, v ->
+                val pt = Offset(xForIndex(i), yDrawdown(v))
+                if (i == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+            }
+            drawPath(
+                path = path,
+                color = Color(0xFFFFAB40),
+                style = Stroke(width = 2.5f, cap = StrokeCap.Round)
+            )
+        }
+        xTicks.forEach { tick ->
+            val x = xForIndex(tick.index)
+            drawLine(
+                color = Color(0xFF2A3D50),
+                start = Offset(x, topPadding),
+                end = Offset(x, topPadding + h),
+                strokeWidth = 1f
+            )
+        }
+    }
+}
+
 internal fun resolveSelectedIndex(
     tapX: Float,
     canvasWidth: Float,

@@ -664,6 +664,47 @@ internal fun buildXTicks(labels: List<String>, desiredCount: Int = 5): List<XAxi
         .map { index -> XAxisTick(index = index, label = labels[index]) }
 }
 
+@Composable
+internal fun StrategyTestEquityDrawdownChartCard(
+    labels: List<String>,
+    equityRub: List<Double>,
+    drawdownRub: List<Double>,
+    modifier: Modifier = Modifier,
+    chartHeightDp: Int = 220
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFF171717), RoundedCornerShape(12.dp))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Equity и просадка (симуляция, ₽)",
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            fontSize = 14.sp
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("■ Equity", color = Color(0xFF4FC3F7), fontSize = 10.sp)
+            Text("— Drawdown", color = Color(0xFFFFAB40), fontSize = 10.sp)
+        }
+        Text(
+            text = "Equity = накопленный результат + MTM по 15м (по дням — последний бар дня). " +
+                "Drawdown = отклонение от пика equity. Чистый PnL сделки = валовый − комис. − оверн.",
+            color = Color(0xFF9E9E9E),
+            fontSize = 9.sp,
+            lineHeight = 12.sp
+        )
+        EquityDrawdownComboChart(
+            labels = labels,
+            equityRub = equityRub,
+            drawdownRub = drawdownRub,
+            chartHeightDp = chartHeightDp
+        )
+    }
+}
+
 internal fun formatAxisValue(value: Double): String {
     val precision = when {
         abs(value) >= 1000 -> 0
