@@ -651,7 +651,11 @@ internal fun ConfirmedPortfolioTabContent(
     onTestSpreadPairClick: () -> Unit,
     closeAllPortfolioBusy: Boolean,
     onCloseAllTradesClick: () -> Unit,
-    dailyReconciliation: DailyPortfolioReconciliation? = null
+    dailyReconciliation: DailyPortfolioReconciliation? = null,
+    zScoreCandles: List<CandlePoint> = emptyList(),
+    zChartPoints: List<DataPoint> = emptyList(),
+    zChartThresholds: DynamicThresholds = DynamicThresholds(0.8, 0.7, null),
+    signalEvents: List<StrategySignalEvent> = emptyList()
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -798,6 +802,23 @@ internal fun ConfirmedPortfolioTabContent(
                     }
                 }
             }
+        }
+        if (zScoreCandles.isNotEmpty()) {
+            CandlestickChartCard(
+                title = "Z-score спрэда · 15м (1 день)",
+                candles = zScoreCandles,
+                chartHeightDp = 200,
+                referenceLines = buildZScoreReferenceLines(zChartThresholds),
+                pointMarkers = buildZScoreSignalMarkersFromEvents(
+                    points = zChartPoints,
+                    events = signalEvents
+                ),
+                showLegend = false,
+                enableZoomPan = true,
+                markerScale = 1.2f,
+                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
+                showZoomHint = true
+            )
         }
         PortfolioTradesWindowSection(
             openExecutions = sandboxSpreadExecutions,

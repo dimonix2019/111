@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -345,7 +346,8 @@ private fun DrawScope.drawReferenceLineLabels(
         textSize = textSizePx
         textAlign = Paint.Align.RIGHT
     }
-    val xRight = leftPadding + chartWidth - 4f
+    val labelInset = chartWidth * CHART_RIGHT_PLOT_PADDING_FRACTION
+    val xRight = leftPadding + chartWidth - labelInset - 4f
     val yMin = topPadding + textSizePx * 0.85f
     val yMax = topPadding + chartHeight - 2f
     referenceLines.forEach { reference ->
@@ -428,9 +430,13 @@ internal fun CandlestickChart(
         return
     }
 
-    BoxWithConstraints(modifier = modifier) {
+    var layoutWidthPx by remember { mutableFloatStateOf(0f) }
+    BoxWithConstraints(
+        modifier = modifier.onSizeChanged { layoutWidthPx = it.width.toFloat() }
+    ) {
         val density = LocalDensity.current
-        val plotWidthPx = with(density) { maxWidth.toPx() }
+        val plotWidthPx = layoutWidthPx.takeIf { it > 0f }
+            ?: with(density) { maxWidth.toPx() }
         val rightPadding = remember(plotWidthPx, rightPlotPaddingPx, rightPlotPaddingFraction) {
             chartRightPlotPaddingPx(
                 plotWidthPx = plotWidthPx,
