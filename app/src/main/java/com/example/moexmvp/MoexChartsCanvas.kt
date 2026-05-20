@@ -55,8 +55,6 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/** Минимальная доля ряда по оси X при масштабировании (≈6% точек). */
-private const val CHART_ZOOM_MIN_WINDOW = 0.06f
 
 @Composable
 internal fun LineChart(
@@ -421,7 +419,9 @@ internal fun CandlestickChart(
     enableZoomPan: Boolean = false,
     markerScale: Float = 1f,
     rightPlotPaddingPx: Float = 16f,
-    rightPlotPaddingFraction: Float = 0f
+    rightPlotPaddingFraction: Float = 0f,
+    initialWindowWidth: Float = 1f,
+    initialWindowStart: Float = 0f
 ) {
     if (candles.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -455,9 +455,14 @@ internal fun CandlestickChart(
 
         var windowStart by remember(candles) { mutableFloatStateOf(0f) }
         var windowWidth by remember(candles) { mutableFloatStateOf(1f) }
-        LaunchedEffect(candles) {
-            windowStart = 0f
-            windowWidth = 1f
+        LaunchedEffect(candles, initialWindowWidth, initialWindowStart, enableZoomPan) {
+            if (enableZoomPan) {
+                windowWidth = initialWindowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
+                windowStart = initialWindowStart.coerceIn(0f, 1f - windowWidth)
+            } else {
+                windowStart = 0f
+                windowWidth = 1f
+            }
         }
 
         val wStart = if (enableZoomPan) windowStart else 0f
@@ -636,6 +641,9 @@ internal fun CandlestickChart(
                     color = marker.color,
                     scale = markerScale
                 )
+                marker.badgeText?.let { badge ->
+                    drawMarkerBadge(center, badge, marker.color, markerScale)
+                }
             }
         }
 
@@ -670,6 +678,25 @@ internal fun CandlestickChart(
         }
         }
     }
+}
+
+private fun DrawScope.drawMarkerBadge(
+    center: Offset,
+    text: String,
+    color: Color,
+    scale: Float
+) {
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = (8f * scale).coerceIn(7f, 11f)
+        textAlign = Paint.Align.LEFT
+        this.color = color.copy(alpha = 0.95f).toArgb()
+    }
+    drawContext.canvas.nativeCanvas.drawText(
+        text,
+        center.x + 10f * scale,
+        center.y - 10f * scale,
+        paint
+    )
 }
 
 /**

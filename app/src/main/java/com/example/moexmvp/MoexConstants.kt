@@ -56,6 +56,10 @@ internal const val PORTFOLIO_Z_THRESHOLD_MAX = 8.0
 internal const val PORTFOLIO_Z_THRESHOLD_STEP = 0.05
 /** Доля ширины области графика — пустой зазор справа (Z-score на «Рынке»). */
 internal const val CHART_RIGHT_PLOT_PADDING_FRACTION = 0.10f
+/** Минимальная доля ряда по X при pinch-zoom. */
+internal const val CHART_ZOOM_MIN_WINDOW = 0.06f
+/** Начальное окно Z-графика «Тест страт.» (календарных дней). */
+internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
 internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MIN = 0.05
 internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MAX = 2.0
@@ -77,6 +81,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.75 — Портфель (альбом): Z-score на весь экран с zoom; Тест страт.: Z-score как на Рынке, сделки симуляции с №, окно 1 мес.
 1.6.74 — Портфель: убран график Z-score; Рынок: правый зазор Z-score ~10% ширины графика.
 1.6.73 — Портфель: график Z-score 15м с зазором ~5% справа; отступ считается по фактической ширине canvas.
 1.6.72 — Рынок: у графика Z-score справа ~5% зазор по ширине области (свечи не упираются в край).

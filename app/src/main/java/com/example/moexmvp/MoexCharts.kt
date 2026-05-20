@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
@@ -385,6 +386,8 @@ internal fun CandlestickChartCard(
     showZoomHint: Boolean = false,
     rightPlotPaddingPx: Float = 16f,
     rightPlotPaddingFraction: Float = 0f,
+    initialWindowWidth: Float = 1f,
+    initialWindowStart: Float = 0f,
     tradeTapHintFormatter: ((Int) -> String?)? = null
 ) {
     val axisScale = remember(candles, referenceLines) {
@@ -442,7 +445,9 @@ internal fun CandlestickChartCard(
                 enableZoomPan = enableZoomPan,
                 markerScale = markerScale,
                 rightPlotPaddingPx = rightPlotPaddingPx,
-                rightPlotPaddingFraction = rightPlotPaddingFraction
+                rightPlotPaddingFraction = rightPlotPaddingFraction,
+                initialWindowWidth = initialWindowWidth,
+                initialWindowStart = initialWindowStart
             )
         }
         if (showLegend) {
@@ -606,6 +611,83 @@ internal fun buildZScoreSignalMarkersFromEvents(
             )
         }
         .toList()
+}
+
+/** Начальное окно графика: виден хвост последних [visibleDays] календарных дней. */
+internal fun chartInitialWindowForLastCalendarDays(
+    points: List<DataPoint>,
+    visibleDays: Long = STRATEGY_TEST_Z_CHART_VISIBLE_DAYS
+): Pair<Float, Float> {
+    if (points.size < 2) return 1f to 0f
+    val till = points.last().timestampMillis
+    val from = java.time.Instant.ofEpochMilli(till)
+        .atZone(moexZoneId)
+        .toLocalDate()
+        .minusDays(visibleDays)
+        .atStartOfDay(moexZoneId)
+        .toInstant()
+        .toEpochMilli()
+    val firstVisibleIdx = points.indexOfFirst { it.timestampMillis >= from }.coerceAtLeast(0)
+    val maxIndex = points.lastIndex.coerceAtLeast(1)
+    val width = ((points.size - firstVisibleIdx).toFloat() / points.size)
+        .coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
+    val start = (firstVisibleIdx.toFloat() / maxIndex).coerceIn(0f, 1f - width)
+    return width to start
+}
+
+internal fun indexForTradeDateLabel(points: List<DataPoint>, label: String): Int? {
+    if (points.isEmpty()) return null
+    val exact = points.indexOfFirst { it.tradeDate == label }
+    if (exact >= 0) return exact
+    val targetTs = runCatching {
+        LocalDateTime.parse(label, portfolio15mLabelFormatter)
+            .atZone(moexZoneId)
+            .toInstant()
+            .toEpochMilli()
+    }.getOrNull() ?: return null
+    val idx = points.indices.minByOrNull { kotlin.math.abs(points[it].timestampMillis - targetTs) }
+        ?: return null
+    val diff = kotlin.math.abs(points[idx].timestampMillis - targetTs)
+    return if (diff <= 15 * 60 * 1000L * 2) idx else null
+}
+
+/** Маркеры входа/выхода симуляции «Тест страт.»; [badgeText] = номер как в списке (#1 — свежая). */
+internal fun buildZScoreMarkersFromStrategyTestTrades(
+    points: List<DataPoint>,
+    tradeItems: List<StrategyTestTradeItem>
+): List<ChartPointMarker> {
+    if (points.isEmpty() || tradeItems.isEmpty()) return emptyList()
+    val markers = mutableListOf<ChartPointMarker>()
+    tradeItems.forEachIndexed { listIndex, item ->
+        val num = (listIndex + 1).toString()
+        val t = item.trade
+        val (enterShape, enterColor) = when (t.direction) {
+            ZStrategyPosition.Long -> ChartMarkerShape.TriangleUp to Color(0xFF69F0AE)
+            ZStrategyPosition.Short -> ChartMarkerShape.TriangleDown to Color(0xFFFF8A80)
+            ZStrategyPosition.Flat -> ChartMarkerShape.Circle to Color(0xFFB0BEC5)
+        }
+        indexForTradeDateLabel(points, t.entryDate)?.let { idx ->
+            markers += ChartPointMarker(
+                index = idx,
+                value = points[idx].zScore,
+                color = enterColor,
+                label = "Вх #$num",
+                shape = enterShape,
+                badgeText = num
+            )
+        }
+        indexForTradeDateLabel(points, t.exitDate)?.let { idx ->
+            markers += ChartPointMarker(
+                index = idx,
+                value = points[idx].zScore,
+                color = Color(0xFFFFCC80),
+                label = "Вых #$num",
+                shape = ChartMarkerShape.Diamond,
+                badgeText = num
+            )
+        }
+    }
+    return markers
 }
 
 internal fun filterM15PointsForMarketsPeriod(

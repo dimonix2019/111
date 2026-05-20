@@ -903,7 +903,14 @@ internal fun StrategyTestTabContent(
     walkForwardBusy: Boolean,
     dailyReconciliation: DailyPortfolioReconciliation? = null,
     portfolioEntryThreshold: Double? = null,
-    portfolioExitThreshold: Double? = null
+    portfolioExitThreshold: Double? = null,
+    zScoreCandles: List<CandlePoint> = emptyList(),
+    zChartPoints: List<DataPoint> = emptyList(),
+    zChartThresholds: DynamicThresholds = DynamicThresholds(0.8, 0.7, null),
+    zChartMarkers: List<ChartPointMarker> = emptyList(),
+    zChartInitialWindowWidth: Float = 1f,
+    zChartInitialWindowStart: Float = 0f,
+    zChartTapHintFormatter: ((Int) -> String?)? = null
 ) {
     val exitRuleNote = when (exitMode) {
         ZStrategyExitMode.FixedThreshold ->
@@ -1032,6 +1039,23 @@ internal fun StrategyTestTabContent(
                 equityRub = metrics.equityCurveRub,
                 drawdownRub = metrics.drawdownCurveRub,
                 chartHeightDp = 280
+            )
+        }
+        if (zScoreCandles.isNotEmpty()) {
+            CandlestickChartCard(
+                title = "Z-score спрэда · 15м (окно 1 мес., полный ряд — zoom/сдвиг)",
+                candles = zScoreCandles,
+                chartHeightDp = 228,
+                referenceLines = buildZScoreReferenceLines(zChartThresholds),
+                pointMarkers = zChartMarkers,
+                showLegend = false,
+                enableZoomPan = true,
+                markerScale = 1.25f,
+                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
+                showZoomHint = true,
+                initialWindowWidth = zChartInitialWindowWidth,
+                initialWindowStart = zChartInitialWindowStart,
+                tradeTapHintFormatter = zChartTapHintFormatter
             )
         }
         PortfolioPresetSection(

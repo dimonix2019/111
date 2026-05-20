@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -43,6 +44,44 @@ class MoexMarketsM15ZChartTest {
     fun chartRightPlotPaddingPx_usesTenPercentWhenAboveMinimum() {
         assertEquals(100f, chartRightPlotPaddingPx(1000f), 0.01f)
         assertEquals(16f, chartRightPlotPaddingPx(100f), 0.01f)
+    }
+
+    @Test
+    fun chartInitialWindowForLastCalendarDays_showsTailMonth() {
+        val points = (0 until 100).map { day ->
+            val d = java.time.LocalDate.of(2025, 12, 1).plusDays(day.toLong())
+            point("${d} 10:00", z = day * 0.01)
+        }
+        val (width, start) = chartInitialWindowForLastCalendarDays(points, visibleDays = 30L)
+        assertTrue(width < 1f)
+        assertTrue(start > 0f)
+        assertTrue(start + width <= 1.02f)
+    }
+
+    @Test
+    fun buildZScoreMarkersFromStrategyTestTrades_assignsTradeNumbers() {
+        val points = listOf(
+            point("2026-05-19 10:00", z = -0.9),
+            point("2026-05-19 10:15", z = 0.2),
+            point("2026-05-20 10:00", z = 0.5)
+        )
+        val trades = listOf(
+            StrategyTestTradeItem(
+                trade = PortfolioClosedTrade(
+                    direction = ZStrategyPosition.Long,
+                    entryDate = "2026-05-19 10:00",
+                    exitDate = "2026-05-19 10:15",
+                    entrySpreadPercent = 10.0,
+                    exitSpreadPercent = 10.4,
+                    pnlSpreadPoints = 0.4,
+                    grossPnlRubApprox = 100.0,
+                    pnlRubApprox = 90.0
+                )
+            )
+        )
+        val markers = buildZScoreMarkersFromStrategyTestTrades(points, trades)
+        assertEquals(2, markers.size)
+        assertEquals(listOf("1", "1"), markers.map { it.badgeText })
     }
 
     @Test

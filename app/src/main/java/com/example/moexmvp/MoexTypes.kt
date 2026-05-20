@@ -49,7 +49,9 @@ internal data class ChartPointMarker(
     val value: Double,
     val color: Color,
     val label: String,
-    val shape: ChartMarkerShape
+    val shape: ChartMarkerShape,
+    /** Номер сделки у маркера (мелкий текст рядом с иконкой). */
+    val badgeText: String? = null
 )
 
 internal enum class ChartMarkerShape {

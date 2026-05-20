@@ -64,6 +64,9 @@ internal fun MoexScreen() {
     val landscapeMarketsChartsOnly =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
             selectedTab == MainTab.Markets
+    val landscapePortfolioZChartOnly =
+        configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            selectedTab == MainTab.Portfolio
     /** Портфель: исполнения песочницы + журнал (фильтр ручной/авто). */
     var confirmedPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     var confirmedPortfolioTableRows by remember { mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList()) }
@@ -111,6 +114,7 @@ internal fun MoexScreen() {
     var lastGoodMarkets by remember { mutableStateOf<UiState.Success?>(null) }
     var marketsStale by remember { mutableStateOf(false) }
     var marketsM15Points by remember { mutableStateOf<List<DataPoint>>(emptyList()) }
+    var portfolioM15Points by remember { mutableStateOf<List<DataPoint>>(emptyList()) }
     var portfolioPresets by remember { mutableStateOf(loadPortfolioPresets(context)) }
     var robustCandidate by remember { mutableStateOf<DynamicThresholds?>(null) }
     var walkForwardBusy by remember { mutableStateOf(false) }
@@ -150,6 +154,34 @@ internal fun MoexScreen() {
     }
     val marketsZScoreCandles = remember(marketsM15ChartPoints) {
         buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
+    }
+    val portfolioZChartPoints = remember(portfolioM15Points, selectedPeriod) {
+        filterM15PointsForMarketsPeriod(portfolioM15Points, selectedPeriod)
+    }
+    val portfolioZScoreCandles = remember(portfolioZChartPoints) {
+        buildZScoreCandlesFromM15Points(portfolioZChartPoints)
+    }
+    val portfolioLandscapeChartThresholds = remember(
+        realTradeEntryThreshold,
+        realTradeExitThreshold
+    ) {
+        portfolioChartZThresholds(realTradeEntryThreshold, realTradeExitThreshold)
+    }
+    val strategyTestZChartPoints = remember(portfolioM15Points) { portfolioM15Points }
+    val strategyTestZScoreCandles = remember(strategyTestZChartPoints) {
+        buildZScoreCandlesFromM15Points(strategyTestZChartPoints)
+    }
+    val strategyTestZChartThresholds = remember(
+        strategyTestEntryThreshold,
+        strategyTestExitThreshold
+    ) {
+        portfolioChartZThresholds(strategyTestEntryThreshold, strategyTestExitThreshold)
+    }
+    val strategyTestZChartWindow = remember(strategyTestZChartPoints) {
+        chartInitialWindowForLastCalendarDays(strategyTestZChartPoints)
+    }
+    val strategyTestZChartMarkers = remember(strategyTestZChartPoints, strategyTestTradeItems) {
+        buildZScoreMarkersFromStrategyTestTrades(strategyTestZChartPoints, strategyTestTradeItems)
     }
     val marketsChartThresholds = remember(
         realTradeEntryThreshold,
@@ -300,6 +332,7 @@ internal fun MoexScreen() {
                 return@refreshPortfolioUnlocked
             }
             val points = loaded
+            portfolioM15Points = loaded
             if (marketsM15Points.isEmpty()) marketsM15Points = loaded
             val desc =
                 "15 мин (ISS 10m→15m) · $PORTFOLIO_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
@@ -922,9 +955,11 @@ internal fun MoexScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(if (landscapeMarketsChartsOnly) 4.dp else 12.dp)
+            .padding(
+                if (landscapeMarketsChartsOnly || landscapePortfolioZChartOnly) 4.dp else 12.dp
+            )
     ) {
-        if (!landscapeMarketsChartsOnly) {
+        if (!landscapeMarketsChartsOnly && !landscapePortfolioZChartOnly) {
             MainTabSelector(
                 selected = selectedTab,
                 onSelect = { selectedTab = it }
@@ -1115,6 +1150,59 @@ internal fun MoexScreen() {
             }
 
             MainTab.Portfolio -> {
+                if (landscapePortfolioZChartOnly) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Портрет — вкладки и сделки. Z-score на весь экран: масштаб двумя пальцами, сдвиг, двойной тап — сброс.",
+                            color = Color(0xFFB0BEC5),
+                            fontSize = 10.sp
+                        )
+                        PeriodSelector(
+                            selected = selectedPeriod,
+                            onSelect = { selectedPeriod = it }
+                        )
+                        BoxWithConstraints(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            val safeMax = if (maxHeight.value.isFinite()) maxHeight else 360.dp
+                            val chartH = safeMax.value.roundToInt().coerceIn(120, 1200)
+                            if (portfolioZScoreCandles.isNotEmpty()) {
+                                CandlestickChartCard(
+                                    title = "Z-score спрэда · 15м",
+                                    candles = portfolioZScoreCandles,
+                                    chartHeightDp = chartH,
+                                    referenceLines = buildZScoreReferenceLines(portfolioLandscapeChartThresholds),
+                                    pointMarkers = buildZScoreSignalMarkersFromEvents(
+                                        points = portfolioZChartPoints,
+                                        events = signalEvents
+                                    ),
+                                    showLegend = false,
+                                    enableZoomPan = true,
+                                    markerScale = 1.5f,
+                                    rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
+                                    showZoomHint = true,
+                                    tradeTapHintFormatter = { idx ->
+                                        formatZStrategyTradeTapHint(
+                                            idx,
+                                            portfolioZChartPoints,
+                                            confirmedPortfolioMetrics
+                                        )
+                                    }
+                                )
+                            } else if (portfolioLoading) {
+                                LoadingState()
+                            } else {
+                                EmptyState()
+                            }
+                        }
+                    }
+                } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1207,6 +1295,7 @@ internal fun MoexScreen() {
                             dailyReconciliation = dailyReconciliation
                         )
                     }
+                }
                 }
             }
 
@@ -1329,7 +1418,20 @@ internal fun MoexScreen() {
                             portfolioEntryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             portfolioExitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
-                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            zScoreCandles = strategyTestZScoreCandles,
+                            zChartPoints = strategyTestZChartPoints,
+                            zChartThresholds = strategyTestZChartThresholds,
+                            zChartMarkers = strategyTestZChartMarkers,
+                            zChartInitialWindowWidth = strategyTestZChartWindow.first,
+                            zChartInitialWindowStart = strategyTestZChartWindow.second,
+                            zChartTapHintFormatter = { idx ->
+                                formatZStrategyTradeTapHint(
+                                    idx,
+                                    strategyTestZChartPoints,
+                                    strategyTestPortfolioMetrics
+                                )
+                            }
                         )
                     }
                 }
