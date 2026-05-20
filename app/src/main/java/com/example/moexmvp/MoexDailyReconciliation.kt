@@ -45,7 +45,9 @@ internal fun buildDailyPortfolioReconciliation(
     confirmed: PortfolioMetrics?,
     simulation: PortfolioMetrics?,
     simEntryThreshold: Double,
-    simExitThreshold: Double
+    simExitThreshold: Double,
+    simExitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
+    simZPeakTrailZ: Double = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL
 ): DailyPortfolioReconciliation {
     val journalToday = journalEvents.filter { eventOnDay(it, day) }
     val enters = journalToday.count {
@@ -63,6 +65,10 @@ internal fun buildDailyPortfolioReconciliation(
 
     val rows = mutableListOf<DailyReconciliationRow>()
     val matchedSim = mutableSetOf<Int>()
+    val exitRuleText = when (simExitMode) {
+        ZStrategyExitMode.FixedThreshold -> "выход ±${fmt(simExitThreshold)}"
+        ZStrategyExitMode.ZPeakTrailing -> "трейл от пика Z ${fmt(simZPeakTrailZ)}"
+    }
 
     fun tradeKey(t: PortfolioClosedTrade): String {
         val d = t.direction.name
@@ -102,7 +108,7 @@ internal fun buildDailyPortfolioReconciliation(
                 matchedSim += i
                 rows += DailyReconciliationRow(
                     headline = "Подтв. сделка есть, в тесте другой выход: ${dirRu(c.direction)}",
-                    detail = "Подтв. выход ${c.exitDate} · тест выход ${s.exitDate}. Пороги теста сейчас ±${fmt(simEntryThreshold)}/±${fmt(simExitThreshold)}.",
+                    detail = "Подтв. выход ${c.exitDate} · тест выход ${s.exitDate}. Тест сейчас: вход ±${fmt(simEntryThreshold)}, $exitRuleText.",
                     isOk = false
                 )
             } else {
@@ -192,7 +198,7 @@ internal fun buildDailyPortfolioReconciliation(
     }
 
     val thresholdsNote =
-        "Тест страт.: пороги вход ±${fmt(simEntryThreshold)}, выход ±${fmt(simExitThreshold)} (текущие степперы). " +
+        "Тест страт.: вход ±${fmt(simEntryThreshold)}, $exitRuleText (текущие степперы). " +
             "Подтв.: фактические записи журнала на 15м барах."
 
     return DailyPortfolioReconciliation(

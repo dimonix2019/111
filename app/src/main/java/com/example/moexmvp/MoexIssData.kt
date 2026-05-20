@@ -667,6 +667,37 @@ internal fun saveStrategyTestZThresholds(context: Context, entry: Double, exit: 
         .apply()
 }
 
+internal fun loadStrategyTestExitMode(context: Context): ZStrategyExitMode {
+    val prefs = context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+    return parseZStrategyExitMode(prefs.getString(PREF_STRATEGY_TEST_EXIT_MODE, null))
+}
+
+internal fun loadStrategyTestZPeakTrailZ(context: Context): Double {
+    val prefs = context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+    return prefs.getFloat(
+        PREF_STRATEGY_TEST_Z_PEAK_TRAIL,
+        DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL.toFloat()
+    ).toDouble().coerceIn(STRATEGY_TEST_Z_PEAK_TRAIL_MIN, STRATEGY_TEST_Z_PEAK_TRAIL_MAX)
+}
+
+internal fun saveStrategyTestExitConfig(
+    context: Context,
+    exitMode: ZStrategyExitMode,
+    zPeakTrailZ: Double
+) {
+    context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(PREF_STRATEGY_TEST_EXIT_MODE, exitMode.name)
+        .putFloat(
+            PREF_STRATEGY_TEST_Z_PEAK_TRAIL,
+            zPeakTrailZ.coerceIn(
+                STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
+                STRATEGY_TEST_Z_PEAK_TRAIL_MAX
+            ).toFloat()
+        )
+        .apply()
+}
+
 /** Сигнал на последнем 15м баре (пересечение prev→last), те же правила что [buildZStrategyPortfolioMetrics]. */
 internal fun zStrategySignalOnLast15mBar(
     points: List<DataPoint>,

@@ -12,6 +12,10 @@ internal enum class ZStrategyExitMode {
     ZPeakTrailing
 }
 
+internal fun parseZStrategyExitMode(raw: String?): ZStrategyExitMode =
+    runCatching { ZStrategyExitMode.valueOf(raw.orEmpty()) }
+        .getOrDefault(ZStrategyExitMode.FixedThreshold)
+
 /**
  * Long: запоминаем минимальный Z (самый «дешёвый» спред), выходим при отскоке вверх на [trailZ].
  * Выход только если |zBest| достиг [entryThreshold] — иначе шум сразу после входа.

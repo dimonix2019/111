@@ -885,8 +885,12 @@ internal fun StrategyTestTabContent(
     commissionPercentPerSide: Double,
     entryThreshold: Double,
     exitThreshold: Double,
+    exitMode: ZStrategyExitMode,
+    zPeakTrailZ: Double,
     compoundReturns: Boolean,
     onCompoundReturnsChange: (Boolean) -> Unit,
+    onExitModeChange: (ZStrategyExitMode) -> Unit,
+    onZPeakTrailZChange: (Double) -> Unit,
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
@@ -901,6 +905,12 @@ internal fun StrategyTestTabContent(
     portfolioEntryThreshold: Double? = null,
     portfolioExitThreshold: Double? = null
 ) {
+    val exitRuleNote = when (exitMode) {
+        ZStrategyExitMode.FixedThreshold ->
+            "выход по фиксированному порогу ±${String.format(Locale.US, "%.2f", exitThreshold)}"
+        ZStrategyExitMode.ZPeakTrailing ->
+            "выход по трейлу Z ${String.format(Locale.US, "%.2f", zPeakTrailZ)} от лучшего пика внутри сделки"
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
@@ -929,10 +939,17 @@ internal fun StrategyTestTabContent(
             entryThreshold = entryThreshold,
             exitThreshold = exitThreshold,
             showZThresholdSteppers = true,
+            showExitThresholdStepper = exitMode == ZStrategyExitMode.FixedThreshold,
             onLeverageChange = onLeverageChange,
             onCommissionChange = onCommissionChange,
             onEntryThresholdChange = onEntryThresholdChange,
             onExitThresholdChange = onExitThresholdChange
+        )
+        StrategyTestExitModeControls(
+            exitMode = exitMode,
+            zPeakTrailZ = zPeakTrailZ,
+            onExitModeChange = onExitModeChange,
+            onZPeakTrailZChange = onZPeakTrailZChange
         )
         Row(
             modifier = Modifier
@@ -973,17 +990,22 @@ internal fun StrategyTestTabContent(
         }
         Text(
             text = "Сделки ниже — все закрытые круги симуляции на 15м ряду за ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. " +
-                "до сегодня включительно (пересечение порогов Z на истории, не журнал и не демо).",
+                "до сегодня включительно ($exitRuleNote, не журнал и не демо).",
             color = Color(0xFF757575),
             fontSize = 10.sp,
             maxLines = 3
         )
         if (portfolioEntryThreshold != null && portfolioExitThreshold != null) {
             val entryDiffers = kotlin.math.abs(entryThreshold - portfolioEntryThreshold) > 0.009
-            val exitDiffers = kotlin.math.abs(exitThreshold - portfolioExitThreshold) > 0.009
+            val exitDiffers = exitMode == ZStrategyExitMode.FixedThreshold &&
+                kotlin.math.abs(exitThreshold - portfolioExitThreshold) > 0.009
             if (entryDiffers || exitDiffers) {
+                val testExitText = when (exitMode) {
+                    ZStrategyExitMode.FixedThreshold -> "±${String.format(Locale.US, "%.2f", exitThreshold)}"
+                    ZStrategyExitMode.ZPeakTrailing -> "трейл ${String.format(Locale.US, "%.2f", zPeakTrailZ)}"
+                }
                 Text(
-                    text = "Пороги «Тест страт.» (±${String.format(Locale.US, "%.2f", entryThreshold)} / ±${String.format(Locale.US, "%.2f", exitThreshold)}) " +
+                    text = "Пороги «Тест страт.» (вход ±${String.format(Locale.US, "%.2f", entryThreshold)} / $testExitText) " +
                         "не совпадают с розовыми на «Портфеле» (±${String.format(Locale.US, "%.2f", portfolioEntryThreshold)} / ±${String.format(Locale.US, "%.2f", portfolioExitThreshold)}). " +
                         "Сделки на вкладках будут различаться.",
                     color = Color(0xFFFFCC80),
@@ -1305,6 +1327,7 @@ private fun PortfolioParamsControls(
     entryThreshold: Double,
     exitThreshold: Double,
     showZThresholdSteppers: Boolean,
+    showExitThresholdStepper: Boolean = true,
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
@@ -1342,25 +1365,117 @@ private fun PortfolioParamsControls(
                             (entryThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
                         )
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = if (showExitThresholdStepper) Modifier.weight(1f) else Modifier.fillMaxWidth()
                 )
-                ParamStepper(
-                    title = "Порог выхода |Z|",
-                    valueLabel = String.format(Locale.US, "%.2f", exitThreshold),
-                    onMinus = {
-                        onExitThresholdChange(
-                            (exitThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
-                        )
-                    },
-                    onPlus = {
-                        onExitThresholdChange(
-                            (exitThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
-                        )
-                    },
-                    modifier = Modifier.weight(1f)
-                )
+                if (showExitThresholdStepper) {
+                    ParamStepper(
+                        title = "Порог выхода |Z|",
+                        valueLabel = String.format(Locale.US, "%.2f", exitThreshold),
+                        onMinus = {
+                            onExitThresholdChange(
+                                (exitThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
+                            )
+                        },
+                        onPlus = {
+                            onExitThresholdChange(
+                                (exitThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun StrategyTestExitModeControls(
+    exitMode: ZStrategyExitMode,
+    zPeakTrailZ: Double,
+    onExitModeChange: (ZStrategyExitMode) -> Unit,
+    onZPeakTrailZChange: (Double) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = "Выход из сделки",
+            color = Color(0xFFE0E0E0),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            StrategyExitModeButton(
+                text = "Фикс. |Z|",
+                selected = exitMode == ZStrategyExitMode.FixedThreshold,
+                onClick = { onExitModeChange(ZStrategyExitMode.FixedThreshold) },
+                modifier = Modifier.weight(1f)
+            )
+            StrategyExitModeButton(
+                text = "Трейл Z",
+                selected = exitMode == ZStrategyExitMode.ZPeakTrailing,
+                onClick = { onExitModeChange(ZStrategyExitMode.ZPeakTrailing) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Text(
+            text = when (exitMode) {
+                ZStrategyExitMode.FixedThreshold ->
+                    "Закрытие по прежнему порогу выхода |Z|; розовые пороги «Портфеля» не меняются."
+                ZStrategyExitMode.ZPeakTrailing ->
+                    "После входа запоминаем лучший Z и закрываемся при откате от пика на выбранный шаг."
+            },
+            color = Color(0xFF757575),
+            fontSize = 9.sp,
+            maxLines = 3
+        )
+        if (exitMode == ZStrategyExitMode.ZPeakTrailing) {
+            ParamStepper(
+                title = "Трейл Z от пика",
+                valueLabel = String.format(Locale.US, "%.2f", zPeakTrailZ),
+                onMinus = {
+                    onZPeakTrailZChange(
+                        (zPeakTrailZ - PORTFOLIO_Z_THRESHOLD_STEP)
+                            .coerceAtLeast(STRATEGY_TEST_Z_PEAK_TRAIL_MIN)
+                    )
+                },
+                onPlus = {
+                    onZPeakTrailZChange(
+                        (zPeakTrailZ + PORTFOLIO_Z_THRESHOLD_STEP)
+                            .coerceAtMost(STRATEGY_TEST_Z_PEAK_TRAIL_MAX)
+                    )
+                },
+                containerColor = Color(0xFF263238),
+                titleColor = Color(0xFFB3E5FC),
+                valueTextColor = Color(0xFFE1F5FE),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun StrategyExitModeButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) Color(0xFF1565C0) else Color(0xFF37474F),
+            contentColor = Color.White
+        ),
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+    ) {
+        Text(text, fontSize = 10.sp, maxLines = 1)
     }
 }
 

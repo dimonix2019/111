@@ -32,6 +32,8 @@ internal const val PREF_REAL_TRADE_Z_EXIT = "real_trade_z_exit"
 /** Пороги |Z| только для симуляции «Тест страт.». */
 internal const val PREF_STRATEGY_TEST_Z_ENTRY = "strategy_test_z_entry"
 internal const val PREF_STRATEGY_TEST_Z_EXIT = "strategy_test_z_exit"
+internal const val PREF_STRATEGY_TEST_EXIT_MODE = "strategy_test_exit_mode"
+internal const val PREF_STRATEGY_TEST_Z_PEAK_TRAIL = "strategy_test_z_peak_trail"
 /** @deprecated миграция в [PREF_REAL_TRADE_Z_ENTRY] при первом запуске. */
 internal const val PREF_PORTFOLIO_Z_ENTRY_THRESHOLD = "portfolio_z_entry_threshold"
 /** @deprecated */
@@ -52,6 +54,9 @@ internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
 internal const val PORTFOLIO_Z_THRESHOLD_MIN = 0.0
 internal const val PORTFOLIO_Z_THRESHOLD_MAX = 8.0
 internal const val PORTFOLIO_Z_THRESHOLD_STEP = 0.05
+internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
+internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MIN = 0.05
+internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MAX = 2.0
 /** Calendar days of history for 15m-style portfolio (10m ISS → 15m bars). ~1y; smaller than 365*1m traffic. */
 internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 255L
 
@@ -70,6 +75,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.70 — Тест страт.: режим выхода — фиксированный порог |Z| или трейлинг от пика Z с отдельным шагом трейла.
 1.6.69 — Тест страт.: график Equity/Drawdown — подписи ₽ по Y, месяцы по X под углом; просадка отрицательная внизу.
 1.6.68 — Тест страт.: в сделке валовый PnL, комиссия и овернайт; график Equity (столбцы) и Drawdown (линия) в ₽.
 1.6.67 — Портфель: снова степперы «Вход |Z|» и «Выход |Z|» (рыночные пороги для сигналов, push, фона и линий на «Рынке»).

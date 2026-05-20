@@ -23,7 +23,12 @@ internal fun loadPortfolioPresets(context: Context): List<PortfolioPreset> {
                     leverage = o.optDouble("leverage", 7.0),
                     commissionPercentPerSide = o.optDouble("commission", 0.04),
                     entryThreshold = o.optDouble("entry", DEFAULT_DYNAMIC_Z_ENTRY),
-                    exitThreshold = o.optDouble("exit", DEFAULT_DYNAMIC_Z_EXIT)
+                    exitThreshold = o.optDouble("exit", DEFAULT_DYNAMIC_Z_EXIT),
+                    exitMode = parseZStrategyExitMode(o.optString("exitMode", ZStrategyExitMode.FixedThreshold.name)),
+                    zPeakTrailZ = o.optDouble(
+                        "zPeakTrail",
+                        DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL
+                    ).coerceIn(STRATEGY_TEST_Z_PEAK_TRAIL_MIN, STRATEGY_TEST_Z_PEAK_TRAIL_MAX)
                 )
             )
         }
@@ -41,6 +46,8 @@ internal fun savePortfolioPresets(context: Context, presets: List<PortfolioPrese
                 .put("commission", p.commissionPercentPerSide)
                 .put("entry", p.entryThreshold)
                 .put("exit", p.exitThreshold)
+                .put("exitMode", p.exitMode.name)
+                .put("zPeakTrail", p.zPeakTrailZ)
         )
     }
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_LIST, arr.toString()).apply()
@@ -52,7 +59,9 @@ internal fun addPortfolioPreset(
     leverage: Double,
     commissionPercentPerSide: Double,
     entryThreshold: Double,
-    exitThreshold: Double
+    exitThreshold: Double,
+    exitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
+    zPeakTrailZ: Double = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL
 ): List<PortfolioPreset> {
     val list = loadPortfolioPresets(context).toMutableList()
     list.add(
@@ -63,7 +72,12 @@ internal fun addPortfolioPreset(
             leverage = leverage,
             commissionPercentPerSide = commissionPercentPerSide,
             entryThreshold = entryThreshold,
-            exitThreshold = exitThreshold
+            exitThreshold = exitThreshold,
+            exitMode = exitMode,
+            zPeakTrailZ = zPeakTrailZ.coerceIn(
+                STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
+                STRATEGY_TEST_Z_PEAK_TRAIL_MAX
+            )
         )
     )
     while (list.size > MAX_PRESETS) list.removeAt(list.lastIndex)

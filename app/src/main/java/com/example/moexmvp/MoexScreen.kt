@@ -80,6 +80,8 @@ internal fun MoexScreen() {
     var realTradeExitThreshold by remember { mutableStateOf<Double?>(null) }
     var strategyTestEntryThreshold by remember { mutableStateOf<Double?>(null) }
     var strategyTestExitThreshold by remember { mutableStateOf<Double?>(null) }
+    var strategyTestExitMode by remember(context) { mutableStateOf(loadStrategyTestExitMode(context)) }
+    var strategyTestZPeakTrailZ by remember(context) { mutableStateOf(loadStrategyTestZPeakTrailZ(context)) }
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -254,6 +256,12 @@ internal fun MoexScreen() {
         }
     }
 
+    LaunchedEffect(strategyTestExitMode, strategyTestZPeakTrailZ) {
+        withContext(Dispatchers.IO) {
+            saveStrategyTestExitConfig(context, strategyTestExitMode, strategyTestZPeakTrailZ)
+        }
+    }
+
     LaunchedEffect(chartSuccess?.points, signalEvents) {
         val pts = chartSuccess?.points
         if (pts != null && pts.isNotEmpty()) {
@@ -302,6 +310,11 @@ internal fun MoexScreen() {
                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
             if (strategyTestEntryThreshold == null) strategyTestEntryThreshold = entrySt
             if (strategyTestExitThreshold == null) strategyTestExitThreshold = exitSt
+            val zPeakTrailSt = strategyTestZPeakTrailZ.coerceIn(
+                STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
+                STRATEGY_TEST_Z_PEAK_TRAIL_MAX
+            )
+            if (strategyTestZPeakTrailZ != zPeakTrailSt) strategyTestZPeakTrailZ = zPeakTrailSt
             val strategyTestThresholds = DynamicThresholds(
                 entry = entrySt,
                 exit = exitSt,
@@ -376,7 +389,9 @@ internal fun MoexScreen() {
                 leverage = portfolioLeverage,
                 commissionPercentPerSide = portfolioCommissionPercent,
                 periodDescription = desc,
-                compoundReturns = strategyTestCompoundReturns
+                compoundReturns = strategyTestCompoundReturns,
+                exitMode = strategyTestExitMode,
+                zPeakTrailZ = zPeakTrailSt
             )
             strategyTestTradeItems = buildStrategyTestTradeListFromSimulation(
                 strategyTestPortfolioMetrics?.closedTrades.orEmpty()
@@ -407,6 +422,8 @@ internal fun MoexScreen() {
         strategyTestPortfolioMetrics,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
+        strategyTestExitMode,
+        strategyTestZPeakTrailZ,
         dynamicThresholds.entry,
         dynamicThresholds.exit
     ) {
@@ -416,7 +433,9 @@ internal fun MoexScreen() {
             confirmed = confirmedPortfolioMetrics,
             simulation = strategyTestPortfolioMetrics,
             simEntryThreshold = strategyTestEntryThreshold ?: dynamicThresholds.entry,
-            simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit
+            simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit,
+            simExitMode = strategyTestExitMode,
+            simZPeakTrailZ = strategyTestZPeakTrailZ
         )
     }
 
@@ -430,6 +449,8 @@ internal fun MoexScreen() {
         realTradeExitThreshold,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
+        strategyTestExitMode,
+        strategyTestZPeakTrailZ,
         signalJournalFingerprint,
         strategyTestCompoundReturns,
         sandboxSpreadExecReload,
@@ -1189,8 +1210,20 @@ internal fun MoexScreen() {
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             exitThreshold = (strategyTestExitThreshold ?: dynamicThresholds.exit)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                            exitMode = strategyTestExitMode,
+                            zPeakTrailZ = strategyTestZPeakTrailZ.coerceIn(
+                                STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
+                                STRATEGY_TEST_Z_PEAK_TRAIL_MAX
+                            ),
                             compoundReturns = strategyTestCompoundReturns,
                             onCompoundReturnsChange = { strategyTestCompoundReturns = it },
+                            onExitModeChange = { strategyTestExitMode = it },
+                            onZPeakTrailZChange = { newTrail ->
+                                strategyTestZPeakTrailZ = newTrail.coerceIn(
+                                    STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
+                                    STRATEGY_TEST_Z_PEAK_TRAIL_MAX
+                                )
+                            },
                             onLeverageChange = { portfolioLeverage = it },
                             onCommissionChange = { portfolioCommissionPercent = it },
                             onEntryThresholdChange = { newEntry ->
@@ -1211,6 +1244,11 @@ internal fun MoexScreen() {
                                 portfolioCommissionPercent = p.commissionPercentPerSide
                                 strategyTestEntryThreshold = p.entryThreshold
                                 strategyTestExitThreshold = p.exitThreshold
+                                strategyTestExitMode = p.exitMode
+                                strategyTestZPeakTrailZ = p.zPeakTrailZ.coerceIn(
+                                    STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
+                                    STRATEGY_TEST_Z_PEAK_TRAIL_MAX
+                                )
                             },
                             onDeletePreset = { id ->
                                 portfolioPresets = deletePortfolioPreset(context, id)
@@ -1224,7 +1262,12 @@ internal fun MoexScreen() {
                                     entryThreshold = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
                                         .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                                     exitThreshold = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+                                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                                    exitMode = strategyTestExitMode,
+                                    zPeakTrailZ = strategyTestZPeakTrailZ.coerceIn(
+                                        STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
+                                        STRATEGY_TEST_Z_PEAK_TRAIL_MAX
+                                    )
                                 )
                             },
                             onWalkForward = {

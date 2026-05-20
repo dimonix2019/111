@@ -208,7 +208,9 @@ internal data class PortfolioPreset(
     val leverage: Double,
     val commissionPercentPerSide: Double,
     val entryThreshold: Double,
-    val exitThreshold: Double
+    val exitThreshold: Double,
+    val exitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
+    val zPeakTrailZ: Double = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL
 )
 
 internal enum class PortfolioM15LoadMode {
