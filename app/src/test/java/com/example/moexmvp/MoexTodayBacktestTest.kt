@@ -14,6 +14,7 @@ import kotlin.math.roundToInt
  *
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexTodayBacktest_tatnTatnp_threshold08_07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexTodayBacktest_thresholdSweep_today`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_noSignalDayStreaks_threshold08_07`
  */
 class MoexTodayBacktestTest {
 
@@ -30,6 +31,34 @@ class MoexTodayBacktestTest {
         val thresholds = DynamicThresholds(entry = 0.8, exit = 0.7, calculatedDate = today.toString())
         val metrics = runPortfolioMetrics(points, thresholds, today)
         printSingleBacktestReport(today, points, thresholds, metrics)
+    }
+
+    @Test
+    fun moexBacktest_noSignalDayStreaks_threshold08_07() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val thresholds = DynamicThresholds(entry = 0.8, exit = 0.7, calculatedDate = null)
+        val tradingDays = tradingDaysWithBars(points)
+        val entriesPerDay = tradingDays.map { countSignalsOnDay(points, thresholds, it, entryOnly = true) }
+        val exitsPerDay = tradingDays.map { countSignalsOnDay(points, thresholds, it, entryOnly = false) }
+        val anyPerDay = entriesPerDay.zip(exitsPerDay) { e, x -> e + x }
+
+        val noEntryDays = entriesPerDay.count { it == 0 }
+        val noAnySignalDays = anyPerDay.count { it == 0 }
+        val entryStreaks = consecutiveQuietStreakLengths(entriesPerDay.map { it == 0 })
+        val anyStreaks = consecutiveQuietStreakLengths(anyPerDay.map { it == 0 })
+
+        println("=== MOEX: дни без сигналов (255д, пороги 0.8/0.7) ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate}")
+        println("Торговых дней с 15м барами: ${tradingDays.size}")
+        println(
+            "Дней без входа: $noEntryDays (${pct(noEntryDays, tradingDays.size)}%), " +
+                "без любого сигнала (вход/выход): $noAnySignalDays (${pct(noAnySignalDays, tradingDays.size)}%)"
+        )
+        printStreakBlock("Серии подряд без входа", entryStreaks)
+        printStreakBlock("Серии подряд без любого сигнала", anyStreaks)
+        val tailNoEntry = trailingQuietDays(entriesPerDay.map { it == 0 })
+        val tailNoAny = trailingQuietDays(anyPerDay.map { it == 0 })
+        println("Текущая серия на конец ряда (${tradingDays.last()}): без входа $tailNoEntry дн., без сигналов $tailNoAny дн.")
     }
 
     @Test
@@ -292,6 +321,57 @@ class MoexTodayBacktestTest {
             ZStrategySignal.ExitLong, ZStrategySignal.ExitShort -> ZStrategyPosition.Flat
             ZStrategySignal.None -> pos
         }
+    }
+
+    private fun tradingDaysWithBars(points: List<DataPoint>): List<LocalDate> =
+        points
+            .map { Instant.ofEpochMilli(it.timestampMillis).atZone(zone).toLocalDate() }
+            .distinct()
+            .sorted()
+
+    /** Длины подряд идущих «тихих» дней (quietFlags[i] == true). */
+    private fun consecutiveQuietStreakLengths(quietFlags: List<Boolean>): List<Int> {
+        if (quietFlags.isEmpty()) return emptyList()
+        val streaks = mutableListOf<Int>()
+        var run = 0
+        for (quiet in quietFlags) {
+            if (quiet) {
+                run++
+            } else if (run > 0) {
+                streaks += run
+                run = 0
+            }
+        }
+        if (run > 0) streaks += run
+        return streaks
+    }
+
+    private fun trailingQuietDays(quietFlags: List<Boolean>): Int {
+        var n = 0
+        for (i in quietFlags.indices.reversed()) {
+            if (!quietFlags[i]) break
+            n++
+        }
+        return n
+    }
+
+    private fun pct(part: Int, total: Int): String =
+        if (total <= 0) "0" else String.format(Locale.US, "%.1f", 100.0 * part / total)
+
+    private fun printStreakBlock(title: String, streaks: List<Int>) {
+        if (streaks.isEmpty()) {
+            println("$title: серий нет (каждый день с сигналом)")
+            return
+        }
+        val avg = streaks.average()
+        val min = streaks.minOrNull() ?: 0
+        val max = streaks.maxOrNull() ?: 0
+        val totalQuietInStreaks = streaks.sum()
+        println(
+            "$title: серий=${streaks.size}, суммарно тихих дней в сериях=$totalQuietInStreaks, " +
+                "средняя длина серии=${String.format(Locale.US, "%.1f", avg)} дн., " +
+                "мин=${min} дн., макс=${max} дн."
+        )
     }
 
     private fun fmt(v: Double) = String.format(Locale.US, "%.2f", v)
