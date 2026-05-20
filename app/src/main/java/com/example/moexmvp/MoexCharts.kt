@@ -250,6 +250,7 @@ internal fun ChartCard(
     enableZoomPan: Boolean = false,
     markerScale: Float = 1f,
     showZoomHint: Boolean = false,
+    rightPlotPaddingPx: Float = 16f,
     /** Доп. строка под выбранной точкой (например PnL симуляции по Z). */
     tradeTapHintFormatter: ((Int) -> String?)? = null
 ) {
@@ -310,7 +311,8 @@ internal fun ChartCard(
                     .weight(1f)
                     .height(chartHeightDp.dp),
                 enableZoomPan = enableZoomPan,
-                markerScale = markerScale
+                markerScale = markerScale,
+                rightPlotPaddingPx = rightPlotPaddingPx
             )
             if (rightAxisPercentBase != null && rightAxisPercentBase != 0.0) {
                 Column(

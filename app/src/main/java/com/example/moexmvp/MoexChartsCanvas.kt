@@ -65,7 +65,8 @@ internal fun LineChart(
     pointMarkers: List<ChartPointMarker> = emptyList(),
     modifier: Modifier = Modifier,
     enableZoomPan: Boolean = false,
-    markerScale: Float = 1f
+    markerScale: Float = 1f,
+    rightPlotPaddingPx: Float = 16f
 ) {
     if (series.isEmpty() || series.all { it.values.isEmpty() }) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -79,7 +80,7 @@ internal fun LineChart(
     val max = yTicks.maxOrNull() ?: allValues.maxOrNull() ?: 1.0
     val range = (max - min).takeIf { it > 0.0 } ?: 1.0
     val leftPadding = 16f
-    val rightPadding = 16f
+    val rightPadding = rightPlotPaddingPx.coerceAtLeast(16f)
     val topPadding = 12f
     val bottomPadding = 60f
 
