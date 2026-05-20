@@ -38,10 +38,23 @@ internal fun AboutTabContent(modifier: Modifier = Modifier) {
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Версия ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            text = "Версия приложения",
+            color = Color(0xFF9E9E9E),
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 12.dp)
+        )
+        Text(
+            text = BuildConfig.VERSION_NAME,
+            color = Color(0xFF81D4FA),
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Text(
+            text = "Сборка ${BuildConfig.VERSION_CODE} · ${BuildConfig.APPLICATION_ID}",
             color = Color(0xFFB3E5FC),
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 8.dp)
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 6.dp)
         )
         val uriHandler = LocalUriHandler.current
         Text(

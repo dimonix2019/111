@@ -90,10 +90,14 @@ internal fun MainTabSelector(
                     Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        tab.label,
+                        text = if (tab == MainTab.About) {
+                            "${tab.label}\n${BuildConfig.VERSION_NAME}"
+                        } else {
+                            tab.label
+                        },
                         fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
                         fontSize = 11.sp,
-                        maxLines = 1
+                        maxLines = if (tab == MainTab.About) 2 else 1
                     )
                 }
             }

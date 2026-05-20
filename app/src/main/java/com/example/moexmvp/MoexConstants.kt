@@ -83,6 +83,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.81 — О приложении: крупно версия 1.6.x; на кнопке вкладки — номер сборки.
 1.6.80 — Тест страт.: симуляция считается от полного 15м ряда; 1W/1M на графике без вылета (свой период, без refresh рынка).
 1.6.79 — Z-score: pinch одновременно растягивает свечи по X и Y; пороги двигаются вместе со свечами.
 1.6.78 — Z-score: вертикальный pinch-zoom как в галерее (центр у пальцев, ряд уходит за край).
