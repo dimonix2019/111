@@ -193,12 +193,13 @@ internal fun LineChart(
         }
         drawReferenceLineLabels(
             referenceLines = referenceLines,
-            min = min,
-            range = range,
             leftPadding = leftPadding,
             topPadding = topPadding,
             chartWidth = w,
-            chartHeight = h
+            chartHeight = h,
+            yForValue = { value ->
+                topPadding + h - (((value - min) / range).toFloat().coerceIn(0f, 1f) * h)
+            }
         )
 
         xTicks.forEach { tick ->
@@ -331,12 +332,11 @@ internal fun LineChart(
 /** Подписи порогов Z у правого края линии (вход ±entry, выход ±exit). */
 private fun DrawScope.drawReferenceLineLabels(
     referenceLines: List<ChartReferenceLine>,
-    min: Double,
-    range: Double,
     leftPadding: Float,
     topPadding: Float,
     chartWidth: Float,
-    chartHeight: Float
+    chartHeight: Float,
+    yForValue: (Double) -> Float
 ) {
     if (referenceLines.isEmpty()) return
     val textSizePx = 9.sp.toPx()
@@ -349,7 +349,7 @@ private fun DrawScope.drawReferenceLineLabels(
     val yMin = topPadding + textSizePx * 0.85f
     val yMax = topPadding + chartHeight - 2f
     referenceLines.forEach { reference ->
-        val lineY = topPadding + chartHeight - (((reference.value - min) / range).toFloat() * chartHeight)
+        val lineY = yForValue(reference.value)
         val textY = (lineY - 5f).coerceIn(yMin, yMax)
         paint.color = reference.color.copy(alpha = 0.92f).toArgb()
         drawContext.canvas.nativeCanvas.drawText(reference.label, xRight, textY, paint)
@@ -508,20 +508,16 @@ internal fun CandlestickChart(
                             val chartHeightPx =
                                 (size.height - topPadding - bottomPadding).coerceAtLeast(1f)
                             if (chartWidthPx <= 1f || chartHeightPx <= 1f) return@detectTransformGestures
-                            val vertPinch = kotlin.math.abs(pan.x) + 10f < kotlin.math.abs(pan.y)
-                            val horizPinch = kotlin.math.abs(pan.y) + 10f < kotlin.math.abs(pan.x)
                             if (kotlin.math.abs(zoom - 1f) > 0.001f) {
-                                if (!vertPinch) {
-                                    val newW = (windowWidth / zoom).coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
-                                    val centroidRel =
-                                        ((centroid.x - leftPadding) / chartWidthPx).coerceIn(0f, 1f)
-                                    val dataFracUnderCentroid = windowStart + centroidRel * windowWidth
-                                    var newStart = dataFracUnderCentroid - centroidRel * newW
-                                    newStart = newStart.coerceIn(0f, 1f - newW)
-                                    windowWidth = newW
-                                    windowStart = newStart
-                                }
-                                if (!horizPinch && onYViewChange != null) {
+                                val newW = (windowWidth / zoom).coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
+                                val centroidRel =
+                                    ((centroid.x - leftPadding) / chartWidthPx).coerceIn(0f, 1f)
+                                val dataFracUnderCentroid = windowStart + centroidRel * windowWidth
+                                var newStart = dataFracUnderCentroid - centroidRel * newW
+                                newStart = newStart.coerceIn(0f, 1f - newW)
+                                windowWidth = newW
+                                windowStart = newStart
+                                if (onYViewChange != null) {
                                     val centroidYRel =
                                         ((centroid.y - topPadding) / chartHeightPx).coerceIn(0f, 1f)
                                     val (newZoom, newCenter) = yViewAfterPinchZoom(
@@ -535,7 +531,7 @@ internal fun CandlestickChart(
                                     onYViewChange(newZoom, newCenter)
                                 }
                             } else if (pan.x != 0f || pan.y != 0f) {
-                                if (pan.x != 0f && !vertPinch) {
+                                if (pan.x != 0f) {
                                     val panFrac = -pan.x / chartWidthPx * windowWidth
                                     windowStart = (windowStart + panFrac).coerceIn(0f, 1f - windowWidth)
                                 }
@@ -577,10 +573,19 @@ internal fun CandlestickChart(
         val w = chartW(size.width)
         val h = size.height - topPadding - bottomPadding
         fun xForIndexDraw(index: Int): Float = xForIndex(index, size.width)
+        val clipPlotY = enableZoomPan && onYViewChange != null
         fun yForValue(value: Double): Float {
-            val rel = ((value - visMin) / range).toFloat().coerceIn(0f, 1f)
-            return topPadding + h * (1f - rel)
+            val rel = ((value - visMin) / range).toFloat()
+            val clamped = if (clipPlotY) rel else rel.coerceIn(0f, 1f)
+            return topPadding + h * (1f - clamped)
         }
+        val xStretch = if (enableZoomPan) (1f / wWidth).coerceIn(1f, CHART_Y_ZOOM_MAX) else 1f
+        val yStretch = if (enableZoomPan && onYViewChange != null) {
+            yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
+        } else {
+            1f
+        }
+        val candleStrokeMul = kotlin.math.sqrt(xStretch * yStretch).coerceIn(1f, 4f)
 
         yTicks.forEach { tick ->
             val y = yForValue(tick)
@@ -591,28 +596,6 @@ internal fun CandlestickChart(
                 strokeWidth = 1.5f
             )
         }
-
-        referenceLines.forEach { reference ->
-            val y = yForValue(reference.value)
-            drawLine(
-                color = reference.color,
-                start = Offset(leftPadding, y),
-                end = Offset(leftPadding + w, y),
-                strokeWidth = 2f,
-                pathEffect = PathEffect.dashPathEffect(
-                    intervals = floatArrayOf(reference.dashOnPx, reference.dashOffPx)
-                )
-            )
-        }
-        drawReferenceLineLabels(
-            referenceLines = referenceLines,
-            min = visMin,
-            range = range,
-            leftPadding = leftPadding,
-            topPadding = topPadding,
-            chartWidth = w,
-            chartHeight = h
-        )
 
         xTicks.forEach { tick ->
             val frac = fracForIndex(tick.index)
@@ -640,13 +623,28 @@ internal fun CandlestickChart(
         )
 
         val visibleCount = (candles.size * wWidth).coerceAtLeast(1f)
-        val candleWidth = max(2f, min(14f, (w / (visibleCount + 1f)) * 0.7f))
+        val candleWidth = chartCandleBodyWidthPx(w, visibleCount)
         clipRect(
             left = leftPadding,
             top = topPadding,
             right = leftPadding + w,
             bottom = topPadding + h
         ) {
+            referenceLines.forEach { reference ->
+                val y = yForValue(reference.value)
+                drawLine(
+                    color = reference.color,
+                    start = Offset(leftPadding, y),
+                    end = Offset(leftPadding + w, y),
+                    strokeWidth = 2f * candleStrokeMul,
+                    pathEffect = PathEffect.dashPathEffect(
+                        intervals = floatArrayOf(
+                            reference.dashOnPx * candleStrokeMul,
+                            reference.dashOffPx * candleStrokeMul
+                        )
+                    )
+                )
+            }
             candles.forEachIndexed { index, candle ->
                 val frac = fracForIndex(index)
                 if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEachIndexed
@@ -658,15 +656,16 @@ internal fun CandlestickChart(
                 val rising = candle.close >= candle.open
                 val color = if (rising) Color(0xFF69F0AE) else Color(0xFFFF5252)
 
+                val wickW = (2f * candleStrokeMul).coerceAtLeast(1.5f)
                 drawLine(
                     color = color,
                     start = Offset(x, highY),
                     end = Offset(x, lowY),
-                    strokeWidth = 2f
+                    strokeWidth = wickW
                 )
 
                 val bodyTop = min(openY, closeY)
-                val bodyHeight = max(abs(closeY - openY), 2f)
+                val bodyHeight = max(abs(closeY - openY), 2f * candleStrokeMul)
                 drawRect(
                     color = color,
                     topLeft = Offset(x - candleWidth / 2f, bodyTop),
@@ -688,6 +687,14 @@ internal fun CandlestickChart(
                 )
             }
         }
+        drawReferenceLineLabels(
+            referenceLines = referenceLines,
+            leftPadding = leftPadding,
+            topPadding = topPadding,
+            chartWidth = w,
+            chartHeight = h,
+            yForValue = ::yForValue
+        )
 
         pointMarkers.forEach { marker ->
             if (marker.index < 0 || marker.index > maxIndex) return@forEach

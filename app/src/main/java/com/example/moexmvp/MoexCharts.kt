@@ -432,7 +432,7 @@ internal fun CandlestickChartCard(
         }
         if (showZoomHint && enableZoomPan && !landscapeMinimal) {
             Text(
-                text = "Масштаб: два пальца (X и Y) · сдвиг · двойной тап: сброс",
+                text = "Масштаб: pinch — свечи и пороги по X и Y · сдвиг · двойной тап: сброс",
                 color = Color(0xFF9FA8DA),
                 fontSize = 10.sp
             )
@@ -814,6 +814,13 @@ internal fun candleChartDataYRange(
 
 internal fun candleDefaultYViewCenter(dataMin: Double, dataMax: Double): Double =
     (dataMin + dataMax) / 2.0
+
+/** Ширина тела свечи растёт при pinch-zoom по X (без жёсткого потолка 14px). */
+internal fun chartCandleBodyWidthPx(plotWidthPx: Float, visibleCandleCount: Float): Float {
+    val count = visibleCandleCount.coerceAtLeast(1f)
+    val slot = plotWidthPx / count
+    return (slot * 0.72f).coerceIn(2f, slot * 0.92f)
+}
 
 /** Видимый диапазон Y; viewCenter может быть вне dataMin..dataMax (как zoom фото в галерее). */
 internal fun visibleCandleYRange(

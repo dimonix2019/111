@@ -67,6 +67,14 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun chartCandleBodyWidthPx_growsWithFewerVisibleCandles() {
+        val wide = chartCandleBodyWidthPx(plotWidthPx = 400f, visibleCandleCount = 10f)
+        val zoomed = chartCandleBodyWidthPx(plotWidthPx = 400f, visibleCandleCount = 3f)
+        assertTrue(zoomed > wide)
+        assertTrue(zoomed > 14f)
+    }
+
+    @Test
     fun visibleCandleYRange_allowsViewCenterOutsideData() {
         val (visMin, visMax) = visibleCandleYRange(0.0, 2.0, yZoom = 1f, viewCenter = 5.0)
         assertTrue(visMin > 2.0)
