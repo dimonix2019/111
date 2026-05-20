@@ -110,6 +110,7 @@ internal fun MoexScreen() {
     var state by remember { mutableStateOf<UiState>(UiState.Loading) }
     var lastGoodMarkets by remember { mutableStateOf<UiState.Success?>(null) }
     var marketsStale by remember { mutableStateOf(false) }
+    var marketsM15Points by remember { mutableStateOf<List<DataPoint>>(emptyList()) }
     var portfolioPresets by remember { mutableStateOf(loadPortfolioPresets(context)) }
     var robustCandidate by remember { mutableStateOf<DynamicThresholds?>(null) }
     var walkForwardBusy by remember { mutableStateOf(false) }
@@ -144,6 +145,12 @@ internal fun MoexScreen() {
 
     val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
     val staleMarkets = marketsStale || (realtimeError != null && chartSuccess != null)
+    val marketsM15ChartPoints = remember(marketsM15Points, selectedPeriod) {
+        filterM15PointsForMarketsPeriod(marketsM15Points, selectedPeriod)
+    }
+    val marketsZScoreCandles = remember(marketsM15ChartPoints) {
+        buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
+    }
 
     val marketsChartThresholds = remember(
         realTradeEntryThreshold,
@@ -153,15 +160,15 @@ internal fun MoexScreen() {
     }
 
     val marketsZStrategyTapMetrics = remember(
-        chartSuccess?.points,
+        marketsM15ChartPoints,
         marketsChartThresholds.entry,
         marketsChartThresholds.exit,
         portfolioLeverage,
         portfolioCommissionPercent,
         selectedPeriod
     ) {
-        val pts = chartSuccess?.points
-        if (pts == null || pts.size < 2) return@remember null
+        val pts = marketsM15ChartPoints
+        if (pts.size < 2) return@remember null
         buildZStrategyPortfolioMetrics(
             points = pts,
             thresholds = marketsChartThresholds,
@@ -487,6 +494,20 @@ internal fun MoexScreen() {
                     val thresholdUpdate = ensureDynamicThresholds(context)
                     dynamicThresholds = thresholdUpdate.thresholds
                     val backgroundMonitorEnabled = SignalForegroundService.isBackgroundMonitorEnabled(context)
+                    var loadedM15ForMarkets: List<DataPoint>? = null
+                    suspend fun loadMarketsM15PointsOnce(): List<DataPoint> {
+                        val cached = loadedM15ForMarkets
+                        if (cached != null) return cached
+                        val loaded = withContext(Dispatchers.IO) {
+                            loadPortfolio15mPointsForSignalMonitor(context)
+                        }
+                        loadedM15ForMarkets = loaded
+                        marketsM15Points = loaded
+                        return loaded
+                    }
+                    if (showLoading || marketsM15Points.isEmpty()) {
+                        runCatching { loadMarketsM15PointsOnce() }
+                    }
                     if (thresholdUpdate.recalculated &&
                         DYNAMIC_Z_DAILY_RECALC_ENABLED &&
                         !backgroundMonitorEnabled &&
@@ -508,9 +529,7 @@ internal fun MoexScreen() {
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             calculatedDate = dynamicThresholds.calculatedDate
                         )
-                        val m15ForSignal = withContext(Dispatchers.IO) {
-                            loadPortfolio15mPointsForSignalMonitor(context)
-                        }
+                        val m15ForSignal = loadMarketsM15PointsOnce()
                         if (m15ForSignal.size >= 2) {
                             val lastPt = m15ForSignal.last()
                             val latestZScore = lastPt.zScore
@@ -1319,7 +1338,8 @@ internal fun MoexScreen() {
             MainTab.Markets -> {
                 Column(Modifier.weight(1f)) {
                     if (!landscapeMarketsChartsOnly) {
-                        val last = chartSuccess?.points?.lastOrNull()
+                        val last = marketsM15ChartPoints.lastOrNull()
+                            ?: chartSuccess?.points?.lastOrNull()
                         val demoTail = TinkoffSandboxStorage.getAccountId(context)?.takeLast(8).orEmpty()
                         val sandboxDemoHint = when (sandboxExecState) {
                             SandboxExecUiState.MissingCredentials ->
@@ -1393,21 +1413,13 @@ internal fun MoexScreen() {
                                             modifier = Modifier.fillMaxSize(),
                                             verticalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
-                                            ChartCard(
-                                                title = "Z-score спрэда",
-                                                series = listOf(
-                                                    ChartSeries(
-                                                        name = "Z-score",
-                                                        color = Color(0xFF80D8FF),
-                                                        values = c.points.map { it.zScore },
-                                                        lineWidth = 2.6f
-                                                    )
-                                                ),
-                                                labels = c.points.map { it.tradeDate },
+                                            CandlestickChartCard(
+                                                title = "Z-score спрэда · 15м свечи",
+                                                candles = marketsZScoreCandles,
                                                 chartHeightDp = chartH,
                                                 referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
                                                 pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                                    points = c.points,
+                                                    points = marketsM15ChartPoints,
                                                     events = signalEvents
                                                 ),
                                                 showLegend = false,
@@ -1416,7 +1428,7 @@ internal fun MoexScreen() {
                                                 rightPlotPaddingPx = 48f,
                                                 showZoomHint = true,
                                                 tradeTapHintFormatter = { idx ->
-                                                    formatZStrategyTradeTapHint(idx, c.points, marketsZStrategyTapMetrics)
+                                                    formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)
                                                 }
                                             )
                                             ChartCard(
@@ -1566,21 +1578,13 @@ internal fun MoexScreen() {
                         if (chartSuccess != null) {
                             val c = chartSuccess
                             item {
-                                ChartCard(
-                                    title = "График 4: Z-score спрэда",
-                                    series = listOf(
-                                        ChartSeries(
-                                            name = "Z-score",
-                                            color = Color(0xFF80D8FF),
-                                            values = c.points.map { it.zScore },
-                                            lineWidth = 2.8f
-                                        )
-                                    ),
-                                    labels = c.points.map { it.tradeDate },
+                                CandlestickChartCard(
+                                    title = "График 4: Z-score спрэда · 15м свечи",
+                                    candles = marketsZScoreCandles,
                                     chartHeightDp = 228,
                                     referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
                                     pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                        points = c.points,
+                                        points = marketsM15ChartPoints,
                                         events = signalEvents
                                     ),
                                     showLegend = false,
@@ -1589,7 +1593,7 @@ internal fun MoexScreen() {
                                     rightPlotPaddingPx = 48f,
                                     showZoomHint = true,
                                     tradeTapHintFormatter = { idx ->
-                                        formatZStrategyTradeTapHint(idx, c.points, marketsZStrategyTapMetrics)
+                                        formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)
                                     }
                                 )
                             }

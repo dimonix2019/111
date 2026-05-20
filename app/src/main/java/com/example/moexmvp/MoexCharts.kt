@@ -373,8 +373,22 @@ internal fun ChartCard(
 }
 
 @Composable
-internal fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
-    val axisScale = remember(candles) { buildCandleAxisScale(candles) }
+internal fun CandlestickChartCard(
+    title: String,
+    candles: List<CandlePoint>,
+    chartHeightDp: Int = 180,
+    referenceLines: List<ChartReferenceLine> = emptyList(),
+    pointMarkers: List<ChartPointMarker> = emptyList(),
+    showLegend: Boolean = true,
+    enableZoomPan: Boolean = false,
+    markerScale: Float = 1f,
+    showZoomHint: Boolean = false,
+    rightPlotPaddingPx: Float = 16f,
+    tradeTapHintFormatter: ((Int) -> String?)? = null
+) {
+    val axisScale = remember(candles, referenceLines) {
+        buildCandleAxisScale(candles, valueHints = referenceLines.map { it.value })
+    }
     val stats = remember(candles) { buildCandleStats(candles) }
     var selectedIndex by remember(candles) { mutableStateOf<Int?>(null) }
 
@@ -386,13 +400,20 @@ internal fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(title, fontWeight = FontWeight.Bold, color = Color.White)
+        if (showZoomHint && enableZoomPan) {
+            Text(
+                text = "Масштаб: два пальца · сдвиг: перетаскивание · двойной тап: весь период",
+                color = Color(0xFF9FA8DA),
+                fontSize = 10.sp
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(
                 modifier = Modifier
-                    .height(180.dp)
+                    .height(chartHeightDp.dp)
                     .width(54.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
@@ -412,9 +433,21 @@ internal fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
                 xTicks = axisScale.xTicks,
                 selectedIndex = selectedIndex,
                 onSelectIndex = { selectedIndex = it },
+                referenceLines = referenceLines,
+                pointMarkers = pointMarkers,
                 modifier = Modifier
                     .weight(1f)
-                    .height(180.dp)
+                    .height(chartHeightDp.dp),
+                enableZoomPan = enableZoomPan,
+                markerScale = markerScale,
+                rightPlotPaddingPx = rightPlotPaddingPx
+            )
+        }
+        if (showLegend) {
+            Legend(
+                series = emptyList(),
+                referenceLines = referenceLines,
+                pointMarkers = pointMarkers
             )
         }
         selectedIndex?.let { selected ->
@@ -425,6 +458,14 @@ internal fun CandlestickChartCard(title: String, candles: List<CandlePoint>) {
                         "C ${formatAxisValue(candle.close)}",
                     fontSize = 12.sp,
                     color = Color(0xFFF1F8FF)
+                )
+            }
+            tradeTapHintFormatter?.invoke(selected)?.let { hint ->
+                Text(
+                    text = hint,
+                    fontSize = 11.sp,
+                    color = Color(0xFFFFE082),
+                    modifier = Modifier.padding(top = 2.dp)
                 )
             }
         }
@@ -565,6 +606,39 @@ internal fun buildZScoreSignalMarkersFromEvents(
         .toList()
 }
 
+internal fun filterM15PointsForMarketsPeriod(
+    points: List<DataPoint>,
+    period: Period
+): List<DataPoint> {
+    if (points.isEmpty()) return emptyList()
+    val latestDate = java.time.Instant.ofEpochMilli(points.last().timestampMillis)
+        .atZone(moexZoneId)
+        .toLocalDate()
+    val fromMillis = period.from(latestDate)
+        .atStartOfDay(moexZoneId)
+        .toInstant()
+        .toEpochMilli()
+    return points.filter { it.timestampMillis >= fromMillis }
+}
+
+/**
+ * Свечи Z-score строятся из того же 15м close-ряда, который идёт в стратегию:
+ * close = Z бара, open = Z предыдущего бара, high/low = границы тела.
+ */
+internal fun buildZScoreCandlesFromM15Points(points: List<DataPoint>): List<CandlePoint> {
+    return points.mapIndexed { index, point ->
+        val close = point.zScore
+        val open = points.getOrNull(index - 1)?.zScore ?: close
+        CandlePoint(
+            label = point.tradeDate,
+            open = open,
+            high = max(open, close),
+            low = min(open, close),
+            close = close
+        )
+    }
+}
+
 internal fun buildChartStats(series: List<ChartSeries>): ChartStats {
     val allValues = series.flatMap { it.values }
     if (allValues.isEmpty()) {
@@ -586,15 +660,18 @@ internal fun buildCandleStats(candles: List<CandlePoint>): ChartStats {
     )
 }
 
-internal fun buildCandleAxisScale(candles: List<CandlePoint>): AxisScale {
+internal fun buildCandleAxisScale(
+    candles: List<CandlePoint>,
+    valueHints: List<Double> = emptyList()
+): AxisScale {
     if (candles.isEmpty()) {
         return AxisScale(
             yTicks = emptyList(),
             xTicks = emptyList()
         )
     }
-    val min = candles.minOfOrNull { it.low } ?: 0.0
-    val max = candles.maxOfOrNull { it.high } ?: 1.0
+    val min = (candles.map { it.low } + valueHints).minOrNull() ?: 0.0
+    val max = (candles.map { it.high } + valueHints).maxOrNull() ?: 1.0
     val normalizedMax = if (max <= min) min + 1.0 else max
     return AxisScale(
         yTicks = buildYTicks(min, normalizedMax, count = 5),
