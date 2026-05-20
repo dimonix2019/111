@@ -8,8 +8,10 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -30,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -415,7 +418,8 @@ internal fun CandlestickChart(
     pointMarkers: List<ChartPointMarker> = emptyList(),
     enableZoomPan: Boolean = false,
     markerScale: Float = 1f,
-    rightPlotPaddingPx: Float = 16f
+    rightPlotPaddingPx: Float = 16f,
+    rightPlotPaddingFraction: Float = 0f
 ) {
     if (candles.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -424,49 +428,60 @@ internal fun CandlestickChart(
         return
     }
 
-    val min = yTicks.minOrNull() ?: candles.minOfOrNull { it.low } ?: 0.0
-    val max = yTicks.maxOrNull() ?: candles.maxOfOrNull { it.high } ?: 1.0
-    val range = (max - min).takeIf { it > 0.0 } ?: 1.0
-    val leftPadding = 16f
-    val rightPadding = rightPlotPaddingPx.coerceAtLeast(16f)
-    val topPadding = 12f
-    val bottomPadding = 60f
-    val maxIndex = candles.lastIndex.coerceAtLeast(0)
+    BoxWithConstraints(modifier = modifier) {
+        val density = LocalDensity.current
+        val plotWidthPx = with(density) { maxWidth.toPx() }
+        val rightPadding = remember(plotWidthPx, rightPlotPaddingPx, rightPlotPaddingFraction) {
+            chartRightPlotPaddingPx(
+                plotWidthPx = plotWidthPx,
+                minPx = rightPlotPaddingPx.coerceAtLeast(16f),
+                fraction = rightPlotPaddingFraction
+            )
+        }
 
-    var windowStart by remember(candles) { mutableFloatStateOf(0f) }
-    var windowWidth by remember(candles) { mutableFloatStateOf(1f) }
-    LaunchedEffect(candles) {
-        windowStart = 0f
-        windowWidth = 1f
-    }
+        val min = yTicks.minOrNull() ?: candles.minOfOrNull { it.low } ?: 0.0
+        val max = yTicks.maxOrNull() ?: candles.maxOfOrNull { it.high } ?: 1.0
+        val range = (max - min).takeIf { it > 0.0 } ?: 1.0
+        val leftPadding = 16f
+        val topPadding = 12f
+        val bottomPadding = 60f
+        val maxIndex = candles.lastIndex.coerceAtLeast(0)
 
-    val wStart = if (enableZoomPan) windowStart else 0f
-    val wWidth = if (enableZoomPan) windowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f) else 1f
+        var windowStart by remember(candles) { mutableFloatStateOf(0f) }
+        var windowWidth by remember(candles) { mutableFloatStateOf(1f) }
+        LaunchedEffect(candles) {
+            windowStart = 0f
+            windowWidth = 1f
+        }
 
-    fun fracForIndex(index: Int): Float =
-        if (maxIndex <= 0) 0f else index / maxIndex.toFloat()
+        val wStart = if (enableZoomPan) windowStart else 0f
+        val wWidth = if (enableZoomPan) windowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f) else 1f
 
-    fun chartW(pxWidth: Float): Float =
-        (pxWidth - leftPadding - rightPadding).coerceAtLeast(1f)
+        fun fracForIndex(index: Int): Float =
+            if (maxIndex <= 0) 0f else index / maxIndex.toFloat()
 
-    fun xForIndex(index: Int, pxWidth: Float): Float {
-        val rel = (fracForIndex(index) - wStart) / wWidth
-        return leftPadding + rel * chartW(pxWidth)
-    }
+        fun chartW(pxWidth: Float): Float =
+            (pxWidth - leftPadding - rightPadding).coerceAtLeast(1f)
 
-    fun indexFromTapX(tapX: Float, pxWidth: Float): Int {
-        if (maxIndex <= 0) return 0
-        val rel = ((tapX - leftPadding) / chartW(pxWidth)).coerceIn(0f, 1f)
-        val frac = wStart + rel * wWidth
-        return (frac * maxIndex).roundToInt().coerceIn(0, maxIndex)
-    }
+        fun xForIndex(index: Int, pxWidth: Float): Float {
+            val rel = (fracForIndex(index) - wStart) / wWidth
+            return leftPadding + rel * chartW(pxWidth)
+        }
 
-    Canvas(
-        modifier = modifier
-            .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
+        fun indexFromTapX(tapX: Float, pxWidth: Float): Int {
+            if (maxIndex <= 0) return 0
+            val rel = ((tapX - leftPadding) / chartW(pxWidth)).coerceIn(0f, 1f)
+            val frac = wStart + rel * wWidth
+            return (frac * maxIndex).roundToInt().coerceIn(0, maxIndex)
+        }
+
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
             .then(
                 if (enableZoomPan) {
-                    Modifier.pointerInput(candles, maxIndex) {
+                    Modifier.pointerInput(candles, maxIndex, rightPadding) {
                         detectTransformGestures { centroid, pan, zoom, _ ->
                             val chartWidthPx = chartW(size.width.toFloat())
                             if (chartWidthPx <= 1f) return@detectTransformGestures
@@ -489,7 +504,7 @@ internal fun CandlestickChart(
                     Modifier
                 }
             )
-            .pointerInput(candles, wStart, wWidth, maxIndex, enableZoomPan) {
+            .pointerInput(candles, wStart, wWidth, maxIndex, enableZoomPan, rightPadding) {
                 detectTapGestures(
                     onDoubleTap = if (enableZoomPan) {
                         { _: Offset ->
@@ -506,7 +521,7 @@ internal fun CandlestickChart(
                     }
                 )
             }
-    ) {
+        ) {
         val w = chartW(size.width)
         val h = size.height - topPadding - bottomPadding
         fun xForIndexDraw(index: Int): Float = xForIndex(index, size.width)
@@ -646,6 +661,7 @@ internal fun CandlestickChart(
                 drawContext.canvas.nativeCanvas.drawText(tick.label, x, y, labelPaint)
                 drawContext.canvas.nativeCanvas.restore()
             }
+        }
         }
     }
 }

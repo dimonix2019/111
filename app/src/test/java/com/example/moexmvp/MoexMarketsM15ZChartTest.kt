@@ -40,6 +40,12 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun chartRightPlotPaddingPx_usesFivePercentWhenAboveMinimum() {
+        assertEquals(50f, chartRightPlotPaddingPx(1000f), 0.01f)
+        assertEquals(16f, chartRightPlotPaddingPx(200f), 0.01f)
+    }
+
+    @Test
     fun strategyMetricsAndZCandlesShareSameM15InputCloses() {
         val points = listOf(
             point("2026-05-19 10:00", z = 0.0, spread = 10.0),

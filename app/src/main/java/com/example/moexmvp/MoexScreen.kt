@@ -1425,7 +1425,7 @@ internal fun MoexScreen() {
                                                 showLegend = false,
                                                 enableZoomPan = true,
                                                 markerScale = 1.5f,
-                                                rightPlotPaddingPx = 48f,
+                                                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
                                                 showZoomHint = true,
                                                 tradeTapHintFormatter = { idx ->
                                                     formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)
@@ -1590,7 +1590,7 @@ internal fun MoexScreen() {
                                     showLegend = false,
                                     enableZoomPan = true,
                                     markerScale = 1.35f,
-                                    rightPlotPaddingPx = 48f,
+                                    rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
                                     showZoomHint = true,
                                     tradeTapHintFormatter = { idx ->
                                         formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)

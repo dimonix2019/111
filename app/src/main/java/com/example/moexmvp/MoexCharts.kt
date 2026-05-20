@@ -384,6 +384,7 @@ internal fun CandlestickChartCard(
     markerScale: Float = 1f,
     showZoomHint: Boolean = false,
     rightPlotPaddingPx: Float = 16f,
+    rightPlotPaddingFraction: Float = 0f,
     tradeTapHintFormatter: ((Int) -> String?)? = null
 ) {
     val axisScale = remember(candles, referenceLines) {
@@ -440,7 +441,8 @@ internal fun CandlestickChartCard(
                     .height(chartHeightDp.dp),
                 enableZoomPan = enableZoomPan,
                 markerScale = markerScale,
-                rightPlotPaddingPx = rightPlotPaddingPx
+                rightPlotPaddingPx = rightPlotPaddingPx,
+                rightPlotPaddingFraction = rightPlotPaddingFraction
             )
         }
         if (showLegend) {
@@ -619,6 +621,16 @@ internal fun filterM15PointsForMarketsPeriod(
         .toInstant()
         .toEpochMilli()
     return points.filter { it.timestampMillis >= fromMillis }
+}
+
+/** Правый зазор области графика: max(minPx, plotWidthPx × fraction). */
+internal fun chartRightPlotPaddingPx(
+    plotWidthPx: Float,
+    minPx: Float = 16f,
+    fraction: Float = CHART_RIGHT_PLOT_PADDING_FRACTION
+): Float {
+    if (plotWidthPx <= 0f || fraction <= 0f) return minPx.coerceAtLeast(0f)
+    return max(minPx, plotWidthPx * fraction)
 }
 
 /**
