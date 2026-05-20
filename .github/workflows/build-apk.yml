@@ -1,20 +1,10 @@
 # Debug APK is signed with a fixed keystore (app/keystore/) so installs from
 # GitHub Releases can be updated in-place; ephemeral CI debug keys broke upgrades.
 #
-# Не используйте /releases/latest/download/… если в репозитории есть другие релизы:
-# GitHub может считать «latest» чужой тег (например v1.21).
+# Стабильная ссылка: https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk
 #
-# Стабильная ссылка на наш debug APK (один релиз, тег moexmvp-debug-latest):
-#   https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk
-#
-# Если с телефона 404: (1) репозиторий private — откройте ссылку в браузере, войдя в GitHub под аккаунтом с доступом;
-# (2) релиз ещё не создан — дождитесь успешного «Publish rolling debug release» после push в default branch или cursor/*.
-#
-# PRs only build and upload a CI artifact (no release).
-#
-# Термины в коде и UI (единый смысл):
-#   «ордер» / заявка — одна нога (один инструмент, Long или Short в смысле ноги спрэда);
-#   «сделка» — полноценная пара ног (вход/выход по спрэду: обе ноги TATN/TATNP).
+# Скорость CI: одна сборка assembleDebug → артефакт → publish (раньше Gradle запускался дважды).
+# Ожидание: ~6–10 мин до зелёной галочки на push (было ~13–24 мин).
 
 name: Build APK
 
@@ -23,10 +13,10 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Не отменять уже идущий прогон: иначе job публикации в релиз мог не выполниться — ссылка давала 404.
+# Push: не отменять — иначе publish может не успеть. PR: отменять устаревший run на той же ветке.
 concurrency:
   group: apk-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   debug-apk:
@@ -42,21 +32,23 @@ jobs:
         with:
           java-version: "17"
           distribution: "temurin"
+          cache: gradle
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Assemble Debug
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug --parallel --build-cache -x lint
 
       - name: Upload APK artifact
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: moexmvp-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
 
   publish-latest-apk:
     needs: debug-apk
@@ -71,21 +63,18 @@ jobs:
     steps:
       - name: Checkout (versionName for release notes)
         uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
         with:
-          java-version: "17"
-          distribution: "temurin"
+          sparse-checkout: |
+            app/build.gradle.kts
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Assemble Debug for release asset
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Download built APK
+        uses: actions/download-artifact@v4
+        with:
+          name: moexmvp-debug
+          path: apk-out
 
       - name: Stable filename for direct download URL
-        run: cp app/build/outputs/apk/debug/app-debug.apk moexmvp-debug.apk
+        run: cp apk-out/app-debug.apk moexmvp-debug.apk
 
       - name: Extract version from Gradle
         id: meta

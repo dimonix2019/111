@@ -85,6 +85,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.83 — CI: одна сборка APK вместо двух (~6–10 мин); кэш Gradle; PR отменяет старый run.
 1.6.82 — Вылеты: период 1W/1M на Портфеле/Тест страт. без refresh «Рынка»; ускорена отрисовка Z-графика; версия на вкладках.
 1.6.81 — О приложении: крупно версия 1.6.x; на кнопке вкладки — номер сборки.
 1.6.80 — Тест страт.: симуляция считается от полного 15м ряда; 1W/1M на графике без вылета (свой период, без refresh рынка).
