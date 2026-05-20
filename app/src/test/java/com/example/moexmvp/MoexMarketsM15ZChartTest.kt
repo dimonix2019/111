@@ -62,8 +62,15 @@ class MoexMarketsM15ZChartTest {
     fun visibleCandleYRange_zoomsVerticalSpan() {
         val (w1, _) = chartInitialWindowForLastCalendarDays(emptyList(), visibleDays = 30L)
         assertEquals(1f, w1, 0.01f)
-        val (visMin, visMax) = visibleCandleYRange(0.0, 2.0, yZoom = 2f, centerFrac = 0.5f)
+        val (visMin, visMax) = visibleCandleYRange(0.0, 2.0, yZoom = 2f, viewCenter = 1.0)
         assertEquals(1.0, visMax - visMin, 0.01)
+    }
+
+    @Test
+    fun visibleCandleYRange_allowsViewCenterOutsideData() {
+        val (visMin, visMax) = visibleCandleYRange(0.0, 2.0, yZoom = 1f, viewCenter = 5.0)
+        assertTrue(visMin > 2.0)
+        assertTrue(visMax > 2.0)
     }
 
     @Test

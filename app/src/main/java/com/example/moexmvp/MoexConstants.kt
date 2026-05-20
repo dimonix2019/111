@@ -83,6 +83,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.78 — Z-score: вертикальный pinch-zoom как в галерее (центр у пальцев, ряд уходит за край).
 1.6.77 — Z-score: вертикальный zoom (pinch по Y); альбом — только график и кнопки 1D/1W/…
 1.6.76 — Тест страт.: номера сделок (#N) у маркеров Z-score рисуются у точки входа/выхода (исправлен сбой позиции).
 1.6.75 — Портфель (альбом): Z-score на весь экран с zoom; Тест страт.: Z-score как на Рынке, сделки симуляции с №, окно 1 мес.

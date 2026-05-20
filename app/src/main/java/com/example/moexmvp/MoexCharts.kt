@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -402,9 +403,11 @@ internal fun CandlestickChartCard(
         candleChartDataYRange(candles, referenceLines.map { it.value })
     }
     var yZoom by remember(candles) { mutableFloatStateOf(1f) }
-    var yCenterFrac by remember(candles) { mutableFloatStateOf(0.5f) }
-    val visibleYRange = remember(dataYRange, yZoom, yCenterFrac) {
-        visibleCandleYRange(dataYRange.first, dataYRange.second, yZoom, yCenterFrac)
+    var yViewCenter by remember(candles, dataYRange) {
+        mutableDoubleStateOf(candleDefaultYViewCenter(dataYRange.first, dataYRange.second))
+    }
+    val visibleYRange = remember(dataYRange, yZoom, yViewCenter) {
+        visibleCandleYRange(dataYRange.first, dataYRange.second, yZoom, yViewCenter)
     }
     val displayYTicks = remember(visibleYRange, enableZoomPan, axisScale.yTicks) {
         if (enableZoomPan) {
@@ -485,9 +488,9 @@ internal fun CandlestickChartCard(
                 dataYMin = dataYRange.first,
                 dataYMax = dataYRange.second,
                 yZoom = yZoom,
-                yCenterFrac = yCenterFrac,
+                yViewCenter = yViewCenter,
                 onYViewChange = if (enableZoomPan) {
-                    { zoom, center -> yZoom = zoom; yCenterFrac = center }
+                    { zoom, center -> yZoom = zoom; yViewCenter = center }
                 } else {
                     null
                 }
@@ -809,28 +812,40 @@ internal fun candleChartDataYRange(
     return if (max <= min) min to (min + 1.0) else min to max
 }
 
-/** Видимый диапазон Y при вертикальном zoom: [zoom]× увеличение, [centerFrac] — центр окна (0..1). */
+internal fun candleDefaultYViewCenter(dataMin: Double, dataMax: Double): Double =
+    (dataMin + dataMax) / 2.0
+
+/** Видимый диапазон Y; viewCenter может быть вне dataMin..dataMax (как zoom фото в галерее). */
 internal fun visibleCandleYRange(
     dataMin: Double,
     dataMax: Double,
     yZoom: Float,
-    centerFrac: Float
+    viewCenter: Double
 ): Pair<Double, Double> {
     val fullSpan = (dataMax - dataMin).coerceAtLeast(1e-9)
-    val zoom = yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
-    val visSpan = fullSpan / zoom
-    val center = dataMin + fullSpan * centerFrac.coerceIn(0f, 1f)
-    var visMin = center - visSpan / 2.0
-    var visMax = center + visSpan / 2.0
-    if (visMin < dataMin) {
-        visMin = dataMin
-        visMax = dataMin + visSpan
-    }
-    if (visMax > dataMax) {
-        visMax = dataMax
-        visMin = dataMax - visSpan
-    }
-    return visMin to visMax
+    val visSpan = fullSpan / yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
+    return (viewCenter - visSpan / 2.0) to (viewCenter + visSpan / 2.0)
+}
+
+/** Pinch-zoom по Y вокруг точки касания (centroidYRel: 0 — верх графика, 1 — низ). */
+internal fun yViewAfterPinchZoom(
+    dataMin: Double,
+    dataMax: Double,
+    yZoom: Float,
+    viewCenter: Double,
+    pinchZoom: Float,
+    centroidYRel: Float
+): Pair<Float, Double> {
+    val fullSpan = (dataMax - dataMin).coerceAtLeast(1e-9)
+    val curSpan = fullSpan / yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
+    val curMin = viewCenter - curSpan / 2.0
+    val curMax = viewCenter + curSpan / 2.0
+    val rel = centroidYRel.coerceIn(0f, 1f)
+    val yAtCentroid = curMax - rel * (curMax - curMin)
+    val newZoom = (yZoom * pinchZoom).coerceIn(1f, CHART_Y_ZOOM_MAX)
+    val newSpan = fullSpan / newZoom
+    val newCenter = yAtCentroid + (rel - 0.5f) * newSpan
+    return newZoom to newCenter
 }
 
 /** Правый зазор области графика: max(minPx, plotWidthPx × fraction). */

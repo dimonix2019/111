@@ -425,8 +425,8 @@ internal fun CandlestickChart(
     dataYMin: Double? = null,
     dataYMax: Double? = null,
     yZoom: Float = 1f,
-    yCenterFrac: Float = 0.5f,
-    onYViewChange: ((zoom: Float, centerFrac: Float) -> Unit)? = null
+    yViewCenter: Double = 0.0,
+    onYViewChange: ((zoom: Float, viewCenter: Double) -> Unit)? = null
 ) {
     if (candles.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -453,7 +453,7 @@ internal fun CandlestickChart(
         val baseMin = dataYMin ?: yTicks.minOrNull() ?: candles.minOfOrNull { it.low } ?: 0.0
         val baseMax = dataYMax ?: yTicks.maxOrNull() ?: candles.maxOfOrNull { it.high } ?: 1.0
         val (visMin, visMax) = if (enableZoomPan && onYViewChange != null) {
-            visibleCandleYRange(baseMin, baseMax, yZoom, yCenterFrac)
+            visibleCandleYRange(baseMin, baseMax, yZoom, yViewCenter)
         } else {
             baseMin to baseMax
         }
@@ -502,38 +502,48 @@ internal fun CandlestickChart(
                 .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
             .then(
                 if (enableZoomPan) {
-                    Modifier.pointerInput(candles, maxIndex, rightPadding) {
+                    Modifier.pointerInput(candles, maxIndex, rightPadding, baseMin, baseMax) {
                         detectTransformGestures { centroid, pan, zoom, _ ->
                             val chartWidthPx = chartW(size.width.toFloat())
-                            if (chartWidthPx <= 1f) return@detectTransformGestures
+                            val chartHeightPx =
+                                (size.height - topPadding - bottomPadding).coerceAtLeast(1f)
+                            if (chartWidthPx <= 1f || chartHeightPx <= 1f) return@detectTransformGestures
+                            val vertPinch = kotlin.math.abs(pan.x) + 10f < kotlin.math.abs(pan.y)
+                            val horizPinch = kotlin.math.abs(pan.y) + 10f < kotlin.math.abs(pan.x)
                             if (kotlin.math.abs(zoom - 1f) > 0.001f) {
-                                val newW = (windowWidth / zoom).coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
-                                val centroidRel =
-                                    ((centroid.x - leftPadding) / chartWidthPx).coerceIn(0f, 1f)
-                                val dataFracUnderCentroid = windowStart + centroidRel * windowWidth
-                                var newStart = dataFracUnderCentroid - centroidRel * newW
-                                newStart = newStart.coerceIn(0f, 1f - newW)
-                                windowWidth = newW
-                                windowStart = newStart
-                                onYViewChange?.invoke(
-                                    (yZoom * zoom).coerceIn(1f, CHART_Y_ZOOM_MAX),
-                                    yCenterFrac
-                                )
+                                if (!vertPinch) {
+                                    val newW = (windowWidth / zoom).coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
+                                    val centroidRel =
+                                        ((centroid.x - leftPadding) / chartWidthPx).coerceIn(0f, 1f)
+                                    val dataFracUnderCentroid = windowStart + centroidRel * windowWidth
+                                    var newStart = dataFracUnderCentroid - centroidRel * newW
+                                    newStart = newStart.coerceIn(0f, 1f - newW)
+                                    windowWidth = newW
+                                    windowStart = newStart
+                                }
+                                if (!horizPinch && onYViewChange != null) {
+                                    val centroidYRel =
+                                        ((centroid.y - topPadding) / chartHeightPx).coerceIn(0f, 1f)
+                                    val (newZoom, newCenter) = yViewAfterPinchZoom(
+                                        dataMin = baseMin,
+                                        dataMax = baseMax,
+                                        yZoom = yZoom,
+                                        viewCenter = yViewCenter,
+                                        pinchZoom = zoom,
+                                        centroidYRel = centroidYRel
+                                    )
+                                    onYViewChange(newZoom, newCenter)
+                                }
                             } else if (pan.x != 0f || pan.y != 0f) {
-                                if (pan.x != 0f) {
+                                if (pan.x != 0f && !vertPinch) {
                                     val panFrac = -pan.x / chartWidthPx * windowWidth
                                     windowStart = (windowStart + panFrac).coerceIn(0f, 1f - windowWidth)
                                 }
                                 if (pan.y != 0f && onYViewChange != null) {
-                                    val chartHeightPx =
-                                        (size.height - topPadding - bottomPadding).coerceAtLeast(1f)
                                     val fullSpan = (baseMax - baseMin).coerceAtLeast(1e-9)
                                     val visSpan = fullSpan / yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
-                                    val deltaFrac = (-pan.y / chartHeightPx) * (visSpan / fullSpan).toFloat()
-                                    onYViewChange(
-                                        yZoom,
-                                        (yCenterFrac + deltaFrac).coerceIn(0f, 1f)
-                                    )
+                                    val deltaY = -pan.y / chartHeightPx * visSpan
+                                    onYViewChange(yZoom, yViewCenter + deltaY)
                                 }
                             }
                         }
@@ -548,7 +558,10 @@ internal fun CandlestickChart(
                         { _: Offset ->
                             windowStart = 0f
                             windowWidth = 1f
-                            onYViewChange?.invoke(1f, 0.5f)
+                            onYViewChange?.invoke(
+                                1f,
+                                candleDefaultYViewCenter(baseMin, baseMax)
+                            )
                         }
                     } else {
                         null
