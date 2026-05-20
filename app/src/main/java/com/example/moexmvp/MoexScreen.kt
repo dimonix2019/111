@@ -111,7 +111,6 @@ internal fun MoexScreen() {
     var lastGoodMarkets by remember { mutableStateOf<UiState.Success?>(null) }
     var marketsStale by remember { mutableStateOf(false) }
     var marketsM15Points by remember { mutableStateOf<List<DataPoint>>(emptyList()) }
-    var portfolioM15Points by remember { mutableStateOf<List<DataPoint>>(emptyList()) }
     var portfolioPresets by remember { mutableStateOf(loadPortfolioPresets(context)) }
     var robustCandidate by remember { mutableStateOf<DynamicThresholds?>(null) }
     var walkForwardBusy by remember { mutableStateOf(false) }
@@ -152,20 +151,6 @@ internal fun MoexScreen() {
     val marketsZScoreCandles = remember(marketsM15ChartPoints) {
         buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
     }
-    val portfolioZChartPoints = remember(portfolioM15Points) {
-        if (portfolioM15Points.isEmpty()) emptyList()
-        else filterM15PointsForMarketsPeriod(portfolioM15Points, Period.OneDay)
-    }
-    val portfolioZScoreCandles = remember(portfolioZChartPoints) {
-        buildZScoreCandlesFromM15Points(portfolioZChartPoints)
-    }
-    val portfolioZChartThresholds = remember(
-        realTradeEntryThreshold,
-        realTradeExitThreshold
-    ) {
-        portfolioChartZThresholds(realTradeEntryThreshold, realTradeExitThreshold)
-    }
-
     val marketsChartThresholds = remember(
         realTradeEntryThreshold,
         realTradeExitThreshold
@@ -315,7 +300,6 @@ internal fun MoexScreen() {
                 return@refreshPortfolioUnlocked
             }
             val points = loaded
-            portfolioM15Points = loaded
             if (marketsM15Points.isEmpty()) marketsM15Points = loaded
             val desc =
                 "15 мин (ISS 10m→15m) · $PORTFOLIO_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
@@ -1220,11 +1204,7 @@ internal fun MoexScreen() {
                             },
                             closeAllPortfolioBusy = closeAllPortfolioBusy,
                             onCloseAllTradesClick = { showCloseAllPortfolioDialog = true },
-                            dailyReconciliation = dailyReconciliation,
-                            zScoreCandles = portfolioZScoreCandles,
-                            zChartPoints = portfolioZChartPoints,
-                            zChartThresholds = portfolioZChartThresholds,
-                            signalEvents = signalEvents
+                            dailyReconciliation = dailyReconciliation
                         )
                     }
                 }

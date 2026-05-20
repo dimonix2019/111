@@ -40,9 +40,9 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
-    fun chartRightPlotPaddingPx_usesFivePercentWhenAboveMinimum() {
-        assertEquals(50f, chartRightPlotPaddingPx(1000f), 0.01f)
-        assertEquals(16f, chartRightPlotPaddingPx(200f), 0.01f)
+    fun chartRightPlotPaddingPx_usesTenPercentWhenAboveMinimum() {
+        assertEquals(100f, chartRightPlotPaddingPx(1000f), 0.01f)
+        assertEquals(16f, chartRightPlotPaddingPx(100f), 0.01f)
     }
 
     @Test
