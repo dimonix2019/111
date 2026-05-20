@@ -67,6 +67,43 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun filterM15PointsForMarketsPeriod_oneWeek_subsetOfMonth() {
+        val points = (0 until 60).map { day ->
+            val d = java.time.LocalDate.of(2026, 4, 1).plusDays(day.toLong())
+            point("${d} 10:00", z = day * 0.01)
+        }
+        val week = filterM15PointsForMarketsPeriod(points, Period.OneWeek)
+        val month = filterM15PointsForMarketsPeriod(points, Period.OneMonth)
+        assertTrue(week.size in 1..month.size)
+        assertTrue(month.size <= points.size)
+    }
+
+    @Test
+    fun buildZScoreMarkersFromStrategyTestTrades_indicesWithinFilteredPoints() {
+        val points = listOf(
+            point("2026-05-19 10:00", z = -0.9),
+            point("2026-05-19 10:15", z = 0.2),
+            point("2026-05-20 10:00", z = 0.5)
+        )
+        val trades = listOf(
+            StrategyTestTradeItem(
+                trade = PortfolioClosedTrade(
+                    direction = ZStrategyPosition.Long,
+                    entryDate = "2026-05-19 10:00",
+                    exitDate = "2026-05-19 10:15",
+                    entrySpreadPercent = 10.0,
+                    exitSpreadPercent = 10.4,
+                    pnlSpreadPoints = 0.4,
+                    grossPnlRubApprox = 100.0,
+                    pnlRubApprox = 90.0
+                )
+            )
+        )
+        val markers = buildZScoreMarkersFromStrategyTestTrades(points, trades)
+        assertTrue(markers.all { it.index in points.indices })
+    }
+
+    @Test
     fun chartCandleBodyWidthPx_growsWithFewerVisibleCandles() {
         val wide = chartCandleBodyWidthPx(plotWidthPx = 400f, visibleCandleCount = 10f)
         val zoomed = chartCandleBodyWidthPx(plotWidthPx = 400f, visibleCandleCount = 3f)

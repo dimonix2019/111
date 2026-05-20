@@ -69,9 +69,8 @@ internal fun MoexScreen() {
     /** Портфель: исполнения песочницы + журнал (фильтр ручной/авто). */
     var confirmedPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     var confirmedPortfolioTableRows by remember { mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList()) }
-    /** Симуляция по порогам |Z| на 15м ряду. */
-    var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
-    var strategyTestTradeItems by remember { mutableStateOf<List<StrategyTestTradeItem>>(emptyList()) }
+    /** Период Z-графика на «Тест страт.» (не трогает вкладку «Рынок» и не дергает refreshData). */
+    var strategyTestChartPeriod by remember { mutableStateOf(Period.OneMonth) }
     /** Реинвестирование PnL в размер следующей сделки (только симуляция «Тест страт.»). */
     var strategyTestCompoundReturns by remember { mutableStateOf(false) }
     var portfolioLoading by remember { mutableStateOf(false) }
@@ -166,7 +165,9 @@ internal fun MoexScreen() {
     ) {
         portfolioChartZThresholds(realTradeEntryThreshold, realTradeExitThreshold)
     }
-    val strategyTestZChartPoints = remember(portfolioM15Points) { portfolioM15Points }
+    val strategyTestZChartPoints = remember(portfolioM15Points, strategyTestChartPeriod) {
+        filterM15PointsForMarketsPeriod(portfolioM15Points, strategyTestChartPeriod)
+    }
     val strategyTestZScoreCandles = remember(strategyTestZChartPoints) {
         buildZScoreCandlesFromM15Points(strategyTestZChartPoints)
     }
@@ -176,8 +177,51 @@ internal fun MoexScreen() {
     ) {
         portfolioChartZThresholds(strategyTestEntryThreshold, strategyTestExitThreshold)
     }
-    val strategyTestZChartWindow = remember(strategyTestZChartPoints) {
-        chartInitialWindowForLastCalendarDays(strategyTestZChartPoints)
+    val strategyTestZChartWindow = remember(strategyTestZChartPoints, strategyTestChartPeriod) {
+        when {
+            strategyTestZChartPoints.size < 2 -> 1f to 0f
+            strategyTestChartPeriod == Period.OneMonth ->
+                chartInitialWindowForLastCalendarDays(strategyTestZChartPoints)
+            else -> 1f to 0f
+        }
+    }
+    val strategyTestPortfolioMetrics = remember(
+        portfolioM15Points,
+        strategyTestEntryThreshold,
+        strategyTestExitThreshold,
+        strategyTestExitMode,
+        strategyTestZPeakTrailZ,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        strategyTestCompoundReturns,
+        dynamicThresholds.entry,
+        dynamicThresholds.exit
+    ) {
+        if (portfolioM15Points.size < 2) return@remember null
+        val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
+            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+        val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
+            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+        val trail = strategyTestZPeakTrailZ.coerceIn(
+            STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
+            STRATEGY_TEST_Z_PEAK_TRAIL_MAX
+        )
+        buildZStrategyPortfolioMetrics(
+            points = portfolioM15Points,
+            thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = portfolioLeverage,
+            commissionPercentPerSide = portfolioCommissionPercent,
+            periodDescription = "Тест страт. · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+            compoundReturns = strategyTestCompoundReturns,
+            exitMode = strategyTestExitMode,
+            zPeakTrailZ = trail
+        )
+    }
+    val strategyTestTradeItems = remember(strategyTestPortfolioMetrics) {
+        buildStrategyTestTradeListFromSimulation(
+            strategyTestPortfolioMetrics?.closedTrades.orEmpty()
+        )
     }
     val strategyTestZChartMarkers = remember(strategyTestZChartPoints, strategyTestTradeItems) {
         buildZScoreMarkersFromStrategyTestTrades(strategyTestZChartPoints, strategyTestTradeItems)
@@ -320,8 +364,6 @@ internal fun MoexScreen() {
             if (loaded.size < 2) {
                 confirmedPortfolioMetrics = null
                 confirmedPortfolioTableRows = emptyList()
-                strategyTestPortfolioMetrics = null
-                strategyTestTradeItems = emptyList()
                 portfolioError = when (m15Mode) {
                     PortfolioM15LoadMode.CACHE_ONLY ->
                         "Нет 15-мин данных в кэше. Нажмите «Обновить» для загрузки с MOEX."
@@ -354,11 +396,6 @@ internal fun MoexScreen() {
                 STRATEGY_TEST_Z_PEAK_TRAIL_MAX
             )
             if (strategyTestZPeakTrailZ != zPeakTrailSt) strategyTestZPeakTrailZ = zPeakTrailSt
-            val strategyTestThresholds = DynamicThresholds(
-                entry = entrySt,
-                exit = exitSt,
-                calculatedDate = dynamicThresholds.calculatedDate
-            )
 
             val eventsAll = loadStrategySignalEvents(
                 context = context,
@@ -421,20 +458,6 @@ internal fun MoexScreen() {
                     journalEvents = eventsAll
                 )
             }
-            strategyTestPortfolioMetrics = buildZStrategyPortfolioMetrics(
-                points = points,
-                thresholds = strategyTestThresholds,
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                leverage = portfolioLeverage,
-                commissionPercentPerSide = portfolioCommissionPercent,
-                periodDescription = desc,
-                compoundReturns = strategyTestCompoundReturns,
-                exitMode = strategyTestExitMode,
-                zPeakTrailZ = zPeakTrailSt
-            )
-            strategyTestTradeItems = buildStrategyTestTradeListFromSimulation(
-                strategyTestPortfolioMetrics?.closedTrades.orEmpty()
-            )
             portfolioError = if (portfolio15mSeriesTailStale(points)) {
                 val todayMsk = LocalDate.now(moexZoneId)
                 "15м ряд обрывается на ${points.last().tradeDate} (сегодня МСК $todayMsk, нужны свежие бары с MOEX). " +
@@ -1270,8 +1293,8 @@ internal fun MoexScreen() {
                 if (landscapeZChartFullscreen) {
                     LandscapeZScoreFullscreenPane(
                         modifier = Modifier.weight(1f),
-                        selectedPeriod = selectedPeriod,
-                        onPeriodSelect = { selectedPeriod = it },
+                        selectedPeriod = strategyTestChartPeriod,
+                        onPeriodSelect = { strategyTestChartPeriod = it },
                         candles = strategyTestZScoreCandles,
                         referenceLines = buildZScoreReferenceLines(strategyTestZChartThresholds),
                         pointMarkers = strategyTestZChartMarkers,
