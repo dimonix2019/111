@@ -59,6 +59,14 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun visibleCandleYRange_zoomsVerticalSpan() {
+        val (w1, _) = chartInitialWindowForLastCalendarDays(emptyList(), visibleDays = 30L)
+        assertEquals(1f, w1, 0.01f)
+        val (visMin, visMax) = visibleCandleYRange(0.0, 2.0, yZoom = 2f, centerFrac = 0.5f)
+        assertEquals(1.0, visMax - visMin, 0.01)
+    }
+
+    @Test
     fun buildZScoreMarkersFromStrategyTestTrades_assignsTradeNumbers() {
         val points = listOf(
             point("2026-05-19 10:00", z = -0.9),

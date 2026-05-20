@@ -421,7 +421,12 @@ internal fun CandlestickChart(
     rightPlotPaddingPx: Float = 16f,
     rightPlotPaddingFraction: Float = 0f,
     initialWindowWidth: Float = 1f,
-    initialWindowStart: Float = 0f
+    initialWindowStart: Float = 0f,
+    dataYMin: Double? = null,
+    dataYMax: Double? = null,
+    yZoom: Float = 1f,
+    yCenterFrac: Float = 0.5f,
+    onYViewChange: ((zoom: Float, centerFrac: Float) -> Unit)? = null
 ) {
     if (candles.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -445,9 +450,14 @@ internal fun CandlestickChart(
             )
         }
 
-        val min = yTicks.minOrNull() ?: candles.minOfOrNull { it.low } ?: 0.0
-        val max = yTicks.maxOrNull() ?: candles.maxOfOrNull { it.high } ?: 1.0
-        val range = (max - min).takeIf { it > 0.0 } ?: 1.0
+        val baseMin = dataYMin ?: yTicks.minOrNull() ?: candles.minOfOrNull { it.low } ?: 0.0
+        val baseMax = dataYMax ?: yTicks.maxOrNull() ?: candles.maxOfOrNull { it.high } ?: 1.0
+        val (visMin, visMax) = if (enableZoomPan && onYViewChange != null) {
+            visibleCandleYRange(baseMin, baseMax, yZoom, yCenterFrac)
+        } else {
+            baseMin to baseMax
+        }
+        val range = (visMax - visMin).takeIf { it > 0.0 } ?: 1.0
         val leftPadding = 16f
         val topPadding = 12f
         val bottomPadding = 60f
@@ -505,9 +515,26 @@ internal fun CandlestickChart(
                                 newStart = newStart.coerceIn(0f, 1f - newW)
                                 windowWidth = newW
                                 windowStart = newStart
-                            } else if (pan.x != 0f) {
-                                val panFrac = -pan.x / chartWidthPx * windowWidth
-                                windowStart = (windowStart + panFrac).coerceIn(0f, 1f - windowWidth)
+                                onYViewChange?.invoke(
+                                    (yZoom * zoom).coerceIn(1f, CHART_Y_ZOOM_MAX),
+                                    yCenterFrac
+                                )
+                            } else if (pan.x != 0f || pan.y != 0f) {
+                                if (pan.x != 0f) {
+                                    val panFrac = -pan.x / chartWidthPx * windowWidth
+                                    windowStart = (windowStart + panFrac).coerceIn(0f, 1f - windowWidth)
+                                }
+                                if (pan.y != 0f && onYViewChange != null) {
+                                    val chartHeightPx =
+                                        (size.height - topPadding - bottomPadding).coerceAtLeast(1f)
+                                    val fullSpan = (baseMax - baseMin).coerceAtLeast(1e-9)
+                                    val visSpan = fullSpan / yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
+                                    val deltaFrac = (-pan.y / chartHeightPx) * (visSpan / fullSpan).toFloat()
+                                    onYViewChange(
+                                        yZoom,
+                                        (yCenterFrac + deltaFrac).coerceIn(0f, 1f)
+                                    )
+                                }
                             }
                         }
                     }
@@ -521,6 +548,7 @@ internal fun CandlestickChart(
                         { _: Offset ->
                             windowStart = 0f
                             windowWidth = 1f
+                            onYViewChange?.invoke(1f, 0.5f)
                         }
                     } else {
                         null
@@ -536,9 +564,13 @@ internal fun CandlestickChart(
         val w = chartW(size.width)
         val h = size.height - topPadding - bottomPadding
         fun xForIndexDraw(index: Int): Float = xForIndex(index, size.width)
+        fun yForValue(value: Double): Float {
+            val rel = ((value - visMin) / range).toFloat().coerceIn(0f, 1f)
+            return topPadding + h * (1f - rel)
+        }
 
         yTicks.forEach { tick ->
-            val y = topPadding + h - (((tick - min) / range).toFloat() * h)
+            val y = yForValue(tick)
             drawLine(
                 color = Color(0xFF30455A),
                 start = Offset(leftPadding, y),
@@ -548,7 +580,7 @@ internal fun CandlestickChart(
         }
 
         referenceLines.forEach { reference ->
-            val y = topPadding + h - (((reference.value - min) / range).toFloat() * h)
+            val y = yForValue(reference.value)
             drawLine(
                 color = reference.color,
                 start = Offset(leftPadding, y),
@@ -561,7 +593,7 @@ internal fun CandlestickChart(
         }
         drawReferenceLineLabels(
             referenceLines = referenceLines,
-            min = min,
+            min = visMin,
             range = range,
             leftPadding = leftPadding,
             topPadding = topPadding,
@@ -606,10 +638,10 @@ internal fun CandlestickChart(
                 val frac = fracForIndex(index)
                 if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEachIndexed
                 val x = xForIndexDraw(index)
-                val openY = topPadding + h - (((candle.open - min) / range).toFloat() * h)
-                val highY = topPadding + h - (((candle.high - min) / range).toFloat() * h)
-                val lowY = topPadding + h - (((candle.low - min) / range).toFloat() * h)
-                val closeY = topPadding + h - (((candle.close - min) / range).toFloat() * h)
+                val openY = yForValue(candle.open)
+                val highY = yForValue(candle.high)
+                val lowY = yForValue(candle.low)
+                val closeY = yForValue(candle.close)
                 val rising = candle.close >= candle.open
                 val color = if (rising) Color(0xFF69F0AE) else Color(0xFFFF5252)
 
@@ -634,7 +666,7 @@ internal fun CandlestickChart(
                 val frac = fracForIndex(marker.index)
                 if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEach
                 val x = xForIndexDraw(marker.index)
-                val y = topPadding + h - (((marker.value - min) / range).toFloat() * h)
+                val y = yForValue(marker.value)
                 drawMarkerShape(
                     shape = marker.shape,
                     center = Offset(x, y),
@@ -649,7 +681,7 @@ internal fun CandlestickChart(
             val frac = fracForIndex(marker.index)
             if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEach
             val x = xForIndexDraw(marker.index)
-            val y = topPadding + h - (((marker.value - min) / range).toFloat() * h)
+            val y = yForValue(marker.value)
             val markerCenter = Offset(x, y)
             marker.badgeText?.let { badge ->
                 drawMarkerBadge(markerCenter, badge, markerScale)

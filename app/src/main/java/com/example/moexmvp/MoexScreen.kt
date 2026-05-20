@@ -61,12 +61,11 @@ internal fun MoexScreen() {
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(MainTab.Markets) }
     val configuration = LocalConfiguration.current
-    val landscapeMarketsChartsOnly =
+    val landscapeZChartFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-            selectedTab == MainTab.Markets
-    val landscapePortfolioZChartOnly =
-        configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-            selectedTab == MainTab.Portfolio
+            (selectedTab == MainTab.Markets ||
+                selectedTab == MainTab.Portfolio ||
+                selectedTab == MainTab.StrategyTest)
     /** Портфель: исполнения песочницы + журнал (фильтр ручной/авто). */
     var confirmedPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     var confirmedPortfolioTableRows by remember { mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList()) }
@@ -955,11 +954,9 @@ internal fun MoexScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(
-                if (landscapeMarketsChartsOnly || landscapePortfolioZChartOnly) 4.dp else 12.dp
-            )
+            .padding(if (landscapeZChartFullscreen) 0.dp else 12.dp)
     ) {
-        if (!landscapeMarketsChartsOnly && !landscapePortfolioZChartOnly) {
+        if (!landscapeZChartFullscreen) {
             MainTabSelector(
                 selected = selectedTab,
                 onSelect = { selectedTab = it }
@@ -1150,58 +1147,28 @@ internal fun MoexScreen() {
             }
 
             MainTab.Portfolio -> {
-                if (landscapePortfolioZChartOnly) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "Портрет — вкладки и сделки. Z-score на весь экран: масштаб двумя пальцами, сдвиг, двойной тап — сброс.",
-                            color = Color(0xFFB0BEC5),
-                            fontSize = 10.sp
-                        )
-                        PeriodSelector(
-                            selected = selectedPeriod,
-                            onSelect = { selectedPeriod = it }
-                        )
-                        BoxWithConstraints(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                        ) {
-                            val safeMax = if (maxHeight.value.isFinite()) maxHeight else 360.dp
-                            val chartH = safeMax.value.roundToInt().coerceIn(120, 1200)
-                            if (portfolioZScoreCandles.isNotEmpty()) {
-                                CandlestickChartCard(
-                                    title = "Z-score спрэда · 15м",
-                                    candles = portfolioZScoreCandles,
-                                    chartHeightDp = chartH,
-                                    referenceLines = buildZScoreReferenceLines(portfolioLandscapeChartThresholds),
-                                    pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                        points = portfolioZChartPoints,
-                                        events = signalEvents
-                                    ),
-                                    showLegend = false,
-                                    enableZoomPan = true,
-                                    markerScale = 1.5f,
-                                    rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-                                    showZoomHint = true,
-                                    tradeTapHintFormatter = { idx ->
-                                        formatZStrategyTradeTapHint(
-                                            idx,
-                                            portfolioZChartPoints,
-                                            confirmedPortfolioMetrics
-                                        )
-                                    }
-                                )
-                            } else if (portfolioLoading) {
-                                LoadingState()
-                            } else {
-                                EmptyState()
-                            }
+                if (landscapeZChartFullscreen) {
+                    LandscapeZScoreFullscreenPane(
+                        modifier = Modifier.weight(1f),
+                        selectedPeriod = selectedPeriod,
+                        onPeriodSelect = { selectedPeriod = it },
+                        candles = portfolioZScoreCandles,
+                        referenceLines = buildZScoreReferenceLines(portfolioLandscapeChartThresholds),
+                        pointMarkers = buildZScoreSignalMarkersFromEvents(
+                            points = portfolioZChartPoints,
+                            events = signalEvents
+                        ),
+                        tradeTapHintFormatter = { idx ->
+                            formatZStrategyTradeTapHint(
+                                idx,
+                                portfolioZChartPoints,
+                                confirmedPortfolioMetrics
+                            )
+                        },
+                        emptyContent = {
+                            if (portfolioLoading) LoadingState() else EmptyState()
                         }
-                    }
+                    )
                 } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
@@ -1300,6 +1267,28 @@ internal fun MoexScreen() {
             }
 
             MainTab.StrategyTest -> {
+                if (landscapeZChartFullscreen) {
+                    LandscapeZScoreFullscreenPane(
+                        modifier = Modifier.weight(1f),
+                        selectedPeriod = selectedPeriod,
+                        onPeriodSelect = { selectedPeriod = it },
+                        candles = strategyTestZScoreCandles,
+                        referenceLines = buildZScoreReferenceLines(strategyTestZChartThresholds),
+                        pointMarkers = strategyTestZChartMarkers,
+                        initialWindowWidth = strategyTestZChartWindow.first,
+                        initialWindowStart = strategyTestZChartWindow.second,
+                        tradeTapHintFormatter = { idx ->
+                            formatZStrategyTradeTapHint(
+                                idx,
+                                strategyTestZChartPoints,
+                                strategyTestPortfolioMetrics
+                            )
+                        },
+                        emptyContent = {
+                            if (portfolioLoading) LoadingState() else EmptyState()
+                        }
+                    )
+                } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1435,11 +1424,12 @@ internal fun MoexScreen() {
                         )
                     }
                 }
+                }
             }
 
             MainTab.Markets -> {
                 Column(Modifier.weight(1f)) {
-                    if (!landscapeMarketsChartsOnly) {
+                    if (!landscapeZChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
                             ?: chartSuccess?.points?.lastOrNull()
                         val demoTail = TinkoffSandboxStorage.getAccountId(context)?.takeLast(8).orEmpty()
@@ -1480,90 +1470,40 @@ internal fun MoexScreen() {
                         onRefresh = { scope.launch { refreshData(showLoading = false) } },
                         modifier = Modifier
                             .weight(1f)
-                            .padding(top = if (landscapeMarketsChartsOnly) 0.dp else 8.dp)
+                            .padding(top = if (landscapeZChartFullscreen) 0.dp else 8.dp)
                     ) {
-                        if (landscapeMarketsChartsOnly) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(top = 2.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "Портрет — вкладки и сводка. Масштаб: два пальца, сдвиг, двойной тап — сброс.",
-                                    color = Color(0xFFB0BEC5),
-                                    fontSize = 10.sp
-                                )
-                                PeriodSelector(
-                                    selected = selectedPeriod,
-                                    onSelect = {
-                                        selectedPeriod = it
-                                        previousZScoreForAlert = null
-                                    }
-                                )
-                                BoxWithConstraints(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth()
-                                ) {
-                                    val safeMax = if (maxHeight.value.isFinite()) maxHeight else 360.dp
-                                    val slotH = ((safeMax - 4.dp) / 2).coerceAtLeast(120.dp)
-                                    val chartH = slotH.value.roundToInt().coerceIn(110, 800)
-                                    if (chartSuccess != null) {
-                                        val c = chartSuccess
-                                        Column(
-                                            modifier = Modifier.fillMaxSize(),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            CandlestickChartCard(
-                                                title = "Z-score спрэда · 15м свечи",
-                                                candles = marketsZScoreCandles,
-                                                chartHeightDp = chartH,
-                                                referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
-                                                pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                                    points = marketsM15ChartPoints,
-                                                    events = signalEvents
-                                                ),
-                                                showLegend = false,
-                                                enableZoomPan = true,
-                                                markerScale = 1.5f,
-                                                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-                                                showZoomHint = true,
-                                                tradeTapHintFormatter = { idx ->
-                                                    formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)
-                                                }
-                                            )
-                                            ChartCard(
-                                                title = "Spread %",
-                                                series = listOf(
-                                                    ChartSeries(
-                                                        "Spread %",
-                                                        Color(0xFF69F0AE),
-                                                        c.points.map { it.spreadPercent }
-                                                    )
-                                                ),
-                                                labels = c.points.map { it.tradeDate },
-                                                chartHeightDp = chartH,
-                                                rightAxisPercentBase = c.points.minOfOrNull { it.spreadPercent },
-                                                yScale = YAxisScale.Auto,
-                                                showLegend = false,
-                                                enableZoomPan = true,
-                                                markerScale = 1f,
-                                                showZoomHint = false
-                                            )
+                        if (landscapeZChartFullscreen) {
+                            LandscapeZScoreFullscreenPane(
+                                modifier = Modifier.fillMaxSize(),
+                                selectedPeriod = selectedPeriod,
+                                onPeriodSelect = {
+                                    selectedPeriod = it
+                                    previousZScoreForAlert = null
+                                },
+                                candles = marketsZScoreCandles,
+                                referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
+                                pointMarkers = buildZScoreSignalMarkersFromEvents(
+                                    points = marketsM15ChartPoints,
+                                    events = signalEvents
+                                ),
+                                tradeTapHintFormatter = { idx ->
+                                    formatZStrategyTradeTapHint(
+                                        idx,
+                                        marketsM15ChartPoints,
+                                        marketsZStrategyTapMetrics
+                                    )
+                                },
+                                emptyContent = {
+                                    when (val st = state) {
+                                        is UiState.Loading -> LoadingState()
+                                        is UiState.Error -> ErrorState(st.message) {
+                                            scope.launch { refreshData(showLoading = true) }
                                         }
-                                    } else {
-                                        when (val st = state) {
-                                            is UiState.Loading -> LoadingState()
-                                            is UiState.Error -> ErrorState(st.message) {
-                                                scope.launch { refreshData(showLoading = true) }
-                                            }
-                                            is UiState.Empty -> EmptyState()
-                                            else -> Unit
-                                        }
+                                        is UiState.Empty -> EmptyState()
+                                        else -> EmptyState()
                                     }
                                 }
-                            }
+                            )
                         } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),

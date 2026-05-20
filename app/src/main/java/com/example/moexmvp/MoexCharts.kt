@@ -6,8 +6,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -29,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -388,10 +392,26 @@ internal fun CandlestickChartCard(
     rightPlotPaddingFraction: Float = 0f,
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
-    tradeTapHintFormatter: ((Int) -> String?)? = null
+    tradeTapHintFormatter: ((Int) -> String?)? = null,
+    landscapeMinimal: Boolean = false
 ) {
     val axisScale = remember(candles, referenceLines) {
         buildCandleAxisScale(candles, valueHints = referenceLines.map { it.value })
+    }
+    val dataYRange = remember(candles, referenceLines) {
+        candleChartDataYRange(candles, referenceLines.map { it.value })
+    }
+    var yZoom by remember(candles) { mutableFloatStateOf(1f) }
+    var yCenterFrac by remember(candles) { mutableFloatStateOf(0.5f) }
+    val visibleYRange = remember(dataYRange, yZoom, yCenterFrac) {
+        visibleCandleYRange(dataYRange.first, dataYRange.second, yZoom, yCenterFrac)
+    }
+    val displayYTicks = remember(visibleYRange, enableZoomPan, axisScale.yTicks) {
+        if (enableZoomPan) {
+            buildYTicks(visibleYRange.first, visibleYRange.second, count = 5)
+        } else {
+            axisScale.yTicks
+        }
     }
     val stats = remember(candles) { buildCandleStats(candles) }
     var selectedIndex by remember(candles) { mutableStateOf<Int?>(null) }
@@ -399,29 +419,40 @@ internal fun CandlestickChartCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF171717), RoundedCornerShape(12.dp))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .then(if (landscapeMinimal) Modifier.fillMaxHeight() else Modifier)
+            .background(Color(0xFF171717), RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp))
+            .padding(if (landscapeMinimal) 2.dp else 10.dp),
+        verticalArrangement = Arrangement.spacedBy(if (landscapeMinimal) 2.dp else 8.dp)
     ) {
-        Text(title, fontWeight = FontWeight.Bold, color = Color.White)
-        if (showZoomHint && enableZoomPan) {
+        if (!landscapeMinimal && title.isNotBlank()) {
+            Text(title, fontWeight = FontWeight.Bold, color = Color.White)
+        }
+        if (showZoomHint && enableZoomPan && !landscapeMinimal) {
             Text(
-                text = "Масштаб: два пальца · сдвиг: перетаскивание · двойной тап: весь период",
+                text = "Масштаб: два пальца (X и Y) · сдвиг · двойной тап: сброс",
                 color = Color(0xFF9FA8DA),
                 fontSize = 10.sp
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (landscapeMinimal) Modifier.weight(1f).fillMaxHeight()
+                    else Modifier
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(
                 modifier = Modifier
-                    .height(chartHeightDp.dp)
+                    .then(
+                        if (landscapeMinimal) Modifier.fillMaxHeight()
+                        else Modifier.height(chartHeightDp.dp)
+                    )
                     .width(54.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                axisScale.yTicks
+                displayYTicks
                     .asReversed()
                     .forEach { tick ->
                         Text(
@@ -433,7 +464,7 @@ internal fun CandlestickChartCard(
             }
             CandlestickChart(
                 candles = candles,
-                yTicks = axisScale.yTicks,
+                yTicks = displayYTicks,
                 xTicks = axisScale.xTicks,
                 selectedIndex = selectedIndex,
                 onSelectIndex = { selectedIndex = it },
@@ -441,46 +472,108 @@ internal fun CandlestickChartCard(
                 pointMarkers = pointMarkers,
                 modifier = Modifier
                     .weight(1f)
-                    .height(chartHeightDp.dp),
+                    .then(
+                        if (landscapeMinimal) Modifier.fillMaxHeight()
+                        else Modifier.height(chartHeightDp.dp)
+                    ),
                 enableZoomPan = enableZoomPan,
                 markerScale = markerScale,
                 rightPlotPaddingPx = rightPlotPaddingPx,
                 rightPlotPaddingFraction = rightPlotPaddingFraction,
                 initialWindowWidth = initialWindowWidth,
-                initialWindowStart = initialWindowStart
+                initialWindowStart = initialWindowStart,
+                dataYMin = dataYRange.first,
+                dataYMax = dataYRange.second,
+                yZoom = yZoom,
+                yCenterFrac = yCenterFrac,
+                onYViewChange = if (enableZoomPan) {
+                    { zoom, center -> yZoom = zoom; yCenterFrac = center }
+                } else {
+                    null
+                }
             )
         }
-        if (showLegend) {
+        if (showLegend && !landscapeMinimal) {
             Legend(
                 series = emptyList(),
                 referenceLines = referenceLines,
                 pointMarkers = pointMarkers
             )
         }
-        selectedIndex?.let { selected ->
-            candles.getOrNull(selected)?.let { candle ->
-                Text(
-                    text = "↕ ${candle.label} | O ${formatAxisValue(candle.open)} | " +
-                        "H ${formatAxisValue(candle.high)} | L ${formatAxisValue(candle.low)} | " +
-                        "C ${formatAxisValue(candle.close)}",
-                    fontSize = 12.sp,
-                    color = Color(0xFFF1F8FF)
-                )
+        if (!landscapeMinimal) {
+            selectedIndex?.let { selected ->
+                candles.getOrNull(selected)?.let { candle ->
+                    Text(
+                        text = "↕ ${candle.label} | O ${formatAxisValue(candle.open)} | " +
+                            "H ${formatAxisValue(candle.high)} | L ${formatAxisValue(candle.low)} | " +
+                            "C ${formatAxisValue(candle.close)}",
+                        fontSize = 12.sp,
+                        color = Color(0xFFF1F8FF)
+                    )
+                }
+                tradeTapHintFormatter?.invoke(selected)?.let { hint ->
+                    Text(
+                        text = hint,
+                        fontSize = 11.sp,
+                        color = Color(0xFFFFE082),
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
             }
-            tradeTapHintFormatter?.invoke(selected)?.let { hint ->
-                Text(
-                    text = hint,
-                    fontSize = 11.sp,
-                    color = Color(0xFFFFE082),
-                    modifier = Modifier.padding(top = 2.dp)
+            Text(
+                text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
+                fontSize = 12.sp,
+                color = Color(0xFFD7E3F4)
+            )
+        }
+    }
+}
+
+@Composable
+internal fun LandscapeZScoreFullscreenPane(
+    selectedPeriod: Period,
+    onPeriodSelect: (Period) -> Unit,
+    candles: List<CandlePoint>,
+    referenceLines: List<ChartReferenceLine>,
+    pointMarkers: List<ChartPointMarker>,
+    modifier: Modifier = Modifier,
+    initialWindowWidth: Float = 1f,
+    initialWindowStart: Float = 0f,
+    tradeTapHintFormatter: ((Int) -> String?)? = null,
+    emptyContent: @Composable () -> Unit = { EmptyState() }
+) {
+    Column(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        PeriodSelector(selected = selectedPeriod, onSelect = onPeriodSelect)
+        BoxWithConstraints(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            val chartH = maxHeight.value.roundToInt().coerceIn(80, 2400)
+            if (candles.isNotEmpty()) {
+                CandlestickChartCard(
+                    title = "",
+                    candles = candles,
+                    chartHeightDp = chartH,
+                    referenceLines = referenceLines,
+                    pointMarkers = pointMarkers,
+                    showLegend = false,
+                    enableZoomPan = true,
+                    markerScale = 1.4f,
+                    rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
+                    showZoomHint = false,
+                    landscapeMinimal = true,
+                    initialWindowWidth = initialWindowWidth,
+                    initialWindowStart = initialWindowStart,
+                    tradeTapHintFormatter = tradeTapHintFormatter
                 )
+            } else {
+                emptyContent()
             }
         }
-        Text(
-            text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
-            fontSize = 12.sp,
-            color = Color(0xFFD7E3F4)
-        )
     }
 }
 
@@ -703,6 +796,41 @@ internal fun filterM15PointsForMarketsPeriod(
         .toInstant()
         .toEpochMilli()
     return points.filter { it.timestampMillis >= fromMillis }
+}
+
+internal fun candleChartDataYRange(
+    candles: List<CandlePoint>,
+    valueHints: List<Double> = emptyList()
+): Pair<Double, Double> {
+    val lows = candles.map { it.low }
+    val highs = candles.map { it.high }
+    val min = (lows + valueHints).minOrNull() ?: 0.0
+    val max = (highs + valueHints).maxOrNull() ?: 1.0
+    return if (max <= min) min to (min + 1.0) else min to max
+}
+
+/** Видимый диапазон Y при вертикальном zoom: [zoom]× увеличение, [centerFrac] — центр окна (0..1). */
+internal fun visibleCandleYRange(
+    dataMin: Double,
+    dataMax: Double,
+    yZoom: Float,
+    centerFrac: Float
+): Pair<Double, Double> {
+    val fullSpan = (dataMax - dataMin).coerceAtLeast(1e-9)
+    val zoom = yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
+    val visSpan = fullSpan / zoom
+    val center = dataMin + fullSpan * centerFrac.coerceIn(0f, 1f)
+    var visMin = center - visSpan / 2.0
+    var visMax = center + visSpan / 2.0
+    if (visMin < dataMin) {
+        visMin = dataMin
+        visMax = dataMin + visSpan
+    }
+    if (visMax > dataMax) {
+        visMax = dataMax
+        visMin = dataMax - visSpan
+    }
+    return visMin to visMax
 }
 
 /** Правый зазор области графика: max(minPx, plotWidthPx × fraction). */
