@@ -191,7 +191,10 @@ internal fun MoexScreen() {
             else -> 1f to 0f
         }
     }
-    val strategyTestPortfolioMetrics = remember(
+    var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
+    var strategyTestSimComputing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(
         portfolioM15Points,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
@@ -201,28 +204,33 @@ internal fun MoexScreen() {
         portfolioCommissionPercent,
         strategyTestCompoundReturns,
         dynamicThresholds.entry,
-        dynamicThresholds.exit
+        dynamicThresholds.exit,
+        dynamicThresholds.calculatedDate
     ) {
-        if (portfolioM15Points.size < 2) return@remember null
-        val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-        val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-        val trail = strategyTestZPeakTrailZ.coerceIn(
-            STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
-            STRATEGY_TEST_Z_PEAK_TRAIL_MAX
-        )
-        buildZStrategyPortfolioMetrics(
-            points = portfolioM15Points,
-            thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
-            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage = portfolioLeverage,
-            commissionPercentPerSide = portfolioCommissionPercent,
-            periodDescription = "Тест страт. · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
-            compoundReturns = strategyTestCompoundReturns,
-            exitMode = strategyTestExitMode,
-            zPeakTrailZ = trail
-        )
+        strategyTestSimComputing = true
+        strategyTestPortfolioMetrics = withContext(Dispatchers.Default) {
+            if (portfolioM15Points.size < 2) return@withContext null
+            val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            val trail = strategyTestZPeakTrailZ.coerceIn(
+                STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
+                STRATEGY_TEST_Z_PEAK_TRAIL_MAX
+            )
+            buildZStrategyPortfolioMetrics(
+                points = portfolioM15Points,
+                thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+                periodDescription = "Тест страт. · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+                compoundReturns = strategyTestCompoundReturns,
+                exitMode = strategyTestExitMode,
+                zPeakTrailZ = trail
+            )
+        }
+        strategyTestSimComputing = false
     }
     val strategyTestTradeItems = remember(strategyTestPortfolioMetrics) {
         buildStrategyTestTradeListFromSimulation(
@@ -239,7 +247,9 @@ internal fun MoexScreen() {
         portfolioChartZThresholds(realTradeEntryThreshold, realTradeExitThreshold)
     }
 
-    val marketsZStrategyTapMetrics = remember(
+    var marketsZStrategyTapMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
+
+    LaunchedEffect(
         marketsM15ChartPoints,
         marketsChartThresholds.entry,
         marketsChartThresholds.exit,
@@ -247,17 +257,19 @@ internal fun MoexScreen() {
         portfolioCommissionPercent,
         selectedPeriod
     ) {
-        val pts = marketsM15ChartPoints
-        if (pts.size < 2) return@remember null
-        buildZStrategyPortfolioMetrics(
-            points = pts,
-            thresholds = marketsChartThresholds,
-            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage = portfolioLeverage,
-            commissionPercentPerSide = portfolioCommissionPercent,
-            periodDescription = "${selectedPeriod.label} · тап Z",
-            compoundReturns = false
-        )
+        marketsZStrategyTapMetrics = withContext(Dispatchers.Default) {
+            val pts = marketsM15ChartPoints
+            if (pts.size < 2) return@withContext null
+            buildZStrategyPortfolioMetrics(
+                points = pts,
+                thresholds = marketsChartThresholds,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+                periodDescription = "${selectedPeriod.label} · тап Z",
+                compoundReturns = false
+            )
+        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -484,7 +496,9 @@ internal fun MoexScreen() {
 
     val signalJournalFingerprint = signalEvents.size to signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
 
-    val dailyReconciliation = remember(
+    var dailyReconciliation by remember { mutableStateOf<DailyPortfolioReconciliation?>(null) }
+
+    LaunchedEffect(
         signalJournalFingerprint,
         confirmedPortfolioMetrics,
         strategyTestPortfolioMetrics,
@@ -495,16 +509,18 @@ internal fun MoexScreen() {
         dynamicThresholds.entry,
         dynamicThresholds.exit
     ) {
-        buildDailyPortfolioReconciliation(
-            day = LocalDate.now(ZoneId.of("Europe/Moscow")),
-            journalEvents = signalEvents,
-            confirmed = confirmedPortfolioMetrics,
-            simulation = strategyTestPortfolioMetrics,
-            simEntryThreshold = strategyTestEntryThreshold ?: dynamicThresholds.entry,
-            simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit,
-            simExitMode = strategyTestExitMode,
-            simZPeakTrailZ = strategyTestZPeakTrailZ
-        )
+        dailyReconciliation = withContext(Dispatchers.Default) {
+            buildDailyPortfolioReconciliation(
+                day = LocalDate.now(ZoneId.of("Europe/Moscow")),
+                journalEvents = signalEvents,
+                confirmed = confirmedPortfolioMetrics,
+                simulation = strategyTestPortfolioMetrics,
+                simEntryThreshold = strategyTestEntryThreshold ?: dynamicThresholds.entry,
+                simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit,
+                simExitMode = strategyTestExitMode,
+                simZPeakTrailZ = strategyTestZPeakTrailZ
+            )
+        }
     }
 
     LaunchedEffect(
@@ -1327,6 +1343,7 @@ internal fun MoexScreen() {
                     item {
                         StrategyTestTabContent(
                             metrics = strategyTestPortfolioMetrics,
+                            simulationComputing = strategyTestSimComputing,
                             tradeItems = strategyTestTradeItems,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,

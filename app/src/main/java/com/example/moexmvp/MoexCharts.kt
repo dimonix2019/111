@@ -411,9 +411,10 @@ internal fun CandlestickChartCard(
     }
     val displayYTicks = remember(visibleYRange, enableZoomPan, axisScale.yTicks) {
         if (enableZoomPan) {
-            buildYTicks(visibleYRange.first, visibleYRange.second, count = 5)
+            val ticks = buildYTicks(visibleYRange.first, visibleYRange.second, count = 5)
+            if (ticks.isNotEmpty()) ticks else listOf(visibleYRange.first, visibleYRange.second)
         } else {
-            axisScale.yTicks
+            axisScale.yTicks.ifEmpty { listOf(dataYRange.first, dataYRange.second) }
         }
     }
     val stats = remember(candles) { buildCandleStats(candles) }

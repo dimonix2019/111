@@ -881,6 +881,7 @@ internal fun ConfirmedPortfolioTabContent(
 @Composable
 internal fun StrategyTestTabContent(
     metrics: PortfolioMetrics?,
+    simulationComputing: Boolean = false,
     tradeItems: List<StrategyTestTradeItem>,
     portfolioLoading: Boolean,
     portfolioError: String?,
@@ -930,10 +931,17 @@ internal fun StrategyTestTabContent(
         AppVersionBriefCard(tabHint = "Симуляция на полном 15м ряду; период 1D/1W/… — только график Z в альбоме.")
         PortfolioDataRefreshHeader(
             title = "Тест стратегии · 15м",
-            portfolioLoading = portfolioLoading,
+            portfolioLoading = portfolioLoading || simulationComputing,
             onRefresh = onRefresh,
             onMoex15mFullReload = onMoex15mFullReload
         )
+        if (simulationComputing && metrics == null && portfolioError == null) {
+            Text(
+                text = "Считаем симуляцию на ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. 15м…",
+                color = Color(0xFF9FA8DA),
+                fontSize = 11.sp
+            )
+        }
         Text(
             text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · симуляция по Z",
             color = Color(0xFF9E9E9E),
