@@ -81,7 +81,7 @@ class MoexMarketsM15ZChartTest {
         )
         val markers = buildZScoreMarkersFromStrategyTestTrades(points, trades)
         assertEquals(2, markers.size)
-        assertEquals(listOf("1", "1"), markers.map { it.badgeText })
+        assertEquals(listOf("#1", "#1"), markers.map { it.badgeText })
     }
 
     @Test

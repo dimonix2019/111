@@ -641,9 +641,18 @@ internal fun CandlestickChart(
                     color = marker.color,
                     scale = markerScale
                 )
-                marker.badgeText?.let { badge ->
-                    drawMarkerBadge(center, badge, marker.color, markerScale)
-                }
+            }
+        }
+
+        pointMarkers.forEach { marker ->
+            if (marker.index < 0 || marker.index > maxIndex) return@forEach
+            val frac = fracForIndex(marker.index)
+            if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEach
+            val x = xForIndexDraw(marker.index)
+            val y = topPadding + h - (((marker.value - min) / range).toFloat() * h)
+            val markerCenter = Offset(x, y)
+            marker.badgeText?.let { badge ->
+                drawMarkerBadge(markerCenter, badge, markerScale)
             }
         }
 
@@ -681,22 +690,28 @@ internal fun CandlestickChart(
 }
 
 private fun DrawScope.drawMarkerBadge(
-    center: Offset,
+    markerCenter: Offset,
     text: String,
-    color: Color,
     scale: Float
 ) {
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = (8f * scale).coerceIn(7f, 11f)
+    val textSizePx = (11f * scale).coerceIn(9f, 15f)
+    val x = markerCenter.x + 11f * scale
+    val y = markerCenter.y - 12f * scale
+    val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = textSizePx
         textAlign = Paint.Align.LEFT
-        this.color = color.copy(alpha = 0.95f).toArgb()
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = android.graphics.Color.argb(230, 0, 0, 0)
     }
-    drawContext.canvas.nativeCanvas.drawText(
-        text,
-        center.x + 10f * scale,
-        center.y - 10f * scale,
-        paint
-    )
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = textSizePx
+        textAlign = Paint.Align.LEFT
+        color = android.graphics.Color.argb(255, 255, 255, 255)
+    }
+    val canvas = drawContext.canvas.nativeCanvas
+    canvas.drawText(text, x, y, outline)
+    canvas.drawText(text, x, y, fill)
 }
 
 /**

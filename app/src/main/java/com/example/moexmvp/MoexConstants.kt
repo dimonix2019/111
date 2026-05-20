@@ -81,6 +81,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.76 — Тест страт.: номера сделок (#N) у маркеров Z-score рисуются у точки входа/выхода (исправлен сбой позиции).
 1.6.75 — Портфель (альбом): Z-score на весь экран с zoom; Тест страт.: Z-score как на Рынке, сделки симуляции с №, окно 1 мес.
 1.6.74 — Портфель: убран график Z-score; Рынок: правый зазор Z-score ~10% ширины графика.
 1.6.73 — Портфель: график Z-score 15м с зазором ~5% справа; отступ считается по фактической ширине canvas.

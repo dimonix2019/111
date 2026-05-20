@@ -659,7 +659,7 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
     if (points.isEmpty() || tradeItems.isEmpty()) return emptyList()
     val markers = mutableListOf<ChartPointMarker>()
     tradeItems.forEachIndexed { listIndex, item ->
-        val num = (listIndex + 1).toString()
+        val num = "#${listIndex + 1}"
         val t = item.trade
         val (enterShape, enterColor) = when (t.direction) {
             ZStrategyPosition.Long -> ChartMarkerShape.TriangleUp to Color(0xFF69F0AE)
