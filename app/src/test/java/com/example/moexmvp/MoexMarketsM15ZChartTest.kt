@@ -104,6 +104,30 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun downsampleDataPointsForChart_capsLargeSeries() {
+        val points = (0 until 5000).map { i ->
+            point("2026-01-01 10:${(i % 60).toString().padStart(2, '0')}", z = i * 0.001)
+        }
+        val sampled = downsampleDataPointsForChart(points, maxBars = 100)
+        assertTrue(sampled.size <= 101)
+        assertEquals(points.last().tradeDate, sampled.last().tradeDate)
+    }
+
+    @Test
+    fun visibleCandleDrawIndexRange_coversWindow() {
+        val range = visibleCandleDrawIndexRange(maxIndex = 100, windowStart = 0.4f, windowWidth = 0.2f)
+        assertTrue(range.first <= 40)
+        assertTrue(range.last >= 60)
+    }
+
+    @Test
+    fun parseAppChangelog_readsVersionAndSummary() {
+        val entry = parseAppChangelog("1.6.82 — тест описание.").single()
+        assertEquals("1.6.82", entry.version)
+        assertEquals("тест описание.", entry.summary)
+    }
+
+    @Test
     fun chartCandleBodyWidthPx_growsWithFewerVisibleCandles() {
         val wide = chartCandleBodyWidthPx(plotWidthPx = 400f, visibleCandleCount = 10f)
         val zoomed = chartCandleBodyWidthPx(plotWidthPx = 400f, visibleCandleCount = 3f)

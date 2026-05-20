@@ -502,7 +502,15 @@ internal fun CandlestickChart(
                 .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
             .then(
                 if (enableZoomPan) {
-                    Modifier.pointerInput(candles, maxIndex, rightPadding, baseMin, baseMax) {
+                    Modifier.pointerInput(
+                        candles,
+                        maxIndex,
+                        rightPadding,
+                        baseMin,
+                        baseMax,
+                        yZoom,
+                        yViewCenter
+                    ) {
                         detectTransformGestures { centroid, pan, zoom, _ ->
                             val chartWidthPx = chartW(size.width.toFloat())
                             val chartHeightPx =
@@ -645,9 +653,9 @@ internal fun CandlestickChart(
                     )
                 )
             }
-            candles.forEachIndexed { index, candle ->
-                val frac = fracForIndex(index)
-                if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEachIndexed
+            val drawRange = visibleCandleDrawIndexRange(maxIndex, wStart, wWidth)
+            for (index in drawRange) {
+                val candle = candles.getOrNull(index) ?: continue
                 val x = xForIndexDraw(index)
                 val openY = yForValue(candle.open)
                 val highY = yForValue(candle.high)

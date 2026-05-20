@@ -148,13 +148,17 @@ internal fun MoexScreen() {
     val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
     val staleMarkets = marketsStale || (realtimeError != null && chartSuccess != null)
     val marketsM15ChartPoints = remember(marketsM15Points, selectedPeriod) {
-        filterM15PointsForMarketsPeriod(marketsM15Points, selectedPeriod)
+        downsampleDataPointsForChart(
+            filterM15PointsForMarketsPeriod(marketsM15Points, selectedPeriod)
+        )
     }
     val marketsZScoreCandles = remember(marketsM15ChartPoints) {
         buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
     }
     val portfolioZChartPoints = remember(portfolioM15Points, selectedPeriod) {
-        filterM15PointsForMarketsPeriod(portfolioM15Points, selectedPeriod)
+        downsampleDataPointsForChart(
+            filterM15PointsForMarketsPeriod(portfolioM15Points, selectedPeriod)
+        )
     }
     val portfolioZScoreCandles = remember(portfolioZChartPoints) {
         buildZScoreCandlesFromM15Points(portfolioZChartPoints)
@@ -166,7 +170,9 @@ internal fun MoexScreen() {
         portfolioChartZThresholds(realTradeEntryThreshold, realTradeExitThreshold)
     }
     val strategyTestZChartPoints = remember(portfolioM15Points, strategyTestChartPeriod) {
-        filterM15PointsForMarketsPeriod(portfolioM15Points, strategyTestChartPeriod)
+        downsampleDataPointsForChart(
+            filterM15PointsForMarketsPeriod(portfolioM15Points, strategyTestChartPeriod)
+        )
     }
     val strategyTestZScoreCandles = remember(strategyTestZChartPoints) {
         buildZScoreCandlesFromM15Points(strategyTestZChartPoints)
@@ -790,8 +796,10 @@ internal fun MoexScreen() {
         }
     }
 
-    LaunchedEffect(selectedPeriod) {
-        refreshData(showLoading = true)
+    LaunchedEffect(selectedPeriod, selectedTab) {
+        if (selectedTab == MainTab.Markets) {
+            refreshData(showLoading = state !is UiState.Success)
+        }
     }
 
     LaunchedEffect(realtimeEnabled, selectedPeriod) {

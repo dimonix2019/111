@@ -52,6 +52,7 @@ internal fun MarketsSummaryStrip(
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        AppVersionBriefCard(tabHint = "Период 1D/1W/… — загрузка дневного ряда MOEX для вкладки «Рынок».")
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

@@ -81,6 +81,10 @@ internal fun JournalTabContent(
             .asReversed()
     }
     Column(modifier) {
+        AppVersionBriefCard(
+            modifier = Modifier.padding(bottom = 8.dp),
+            tabHint = "Журнал сигналов и push не зависит от периода графика."
+        )
         if (showClearPushDialog) {
             AlertDialog(
                 onDismissRequest = { showClearPushDialog = false },

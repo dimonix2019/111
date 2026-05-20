@@ -661,6 +661,7 @@ internal fun ConfirmedPortfolioTabContent(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
+        AppVersionBriefCard(tabHint = "Полный журнал версий — вкладка «О приложении».")
         PortfolioDataRefreshHeader(
             title = "Портфель · демо-счёт",
             portfolioLoading = portfolioLoading,
@@ -926,6 +927,7 @@ internal fun StrategyTestTabContent(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
+        AppVersionBriefCard(tabHint = "Симуляция на полном 15м ряду; период 1D/1W/… — только график Z в альбоме.")
         PortfolioDataRefreshHeader(
             title = "Тест стратегии · 15м",
             portfolioLoading = portfolioLoading,

@@ -786,6 +786,38 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
     return markers
 }
 
+/** Равномерный прореживание ряда для отрисовки (симуляция — на полном ряду). */
+internal fun downsampleDataPointsForChart(
+    points: List<DataPoint>,
+    maxBars: Int = CHART_MAX_DISPLAY_BARS
+): List<DataPoint> {
+    if (points.size <= maxBars) return points
+    val last = points.last()
+    val step = points.size.toDouble() / maxBars
+    val out = ArrayList<DataPoint>(maxBars + 1)
+    var i = 0.0
+    while (out.size < maxBars && i < points.size) {
+        out += points[i.toInt().coerceIn(0, points.lastIndex)]
+        i += step
+    }
+    if (out.isEmpty() || out.last() != last) out += last
+    return out
+}
+
+internal fun visibleCandleDrawIndexRange(
+    maxIndex: Int,
+    windowStart: Float,
+    windowWidth: Float,
+    paddingFrac: Float = 0.03f
+): IntRange {
+    if (maxIndex <= 0) return 0..0
+    val lo = (windowStart - paddingFrac).coerceIn(0f, 1f)
+    val hi = (windowStart + windowWidth + paddingFrac).coerceIn(0f, 1f)
+    val start = (lo * maxIndex).toInt().coerceIn(0, maxIndex)
+    val end = (hi * maxIndex).toInt().coerceIn(0, maxIndex)
+    return start..end
+}
+
 internal fun filterM15PointsForMarketsPeriod(
     points: List<DataPoint>,
     period: Period

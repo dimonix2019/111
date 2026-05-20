@@ -112,6 +112,7 @@ internal fun TinkoffSandboxTabContent(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        AppVersionBriefCard()
         if (showResetSandboxDialog) {
             AlertDialog(
                 onDismissRequest = { if (!loading) showResetSandboxDialog = false },

@@ -21,8 +21,11 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
 @Composable
 internal fun AboutTabContent(modifier: Modifier = Modifier) {
+    val entries = parseAppChangelog()
+    val currentNotes = changelogSummaryForBuild()
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -56,6 +59,25 @@ internal fun AboutTabContent(modifier: Modifier = Modifier) {
             fontSize = 13.sp,
             modifier = Modifier.padding(top = 6.dp)
         )
+        if (currentNotes != null) {
+            Text(
+                text = "Что сделано в этой версии",
+                color = Color.White,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+            Text(
+                text = currentNotes,
+                color = Color(0xFFE0E0E0),
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF1A2332), RoundedCornerShape(8.dp))
+                    .padding(10.dp)
+            )
+        }
         val uriHandler = LocalUriHandler.current
         Text(
             text = "Скачать debug APK",
@@ -91,20 +113,36 @@ internal fun AboutTabContent(modifier: Modifier = Modifier) {
             )
         }
         Text(
-            text = "Изменения",
+            text = "История версий",
             color = Color.White,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(top = 16.dp)
         )
-        Text(
-            text = APP_CHANGELOG.trim(),
-            color = Color(0xFFE0E0E0),
-            fontSize = 12.sp,
+        Column(
             modifier = Modifier
                 .padding(top = 8.dp)
                 .fillMaxWidth()
                 .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-                .padding(10.dp)
-        )
+                .padding(10.dp),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
+        ) {
+            entries.forEach { entry ->
+                Column {
+                    Text(
+                        text = entry.version,
+                        color = Color(0xFF81D4FA),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = entry.summary,
+                        color = Color(0xFFE0E0E0),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+            }
+        }
     }
 }

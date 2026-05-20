@@ -60,6 +60,8 @@ internal const val CHART_RIGHT_PLOT_PADDING_FRACTION = 0.10f
 internal const val CHART_ZOOM_MIN_WINDOW = 0.06f
 /** Максимальный вертикальный zoom по оси Z (1 = весь диапазон данных). */
 internal const val CHART_Y_ZOOM_MAX = 24f
+/** Макс. 15м баров на графике (downsample при большем ряду — защита от вылетов/ANR). */
+internal const val CHART_MAX_DISPLAY_BARS = 2_000
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
@@ -83,6 +85,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.82 — Вылеты: период 1W/1M на Портфеле/Тест страт. без refresh «Рынка»; ускорена отрисовка Z-графика; версия на вкладках.
 1.6.81 — О приложении: крупно версия 1.6.x; на кнопке вкладки — номер сборки.
 1.6.80 — Тест страт.: симуляция считается от полного 15м ряда; 1W/1M на графике без вылета (свой период, без refresh рынка).
 1.6.79 — Z-score: pinch одновременно растягивает свечи по X и Y; пороги двигаются вместе со свечами.
