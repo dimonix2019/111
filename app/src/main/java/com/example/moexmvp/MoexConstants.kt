@@ -75,6 +75,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.71 — Рынок: Z-score теперь 15м свечами из того же ряда, что сигналы и «Тест страт.»; справа оставлен зазор у графика.
 1.6.70 — Тест страт.: режим выхода — фиксированный порог |Z| или трейлинг от пика Z с отдельным шагом трейла.
 1.6.69 — Тест страт.: график Equity/Drawdown — подписи ₽ по Y, месяцы по X под углом; просадка отрицательная внизу.
 1.6.68 — Тест страт.: в сделке валовый PnL, комиссия и овернайт; график Equity (столбцы) и Drawdown (линия) в ₽.
