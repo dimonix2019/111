@@ -85,6 +85,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.85 — Тест страт.: убрана авто-симуляция 255 дн. (маркеры #N, Equity, список сделок) — только график Z и пороги; без вылетов.
 1.6.84 — Тест страт.: симуляция в фоне (исправлен вылет при открытии вкладки на большом 15м ряду).
 1.6.83 — CI: одна сборка APK вместо двух (~6–10 мин); кэш Gradle; PR отменяет старый run.
 1.6.82 — Вылеты: период 1W/1M на Портфеле/Тест страт. без refresh «Рынка»; ускорена отрисовка Z-графика; версия на вкладках.

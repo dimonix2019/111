@@ -191,55 +191,6 @@ internal fun MoexScreen() {
             else -> 1f to 0f
         }
     }
-    var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
-    var strategyTestSimComputing by remember { mutableStateOf(false) }
-
-    LaunchedEffect(
-        portfolioM15Points,
-        strategyTestEntryThreshold,
-        strategyTestExitThreshold,
-        strategyTestExitMode,
-        strategyTestZPeakTrailZ,
-        portfolioLeverage,
-        portfolioCommissionPercent,
-        strategyTestCompoundReturns,
-        dynamicThresholds.entry,
-        dynamicThresholds.exit,
-        dynamicThresholds.calculatedDate
-    ) {
-        strategyTestSimComputing = true
-        strategyTestPortfolioMetrics = withContext(Dispatchers.Default) {
-            if (portfolioM15Points.size < 2) return@withContext null
-            val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-            val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-            val trail = strategyTestZPeakTrailZ.coerceIn(
-                STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
-                STRATEGY_TEST_Z_PEAK_TRAIL_MAX
-            )
-            buildZStrategyPortfolioMetrics(
-                points = portfolioM15Points,
-                thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                leverage = portfolioLeverage,
-                commissionPercentPerSide = portfolioCommissionPercent,
-                periodDescription = "Тест страт. · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
-                compoundReturns = strategyTestCompoundReturns,
-                exitMode = strategyTestExitMode,
-                zPeakTrailZ = trail
-            )
-        }
-        strategyTestSimComputing = false
-    }
-    val strategyTestTradeItems = remember(strategyTestPortfolioMetrics) {
-        buildStrategyTestTradeListFromSimulation(
-            strategyTestPortfolioMetrics?.closedTrades.orEmpty()
-        )
-    }
-    val strategyTestZChartMarkers = remember(strategyTestZChartPoints, strategyTestTradeItems) {
-        buildZScoreMarkersFromStrategyTestTrades(strategyTestZChartPoints, strategyTestTradeItems)
-    }
     val marketsChartThresholds = remember(
         realTradeEntryThreshold,
         realTradeExitThreshold
@@ -499,27 +450,33 @@ internal fun MoexScreen() {
     var dailyReconciliation by remember { mutableStateOf<DailyPortfolioReconciliation?>(null) }
 
     LaunchedEffect(
+        selectedTab,
         signalJournalFingerprint,
         confirmedPortfolioMetrics,
-        strategyTestPortfolioMetrics,
-        strategyTestEntryThreshold,
-        strategyTestExitThreshold,
-        strategyTestExitMode,
-        strategyTestZPeakTrailZ,
         dynamicThresholds.entry,
         dynamicThresholds.exit
     ) {
+        if (selectedTab != MainTab.Portfolio) {
+            dailyReconciliation = null
+            return@LaunchedEffect
+        }
         dailyReconciliation = withContext(Dispatchers.Default) {
             buildDailyPortfolioReconciliation(
                 day = LocalDate.now(ZoneId.of("Europe/Moscow")),
                 journalEvents = signalEvents,
                 confirmed = confirmedPortfolioMetrics,
-                simulation = strategyTestPortfolioMetrics,
+                simulation = null,
                 simEntryThreshold = strategyTestEntryThreshold ?: dynamicThresholds.entry,
                 simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit,
                 simExitMode = strategyTestExitMode,
                 simZPeakTrailZ = strategyTestZPeakTrailZ
             )
+        }
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == MainTab.StrategyTest && portfolioM15Points.size < 2) {
+            refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL)
         }
     }
 
@@ -531,16 +488,11 @@ internal fun MoexScreen() {
         portfolioCommissionPercent,
         realTradeEntryThreshold,
         realTradeExitThreshold,
-        strategyTestEntryThreshold,
-        strategyTestExitThreshold,
-        strategyTestExitMode,
-        strategyTestZPeakTrailZ,
         signalJournalFingerprint,
-        strategyTestCompoundReturns,
         sandboxSpreadExecReload,
         portfolioLedgerIncludeAuto
     ) {
-        if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
+        if (selectedTab == MainTab.Portfolio) {
             refreshPortfolio(null)
         }
     }
@@ -1321,16 +1273,9 @@ internal fun MoexScreen() {
                         onPeriodSelect = { strategyTestChartPeriod = it },
                         candles = strategyTestZScoreCandles,
                         referenceLines = buildZScoreReferenceLines(strategyTestZChartThresholds),
-                        pointMarkers = strategyTestZChartMarkers,
+                        pointMarkers = emptyList(),
                         initialWindowWidth = strategyTestZChartWindow.first,
                         initialWindowStart = strategyTestZChartWindow.second,
-                        tradeTapHintFormatter = { idx ->
-                            formatZStrategyTradeTapHint(
-                                idx,
-                                strategyTestZChartPoints,
-                                strategyTestPortfolioMetrics
-                            )
-                        },
                         emptyContent = {
                             if (portfolioLoading) LoadingState() else EmptyState()
                         }
@@ -1342,9 +1287,6 @@ internal fun MoexScreen() {
                 ) {
                     item {
                         StrategyTestTabContent(
-                            metrics = strategyTestPortfolioMetrics,
-                            simulationComputing = strategyTestSimComputing,
-                            tradeItems = strategyTestTradeItems,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,
                             onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
@@ -1451,24 +1393,14 @@ internal fun MoexScreen() {
                                 }
                             },
                             walkForwardBusy = walkForwardBusy,
-                            dailyReconciliation = dailyReconciliation,
                             portfolioEntryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             portfolioExitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             zScoreCandles = strategyTestZScoreCandles,
-                            zChartPoints = strategyTestZChartPoints,
                             zChartThresholds = strategyTestZChartThresholds,
-                            zChartMarkers = strategyTestZChartMarkers,
                             zChartInitialWindowWidth = strategyTestZChartWindow.first,
-                            zChartInitialWindowStart = strategyTestZChartWindow.second,
-                            zChartTapHintFormatter = { idx ->
-                                formatZStrategyTradeTapHint(
-                                    idx,
-                                    strategyTestZChartPoints,
-                                    strategyTestPortfolioMetrics
-                                )
-                            }
+                            zChartInitialWindowStart = strategyTestZChartWindow.second
                         )
                     }
                 }
