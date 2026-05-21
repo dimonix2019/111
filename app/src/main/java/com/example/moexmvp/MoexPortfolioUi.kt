@@ -877,9 +877,12 @@ internal fun ConfirmedPortfolioTabContent(
     }
 }
 
-/** Пороги Z и график 15м; полная симуляция 255 дн. убрана (тяжёлая для UI). */
+/** Симуляция Z на полном 15м ряду (~255 дн.); без графика Z и без трейлинга выхода. */
 @Composable
 internal fun StrategyTestTabContent(
+    metrics: PortfolioMetrics?,
+    simulationComputing: Boolean = false,
+    tradeItems: List<StrategyTestTradeItem>,
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
@@ -888,12 +891,8 @@ internal fun StrategyTestTabContent(
     commissionPercentPerSide: Double,
     entryThreshold: Double,
     exitThreshold: Double,
-    exitMode: ZStrategyExitMode,
-    zPeakTrailZ: Double,
     compoundReturns: Boolean,
     onCompoundReturnsChange: (Boolean) -> Unit,
-    onExitModeChange: (ZStrategyExitMode) -> Unit,
-    onZPeakTrailZChange: (Double) -> Unit,
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
@@ -904,35 +903,41 @@ internal fun StrategyTestTabContent(
     onSavePreset: (String) -> Unit,
     onWalkForward: () -> Unit,
     walkForwardBusy: Boolean,
+    dailyReconciliation: DailyPortfolioReconciliation? = null,
     portfolioEntryThreshold: Double? = null,
-    portfolioExitThreshold: Double? = null,
-    zScoreCandles: List<CandlePoint> = emptyList(),
-    zChartThresholds: DynamicThresholds = DynamicThresholds(0.8, 0.7, null),
-    zChartInitialWindowWidth: Float = 1f,
-    zChartInitialWindowStart: Float = 0f
+    portfolioExitThreshold: Double? = null
 ) {
+    val exitRuleNote =
+        "выход по фиксированному порогу ±${String.format(Locale.US, "%.2f", exitThreshold)}"
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        AppVersionBriefCard(tabHint = "График Z и пороги; 1D/1W/1M — только отображение ряда (без списка сделок на графике).")
+        AppVersionBriefCard(tabHint = "Симуляция на полном 15м ряду; пороги только для «Тест страт.»")
         PortfolioDataRefreshHeader(
             title = "Тест стратегии · 15м",
-            portfolioLoading = portfolioLoading,
+            portfolioLoading = portfolioLoading || simulationComputing,
             onRefresh = onRefresh,
             onMoex15mFullReload = onMoex15mFullReload
         )
+        if (simulationComputing && metrics == null && portfolioError == null) {
+            Text(
+                text = "Считаем симуляцию на ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. 15м…",
+                color = Color(0xFF9FA8DA),
+                fontSize = 11.sp
+            )
+        }
         Text(
-            text = "${"%.0f".format(Locale.US, DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона",
+            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · симуляция по Z",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
             maxLines = 2
         )
         Text(
-            text = "Пороги ниже — для оценки на графике; не влияют на розовые степперы «Портфель». Список сделок и Equity за ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. убраны, чтобы вкладка не подвисала.",
+            text = "Пороги ниже задают только симуляцию на этом экране и не влияют на розовые пороги вкладки «Портфель».",
             color = Color(0xFFF48FB1),
             fontSize = 10.sp,
-            maxLines = 4
+            maxLines = 2
         )
         PortfolioParamsControls(
             leverage = leverage,
@@ -940,17 +945,11 @@ internal fun StrategyTestTabContent(
             entryThreshold = entryThreshold,
             exitThreshold = exitThreshold,
             showZThresholdSteppers = true,
-            showExitThresholdStepper = exitMode == ZStrategyExitMode.FixedThreshold,
+            showExitThresholdStepper = true,
             onLeverageChange = onLeverageChange,
             onCommissionChange = onCommissionChange,
             onEntryThresholdChange = onEntryThresholdChange,
             onExitThresholdChange = onExitThresholdChange
-        )
-        StrategyTestExitModeControls(
-            exitMode = exitMode,
-            zPeakTrailZ = zPeakTrailZ,
-            onExitModeChange = onExitModeChange,
-            onZPeakTrailZChange = onZPeakTrailZChange
         )
         Row(
             modifier = Modifier
@@ -989,17 +988,19 @@ internal fun StrategyTestTabContent(
                 )
             }
         }
+        Text(
+            text = "Сделки ниже — все закрытые круги симуляции на 15м ряду за ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. " +
+                "до сегодня включительно ($exitRuleNote, не журнал и не демо).",
+            color = Color(0xFF757575),
+            fontSize = 10.sp,
+            maxLines = 3
+        )
         if (portfolioEntryThreshold != null && portfolioExitThreshold != null) {
             val entryDiffers = kotlin.math.abs(entryThreshold - portfolioEntryThreshold) > 0.009
-            val exitDiffers = exitMode == ZStrategyExitMode.FixedThreshold &&
-                kotlin.math.abs(exitThreshold - portfolioExitThreshold) > 0.009
+            val exitDiffers = kotlin.math.abs(exitThreshold - portfolioExitThreshold) > 0.009
             if (entryDiffers || exitDiffers) {
-                val testExitText = when (exitMode) {
-                    ZStrategyExitMode.FixedThreshold -> "±${String.format(Locale.US, "%.2f", exitThreshold)}"
-                    ZStrategyExitMode.ZPeakTrailing -> "трейл ${String.format(Locale.US, "%.2f", zPeakTrailZ)}"
-                }
                 Text(
-                    text = "Пороги «Тест страт.» (вход ±${String.format(Locale.US, "%.2f", entryThreshold)} / $testExitText) " +
+                    text = "Пороги «Тест страт.» (вход ±${String.format(Locale.US, "%.2f", entryThreshold)} / выход ±${String.format(Locale.US, "%.2f", exitThreshold)}) " +
                         "не совпадают с розовыми на «Портфеле» (±${String.format(Locale.US, "%.2f", portfolioEntryThreshold)} / ±${String.format(Locale.US, "%.2f", portfolioExitThreshold)}). " +
                         "Сделки на вкладках будут различаться.",
                     color = Color(0xFFFFCC80),
@@ -1008,26 +1009,24 @@ internal fun StrategyTestTabContent(
                 )
             }
         }
-        if (zScoreCandles.isNotEmpty()) {
-            CandlestickChartCard(
-                title = "Z-score спрэда · 15м (пороги входа/выхода, zoom/сдвиг)",
-                candles = zScoreCandles,
-                chartHeightDp = 228,
-                referenceLines = buildZScoreReferenceLines(zChartThresholds),
-                pointMarkers = emptyList(),
-                showLegend = false,
-                enableZoomPan = true,
-                markerScale = 1.25f,
-                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-                showZoomHint = true,
-                initialWindowWidth = zChartInitialWindowWidth,
-                initialWindowStart = zChartInitialWindowStart
-            )
-        } else if (!portfolioLoading) {
-            Text(
-                text = "Нет 15м данных для графика. Нажмите «Обновить» или «MOEX заново».",
-                color = Color(0xFFBDBDBD),
-                fontSize = 11.sp
+        PortfolioCollapsibleSection(
+            title = "Сводка: Итого PnL и просадка",
+            subtitle = metrics?.let { m ->
+                "${formatRubSigned(m.totalPnlRubApprox)} · просадка ${formatRubSigned(-m.maxDrawdownRubApprox)}"
+            },
+            defaultExpanded = false
+        ) {
+            PortfolioHeroMetricsRow(metrics = metrics)
+        }
+        if (metrics != null &&
+            metrics.equityCurveRub.isNotEmpty() &&
+            metrics.drawdownCurveRub.isNotEmpty()
+        ) {
+            StrategyTestEquityDrawdownChartCard(
+                labels = metrics.equityCurveLabels,
+                equityRub = metrics.equityCurveRub,
+                drawdownRub = metrics.drawdownCurveRub,
+                chartHeightDp = 280
             )
         }
         PortfolioPresetSection(
@@ -1067,8 +1066,62 @@ internal fun StrategyTestTabContent(
             )
         }
 
-        portfolioError?.let { err ->
-            Text(err, color = Color(0xFFEF9A9A), fontSize = 11.sp)
+        val dataTailWarning = portfolioError
+        if (dataTailWarning != null && metrics == null) {
+            Text(dataTailWarning, color = Color(0xFFEF9A9A), fontSize = 11.sp)
+            Button(onClick = onRefresh, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Повторить", fontSize = 11.sp)
+                }
+            }
+        } else if (!portfolioLoading && !simulationComputing && metrics == null) {
+            Text("Недостаточно данных для симуляции.", color = Color(0xFFBDBDBD), fontSize = 11.sp)
+        } else {
+            metrics?.let { m ->
+                PortfolioCollapsibleSection(
+                    title = "Детальные показатели симуляции",
+                    defaultExpanded = false
+                ) {
+                    Text(
+                        text = m.periodDescription,
+                        color = Color(0xFF757575),
+                        fontSize = 10.sp
+                    )
+                    PortfolioMetricGrid(m, showHeroDuplicate = false)
+                }
+                Text(
+                    text = "Сделки симуляции (${tradeItems.size}) · ${m.periodDescription}",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                if (!dataTailWarning.isNullOrBlank()) {
+                    Text(
+                        text = dataTailWarning,
+                        color = Color(0xFFFFCC80),
+                        fontSize = 10.sp,
+                        maxLines = 3
+                    )
+                }
+                if (tradeItems.isEmpty()) {
+                    Text(
+                        text = "Нет закрытых сделок в симуляции. Проверьте пороги и нажмите «MOEX заново».",
+                        color = Color(0xFF9E9E9E),
+                        fontSize = 11.sp,
+                        maxLines = 3
+                    )
+                } else {
+                    tradeItems.forEachIndexed { index, item ->
+                        StrategyTestTradeRow(index = index + 1, item = item)
+                    }
+                }
+            }
+        }
+        dailyReconciliation?.let { rec ->
+            DailyReconciliationSection(rec)
         }
     }
 }

@@ -63,14 +63,10 @@ internal fun MoexScreen() {
     val configuration = LocalConfiguration.current
     val landscapeZChartFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-            (selectedTab == MainTab.Markets ||
-                selectedTab == MainTab.Portfolio ||
-                selectedTab == MainTab.StrategyTest)
+            (selectedTab == MainTab.Markets || selectedTab == MainTab.Portfolio)
     /** Портфель: исполнения песочницы + журнал (фильтр ручной/авто). */
     var confirmedPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     var confirmedPortfolioTableRows by remember { mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList()) }
-    /** Период Z-графика на «Тест страт.» (не трогает вкладку «Рынок» и не дергает refreshData). */
-    var strategyTestChartPeriod by remember { mutableStateOf(Period.OneMonth) }
     /** Реинвестирование PnL в размер следующей сделки (только симуляция «Тест страт.»). */
     var strategyTestCompoundReturns by remember { mutableStateOf(false) }
     var portfolioLoading by remember { mutableStateOf(false) }
@@ -81,8 +77,6 @@ internal fun MoexScreen() {
     var realTradeExitThreshold by remember { mutableStateOf<Double?>(null) }
     var strategyTestEntryThreshold by remember { mutableStateOf<Double?>(null) }
     var strategyTestExitThreshold by remember { mutableStateOf<Double?>(null) }
-    var strategyTestExitMode by remember(context) { mutableStateOf(loadStrategyTestExitMode(context)) }
-    var strategyTestZPeakTrailZ by remember(context) { mutableStateOf(loadStrategyTestZPeakTrailZ(context)) }
     var selectedPeriod by remember { mutableStateOf(Period.OneDay) }
     var realtimeEnabled by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -169,27 +163,44 @@ internal fun MoexScreen() {
     ) {
         portfolioChartZThresholds(realTradeEntryThreshold, realTradeExitThreshold)
     }
-    val strategyTestZChartPoints = remember(portfolioM15Points, strategyTestChartPeriod) {
-        downsampleDataPointsForChart(
-            filterM15PointsForMarketsPeriod(portfolioM15Points, strategyTestChartPeriod)
-        )
-    }
-    val strategyTestZScoreCandles = remember(strategyTestZChartPoints) {
-        buildZScoreCandlesFromM15Points(strategyTestZChartPoints)
-    }
-    val strategyTestZChartThresholds = remember(
+    var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
+    var strategyTestSimComputing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(
+        portfolioM15Points,
         strategyTestEntryThreshold,
-        strategyTestExitThreshold
+        strategyTestExitThreshold,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        strategyTestCompoundReturns,
+        dynamicThresholds.entry,
+        dynamicThresholds.exit,
+        dynamicThresholds.calculatedDate
     ) {
-        portfolioChartZThresholds(strategyTestEntryThreshold, strategyTestExitThreshold)
-    }
-    val strategyTestZChartWindow = remember(strategyTestZChartPoints, strategyTestChartPeriod) {
-        when {
-            strategyTestZChartPoints.size < 2 -> 1f to 0f
-            strategyTestChartPeriod == Period.OneMonth ->
-                chartInitialWindowForLastCalendarDays(strategyTestZChartPoints)
-            else -> 1f to 0f
+        strategyTestSimComputing = true
+        strategyTestPortfolioMetrics = withContext(Dispatchers.Default) {
+            if (portfolioM15Points.size < 2) return@withContext null
+            val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            buildZStrategyPortfolioMetrics(
+                points = portfolioM15Points,
+                thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+                periodDescription = "Тест страт. · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+                compoundReturns = strategyTestCompoundReturns,
+                exitMode = ZStrategyExitMode.FixedThreshold
+            )
         }
+        strategyTestSimComputing = false
+    }
+    val strategyTestTradeItems = remember(strategyTestPortfolioMetrics) {
+        buildStrategyTestTradeListFromSimulation(
+            strategyTestPortfolioMetrics?.closedTrades.orEmpty()
+        )
     }
     val marketsChartThresholds = remember(
         realTradeEntryThreshold,
@@ -306,12 +317,6 @@ internal fun MoexScreen() {
         }
     }
 
-    LaunchedEffect(strategyTestExitMode, strategyTestZPeakTrailZ) {
-        withContext(Dispatchers.IO) {
-            saveStrategyTestExitConfig(context, strategyTestExitMode, strategyTestZPeakTrailZ)
-        }
-    }
-
     LaunchedEffect(chartSuccess?.points, signalEvents) {
         val pts = chartSuccess?.points
         if (pts != null && pts.isNotEmpty()) {
@@ -360,11 +365,6 @@ internal fun MoexScreen() {
                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
             if (strategyTestEntryThreshold == null) strategyTestEntryThreshold = entrySt
             if (strategyTestExitThreshold == null) strategyTestExitThreshold = exitSt
-            val zPeakTrailSt = strategyTestZPeakTrailZ.coerceIn(
-                STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
-                STRATEGY_TEST_Z_PEAK_TRAIL_MAX
-            )
-            if (strategyTestZPeakTrailZ != zPeakTrailSt) strategyTestZPeakTrailZ = zPeakTrailSt
 
             val eventsAll = loadStrategySignalEvents(
                 context = context,
@@ -450,33 +450,25 @@ internal fun MoexScreen() {
     var dailyReconciliation by remember { mutableStateOf<DailyPortfolioReconciliation?>(null) }
 
     LaunchedEffect(
-        selectedTab,
         signalJournalFingerprint,
         confirmedPortfolioMetrics,
+        strategyTestPortfolioMetrics,
+        strategyTestEntryThreshold,
+        strategyTestExitThreshold,
         dynamicThresholds.entry,
         dynamicThresholds.exit
     ) {
-        if (selectedTab != MainTab.Portfolio) {
-            dailyReconciliation = null
-            return@LaunchedEffect
-        }
         dailyReconciliation = withContext(Dispatchers.Default) {
             buildDailyPortfolioReconciliation(
                 day = LocalDate.now(ZoneId.of("Europe/Moscow")),
                 journalEvents = signalEvents,
                 confirmed = confirmedPortfolioMetrics,
-                simulation = null,
+                simulation = strategyTestPortfolioMetrics,
                 simEntryThreshold = strategyTestEntryThreshold ?: dynamicThresholds.entry,
                 simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit,
-                simExitMode = strategyTestExitMode,
-                simZPeakTrailZ = strategyTestZPeakTrailZ
+                simExitMode = ZStrategyExitMode.FixedThreshold,
+                simZPeakTrailZ = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL
             )
-        }
-    }
-
-    LaunchedEffect(selectedTab) {
-        if (selectedTab == MainTab.StrategyTest && portfolioM15Points.size < 2) {
-            refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL)
         }
     }
 
@@ -488,11 +480,14 @@ internal fun MoexScreen() {
         portfolioCommissionPercent,
         realTradeEntryThreshold,
         realTradeExitThreshold,
+        strategyTestEntryThreshold,
+        strategyTestExitThreshold,
         signalJournalFingerprint,
+        strategyTestCompoundReturns,
         sandboxSpreadExecReload,
         portfolioLedgerIncludeAuto
     ) {
-        if (selectedTab == MainTab.Portfolio) {
+        if (selectedTab == MainTab.Portfolio || selectedTab == MainTab.StrategyTest) {
             refreshPortfolio(null)
         }
     }
@@ -1266,27 +1261,15 @@ internal fun MoexScreen() {
             }
 
             MainTab.StrategyTest -> {
-                if (landscapeZChartFullscreen) {
-                    LandscapeZScoreFullscreenPane(
-                        modifier = Modifier.weight(1f),
-                        selectedPeriod = strategyTestChartPeriod,
-                        onPeriodSelect = { strategyTestChartPeriod = it },
-                        candles = strategyTestZScoreCandles,
-                        referenceLines = buildZScoreReferenceLines(strategyTestZChartThresholds),
-                        pointMarkers = emptyList(),
-                        initialWindowWidth = strategyTestZChartWindow.first,
-                        initialWindowStart = strategyTestZChartWindow.second,
-                        emptyContent = {
-                            if (portfolioLoading) LoadingState() else EmptyState()
-                        }
-                    )
-                } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item {
                         StrategyTestTabContent(
+                            metrics = strategyTestPortfolioMetrics,
+                            simulationComputing = strategyTestSimComputing,
+                            tradeItems = strategyTestTradeItems,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,
                             onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
@@ -1297,20 +1280,8 @@ internal fun MoexScreen() {
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             exitThreshold = (strategyTestExitThreshold ?: dynamicThresholds.exit)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                            exitMode = strategyTestExitMode,
-                            zPeakTrailZ = strategyTestZPeakTrailZ.coerceIn(
-                                STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
-                                STRATEGY_TEST_Z_PEAK_TRAIL_MAX
-                            ),
                             compoundReturns = strategyTestCompoundReturns,
                             onCompoundReturnsChange = { strategyTestCompoundReturns = it },
-                            onExitModeChange = { strategyTestExitMode = it },
-                            onZPeakTrailZChange = { newTrail ->
-                                strategyTestZPeakTrailZ = newTrail.coerceIn(
-                                    STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
-                                    STRATEGY_TEST_Z_PEAK_TRAIL_MAX
-                                )
-                            },
                             onLeverageChange = { portfolioLeverage = it },
                             onCommissionChange = { portfolioCommissionPercent = it },
                             onEntryThresholdChange = { newEntry ->
@@ -1331,11 +1302,6 @@ internal fun MoexScreen() {
                                 portfolioCommissionPercent = p.commissionPercentPerSide
                                 strategyTestEntryThreshold = p.entryThreshold
                                 strategyTestExitThreshold = p.exitThreshold
-                                strategyTestExitMode = p.exitMode
-                                strategyTestZPeakTrailZ = p.zPeakTrailZ.coerceIn(
-                                    STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
-                                    STRATEGY_TEST_Z_PEAK_TRAIL_MAX
-                                )
                             },
                             onDeletePreset = { id ->
                                 portfolioPresets = deletePortfolioPreset(context, id)
@@ -1349,12 +1315,7 @@ internal fun MoexScreen() {
                                     entryThreshold = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
                                         .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                                     exitThreshold = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                                    exitMode = strategyTestExitMode,
-                                    zPeakTrailZ = strategyTestZPeakTrailZ.coerceIn(
-                                        STRATEGY_TEST_Z_PEAK_TRAIL_MIN,
-                                        STRATEGY_TEST_Z_PEAK_TRAIL_MAX
-                                    )
+                                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
                                 )
                             },
                             onWalkForward = {
@@ -1393,17 +1354,13 @@ internal fun MoexScreen() {
                                 }
                             },
                             walkForwardBusy = walkForwardBusy,
+                            dailyReconciliation = dailyReconciliation,
                             portfolioEntryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                             portfolioExitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
-                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                            zScoreCandles = strategyTestZScoreCandles,
-                            zChartThresholds = strategyTestZChartThresholds,
-                            zChartInitialWindowWidth = strategyTestZChartWindow.first,
-                            zChartInitialWindowStart = strategyTestZChartWindow.second
+                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
                         )
                     }
-                }
                 }
             }
 
