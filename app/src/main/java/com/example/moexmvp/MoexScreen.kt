@@ -1306,18 +1306,6 @@ internal fun MoexScreen() {
                             onDeletePreset = { id ->
                                 portfolioPresets = deletePortfolioPreset(context, id)
                             },
-                            onSavePreset = { name ->
-                                portfolioPresets = addPortfolioPreset(
-                                    context = context,
-                                    name = name,
-                                    leverage = portfolioLeverage,
-                                    commissionPercentPerSide = portfolioCommissionPercent,
-                                    entryThreshold = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-                                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                                    exitThreshold = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-                                )
-                            },
                             onWalkForward = {
                                 scope.launch {
                                     walkForwardBusy = true

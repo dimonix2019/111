@@ -110,7 +110,8 @@ private fun PortfolioPresetSection(
     presets: List<PortfolioPreset>,
     onApply: (PortfolioPreset) -> Unit,
     onDelete: (String) -> Unit,
-    onSave: (String) -> Unit
+    onSave: (String) -> Unit,
+    showSaveButton: Boolean = true
 ) {
     var showDialog by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
@@ -139,18 +140,20 @@ private fun PortfolioPresetSection(
                     Text("×", color = Color(0xFFEF9A9A), fontSize = 16.sp)
                 }
             }
-            OutlinedButton(
-                onClick = {
-                    name = ""
-                    showDialog = true
-                },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Text("+ сохранить", fontSize = 10.sp, color = Color(0xFFE0E0E0))
+            if (showSaveButton) {
+                OutlinedButton(
+                    onClick = {
+                        name = ""
+                        showDialog = true
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text("+ сохранить", fontSize = 10.sp, color = Color(0xFFE0E0E0))
+                }
             }
         }
     }
-    if (showDialog) {
+    if (showSaveButton && showDialog) {
         AlertDialog(
             onDismissRequest = { showDialog = false },
             title = { Text("Имя пресета", color = Color.White) },
@@ -900,7 +903,6 @@ internal fun StrategyTestTabContent(
     presets: List<PortfolioPreset>,
     onApplyPreset: (PortfolioPreset) -> Unit,
     onDeletePreset: (String) -> Unit,
-    onSavePreset: (String) -> Unit,
     onWalkForward: () -> Unit,
     walkForwardBusy: Boolean,
     dailyReconciliation: DailyPortfolioReconciliation? = null,
@@ -1018,22 +1020,12 @@ internal fun StrategyTestTabContent(
         ) {
             PortfolioHeroMetricsRow(metrics = metrics)
         }
-        if (metrics != null &&
-            metrics.equityCurveRub.isNotEmpty() &&
-            metrics.drawdownCurveRub.isNotEmpty()
-        ) {
-            StrategyTestEquityDrawdownChartCard(
-                labels = metrics.equityCurveLabels,
-                equityRub = metrics.equityCurveRub,
-                drawdownRub = metrics.drawdownCurveRub,
-                chartHeightDp = 280
-            )
-        }
         PortfolioPresetSection(
             presets = presets,
             onApply = onApplyPreset,
             onDelete = onDeletePreset,
-            onSave = onSavePreset
+            onSave = {},
+            showSaveButton = false
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1082,6 +1074,7 @@ internal fun StrategyTestTabContent(
             metrics?.let { m ->
                 PortfolioCollapsibleSection(
                     title = "Детальные показатели симуляции",
+                    subtitle = "таблица · Equity и просадка",
                     defaultExpanded = false
                 ) {
                     Text(
@@ -1090,6 +1083,14 @@ internal fun StrategyTestTabContent(
                         fontSize = 10.sp
                     )
                     PortfolioMetricGrid(m, showHeroDuplicate = false)
+                    if (m.equityCurveRub.isNotEmpty() && m.drawdownCurveRub.isNotEmpty()) {
+                        StrategyTestEquityDrawdownChartCard(
+                            labels = m.equityCurveLabels,
+                            equityRub = m.equityCurveRub,
+                            drawdownRub = m.drawdownCurveRub,
+                            chartHeightDp = 280
+                        )
+                    }
                 }
                 Text(
                     text = "Сделки симуляции (${tradeItems.size}) · ${m.periodDescription}",
