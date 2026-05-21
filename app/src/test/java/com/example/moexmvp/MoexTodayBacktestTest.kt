@@ -15,14 +15,18 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexTodayBacktest_tatnTatnp_threshold08_07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexTodayBacktest_thresholdSweep_today`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_noSignalDayStreaks_threshold08_07`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_compare_threshold08_07_vs_08_05_notional50k`
  */
 class MoexTodayBacktestTest {
 
     private val zone: ZoneId = ZoneId.of("Europe/Moscow")
 
-  private companion object {
+    private companion object {
         const val SWEEP_STEP = 0.1
         const val SWEEP_MAX = 2.1
+        const val BACKTEST_NOTIONAL_50K_RUB = 50_000.0
+        const val BACKTEST_LEVERAGE_X1 = 1.0
+        const val BACKTEST_COMMISSION_PCT_PER_SIDE = 0.04
     }
 
     @Test
@@ -59,6 +63,81 @@ class MoexTodayBacktestTest {
         val tailNoEntry = trailingQuietDays(entriesPerDay.map { it == 0 })
         val tailNoAny = trailingQuietDays(anyPerDay.map { it == 0 })
         println("Текущая серия на конец ряда (${tradingDays.last()}): без входа $tailNoEntry дн., без сигналов $tailNoAny дн.")
+    }
+
+    @Test
+    fun moexBacktest_255d_compare_threshold08_07_vs_08_05_notional50k() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val variants = listOf(
+            "вход 0.8 / выход 0.7" to DynamicThresholds(0.8, 0.7, null),
+            "вход 0.8 / выход 0.5" to DynamicThresholds(0.8, 0.5, null)
+        )
+        println("=== MOEX 255д: сравнение порогов, ${BACKTEST_NOTIONAL_50K_RUB.toInt()} ₽ на сделку (x${BACKTEST_LEVERAGE_X1}) ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
+        println(
+            "Комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}% / сторона, без капитализации, выход по фикс. порогу |Z|"
+        )
+        println(
+            String.format(
+                Locale.US,
+                "%-22s | %5s | %12s | %12s | %10s | %8s",
+                "вариант",
+                "сделок",
+                "PnL чистый ₽",
+                "max DD ₽",
+                "комис. ₽",
+                "оверн. ₽"
+            )
+        )
+        println("-".repeat(88))
+        for ((label, th) in variants) {
+            val m = buildZStrategyPortfolioMetrics(
+                points = points,
+                thresholds = th,
+                notionalRub = BACKTEST_NOTIONAL_50K_RUB,
+                leverage = BACKTEST_LEVERAGE_X1,
+                commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE,
+                periodDescription = "$label · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+                compoundReturns = false,
+                exitMode = ZStrategyExitMode.FixedThreshold
+            )
+            checkNotNull(m) { "Нет метрик для $label" }
+            println(
+                String.format(
+                    Locale.US,
+                    "%-22s | %5d | %12.2f | %12.2f | %10.2f | %8.2f",
+                    label,
+                    m.closedTrades.size,
+                    m.totalPnlRubApprox,
+                    m.maxDrawdownRubApprox,
+                    m.totalCommissionRub,
+                    m.totalOvernightRub
+                )
+            )
+            val gross = m.closedTrades.sumOf { it.grossPnlRubApprox }
+            println(
+                "  win/loss: ${m.winCount} / ${m.lossCount} · WR ${fmt(m.winRate)}% · " +
+                    "валовый ${fmt(gross)} · средний чистый ${fmt(m.totalPnlRubApprox / m.closedTrades.size.coerceAtLeast(1))} ₽"
+            )
+            m.closedTrades.takeLast(3).forEach { t ->
+                println(
+                    "  … ${t.direction} ${t.entryDate}→${t.exitDate} чистый ${fmt(t.pnlRubApprox)} ₽"
+                )
+            }
+        }
+        val m07 = buildZStrategyPortfolioMetrics(
+            points, variants[0].second, BACKTEST_NOTIONAL_50K_RUB, BACKTEST_LEVERAGE_X1,
+            BACKTEST_COMMISSION_PCT_PER_SIDE, "cmp", false, ZStrategyExitMode.FixedThreshold
+        )!!
+        val m05 = buildZStrategyPortfolioMetrics(
+            points, variants[1].second, BACKTEST_NOTIONAL_50K_RUB, BACKTEST_LEVERAGE_X1,
+            BACKTEST_COMMISSION_PCT_PER_SIDE, "cmp", false, ZStrategyExitMode.FixedThreshold
+        )!!
+        println("---")
+        println(
+            "Δ PnL (0.5 vs 0.7 выход): ${fmt(m05.totalPnlRubApprox - m07.totalPnlRubApprox)} ₽ · " +
+                "Δ сделок: ${m05.closedTrades.size - m07.closedTrades.size}"
+        )
     }
 
     @Test
