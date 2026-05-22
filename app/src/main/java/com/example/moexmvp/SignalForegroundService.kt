@@ -34,6 +34,7 @@ private val bgSignalFallbackThresholds = DynamicThresholds(
 class SignalForegroundService : Service() {
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private var workerStarted = false
+    private var ticksSinceAppUpdateCheck = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -86,6 +87,12 @@ class SignalForegroundService : Service() {
     }
 
     private suspend fun performSignalMonitorTick() = withContext(Dispatchers.IO) {
+        ticksSinceAppUpdateCheck++
+        if (ticksSinceAppUpdateCheck * SIGNAL_MONITOR_INTERVAL_MS >= APP_UPDATE_CHECK_INTERVAL_MS) {
+            ticksSinceAppUpdateCheck = 0
+            runCatching { checkRemoteAppUpdateAndNotify(applicationContext) }
+        }
+
         val points = loadPortfolio15mPointsForSignalMonitor(applicationContext)
         if (points.size < 2) return@withContext
 

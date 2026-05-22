@@ -52,4 +52,5 @@ class MoexAppUpdateParseTest {
         assertTrue(isNewerAppUpdateAvailable(remote, localVersionCode = 104))
         assertFalse(isNewerAppUpdateAvailable(remote, localVersionCode = 105))
     }
+
 }

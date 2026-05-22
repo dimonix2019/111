@@ -26,6 +26,10 @@ internal const val EXTRA_TAP_RESTORE_VIRTUAL_TRADE = "moex_tap_restore_virtual_t
 internal const val EXTRA_TAP_SIGNAL_TYPE = "moex_tap_signal_type"
 internal const val EXTRA_TAP_Z = "moex_tap_z"
 internal const val EXTRA_TAP_TS = "moex_tap_ts"
+internal const val EXTRA_TAP_OPEN_APP_UPDATE = "moex_tap_open_app_update"
+internal const val EXTRA_TAP_APP_UPDATE_VERSION_CODE = "moex_tap_app_update_version_code"
+internal const val EXTRA_TAP_APP_UPDATE_VERSION_NAME = "moex_tap_app_update_version_name"
+internal const val EXTRA_TAP_APP_UPDATE_APK_URL = "moex_tap_app_update_apk_url"
 
 internal data class VirtualTradeTapIntent(
     val signalType: StrategySignalType,
@@ -135,6 +139,7 @@ internal fun showPushNotification(
     body: String,
     notificationId: Int = System.currentTimeMillis().toInt(),
     virtualTradeTap: VirtualTradeTapIntent? = null,
+    appUpdateTap: AppRemoteUpdate? = null,
     skipDuplicateCheck: Boolean = false,
     correlationTag: String? = null
 ): Boolean {
@@ -183,6 +188,12 @@ internal fun showPushNotification(
             putExtra(EXTRA_TAP_SIGNAL_TYPE, virtualTradeTap.signalType.name)
             putExtra(EXTRA_TAP_Z, virtualTradeTap.zScore)
             putExtra(EXTRA_TAP_TS, virtualTradeTap.timestampMillis)
+        }
+        if (appUpdateTap != null) {
+            putExtra(EXTRA_TAP_OPEN_APP_UPDATE, true)
+            putExtra(EXTRA_TAP_APP_UPDATE_VERSION_CODE, appUpdateTap.versionCode)
+            putExtra(EXTRA_TAP_APP_UPDATE_VERSION_NAME, appUpdateTap.versionName)
+            putExtra(EXTRA_TAP_APP_UPDATE_APK_URL, appUpdateTap.apkDownloadUrl)
         }
     }
     val pendingIntent = PendingIntent.getActivity(
@@ -312,6 +323,46 @@ internal fun showZStrategySignalPushNotification(
         body = body,
         virtualTradeTap = virtualTradeTap
     )
+}
+
+internal fun showAppUpdatePushNotification(context: Context, update: AppRemoteUpdate): Boolean {
+    val notes = changelogSummaryForBuild(update.versionName)?.lineSequence()?.firstOrNull()?.trim()
+    val body = buildString {
+        append("Сборка ${update.versionName} (${update.versionCode}). У вас ")
+        append(BuildConfig.VERSION_NAME)
+        append(" (")
+        append(BuildConfig.VERSION_CODE)
+        append(").")
+        if (!notes.isNullOrBlank()) {
+            append("\n")
+            append(notes)
+        }
+    }
+    return showPushNotification(
+        context = context,
+        title = "Доступно обновление MOEX MVP",
+        body = body,
+        notificationId = APP_UPDATE_PUSH_NOTIFICATION_ID,
+        appUpdateTap = update,
+        skipDuplicateCheck = true,
+        correlationTag = "appUpdate|${update.versionCode}"
+    )
+}
+
+/** По тапу на push об обновлении — открыть диалог установки в MainActivity. */
+internal fun parseAppUpdateFromTapIntent(intent: Intent?): AppRemoteUpdate? {
+    if (intent == null || !intent.getBooleanExtra(EXTRA_TAP_OPEN_APP_UPDATE, false)) return null
+    val versionCode = intent.getIntExtra(EXTRA_TAP_APP_UPDATE_VERSION_CODE, -1)
+    if (versionCode <= 0) return null
+    val versionName = intent.getStringExtra(EXTRA_TAP_APP_UPDATE_VERSION_NAME)?.trim().orEmpty()
+        .ifBlank { "?" }
+    val apkUrl = intent.getStringExtra(EXTRA_TAP_APP_UPDATE_APK_URL)?.trim().orEmpty()
+        .ifBlank { APK_DOWNLOAD_DIRECT_URL }
+    intent.removeExtra(EXTRA_TAP_OPEN_APP_UPDATE)
+    intent.removeExtra(EXTRA_TAP_APP_UPDATE_VERSION_CODE)
+    intent.removeExtra(EXTRA_TAP_APP_UPDATE_VERSION_NAME)
+    intent.removeExtra(EXTRA_TAP_APP_UPDATE_APK_URL)
+    return AppRemoteUpdate(versionCode, versionName, apkUrl)
 }
 
 /** Вызывать при старте/resume Activity: из PendingIntent уведомления восстановить карточку входа. */

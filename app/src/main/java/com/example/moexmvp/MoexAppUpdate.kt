@@ -22,6 +22,8 @@ internal const val APP_UPDATE_MANIFEST_URL =
 internal const val APP_UPDATE_GITHUB_API_URL =
     "https://api.github.com/repos/dimonix2019/111/releases/tags/moexmvp-debug-latest"
 internal const val PREF_APP_UPDATE_DISMISSED_VERSION_CODE = "app_update_dismissed_version_code"
+internal const val PREF_APP_UPDATE_NOTIFIED_VERSION_CODE = "app_update_notified_version_code"
+internal const val APP_UPDATE_PUSH_NOTIFICATION_ID = 12_002
 
 private val updateHttpClient: OkHttpClient = OkHttpClient.Builder()
     .connectTimeout(20, TimeUnit.SECONDS)
@@ -44,6 +46,43 @@ internal fun saveDismissedAppUpdateVersionCode(context: Context, versionCode: In
         .edit()
         .putInt(PREF_APP_UPDATE_DISMISSED_VERSION_CODE, versionCode)
         .apply()
+}
+
+internal fun loadNotifiedAppUpdateVersionCode(context: Context): Int =
+    context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .getInt(PREF_APP_UPDATE_NOTIFIED_VERSION_CODE, 0)
+
+internal fun saveNotifiedAppUpdateVersionCode(context: Context, versionCode: Int) {
+    context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putInt(PREF_APP_UPDATE_NOTIFIED_VERSION_CODE, versionCode)
+        .apply()
+}
+
+/** Новая сборка на GitHub, которую пользователь ещё не отклонил в диалоге «Позже». */
+internal fun shouldOfferAppUpdateUi(
+    remote: AppRemoteUpdate,
+    context: Context,
+    localVersionCode: Int = BuildConfig.VERSION_CODE
+): Boolean =
+    isNewerAppUpdateAvailable(remote, localVersionCode) &&
+        remote.versionCode > loadDismissedAppUpdateVersionCode(context)
+
+/**
+ * Проверяет GitHub Release / app-update.json; при новой версии показывает push (один раз на versionCode).
+ * @return remote, если есть более новая сборка и её можно предложить в UI
+ */
+internal fun checkRemoteAppUpdateAndNotify(context: Context): AppRemoteUpdate? {
+    val app = context.applicationContext
+    val remote = fetchRemoteAppUpdate() ?: return null
+    if (!shouldOfferAppUpdateUi(remote, app)) return null
+    val notified = loadNotifiedAppUpdateVersionCode(app)
+    if (remote.versionCode > notified) {
+        if (showAppUpdatePushNotification(app, remote)) {
+            saveNotifiedAppUpdateVersionCode(app, remote.versionCode)
+        }
+    }
+    return remote
 }
 
 internal fun parseAppUpdateManifestJson(json: String): AppRemoteUpdate? {

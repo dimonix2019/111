@@ -87,6 +87,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.02 — Обновления приложения: push-уведомление + фоновая проверка (AlarmManager, сервис сигналов).
 1.7.01 — Бэктест: пирамидинг при |Z|>1.0 (1.05–2.0) vs эталон @1.0.
 1.7.00 — Иконка приложения: зелёная, объёмная, «рост вверх» (adaptive icon).
 1.6.99 — Аналитика движения Z за период бэктеста (распределение, полосы, пересечения порогов).
