@@ -18,6 +18,8 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_compare_threshold08_07_vs_08_05_notional50k`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_vs_single100k`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_baseline_vs_pullbackEntry_peakExit`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_only_fixedExit07`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_peakTrail_grid`
  */
 class MoexTodayBacktestTest {
 
@@ -223,6 +225,103 @@ class MoexTodayBacktestTest {
     }
 
     @Test
+    fun moexBacktest_255d_pullbackEntry_only_fixedExit07() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val baseline = runBacktest(points, THRESH_08_07, notional)!!
+        val rows = pullbackTrailGridSteps().map { delta ->
+            delta to runBacktest(
+                points = points,
+                thresholds = THRESH_08_07,
+                notionalRub = notional,
+                entryPullbackZ = delta,
+                exitMode = ZStrategyExitMode.FixedThreshold
+            )!!
+        }
+
+        println("=== MOEX 255д: только откат входа Z, выход фикс. 0.7 @ 100k ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
+        println("База: вход сразу 0.8/0.7 · Тест: ждём откат Z после 0.8, выход как в базе")
+        printBacktestHeaderWide()
+        printBacktestRowWide("1) база 0.8/0.7", baseline)
+        for ((delta, m) in rows) {
+            printBacktestRowWide("откат вход ${fmt(delta)} / выход 0.7", m)
+        }
+        val best = rows.maxByOrNull { it.second.totalPnlRubApprox }!!
+        println("---")
+        println(
+            "Лучший откат входа: ${fmt(best.first)} → PnL ${fmt(best.second.totalPnlRubApprox)} ₽ " +
+                "(Δ к базе ${fmt(best.second.totalPnlRubApprox - baseline.totalPnlRubApprox)} ₽, " +
+                "сделок ${best.second.closedTrades.size} vs ${baseline.closedTrades.size})"
+        )
+        assertTrue(baseline.closedTrades.isNotEmpty())
+    }
+
+    @Test
+    fun moexBacktest_255d_pullbackEntry_peakTrail_grid() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val baseline = runBacktest(points, THRESH_08_07, notional)!!
+        val steps = pullbackTrailGridSteps()
+        val cells = mutableListOf<PullbackGridCell>()
+        for (entryPb in steps) {
+            for (trail in steps) {
+                val m = runBacktest(
+                    points = points,
+                    thresholds = THRESH_08_07,
+                    notionalRub = notional,
+                    entryPullbackZ = entryPb,
+                    exitMode = ZStrategyExitMode.ZPeakTrailing,
+                    zPeakTrailZ = trail
+                )!!
+                cells += PullbackGridCell(entryPb, trail, m)
+            }
+        }
+
+        println("=== MOEX 255д: сетка откат входа × трейл выхода @ 100k, пороги 0.8/0.7 ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
+        printBacktestRowWide("база 0.8/0.7 фикс.", baseline)
+        println()
+        println("PnL ₽ (строка = откат входа, столбец = трейл выхода):")
+        print("        ")
+        for (trail in steps) {
+            print(String.format(Locale.US, "%8.2f", trail))
+        }
+        println()
+        for (entryPb in steps) {
+            print(String.format(Locale.US, "%5.2f |", entryPb))
+            for (trail in steps) {
+                val pnl = cells.first { it.entryPullbackZ == entryPb && it.zPeakTrailZ == trail }
+                    .metrics.totalPnlRubApprox
+                print(String.format(Locale.US, "%8.0f", pnl))
+            }
+            println()
+        }
+        println()
+        println("Топ-5 комбинаций по PnL:")
+        printBacktestHeaderWide()
+        cells.sortedByDescending { it.metrics.totalPnlRubApprox }.take(5).forEach { cell ->
+            printBacktestRowWide(
+                "вх ${fmt(cell.entryPullbackZ)} / трейл ${fmt(cell.zPeakTrailZ)}",
+                cell.metrics
+            )
+        }
+        val best = cells.maxByOrNull { it.metrics.totalPnlRubApprox }!!
+        val worst = cells.minByOrNull { it.metrics.totalPnlRubApprox }!!
+        println("---")
+        println(
+            "Лучшая ячейка: вх ${fmt(best.entryPullbackZ)} / трейл ${fmt(best.zPeakTrailZ)} → " +
+                "PnL ${fmt(best.metrics.totalPnlRubApprox)} ₽, сделок ${best.metrics.closedTrades.size}, " +
+                "WR ${fmt(best.metrics.winRate)}%"
+        )
+        println(
+            "Δ к базе: ${fmt(best.metrics.totalPnlRubApprox - baseline.totalPnlRubApprox)} ₽ · " +
+                "худшая ячейка PnL ${fmt(worst.metrics.totalPnlRubApprox)} ₽"
+        )
+        assertTrue(cells.size == steps.size * steps.size)
+    }
+
+    @Test
     fun moexBacktest_255d_100k_leverage7_threshold08_07() = runBlocking {
         val (_, points) = loadTatn15mPoints()
         val mX1 = runBacktest(
@@ -372,6 +471,46 @@ class MoexTodayBacktestTest {
             )
         )
     }
+
+    private fun printBacktestHeaderWide() {
+        println(
+            String.format(
+                Locale.US,
+                "%-28s | %5s | %12s | %12s | %10s | %6s",
+                "вариант",
+                "сделок",
+                "PnL ₽",
+                "max DD ₽",
+                "комис. ₽",
+                "WR %"
+            )
+        )
+        println("-".repeat(88))
+    }
+
+    private fun printBacktestRowWide(label: String, m: PortfolioMetrics) {
+        println(
+            String.format(
+                Locale.US,
+                "%-28s | %5d | %12.2f | %12.2f | %10.2f | %6.1f",
+                label,
+                m.closedTrades.size,
+                m.totalPnlRubApprox,
+                m.maxDrawdownRubApprox,
+                m.totalCommissionRub,
+                m.winRate
+            )
+        )
+    }
+
+    private fun pullbackTrailGridSteps(): List<Double> =
+        listOf(0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15)
+
+    private data class PullbackGridCell(
+        val entryPullbackZ: Double,
+        val zPeakTrailZ: Double,
+        val metrics: PortfolioMetrics
+    )
 
     /** Max DD по сумме дневных equity двух независимых симуляций (общий счёт 100k). */
     private fun maxDrawdownOfSummedDailyEquity(vararg legs: PortfolioMetrics): Double {

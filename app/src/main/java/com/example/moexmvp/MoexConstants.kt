@@ -87,6 +87,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.94 — Бэктесты: сетка откат×трейл 0.03–0.15 и откат входа при фикс. выходе 0.7.
 1.6.93 — Бэктест «лучший Z»: вход после отката Z + выход трейлом от пика (MoexTodayBacktestTest).
 1.6.92 — Авто-проверка обновлений каждые 5 мин (GitHub Release): диалог, скачивание APK и установка.
 1.6.91 — Тест страт.: снова авто-симуляция 255 дн. при смене порогов/15м ряда; убрана кнопка «Пересчитать».
