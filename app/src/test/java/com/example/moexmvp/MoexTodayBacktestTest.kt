@@ -22,6 +22,7 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_peakTrail_grid`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_report_clearing`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_add_depth_grid`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_depth_gt1`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_zMovementAnalytics`
  */
 class MoexTodayBacktestTest {
@@ -479,6 +480,112 @@ class MoexTodayBacktestTest {
         assertTrue(ranked.first().metrics.totalPnlRubApprox >= baseline.totalPnlRubApprox)
     }
 
+    /**
+     * Пирамидинг только при |Z| строго выше 1.0 (поздняя докупка).
+     * Сравнение с эталоном +50k @ |Z|≥1.0 на тех же размерах добавки.
+     */
+    @Test
+    fun moexBacktest_255d_pyramid_depth_gt1() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val baseline = runBacktest(points, THRESH_08_07, notional)!!
+        val addSteps = pyramidAddNotionalGridSteps()
+        val depthSteps = pyramidZDepthGridStepsGt1()
+        val refAt1 = addSteps.associateWith { addRub ->
+            runBacktest(
+                points = points,
+                thresholds = THRESH_08_07,
+                notionalRub = notional,
+                simOptions = ZStrategySimOptions(
+                    pyramidAddNotionalRub = addRub,
+                    pyramidZDepth = 1.0
+                )
+            )!!
+        }
+        val cells = mutableListOf<PyramidGridCell>()
+        for (addRub in addSteps) {
+            for (depth in depthSteps) {
+                val m = runBacktest(
+                    points = points,
+                    thresholds = THRESH_08_07,
+                    notionalRub = notional,
+                    simOptions = ZStrategySimOptions(
+                        pyramidAddNotionalRub = addRub,
+                        pyramidZDepth = depth
+                    )
+                )!!
+                cells += PyramidGridCell(addRub, depth, m)
+            }
+        }
+
+        println("=== MOEX 255д: пирамидинг при |Z| > 1.0 (добавка × глубина) @ 100k 0.8/0.7 ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
+        printBacktestRowWide("база без пир.", baseline)
+        for (addRub in addSteps) {
+            val addK = (addRub / 1000).roundToInt()
+            printBacktestRowWide("эталон +${addK}k @ |Z|≥1.00", refAt1.getValue(addRub))
+        }
+        println()
+        println("PnL ₽ (строка = добавка, столбец = порог докупки |Z|,):")
+        print("       ")
+        for (depth in depthSteps) {
+            print(String.format(Locale.US, "%7.2f", depth))
+        }
+        println("  |  Δ vs +50k@1.0")
+        for (addRub in addSteps) {
+            val addK = (addRub / 1000).roundToInt()
+            val ref = refAt1.getValue(addRub)
+            print(String.format(Locale.US, "%5sk |", addK))
+            for (depth in depthSteps) {
+                val pnl = cells.first { it.pyramidAddNotionalRub == addRub && it.pyramidZDepth == depth }
+                    .metrics.totalPnlRubApprox
+                print(String.format(Locale.US, "%7.0f", pnl))
+            }
+            val bestGt1 = cells.filter { it.pyramidAddNotionalRub == addRub }
+                .maxByOrNull { it.metrics.totalPnlRubApprox }!!
+            val deltaVs1 = bestGt1.metrics.totalPnlRubApprox - ref.totalPnlRubApprox
+            print(String.format(Locale.US, " %7.0f", deltaVs1))
+            println()
+        }
+        println()
+        println("Топ-12 комбинаций (только |Z| > 1.0):")
+        printPyramidGridTopHeader()
+        cells.sortedByDescending { it.metrics.totalPnlRubApprox }.take(12).forEach { cell ->
+            printPyramidGridTopRow(cell, baseline.totalPnlRubApprox)
+        }
+        println("---")
+        println("Сравнение лучшей глубины >1 vs эталон @1.0 (по размеру добавки):")
+        for (addRub in addSteps) {
+            val addK = (addRub / 1000).roundToInt()
+            val ref = refAt1.getValue(addRub)
+            val best = cells.filter { it.pyramidAddNotionalRub == addRub }
+                .maxByOrNull { it.metrics.totalPnlRubApprox }!!
+            println(
+                String.format(
+                    Locale.US,
+                    "  +%dk: лучш. |Z|≥%.2f → PnL %.0f ₽ (сделок %d, DD %.0f) · @1.0 → %.0f ₽ · Δ %.0f ₽",
+                    addK,
+                    best.pyramidZDepth,
+                    best.metrics.totalPnlRubApprox,
+                    best.metrics.closedTrades.size,
+                    best.metrics.maxDrawdownRubApprox,
+                    ref.totalPnlRubApprox,
+                    best.metrics.totalPnlRubApprox - ref.totalPnlRubApprox
+                )
+            )
+        }
+        val globalBest = cells.maxByOrNull { it.metrics.totalPnlRubApprox }!!
+        val globalBestRef = refAt1.getValue(globalBest.pyramidAddNotionalRub)
+        println("---")
+        println(
+            "Глобально лучшая (|Z|>1): +${(globalBest.pyramidAddNotionalRub / 1000).roundToInt()}k @ |Z|≥${fmt(globalBest.pyramidZDepth)} → " +
+                "PnL ${fmt(globalBest.metrics.totalPnlRubApprox)} ₽ (Δ к базе ${fmt(globalBest.metrics.totalPnlRubApprox - baseline.totalPnlRubApprox)} ₽, " +
+                "Δ к @1.0 ${fmt(globalBest.metrics.totalPnlRubApprox - globalBestRef.totalPnlRubApprox)} ₽)"
+        )
+        assertTrue(cells.size == addSteps.size * depthSteps.size)
+        assertTrue(cells.all { it.metrics.closedTrades.size == baseline.closedTrades.size })
+    }
+
     @Test
     fun moexBacktest_255d_100k_leverage7_threshold08_07() = runBlocking {
         val (_, points) = loadTatn15mPoints()
@@ -673,6 +780,10 @@ class MoexTodayBacktestTest {
     /** Глубина |Z| для одной докупки (должна быть ≥ порога входа 0.8). */
     private fun pyramidZDepthGridSteps(): List<Double> =
         listOf(0.85, 0.90, 0.95, 1.00, 1.10, 1.20)
+
+    /** Докупка только при более глубоком экстремуме Z (строго > 1.0). */
+    private fun pyramidZDepthGridStepsGt1(): List<Double> =
+        listOf(1.05, 1.10, 1.15, 1.20, 1.25, 1.30, 1.40, 1.50, 1.75, 2.00)
 
     private data class PullbackGridCell(
         val entryPullbackZ: Double,
