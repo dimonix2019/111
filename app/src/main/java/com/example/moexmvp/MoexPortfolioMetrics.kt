@@ -95,7 +95,8 @@ internal fun buildZStrategyPortfolioMetrics(
     periodDescription: String,
     compoundReturns: Boolean = false,
     exitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
-    zPeakTrailZ: Double = 0.2
+    zPeakTrailZ: Double = 0.2,
+    entryPullbackZ: Double = 0.0
 ): PortfolioMetrics? {
     if (points.size < 2) return null
 
@@ -128,6 +129,32 @@ internal fun buildZStrategyPortfolioMetrics(
 
     var entryCommissionRub = 0.0
     var zBestSinceEntry = 0.0
+    var entryPendingArm = ZEntryPendingArm.None
+    var zExtremeWhilePending = 0.0
+
+    fun enterLongAtBar(bar: DataPoint) {
+        applyTradeSizingFromRealized()
+        position = ZStrategyPosition.Long
+        entrySpread = bar.spreadPercent
+        entryDate = bar.tradeDate
+        entryCommissionRub = tradeCommissionPerSideRub
+        zBestSinceEntry = bar.zScore
+        totalCommissionRub += tradeCommissionPerSideRub
+        realizedRub -= tradeCommissionPerSideRub
+        entryPendingArm = ZEntryPendingArm.None
+    }
+
+    fun enterShortAtBar(bar: DataPoint) {
+        applyTradeSizingFromRealized()
+        position = ZStrategyPosition.Short
+        entrySpread = bar.spreadPercent
+        entryDate = bar.tradeDate
+        entryCommissionRub = tradeCommissionPerSideRub
+        zBestSinceEntry = bar.zScore
+        totalCommissionRub += tradeCommissionPerSideRub
+        realizedRub -= tradeCommissionPerSideRub
+        entryPendingArm = ZEntryPendingArm.None
+    }
 
     fun pushEquitySnapshot(atIndex: Int) {
         val bar = points[atIndex]
@@ -178,6 +205,7 @@ internal fun buildZStrategyPortfolioMetrics(
                     position = ZStrategyPosition.Flat
                     entryCommissionRub = 0.0
                     zBestSinceEntry = 0.0
+                    entryPendingArm = ZEntryPendingArm.None
                 }
             }
 
@@ -215,30 +243,52 @@ internal fun buildZStrategyPortfolioMetrics(
                     position = ZStrategyPosition.Flat
                     entryCommissionRub = 0.0
                     zBestSinceEntry = 0.0
+                    entryPendingArm = ZEntryPendingArm.None
                 }
             }
 
             ZStrategyPosition.Flat -> Unit
         }
         if (position == ZStrategyPosition.Flat) {
-            if (prev.zScore > -entry && current.zScore <= -entry) {
-                applyTradeSizingFromRealized()
-                position = ZStrategyPosition.Long
-                entrySpread = current.spreadPercent
-                entryDate = current.tradeDate
-                entryCommissionRub = tradeCommissionPerSideRub
-                zBestSinceEntry = current.zScore
-                totalCommissionRub += tradeCommissionPerSideRub
-                realizedRub -= tradeCommissionPerSideRub
-            } else if (prev.zScore < entry && current.zScore >= entry) {
-                applyTradeSizingFromRealized()
-                position = ZStrategyPosition.Short
-                entrySpread = current.spreadPercent
-                entryDate = current.tradeDate
-                entryCommissionRub = tradeCommissionPerSideRub
-                zBestSinceEntry = current.zScore
-                totalCommissionRub += tradeCommissionPerSideRub
-                realizedRub -= tradeCommissionPerSideRub
+            if (entryPullbackZ <= 0.0) {
+                if (prev.zScore > -entry && current.zScore <= -entry) {
+                    enterLongAtBar(current)
+                } else if (prev.zScore < entry && current.zScore >= entry) {
+                    enterShortAtBar(current)
+                }
+            } else {
+                when (entryPendingArm) {
+                    ZEntryPendingArm.Long -> {
+                        zExtremeWhilePending = min(zExtremeWhilePending, current.zScore)
+                        when {
+                            zPullbackLongEntryTriggered(current.zScore, zExtremeWhilePending, entryPullbackZ) ->
+                                enterLongAtBar(current)
+                            zPullbackEntryCancelLong(current.zScore, exit) ->
+                                entryPendingArm = ZEntryPendingArm.None
+                        }
+                    }
+                    ZEntryPendingArm.Short -> {
+                        zExtremeWhilePending = max(zExtremeWhilePending, current.zScore)
+                        when {
+                            zPullbackShortEntryTriggered(current.zScore, zExtremeWhilePending, entryPullbackZ) ->
+                                enterShortAtBar(current)
+                            zPullbackEntryCancelShort(current.zScore, exit) ->
+                                entryPendingArm = ZEntryPendingArm.None
+                        }
+                    }
+                    ZEntryPendingArm.None -> {
+                        when {
+                            zPullbackArmLongCross(prev.zScore, current.zScore, entry) -> {
+                                entryPendingArm = ZEntryPendingArm.Long
+                                zExtremeWhilePending = current.zScore
+                            }
+                            zPullbackArmShortCross(prev.zScore, current.zScore, entry) -> {
+                                entryPendingArm = ZEntryPendingArm.Short
+                                zExtremeWhilePending = current.zScore
+                            }
+                        }
+                    }
+                }
             }
         }
         pushEquitySnapshot(index)
@@ -308,8 +358,13 @@ internal fun buildZStrategyPortfolioMetrics(
         ZStrategyExitMode.ZPeakTrailing ->
             "выход трейл Z ${String.format(Locale.US, "%.2f", zPeakTrailZ)} от пика"
     }
+    val entryNote = if (entryPullbackZ > 0.0) {
+        ", вход откат Z ${String.format(Locale.US, "%.2f", entryPullbackZ)}"
+    } else {
+        ""
+    }
     val fullDescription =
-        "$periodDescription · Z-вход ±${String.format(Locale.US, "%.1f", entry)}, $exitNote$capNote"
+        "$periodDescription · Z-вход ±${String.format(Locale.US, "%.1f", entry)}$entryNote, $exitNote$capNote"
     val barLabels = points.drop(1).map { it.tradeDate }
     val (curveLabels, curveEquity, curveDrawdown) = equityCurveDailyForChart(barLabels, equityRubSeries)
     return PortfolioMetrics(

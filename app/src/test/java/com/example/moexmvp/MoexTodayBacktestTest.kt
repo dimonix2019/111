@@ -17,7 +17,7 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_noSignalDayStreaks_threshold08_07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_compare_threshold08_07_vs_08_05_notional50k`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_vs_single100k`
- * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_100k_leverage7_threshold08_07`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_baseline_vs_pullbackEntry_peakExit`
  */
 class MoexTodayBacktestTest {
 
@@ -147,6 +147,82 @@ class MoexTodayBacktestTest {
     }
 
     @Test
+    fun moexBacktest_255d_baseline_vs_pullbackEntry_peakExit() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val baseline = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = notional
+        )!!
+        val improved07 = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = notional,
+            exitMode = ZStrategyExitMode.ZPeakTrailing,
+            zPeakTrailZ = 0.07,
+            entryPullbackZ = 0.07
+        )!!
+        val improved05 = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = notional,
+            exitMode = ZStrategyExitMode.ZPeakTrailing,
+            zPeakTrailZ = 0.05,
+            entryPullbackZ = 0.05
+        )!!
+        val improved10 = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = notional,
+            exitMode = ZStrategyExitMode.ZPeakTrailing,
+            zPeakTrailZ = 0.10,
+            entryPullbackZ = 0.10
+        )!!
+
+        println("=== MOEX 255д: база vs «лучший Z» (откат вход + трейл выход) @ 100k ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
+        println("База: вход/выход сразу по 0.8/0.7 · Улучш.: ждём откат Z, выход — трейл от пика Z")
+        println(
+            String.format(
+                Locale.US,
+                "%-34s | %5s | %12s | %12s | %10s | %8s",
+                "вариант",
+                "сделок",
+                "PnL чистый ₽",
+                "max DD ₽",
+                "комис. ₽",
+                "WR %"
+            )
+        )
+        println("-".repeat(96))
+        for ((label, m) in listOf(
+            "1) база 0.8/0.7 фикс." to baseline,
+            "2) откат+трейл 0.07" to improved07,
+            "3) откат+трейл 0.05" to improved05,
+            "4) откат+трейл 0.10" to improved10
+        )) {
+            println(
+                String.format(
+                    Locale.US,
+                    "%-34s | %5d | %12.2f | %12.2f | %10.2f | %7.1f",
+                    label,
+                    m.closedTrades.size,
+                    m.totalPnlRubApprox,
+                    m.maxDrawdownRubApprox,
+                    m.totalCommissionRub,
+                    m.winRate
+                )
+            )
+        }
+        println("---")
+        println("Δ PnL (2−1): ${fmt(improved07.totalPnlRubApprox - baseline.totalPnlRubApprox)} ₽")
+        println("Δ сделок (2−1): ${improved07.closedTrades.size - baseline.closedTrades.size}")
+        println("Δ max DD (2−1): ${fmt(improved07.maxDrawdownRubApprox - baseline.maxDrawdownRubApprox)} ₽")
+        assertTrue(baseline.closedTrades.isNotEmpty() || improved07.closedTrades.isNotEmpty())
+    }
+
+    @Test
     fun moexBacktest_255d_100k_leverage7_threshold08_07() = runBlocking {
         val (_, points) = loadTatn15mPoints()
         val mX1 = runBacktest(
@@ -264,7 +340,10 @@ class MoexTodayBacktestTest {
         thresholds: DynamicThresholds,
         notionalRub: Double,
         leverage: Double = BACKTEST_LEVERAGE_X1,
-        commissionPercentPerSide: Double = BACKTEST_COMMISSION_PCT_PER_SIDE
+        commissionPercentPerSide: Double = BACKTEST_COMMISSION_PCT_PER_SIDE,
+        exitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
+        zPeakTrailZ: Double = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL,
+        entryPullbackZ: Double = 0.0
     ): PortfolioMetrics? =
         buildZStrategyPortfolioMetrics(
             points = points,
@@ -274,7 +353,9 @@ class MoexTodayBacktestTest {
             commissionPercentPerSide = commissionPercentPerSide,
             periodDescription = "MOEX ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
             compoundReturns = false,
-            exitMode = ZStrategyExitMode.FixedThreshold
+            exitMode = exitMode,
+            zPeakTrailZ = zPeakTrailZ,
+            entryPullbackZ = entryPullbackZ
         )
 
     private fun printBacktestRow(label: String, m: PortfolioMetrics) {

@@ -65,6 +65,8 @@ internal const val CHART_MAX_DISPLAY_BARS = 2_000
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
+/** Откат Z от экстремума для отложенного входа (0 = сразу на пересечении порога). */
+internal const val DEFAULT_STRATEGY_ENTRY_PULLBACK_Z = 0.07
 internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MIN = 0.05
 internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MAX = 2.0
 /** Calendar days of history for 15m-style portfolio (10m ISS → 15m bars). ~1y; smaller than 365*1m traffic. */
@@ -85,6 +87,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.93 — Бэктест «лучший Z»: вход после отката Z + выход трейлом от пика (MoexTodayBacktestTest).
 1.6.92 — Авто-проверка обновлений каждые 5 мин (GitHub Release): диалог, скачивание APK и установка.
 1.6.91 — Тест страт.: снова авто-симуляция 255 дн. при смене порогов/15м ряда; убрана кнопка «Пересчитать».
 1.6.90 — Портфель: снова график Z-score (1 день) и строка Z/спред; 15м ряд синхронизируется при realtime/MOEX refresh.
