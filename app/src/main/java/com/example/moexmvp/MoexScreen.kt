@@ -30,7 +30,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -174,10 +173,9 @@ internal fun MoexScreen() {
     }
     var strategyTestPortfolioMetrics by remember { mutableStateOf<PortfolioMetrics?>(null) }
     var strategyTestSimComputing by remember { mutableStateOf(false) }
-    var strategyTestSimTrigger by remember { mutableIntStateOf(0) }
-    var strategyTestSimStale by remember { mutableStateOf(false) }
 
     LaunchedEffect(
+        portfolioM15Points,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
         portfolioLeverage,
@@ -187,21 +185,6 @@ internal fun MoexScreen() {
         dynamicThresholds.exit,
         dynamicThresholds.calculatedDate
     ) {
-        if (strategyTestSimTrigger > 0) strategyTestSimStale = true
-    }
-
-    LaunchedEffect(
-        portfolioM15Points.size,
-        portfolioM15Points.firstOrNull()?.tradeDate,
-        portfolioM15Points.lastOrNull()?.timestampMillis
-    ) {
-        if (portfolioM15Points.size < 2) return@LaunchedEffect
-        strategyTestSimStale = false
-        strategyTestSimTrigger++
-    }
-
-    LaunchedEffect(strategyTestSimTrigger) {
-        if (strategyTestSimTrigger == 0) return@LaunchedEffect
         strategyTestSimComputing = true
         strategyTestPortfolioMetrics = withContext(Dispatchers.Default) {
             if (portfolioM15Points.size < 2) return@withContext null
@@ -221,7 +204,6 @@ internal fun MoexScreen() {
             )
         }
         strategyTestSimComputing = false
-        strategyTestSimStale = false
     }
     val strategyTestTradeItems = remember(strategyTestPortfolioMetrics) {
         buildStrategyTestTradeListFromSimulation(
@@ -1306,11 +1288,6 @@ internal fun MoexScreen() {
                         StrategyTestTabContent(
                             metrics = strategyTestPortfolioMetrics,
                             simulationComputing = strategyTestSimComputing,
-                            simulationStale = strategyTestSimStale,
-                            onRunSimulation = {
-                                strategyTestSimStale = false
-                                strategyTestSimTrigger++
-                            },
                             tradeItems = strategyTestTradeItems,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,

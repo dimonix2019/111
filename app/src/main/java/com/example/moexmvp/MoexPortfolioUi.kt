@@ -930,8 +930,6 @@ internal fun ConfirmedPortfolioTabContent(
 internal fun StrategyTestTabContent(
     metrics: PortfolioMetrics?,
     simulationComputing: Boolean = false,
-    simulationStale: Boolean = false,
-    onRunSimulation: () -> Unit = {},
     tradeItems: List<StrategyTestTradeItem>,
     portfolioLoading: Boolean,
     portfolioError: String?,
@@ -962,7 +960,7 @@ internal fun StrategyTestTabContent(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        AppVersionBriefCard(tabHint = "Симуляция 255д на полном 15м ряду; после смены порогов — «Рассчитать симуляцию»")
+        AppVersionBriefCard(tabHint = "Симуляция на полном 15м ряду; пороги только для «Тест страт.»")
         PortfolioDataRefreshHeader(
             title = "Тест стратегии · 15м",
             portfolioLoading = portfolioLoading || simulationComputing,
@@ -1000,29 +998,6 @@ internal fun StrategyTestTabContent(
             onEntryThresholdChange = onEntryThresholdChange,
             onExitThresholdChange = onExitThresholdChange
         )
-        if (simulationStale && !simulationComputing) {
-            Text(
-                text = "Пороги или параметры изменились — нажмите «Рассчитать симуляцию» (ниже показаны прошлые результаты).",
-                color = Color(0xFFFFCC80),
-                fontSize = 10.sp,
-                maxLines = 3
-            )
-        }
-        Button(
-            onClick = onRunSimulation,
-            enabled = !simulationComputing && !portfolioLoading,
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.AutoGraph, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = if (simulationStale) "Рассчитать симуляцию" else "Пересчитать симуляцию",
-                    fontSize = 12.sp
-                )
-            }
-        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
