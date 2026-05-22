@@ -87,6 +87,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.00 — Иконка приложения: зелёная, объёмная, «рост вверх» (adaptive icon).
 1.6.99 — Аналитика движения Z за период бэктеста (распределение, полосы, пересечения порогов).
 1.6.98 — Рефакторинг: MoexScreen разбит на State, Effects, вкладки, диалоги (~150 строк shell).
 1.6.97 — Бэктест: сетка пирамидинг (добавка 25–100k × глубина |Z| 0.85–1.20), топ-10 комбинаций.
