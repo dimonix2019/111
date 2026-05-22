@@ -59,6 +59,7 @@ import java.util.Locale
 @Composable
 internal fun MoexScreen() {
     val context = LocalContext.current
+    var pendingAppUpdate by remember { mutableStateOf<AppRemoteUpdate?>(null) }
     var selectedTab by remember { mutableStateOf(MainTab.Markets) }
     val configuration = LocalConfiguration.current
     val landscapeZChartFullscreen =
@@ -790,6 +791,21 @@ internal fun MoexScreen() {
             MarketsDataSource.FifteenMinuteCache
         else -> MarketsDataSource.Network
     }
+
+    AppUpdateChecker { remote ->
+        if (pendingAppUpdate == null || pendingAppUpdate!!.versionCode < remote.versionCode) {
+            pendingAppUpdate = remote
+        }
+    }
+
+    AppUpdateDialogHost(
+        pendingUpdate = pendingAppUpdate,
+        onDismiss = { update ->
+            saveDismissedAppUpdateVersionCode(context, update.versionCode)
+            pendingAppUpdate = null
+        },
+        onInstalledOffer = { pendingAppUpdate = null }
+    )
 
     robustCandidate?.let { cand ->
         AlertDialog(

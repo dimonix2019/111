@@ -85,6 +85,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.92 — Авто-проверка обновлений каждые 5 мин (GitHub Release): диалог, скачивание APK и установка.
 1.6.91 — Тест страт.: снова авто-симуляция 255 дн. при смене порогов/15м ряда; убрана кнопка «Пересчитать».
 1.6.90 — Портфель: снова график Z-score (1 день) и строка Z/спред; 15м ряд синхронизируется при realtime/MOEX refresh.
 1.6.89 — Тест страт.: кнопка «Рассчитать симуляцию» (пересчёт по запросу после смены порогов); авто — при обновлении 15м ряда.
