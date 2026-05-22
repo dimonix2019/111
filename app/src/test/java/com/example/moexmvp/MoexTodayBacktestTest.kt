@@ -22,6 +22,7 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_peakTrail_grid`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_report_clearing`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_add_depth_grid`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_zMovementAnalytics`
  */
 class MoexTodayBacktestTest {
 
@@ -384,6 +385,31 @@ class MoexTodayBacktestTest {
             )
         }
         assertTrue(baseline.closedTrades.isNotEmpty())
+    }
+
+    @Test
+    fun moexBacktest_255d_zMovementAnalytics() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val entry = THRESH_08_07.entry
+        val exit = THRESH_08_07.exit
+        val report = buildZMovementReport(
+            points = points,
+            zoneId = zone,
+            entryThreshold = entry,
+            exitThreshold = exit,
+            pyramidDepth = 1.0,
+            topDays = 12
+        )!!
+        println(formatZMovementReport(report, entry, exit))
+        val baseline = runBacktest(points, THRESH_08_07, BACKTEST_NOTIONAL_100K_RUB)!!
+        println("---")
+        println(
+            "Симуляция 0.8/0.7 (для сопоставления): ${baseline.closedTrades.size} сделок, " +
+                "PnL ${fmt(baseline.totalPnlRubApprox)} ₽, пересечений входа LONG+SHORT ≈ " +
+                "${report.crossings.crossDownEntryLong + report.crossings.crossUpEntryShort}"
+        )
+        assertTrue(report.barCount >= 100)
+        assertTrue(report.zoneShares.sumOf { it.percent } in 99.0..101.0)
     }
 
     @Test
