@@ -87,6 +87,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.98 — Рефакторинг: MoexScreen разбит на State, Effects, вкладки, диалоги (~150 строк shell).
 1.6.97 — Бэктест: сетка пирамидинг (добавка 25–100k × глубина |Z| 0.85–1.20), топ-10 комбинаций.
 1.6.96 — Рефакторинг: разбиение крупных файлов (метрики, UI портфеля, графики) для удобства правок.
 1.6.95 — Бэктест: пирамидинг (+50k @ |Z|≥1.0), без отчётных дней TATN, выход до 18:45 МСК.
