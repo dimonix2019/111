@@ -17,6 +17,7 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_noSignalDayStreaks_threshold08_07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_compare_threshold08_07_vs_08_05_notional50k`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_vs_single100k`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_100k_leverage7_threshold08_07`
  */
 class MoexTodayBacktestTest {
 
@@ -28,6 +29,7 @@ class MoexTodayBacktestTest {
         const val BACKTEST_NOTIONAL_50K_RUB = 50_000.0
         const val BACKTEST_NOTIONAL_100K_RUB = 100_000.0
         const val BACKTEST_LEVERAGE_X1 = 1.0
+        const val BACKTEST_LEVERAGE_X7 = 7.0
         const val BACKTEST_COMMISSION_PCT_PER_SIDE = 0.04
         val THRESH_08_07 = DynamicThresholds(0.8, 0.7, null)
         val THRESH_08_05 = DynamicThresholds(0.8, 0.5, null)
@@ -145,6 +147,35 @@ class MoexTodayBacktestTest {
     }
 
     @Test
+    fun moexBacktest_255d_100k_leverage7_threshold08_07() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val mX1 = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = BACKTEST_NOTIONAL_100K_RUB,
+            leverage = BACKTEST_LEVERAGE_X1,
+            commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE
+        )!!
+        val mX7 = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = BACKTEST_NOTIONAL_100K_RUB,
+            leverage = BACKTEST_LEVERAGE_X7,
+            commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE
+        )!!
+        println("=== MOEX 255д: 100k @ 0.8/0.7 — x1 vs x7 (комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона) ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
+        printBacktestRow("100k · x1", mX1)
+        printBacktestRow("100k · x7", mX7)
+        println("---")
+        println(
+            "Δ PnL (x7 − x1): ${fmt(mX7.totalPnlRubApprox - mX1.totalPnlRubApprox)} ₽ · " +
+                "Δ max DD: ${fmt(mX7.maxDrawdownRubApprox - mX1.maxDrawdownRubApprox)} ₽"
+        )
+        assertTrue(mX7.closedTrades.size == mX1.closedTrades.size)
+    }
+
+    @Test
     fun moexBacktest_255d_dual50k_vs_single100k() = runBlocking {
         val (_, points) = loadTatn15mPoints()
         val m50_07 = runBacktest(points, THRESH_08_07, BACKTEST_NOTIONAL_50K_RUB)!!
@@ -231,14 +262,16 @@ class MoexTodayBacktestTest {
     private fun runBacktest(
         points: List<DataPoint>,
         thresholds: DynamicThresholds,
-        notionalRub: Double
+        notionalRub: Double,
+        leverage: Double = BACKTEST_LEVERAGE_X1,
+        commissionPercentPerSide: Double = BACKTEST_COMMISSION_PCT_PER_SIDE
     ): PortfolioMetrics? =
         buildZStrategyPortfolioMetrics(
             points = points,
             thresholds = thresholds,
             notionalRub = notionalRub,
-            leverage = BACKTEST_LEVERAGE_X1,
-            commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE,
+            leverage = leverage,
+            commissionPercentPerSide = commissionPercentPerSide,
             periodDescription = "MOEX ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
             compoundReturns = false,
             exitMode = ZStrategyExitMode.FixedThreshold

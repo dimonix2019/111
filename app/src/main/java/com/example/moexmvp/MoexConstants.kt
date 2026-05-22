@@ -85,6 +85,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.6.89 — Тест страт.: кнопка «Рассчитать симуляцию» (пересчёт по запросу после смены порогов); авто — при обновлении 15м ряда.
 1.6.88 — Тест страт.: убрано «+ сохранить» пресет; Equity/просадка внутри «Детальные показатели».
 1.6.87 — CI: публикация APK в Release без Actions artifacts (исправлена залипшая сборка 1.6.82 в Releases).
 1.6.86 — Тест страт.: снова полная симуляция 255 дн. (PnL, Equity, список сделок); убран график Z и трейлинг выхода.
