@@ -20,6 +20,7 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_baseline_vs_pullbackEntry_peakExit`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_only_fixedExit07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_peakTrail_grid`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_report_clearing`
  */
 class MoexTodayBacktestTest {
 
@@ -322,6 +323,69 @@ class MoexTodayBacktestTest {
     }
 
     @Test
+    fun moexBacktest_255d_pyramid_report_clearing() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val baseline = runBacktest(points, THRESH_08_07, notional)!!
+        val pyramid = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = notional,
+            simOptions = ZStrategySimOptions(
+                pyramidAddNotionalRub = 50_000.0,
+                pyramidZDepth = 1.0
+            )
+        )!!
+        val reportDays = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = notional,
+            simOptions = ZStrategySimOptions(skipTatnReportDays = true)
+        )!!
+        val clearing = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = notional,
+            simOptions = ZStrategySimOptions(
+                closeBeforeClearingMsk = MOEX_EVENING_CLEARING_CUTOFF_MSK
+            )
+        )!!
+        val combined = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = notional,
+            simOptions = ZStrategySimOptions(
+                pyramidAddNotionalRub = 50_000.0,
+                pyramidZDepth = 1.0,
+                skipTatnReportDays = true,
+                closeBeforeClearingMsk = MOEX_EVENING_CLEARING_CUTOFF_MSK
+            )
+        )!!
+
+        println("=== MOEX 255д: пирамидинг / отчётные дни / выход до клиринга @ 100k 0.8/0.7 ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
+        printBacktestHeaderWide()
+        printBacktestRowWide("1) база 0.8/0.7", baseline)
+        printBacktestRowWide("2) пир. +50k @ |Z|≥1.0", pyramid)
+        printBacktestRowWide("3) без отчёт. дн. TATN", reportDays)
+        printBacktestRowWide("4) выход до 18:45 МСК", clearing)
+        printBacktestRowWide("5) всё вместе", combined)
+        println("---")
+        for ((label, m) in listOf(
+            "пир." to pyramid,
+            "отчёт" to reportDays,
+            "клир." to clearing,
+            "всё" to combined
+        )) {
+            println(
+                "Δ PnL ($label − база): ${fmt(m.totalPnlRubApprox - baseline.totalPnlRubApprox)} ₽ · " +
+                    "Δ сделок: ${m.closedTrades.size - baseline.closedTrades.size}"
+            )
+        }
+        assertTrue(baseline.closedTrades.isNotEmpty())
+    }
+
+    @Test
     fun moexBacktest_255d_100k_leverage7_threshold08_07() = runBlocking {
         val (_, points) = loadTatn15mPoints()
         val mX1 = runBacktest(
@@ -442,7 +506,8 @@ class MoexTodayBacktestTest {
         commissionPercentPerSide: Double = BACKTEST_COMMISSION_PCT_PER_SIDE,
         exitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
         zPeakTrailZ: Double = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL,
-        entryPullbackZ: Double = 0.0
+        entryPullbackZ: Double = 0.0,
+        simOptions: ZStrategySimOptions = ZStrategySimOptions()
     ): PortfolioMetrics? =
         buildZStrategyPortfolioMetrics(
             points = points,
@@ -454,7 +519,8 @@ class MoexTodayBacktestTest {
             compoundReturns = false,
             exitMode = exitMode,
             zPeakTrailZ = zPeakTrailZ,
-            entryPullbackZ = entryPullbackZ
+            entryPullbackZ = entryPullbackZ,
+            simOptions = simOptions
         )
 
     private fun printBacktestRow(label: String, m: PortfolioMetrics) {
