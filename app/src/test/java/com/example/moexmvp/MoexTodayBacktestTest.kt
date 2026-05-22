@@ -21,6 +21,7 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_only_fixedExit07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_peakTrail_grid`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_report_clearing`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_add_depth_grid`
  */
 class MoexTodayBacktestTest {
 
@@ -386,6 +387,73 @@ class MoexTodayBacktestTest {
     }
 
     @Test
+    fun moexBacktest_255d_pyramid_add_depth_grid() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val baseline = runBacktest(points, THRESH_08_07, notional)!!
+        val addSteps = pyramidAddNotionalGridSteps()
+        val depthSteps = pyramidZDepthGridSteps()
+        val cells = mutableListOf<PyramidGridCell>()
+        for (addRub in addSteps) {
+            for (depth in depthSteps) {
+                val m = runBacktest(
+                    points = points,
+                    thresholds = THRESH_08_07,
+                    notionalRub = notional,
+                    simOptions = ZStrategySimOptions(
+                        pyramidAddNotionalRub = addRub,
+                        pyramidZDepth = depth
+                    )
+                )!!
+                cells += PyramidGridCell(addRub, depth, m)
+            }
+        }
+
+        println("=== MOEX 255д: сетка пирамидинг (добавка ₽ × глубина |Z|) @ 100k, пороги 0.8/0.7 ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
+        printBacktestRowWide("база 0.8/0.7 (без пир.)", baseline)
+        println()
+        println("PnL ₽ (строка = добавка номинала, столбец = |Z| для докупки):")
+        print("       ")
+        for (depth in depthSteps) {
+            print(String.format(Locale.US, "%7.2f", depth))
+        }
+        println()
+        for (addRub in addSteps) {
+            val addLabel = if (addRub >= 1000) "${(addRub / 1000).roundToInt()}k" else addRub.roundToInt().toString()
+            print(String.format(Locale.US, "%5s |", addLabel))
+            for (depth in depthSteps) {
+                val pnl = cells.first { it.pyramidAddNotionalRub == addRub && it.pyramidZDepth == depth }
+                    .metrics.totalPnlRubApprox
+                print(String.format(Locale.US, "%7.0f", pnl))
+            }
+            println()
+        }
+        println()
+        println("Топ-10 комбинаций по PnL (чистый):")
+        printPyramidGridTopHeader()
+        cells.sortedByDescending { it.metrics.totalPnlRubApprox }.take(10).forEach { cell ->
+            printPyramidGridTopRow(cell, baseline.totalPnlRubApprox)
+        }
+        val ranked = cells.sortedByDescending { it.metrics.totalPnlRubApprox }
+        val best = ranked.first()
+        val worst = ranked.last()
+        println("---")
+        println(
+            "Лучшая: +${(best.pyramidAddNotionalRub / 1000).roundToInt()}k @ |Z|≥${fmt(best.pyramidZDepth)} → " +
+                "PnL ${fmt(best.metrics.totalPnlRubApprox)} ₽, сделок ${best.metrics.closedTrades.size}, " +
+                "max DD ${fmt(best.metrics.maxDrawdownRubApprox)} ₽, WR ${fmt(best.metrics.winRate)}%"
+        )
+        println(
+            "Δ к базе: ${fmt(best.metrics.totalPnlRubApprox - baseline.totalPnlRubApprox)} ₽ · " +
+                "худшая ячейка PnL ${fmt(worst.metrics.totalPnlRubApprox)} ₽ " +
+                "(+${(worst.pyramidAddNotionalRub / 1000).roundToInt()}k @ |Z|≥${fmt(worst.pyramidZDepth)})"
+        )
+        assertTrue(cells.size == addSteps.size * depthSteps.size)
+        assertTrue(ranked.first().metrics.totalPnlRubApprox >= baseline.totalPnlRubApprox)
+    }
+
+    @Test
     fun moexBacktest_255d_100k_leverage7_threshold08_07() = runBlocking {
         val (_, points) = loadTatn15mPoints()
         val mX1 = runBacktest(
@@ -572,11 +640,60 @@ class MoexTodayBacktestTest {
     private fun pullbackTrailGridSteps(): List<Double> =
         listOf(0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15)
 
+    /** Добавка номинала при пирамидинге (₽), стартовая позиция 100k. */
+    private fun pyramidAddNotionalGridSteps(): List<Double> =
+        listOf(25_000.0, 50_000.0, 75_000.0, 100_000.0)
+
+    /** Глубина |Z| для одной докупки (должна быть ≥ порога входа 0.8). */
+    private fun pyramidZDepthGridSteps(): List<Double> =
+        listOf(0.85, 0.90, 0.95, 1.00, 1.10, 1.20)
+
     private data class PullbackGridCell(
         val entryPullbackZ: Double,
         val zPeakTrailZ: Double,
         val metrics: PortfolioMetrics
     )
+
+    private data class PyramidGridCell(
+        val pyramidAddNotionalRub: Double,
+        val pyramidZDepth: Double,
+        val metrics: PortfolioMetrics
+    )
+
+    private fun printPyramidGridTopHeader() {
+        println(
+            String.format(
+                Locale.US,
+                "%-22s | %5s | %12s | %12s | %10s | %6s | %10s",
+                "добавка / |Z|",
+                "сделок",
+                "PnL ₽",
+                "max DD ₽",
+                "комис. ₽",
+                "WR %",
+                "Δ vs база"
+            )
+        )
+        println("-".repeat(96))
+    }
+
+    private fun printPyramidGridTopRow(cell: PyramidGridCell, baselinePnlRub: Double) {
+        val addK = (cell.pyramidAddNotionalRub / 1000).roundToInt()
+        val m = cell.metrics
+        println(
+            String.format(
+                Locale.US,
+                "%-22s | %5d | %12.2f | %12.2f | %10.2f | %6.1f | %10.2f",
+                "+${addK}k @ |Z|≥${fmt(cell.pyramidZDepth)}",
+                m.closedTrades.size,
+                m.totalPnlRubApprox,
+                m.maxDrawdownRubApprox,
+                m.totalCommissionRub,
+                m.winRate,
+                m.totalPnlRubApprox - baselinePnlRub
+            )
+        )
+    }
 
     /** Max DD по сумме дневных equity двух независимых симуляций (общий счёт 100k). */
     private fun maxDrawdownOfSummedDailyEquity(vararg legs: PortfolioMetrics): Double {
