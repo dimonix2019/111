@@ -644,6 +644,7 @@ internal fun ConfirmedPortfolioTabContent(
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
+    onMoex15mFullReload: (() -> Unit)? = null,
     leverage: Double,
     commissionPercentPerSide: Double,
     onLeverageChange: (Double) -> Unit,
@@ -658,7 +659,14 @@ internal fun ConfirmedPortfolioTabContent(
     onTestSpreadPairClick: () -> Unit,
     closeAllPortfolioBusy: Boolean,
     onCloseAllTradesClick: () -> Unit,
-    dailyReconciliation: DailyPortfolioReconciliation? = null
+    dailyReconciliation: DailyPortfolioReconciliation? = null,
+    latestZScore: Double? = null,
+    latestSpreadPercent: Double? = null,
+    latestBarLabel: String? = null,
+    zScoreCandles: List<CandlePoint> = emptyList(),
+    zChartPoints: List<DataPoint> = emptyList(),
+    zChartThresholds: DynamicThresholds = DynamicThresholds(0.8, 0.7, null),
+    signalEvents: List<StrategySignalEvent> = emptyList()
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -669,8 +677,28 @@ internal fun ConfirmedPortfolioTabContent(
             title = "Портфель · демо-счёт",
             portfolioLoading = portfolioLoading,
             onRefresh = onRefresh,
-            onMoex15mFullReload = null
+            onMoex15mFullReload = onMoex15mFullReload
         )
+        if (latestZScore != null || latestSpreadPercent != null) {
+            Text(
+                text = buildString {
+                    append("Z-score: ")
+                    append(
+                        latestZScore?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
+                    )
+                    append("   |   Спред: ")
+                    append(
+                        latestSpreadPercent?.let { String.format(Locale.US, "%.2f%%", it) } ?: "—"
+                    )
+                    if (!latestBarLabel.isNullOrBlank()) {
+                        append("   |   бар ")
+                        append(latestBarLabel)
+                    }
+                },
+                color = Color(0xFFE0E0E0),
+                fontSize = 13.sp
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -806,6 +834,23 @@ internal fun ConfirmedPortfolioTabContent(
                     }
                 }
             }
+        }
+        if (zScoreCandles.isNotEmpty()) {
+            CandlestickChartCard(
+                title = "Z-score спрэда · 15м (1 день)",
+                candles = zScoreCandles,
+                chartHeightDp = 200,
+                referenceLines = buildZScoreReferenceLines(zChartThresholds),
+                pointMarkers = buildZScoreSignalMarkersFromEvents(
+                    points = zChartPoints,
+                    events = signalEvents
+                ),
+                showLegend = false,
+                enableZoomPan = true,
+                markerScale = 1.2f,
+                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
+                showZoomHint = true
+            )
         }
         PortfolioTradesWindowSection(
             openExecutions = sandboxSpreadExecutions,

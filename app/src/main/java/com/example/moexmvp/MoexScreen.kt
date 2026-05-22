@@ -155,8 +155,16 @@ internal fun MoexScreen() {
             filterM15PointsForMarketsPeriod(portfolioM15Points, selectedPeriod)
         )
     }
+    val portfolioPortraitZChartPoints = remember(portfolioM15Points) {
+        downsampleDataPointsForChart(
+            filterM15PointsForMarketsPeriod(portfolioM15Points, Period.OneDay)
+        )
+    }
     val portfolioZScoreCandles = remember(portfolioZChartPoints) {
         buildZScoreCandlesFromM15Points(portfolioZChartPoints)
+    }
+    val portfolioPortraitZScoreCandles = remember(portfolioPortraitZChartPoints) {
+        buildZScoreCandlesFromM15Points(portfolioPortraitZChartPoints)
     }
     val portfolioLandscapeChartThresholds = remember(
         realTradeEntryThreshold,
@@ -185,7 +193,7 @@ internal fun MoexScreen() {
     LaunchedEffect(
         portfolioM15Points.size,
         portfolioM15Points.firstOrNull()?.tradeDate,
-        portfolioM15Points.lastOrNull()?.tradeDate
+        portfolioM15Points.lastOrNull()?.timestampMillis
     ) {
         if (portfolioM15Points.size < 2) return@LaunchedEffect
         strategyTestSimStale = false
@@ -545,9 +553,12 @@ internal fun MoexScreen() {
                         }
                         loadedM15ForMarkets = loaded
                         marketsM15Points = loaded
+                        portfolioM15Points = loaded
                         return loaded
                     }
-                    if (showLoading || marketsM15Points.isEmpty()) {
+                    if (!fromDiskCache) {
+                        runCatching { loadMarketsM15PointsOnce() }
+                    } else if (showLoading || marketsM15Points.isEmpty()) {
                         runCatching { loadMarketsM15PointsOnce() }
                     }
                     if (thresholdUpdate.recalculated &&
@@ -563,16 +574,16 @@ internal fun MoexScreen() {
                         )
                     }
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
-                    if (!fromDiskCache && !backgroundMonitorEnabled) {
-                        val signalThresholds = DynamicThresholds(
-                            entry = (realTradeEntryThreshold ?: dynamicThresholds.entry)
-                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                            exit = (realTradeExitThreshold ?: dynamicThresholds.exit)
-                                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                            calculatedDate = dynamicThresholds.calculatedDate
-                        )
+                    if (!fromDiskCache) {
                         val m15ForSignal = loadMarketsM15PointsOnce()
-                        if (m15ForSignal.size >= 2) {
+                        if (!backgroundMonitorEnabled && m15ForSignal.size >= 2) {
+                            val signalThresholds = DynamicThresholds(
+                                entry = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+                                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                                exit = (realTradeExitThreshold ?: dynamicThresholds.exit)
+                                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                                calculatedDate = dynamicThresholds.calculatedDate
+                            )
                             val lastPt = m15ForSignal.last()
                             val latestZScore = lastPt.zScore
                             val latestSpreadPercent = lastPt.spreadPercent
@@ -1194,6 +1205,7 @@ internal fun MoexScreen() {
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,
                             onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
+                            onMoex15mFullReload = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.FULL_REFRESH) } },
                             leverage = portfolioLeverage,
                             commissionPercentPerSide = portfolioCommissionPercent,
                             onLeverageChange = { portfolioLeverage = it },
@@ -1271,7 +1283,14 @@ internal fun MoexScreen() {
                             },
                             closeAllPortfolioBusy = closeAllPortfolioBusy,
                             onCloseAllTradesClick = { showCloseAllPortfolioDialog = true },
-                            dailyReconciliation = dailyReconciliation
+                            dailyReconciliation = dailyReconciliation,
+                            latestZScore = portfolioM15Points.lastOrNull()?.zScore,
+                            latestSpreadPercent = portfolioM15Points.lastOrNull()?.spreadPercent,
+                            latestBarLabel = portfolioM15Points.lastOrNull()?.tradeDate,
+                            zScoreCandles = portfolioPortraitZScoreCandles,
+                            zChartPoints = portfolioPortraitZChartPoints,
+                            zChartThresholds = portfolioLandscapeChartThresholds,
+                            signalEvents = signalEvents
                         )
                     }
                 }
