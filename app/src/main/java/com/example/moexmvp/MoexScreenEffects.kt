@@ -89,6 +89,13 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         fun hydrateVirtualTradeAndSandboxUi() {
             val act = context as? Activity
             applyVirtualTradeTapIntent(context, act?.intent)
+            parseAppUpdateFromTapIntent(act?.intent)?.let { remote ->
+                if (shouldOfferAppUpdateUi(remote, context)) {
+                    if (pendingAppUpdate == null || pendingAppUpdate!!.versionCode < remote.versionCode) {
+                        pendingAppUpdate = remote
+                    }
+                }
+            }
             restorePendingVirtualTradeFromJournalIfNeeded(context)
             pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
             sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
