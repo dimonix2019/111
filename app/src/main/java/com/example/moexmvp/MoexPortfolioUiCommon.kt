@@ -106,7 +106,7 @@ internal fun MainTabSelector(
 }
 
 @Composable
-private fun PortfolioPresetSection(
+internal fun PortfolioPresetSection(
     presets: List<PortfolioPreset>,
     onApply: (PortfolioPreset) -> Unit,
     onDelete: (String) -> Unit,
@@ -186,7 +186,7 @@ private fun PortfolioPresetSection(
 }
 
 @Composable
-private fun PortfolioDataRefreshHeader(
+internal fun PortfolioDataRefreshHeader(
     title: String,
     portfolioLoading: Boolean,
     onRefresh: () -> Unit,
@@ -243,7 +243,7 @@ private fun PortfolioDataRefreshHeader(
 }
 
 @Composable
-private fun PortfolioCollapsibleSection(
+internal fun PortfolioCollapsibleSection(
     title: String,
     subtitle: String? = null,
     defaultExpanded: Boolean = false,
@@ -290,7 +290,7 @@ private fun PortfolioCollapsibleSection(
 }
 
 @Composable
-private fun PortfolioCompactHeroInline(metrics: PortfolioMetrics) {
+internal fun PortfolioCompactHeroInline(metrics: PortfolioMetrics) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -333,18 +333,18 @@ private fun PortfolioCompactHeroInline(metrics: PortfolioMetrics) {
     }
 }
 
-private fun formatPortfolioTableZ(z: Double): String =
+internal fun formatPortfolioTableZ(z: Double): String =
     if (z.isNaN()) "—" else String.format(Locale.US, "%.2f", z)
 
-private fun formatPortfolioTableRub(value: Double): String =
+internal fun formatPortfolioTableRub(value: Double): String =
     if (value.isNaN()) "—" else formatRubSigned(value)
 
 /** Расход (комиссия, овернайт): в данных хранится модуль, в таблице — со знаком «−». */
-private fun formatPortfolioTableCostRub(value: Double): String =
+internal fun formatPortfolioTableCostRub(value: Double): String =
     if (value.isNaN()) "—" else formatRubSigned(-kotlin.math.abs(value))
 
 @Composable
-private fun PortfolioTradeTableCell(
+internal fun PortfolioTradeTableCell(
     text: String,
     modifier: Modifier = Modifier,
     color: Color = Color(0xFFE0E0E0)
@@ -360,7 +360,7 @@ private fun PortfolioTradeTableCell(
 }
 
 @Composable
-private fun PortfolioTradeOrdersGroupedTable(
+internal fun PortfolioTradeOrdersGroupedTable(
     groups: List<PortfolioTradeGroupRow>,
     caption: String,
     exitZColumnTitle: String = "Zвых"
@@ -523,7 +523,7 @@ private fun PortfolioTradeOrdersGroupedTable(
 }
 
 @Composable
-private fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTableRow>) {
+internal fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTableRow>) {
     PortfolioTradeOrdersGroupedTable(
         groups = rows.map { it.toTradeGroup() },
         caption = "Сделок: ${rows.size}. У каждой сделки (пары) — 2 строки ордеров. Прокрутка вправо — все столбцы."
@@ -532,7 +532,7 @@ private fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTabl
 
 /** Портфель: сделки по журналу; вход в метриках — только при записи в реестре исполнений под выбранным режимом. */
 @Composable
-private fun PortfolioTradesBucketHeader(
+internal fun PortfolioTradesBucketHeader(
     bucket: PortfolioTradesBucketUi,
     modifier: Modifier = Modifier
 ) {
@@ -635,543 +635,6 @@ internal fun PortfolioTradesWindowSection(
         }
     }
 }
-
-@Composable
-internal fun ConfirmedPortfolioTabContent(
-    metrics: PortfolioMetrics?,
-    confirmedTradeTableRows: List<PortfolioConfirmedTradeTableRow>,
-    sandboxSpreadExecutions: List<SandboxSpreadExecUi>,
-    portfolioLoading: Boolean,
-    portfolioError: String?,
-    onRefresh: () -> Unit,
-    onMoex15mFullReload: (() -> Unit)? = null,
-    leverage: Double,
-    commissionPercentPerSide: Double,
-    onLeverageChange: (Double) -> Unit,
-    onCommissionChange: (Double) -> Unit,
-    realTradeEntryThreshold: Double,
-    realTradeExitThreshold: Double,
-    onRealTradeEntryChange: (Double) -> Unit,
-    onRealTradeExitChange: (Double) -> Unit,
-    portfolioLedgerIncludeAuto: Boolean,
-    onPortfolioLedgerIncludeAutoChange: (Boolean) -> Unit,
-    portfolioTestBusy: Boolean,
-    onTestSpreadPairClick: () -> Unit,
-    closeAllPortfolioBusy: Boolean,
-    onCloseAllTradesClick: () -> Unit,
-    dailyReconciliation: DailyPortfolioReconciliation? = null,
-    latestZScore: Double? = null,
-    latestSpreadPercent: Double? = null,
-    latestBarLabel: String? = null,
-    zScoreCandles: List<CandlePoint> = emptyList(),
-    zChartPoints: List<DataPoint> = emptyList(),
-    zChartThresholds: DynamicThresholds = DynamicThresholds(0.8, 0.7, null),
-    signalEvents: List<StrategySignalEvent> = emptyList()
-) {
-    Column(
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        AppVersionBriefCard(tabHint = "Полный журнал версий — вкладка «О приложении».")
-        PortfolioDataRefreshHeader(
-            title = "Портфель · демо-счёт",
-            portfolioLoading = portfolioLoading,
-            onRefresh = onRefresh,
-            onMoex15mFullReload = onMoex15mFullReload
-        )
-        if (latestZScore != null || latestSpreadPercent != null) {
-            Text(
-                text = buildString {
-                    append("Z-score: ")
-                    append(
-                        latestZScore?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
-                    )
-                    append("   |   Спред: ")
-                    append(
-                        latestSpreadPercent?.let { String.format(Locale.US, "%.2f%%", it) } ?: "—"
-                    )
-                    if (!latestBarLabel.isNullOrBlank()) {
-                        append("   |   бар ")
-                        append(latestBarLabel)
-                    }
-                },
-                color = Color(0xFFE0E0E0),
-                fontSize = 13.sp
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedButton(
-                onClick = onCloseAllTradesClick,
-                enabled = !closeAllPortfolioBusy,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFAB91))
-            ) {
-                Text(
-                    if (closeAllPortfolioBusy) "Закрытие…" else "Закрыть все сделки",
-                    fontSize = 12.sp
-                )
-            }
-        }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0x33F48FB1), RoundedCornerShape(10.dp))
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Ручной",
-                    color = if (!portfolioLedgerIncludeAuto) Color(0xFFF8BBD0) else Color(0xFF9E9E9E),
-                    fontSize = 12.sp,
-                    fontWeight = if (!portfolioLedgerIncludeAuto) FontWeight.SemiBold else FontWeight.Normal
-                )
-                Switch(
-                    checked = portfolioLedgerIncludeAuto,
-                    onCheckedChange = onPortfolioLedgerIncludeAutoChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFFF48FB1),
-                        checkedTrackColor = Color(0xFF880E4F),
-                        uncheckedThumbColor = Color(0xFFB0BEC5),
-                        uncheckedTrackColor = Color(0xFF455A64)
-                    )
-                )
-                Text(
-                    text = "Авто",
-                    color = if (portfolioLedgerIncludeAuto) Color(0xFFF8BBD0) else Color(0xFF9E9E9E),
-                    fontSize = 12.sp,
-                    fontWeight = if (portfolioLedgerIncludeAuto) FontWeight.SemiBold else FontWeight.Normal
-                )
-            }
-            Text(
-                text = if (portfolioLedgerIncludeAuto) {
-                    "Авто: сигнал и «Тестовая пара» сразу открывают сделку на демо (2 заявки), без «Принять»."
-                } else {
-                    "Ручной: при сигнале или «Тестовая пара» — карточка «Принять» / «Отклонить», затем сделка в открытых."
-                },
-                color = Color(0xFFCE93D8),
-                fontSize = 10.sp,
-                lineHeight = 13.sp
-            )
-            Text(
-                text = "Пороги |Z| для сигналов, push, фона и линий на «Рынке»",
-                color = Color(0xFFFCE4EC),
-                fontSize = 10.sp
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                ParamStepper(
-                    title = "Вход |Z|",
-                    valueLabel = String.format(Locale.US, "%.2f", realTradeEntryThreshold),
-                    onMinus = {
-                        onRealTradeEntryChange(
-                            (realTradeEntryThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
-                        )
-                    },
-                    onPlus = {
-                        onRealTradeEntryChange(
-                            (realTradeEntryThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                    containerColor = Color(0x22FFFFFF),
-                    titleColor = Color(0xFFFCE4EC),
-                    valueTextColor = Color(0xFFFFF8F9)
-                )
-                ParamStepper(
-                    title = "Выход |Z|",
-                    valueLabel = String.format(Locale.US, "%.2f", realTradeExitThreshold),
-                    onMinus = {
-                        onRealTradeExitChange(
-                            (realTradeExitThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
-                        )
-                    },
-                    onPlus = {
-                        onRealTradeExitChange(
-                            (realTradeExitThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                    containerColor = Color(0x22FFFFFF),
-                    titleColor = Color(0xFFFCE4EC),
-                    valueTextColor = Color(0xFFFFF8F9)
-                )
-            }
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onTestSpreadPairClick,
-                    enabled = !portfolioTestBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB2DFDB))
-                ) {
-                    Text("Тестовая пара", fontSize = 12.sp)
-                }
-                if (portfolioTestBusy) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = Color(0xFFF48FB1),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Выполняется…", color = Color(0xFFCE93D8), fontSize = 10.sp)
-                    }
-                }
-            }
-        }
-        if (zScoreCandles.isNotEmpty()) {
-            CandlestickChartCard(
-                title = "Z-score спрэда · 15м (1 день)",
-                candles = zScoreCandles,
-                chartHeightDp = 200,
-                referenceLines = buildZScoreReferenceLines(zChartThresholds),
-                pointMarkers = buildZScoreSignalMarkersFromEvents(
-                    points = zChartPoints,
-                    events = signalEvents
-                ),
-                showLegend = false,
-                enableZoomPan = true,
-                markerScale = 1.2f,
-                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-                showZoomHint = true
-            )
-        }
-        PortfolioTradesWindowSection(
-            openExecutions = sandboxSpreadExecutions,
-            closedRows = confirmedTradeTableRows
-        )
-        Text(
-            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",
-            color = Color(0xFF9E9E9E),
-            fontSize = 10.sp,
-            maxLines = 3
-        )
-        PortfolioCollapsibleSection(
-            title = "Плечо, комиссия, пояснения",
-            defaultExpanded = false
-        ) {
-            PortfolioParamsControls(
-                leverage = leverage,
-                commissionPercentPerSide = commissionPercentPerSide,
-                entryThreshold = 0.0,
-                exitThreshold = 0.0,
-                showZThresholdSteppers = false,
-                onLeverageChange = onLeverageChange,
-                onCommissionChange = onCommissionChange,
-                onEntryThresholdChange = {},
-                onExitThresholdChange = {}
-            )
-            Text(
-                text = "Метрики ниже — по парам вход→выход из журнала исполнений на демо (ручной «Принять» или авто, см. переключатель выше).",
-                color = Color(0xFF757575),
-                fontSize = 10.sp
-            )
-        }
-
-        if (portfolioError != null) {
-            Text(portfolioError, color = Color(0xFFEF9A9A), fontSize = 11.sp)
-            Button(onClick = onRefresh, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Повторить", fontSize = 11.sp)
-                }
-            }
-        } else if (!portfolioLoading && metrics == null) {
-            Text("Нет сделок по данным портфеля (или нет 15м данных).", color = Color(0xFFBDBDBD), fontSize = 11.sp)
-        } else {
-            metrics?.let { m ->
-                PortfolioCompactHeroInline(m)
-                PortfolioCollapsibleSection(
-                    title = "Все показатели (сводка и сетка)",
-                    subtitle = "${formatRubSigned(m.totalPnlRubApprox)} · просадка ${formatRubSigned(-m.maxDrawdownRubApprox)}",
-                    defaultExpanded = false
-                ) {
-                    Text(
-                        text = "Итого = реализованный PnL + нереализованная нога (если позиция ещё открыта по журналу).",
-                        color = Color(0xFF616161),
-                        fontSize = 9.sp,
-                        maxLines = 3
-                    )
-                    PortfolioHeroMetricsRow(metrics = m)
-                    Text(
-                        text = m.periodDescription,
-                        color = Color(0xFF757575),
-                        fontSize = 10.sp
-                    )
-                    PortfolioMetricGrid(m, showHeroDuplicate = false)
-                }
-            }
-        }
-        dailyReconciliation?.let { rec ->
-            DailyReconciliationSection(rec)
-        }
-    }
-}
-
-/** Симуляция Z на полном 15м ряду (~255 дн.); без графика Z и без трейлинга выхода. */
-@Composable
-internal fun StrategyTestTabContent(
-    metrics: PortfolioMetrics?,
-    simulationComputing: Boolean = false,
-    tradeItems: List<StrategyTestTradeItem>,
-    portfolioLoading: Boolean,
-    portfolioError: String?,
-    onRefresh: () -> Unit,
-    onMoex15mFullReload: () -> Unit,
-    leverage: Double,
-    commissionPercentPerSide: Double,
-    entryThreshold: Double,
-    exitThreshold: Double,
-    compoundReturns: Boolean,
-    onCompoundReturnsChange: (Boolean) -> Unit,
-    onLeverageChange: (Double) -> Unit,
-    onCommissionChange: (Double) -> Unit,
-    onEntryThresholdChange: (Double) -> Unit,
-    onExitThresholdChange: (Double) -> Unit,
-    presets: List<PortfolioPreset>,
-    onApplyPreset: (PortfolioPreset) -> Unit,
-    onDeletePreset: (String) -> Unit,
-    onWalkForward: () -> Unit,
-    walkForwardBusy: Boolean,
-    dailyReconciliation: DailyPortfolioReconciliation? = null,
-    portfolioEntryThreshold: Double? = null,
-    portfolioExitThreshold: Double? = null
-) {
-    val exitRuleNote =
-        "выход по фиксированному порогу ±${String.format(Locale.US, "%.2f", exitThreshold)}"
-    Column(
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        AppVersionBriefCard(tabHint = "Симуляция на полном 15м ряду; пороги только для «Тест страт.»")
-        PortfolioDataRefreshHeader(
-            title = "Тест стратегии · 15м",
-            portfolioLoading = portfolioLoading || simulationComputing,
-            onRefresh = onRefresh,
-            onMoex15mFullReload = onMoex15mFullReload
-        )
-        if (simulationComputing && metrics == null && portfolioError == null) {
-            Text(
-                text = "Считаем симуляцию на ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. 15м…",
-                color = Color(0xFF9FA8DA),
-                fontSize = 11.sp
-            )
-        }
-        Text(
-            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · симуляция по Z",
-            color = Color(0xFF9E9E9E),
-            fontSize = 10.sp,
-            maxLines = 2
-        )
-        Text(
-            text = "Пороги ниже задают только симуляцию на этом экране и не влияют на розовые пороги вкладки «Портфель».",
-            color = Color(0xFFF48FB1),
-            fontSize = 10.sp,
-            maxLines = 2
-        )
-        PortfolioParamsControls(
-            leverage = leverage,
-            commissionPercentPerSide = commissionPercentPerSide,
-            entryThreshold = entryThreshold,
-            exitThreshold = exitThreshold,
-            showZThresholdSteppers = true,
-            showExitThresholdStepper = true,
-            onLeverageChange = onLeverageChange,
-            onCommissionChange = onCommissionChange,
-            onEntryThresholdChange = onEntryThresholdChange,
-            onExitThresholdChange = onExitThresholdChange
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Режим симуляции",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = if (compoundReturns) {
-                        "Капитализация: перед каждой новой сделкой размер позиции пересчитывается от текущего капитала (старт + накопленный PnL в ₽)."
-                    } else {
-                        "Фиксированный номинал: каждая сделка как при первоначальных 100 тыс. ₽ (классическая симуляция)."
-                    },
-                    color = Color(0xFF757575),
-                    fontSize = 9.sp,
-                    maxLines = 3
-                )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = if (compoundReturns) "Капитализация" else "Фикс.",
-                    color = Color(0xFF9FA8DA),
-                    fontSize = 10.sp
-                )
-                Switch(
-                    checked = compoundReturns,
-                    onCheckedChange = onCompoundReturnsChange
-                )
-            }
-        }
-        Text(
-            text = "Сделки ниже — все закрытые круги симуляции на 15м ряду за ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. " +
-                "до сегодня включительно ($exitRuleNote, не журнал и не демо).",
-            color = Color(0xFF757575),
-            fontSize = 10.sp,
-            maxLines = 3
-        )
-        if (portfolioEntryThreshold != null && portfolioExitThreshold != null) {
-            val entryDiffers = kotlin.math.abs(entryThreshold - portfolioEntryThreshold) > 0.009
-            val exitDiffers = kotlin.math.abs(exitThreshold - portfolioExitThreshold) > 0.009
-            if (entryDiffers || exitDiffers) {
-                Text(
-                    text = "Пороги «Тест страт.» (вход ±${String.format(Locale.US, "%.2f", entryThreshold)} / выход ±${String.format(Locale.US, "%.2f", exitThreshold)}) " +
-                        "не совпадают с розовыми на «Портфеле» (±${String.format(Locale.US, "%.2f", portfolioEntryThreshold)} / ±${String.format(Locale.US, "%.2f", portfolioExitThreshold)}). " +
-                        "Сделки на вкладках будут различаться.",
-                    color = Color(0xFFFFCC80),
-                    fontSize = 10.sp,
-                    maxLines = 4
-                )
-            }
-        }
-        PortfolioCollapsibleSection(
-            title = "Сводка: Итого PnL и просадка",
-            subtitle = metrics?.let { m ->
-                "${formatRubSigned(m.totalPnlRubApprox)} · просадка ${formatRubSigned(-m.maxDrawdownRubApprox)}"
-            },
-            defaultExpanded = false
-        ) {
-            PortfolioHeroMetricsRow(metrics = metrics)
-        }
-        PortfolioPresetSection(
-            presets = presets,
-            onApply = onApplyPreset,
-            onDelete = onDeletePreset,
-            onSave = {},
-            showSaveButton = false
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedButton(
-                onClick = onWalkForward,
-                enabled = !walkForwardBusy,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.AutoGraph, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFFFCC80))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Walk-forward", fontSize = 10.sp, color = Color(0xFFFFCC80))
-                }
-            }
-            if (walkForwardBusy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    color = Color(0xFF64B5F6),
-                    strokeWidth = 2.dp
-                )
-            }
-            Text(
-                text = "OOS по кварталам, штраф за сделки",
-                color = Color(0xFF616161),
-                fontSize = 9.sp,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        val dataTailWarning = portfolioError
-        if (dataTailWarning != null && metrics == null) {
-            Text(dataTailWarning, color = Color(0xFFEF9A9A), fontSize = 11.sp)
-            Button(onClick = onRefresh, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Повторить", fontSize = 11.sp)
-                }
-            }
-        } else if (!portfolioLoading && !simulationComputing && metrics == null) {
-            Text("Недостаточно данных для симуляции.", color = Color(0xFFBDBDBD), fontSize = 11.sp)
-        } else {
-            metrics?.let { m ->
-                PortfolioCollapsibleSection(
-                    title = "Детальные показатели симуляции",
-                    subtitle = "таблица · Equity и просадка",
-                    defaultExpanded = false
-                ) {
-                    Text(
-                        text = m.periodDescription,
-                        color = Color(0xFF757575),
-                        fontSize = 10.sp
-                    )
-                    PortfolioMetricGrid(m, showHeroDuplicate = false)
-                    if (m.equityCurveRub.isNotEmpty() && m.drawdownCurveRub.isNotEmpty()) {
-                        StrategyTestEquityDrawdownChartCard(
-                            labels = m.equityCurveLabels,
-                            equityRub = m.equityCurveRub,
-                            drawdownRub = m.drawdownCurveRub,
-                            chartHeightDp = 280
-                        )
-                    }
-                }
-                Text(
-                    text = "Сделки симуляции (${tradeItems.size}) · ${m.periodDescription}",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                if (!dataTailWarning.isNullOrBlank()) {
-                    Text(
-                        text = dataTailWarning,
-                        color = Color(0xFFFFCC80),
-                        fontSize = 10.sp,
-                        maxLines = 3
-                    )
-                }
-                if (tradeItems.isEmpty()) {
-                    Text(
-                        text = "Нет закрытых сделок в симуляции. Проверьте пороги и нажмите «MOEX заново».",
-                        color = Color(0xFF9E9E9E),
-                        fontSize = 11.sp,
-                        maxLines = 3
-                    )
-                } else {
-                    tradeItems.forEachIndexed { index, item ->
-                        StrategyTestTradeRow(index = index + 1, item = item)
-                    }
-                }
-            }
-        }
-        dailyReconciliation?.let { rec ->
-            DailyReconciliationSection(rec)
-        }
-    }
-}
-
 @Composable
 internal fun DailyReconciliationSection(rec: DailyPortfolioReconciliation) {
     val dayStr = rec.day.toString()
@@ -1243,7 +706,7 @@ internal fun DailyReconciliationSection(rec: DailyPortfolioReconciliation) {
 }
 
 @Composable
-private fun PortfolioHeroMetricsRow(metrics: PortfolioMetrics?) {
+internal fun PortfolioHeroMetricsRow(metrics: PortfolioMetrics?) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1278,7 +741,7 @@ private fun PortfolioHeroMetricsRow(metrics: PortfolioMetrics?) {
 }
 
 @Composable
-private fun PortfolioHeroHalfCard(
+internal fun PortfolioHeroHalfCard(
     title: String,
     subtitle: String,
     value: String,
@@ -1306,7 +769,7 @@ private fun PortfolioHeroHalfCard(
 }
 
 @Composable
-private fun PortfolioMetricGrid(m: PortfolioMetrics, showHeroDuplicate: Boolean = true) {
+internal fun PortfolioMetricGrid(m: PortfolioMetrics, showHeroDuplicate: Boolean = true) {
     val pf = m.profitFactor?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (showHeroDuplicate) {
@@ -1362,7 +825,7 @@ private fun PortfolioMetricGrid(m: PortfolioMetrics, showHeroDuplicate: Boolean 
 }
 
 @Composable
-private fun PortfolioParamsControls(
+internal fun PortfolioParamsControls(
     leverage: Double,
     commissionPercentPerSide: Double,
     entryThreshold: Double,
@@ -1429,153 +892,8 @@ private fun PortfolioParamsControls(
         }
     }
 }
-
 @Composable
-private fun StrategyTestExitModeControls(
-    exitMode: ZStrategyExitMode,
-    zPeakTrailZ: Double,
-    onExitModeChange: (ZStrategyExitMode) -> Unit,
-    onZPeakTrailZChange: (Double) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Text(
-            text = "Выход из сделки",
-            color = Color(0xFFE0E0E0),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            StrategyExitModeButton(
-                text = "Фикс. |Z|",
-                selected = exitMode == ZStrategyExitMode.FixedThreshold,
-                onClick = { onExitModeChange(ZStrategyExitMode.FixedThreshold) },
-                modifier = Modifier.weight(1f)
-            )
-            StrategyExitModeButton(
-                text = "Трейл Z",
-                selected = exitMode == ZStrategyExitMode.ZPeakTrailing,
-                onClick = { onExitModeChange(ZStrategyExitMode.ZPeakTrailing) },
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Text(
-            text = when (exitMode) {
-                ZStrategyExitMode.FixedThreshold ->
-                    "Закрытие по прежнему порогу выхода |Z|; розовые пороги «Портфеля» не меняются."
-                ZStrategyExitMode.ZPeakTrailing ->
-                    "После входа запоминаем лучший Z и закрываемся при откате от пика на выбранный шаг."
-            },
-            color = Color(0xFF757575),
-            fontSize = 9.sp,
-            maxLines = 3
-        )
-        if (exitMode == ZStrategyExitMode.ZPeakTrailing) {
-            ParamStepper(
-                title = "Трейл Z от пика",
-                valueLabel = String.format(Locale.US, "%.2f", zPeakTrailZ),
-                onMinus = {
-                    onZPeakTrailZChange(
-                        (zPeakTrailZ - PORTFOLIO_Z_THRESHOLD_STEP)
-                            .coerceAtLeast(STRATEGY_TEST_Z_PEAK_TRAIL_MIN)
-                    )
-                },
-                onPlus = {
-                    onZPeakTrailZChange(
-                        (zPeakTrailZ + PORTFOLIO_Z_THRESHOLD_STEP)
-                            .coerceAtMost(STRATEGY_TEST_Z_PEAK_TRAIL_MAX)
-                    )
-                },
-                containerColor = Color(0xFF263238),
-                titleColor = Color(0xFFB3E5FC),
-                valueTextColor = Color(0xFFE1F5FE),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
-
-@Composable
-private fun StrategyExitModeButton(
-    text: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Button(
-        onClick = onClick,
-        modifier = modifier,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (selected) Color(0xFF1565C0) else Color(0xFF37474F),
-            contentColor = Color.White
-        ),
-        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
-    ) {
-        Text(text, fontSize = 10.sp, maxLines = 1)
-    }
-}
-
-@Composable
-private fun ParamStepper(
-    title: String,
-    valueLabel: String,
-    onMinus: () -> Unit,
-    onPlus: () -> Unit,
-    modifier: Modifier = Modifier,
-    containerColor: Color = Color(0xFF1E1E1E),
-    titleColor: Color = Color(0xFF9E9E9E),
-    valueTextColor: Color = Color.White
-) {
-    Column(
-        modifier
-            .background(containerColor, RoundedCornerShape(8.dp))
-            .padding(horizontal = 6.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(title, color = titleColor, fontSize = 10.sp)
-        Text(valueLabel, color = valueTextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Button(onClick = onMinus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(20.dp))
-            }
-            Button(onClick = onPlus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(20.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PortfolioStatCard(title: String, value: String) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-            .padding(horizontal = 8.dp, vertical = 8.dp)
-    ) {
-        Text(title, color = Color(0xFF9E9E9E), fontSize = 10.sp)
-        Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-private fun rubDeltaColor(v: Double): Color = when {
-    v > 0 -> Color(0xFF81C784)
-    v < 0 -> Color(0xFFE57373)
-    else -> Color(0xFFBDBDBD)
-}
-
-@Composable
-private fun StrategyTestTradeRow(index: Int, item: StrategyTestTradeItem) {
-    PortfolioTradeRow(index = index, t = item.trade)
-}
-
-@Composable
-private fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
+internal fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
     val dir = when (t.direction) {
         ZStrategyPosition.Long -> "LONG"
         ZStrategyPosition.Short -> "SHORT"
@@ -1627,14 +945,62 @@ private fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
     }
 }
 
-private fun formatRubSigned(v: Double): String {
+internal fun formatRubSigned(v: Double): String {
     val s = String.format(Locale.US, "%+.0f ₽", v)
     return s
 }
 
-private fun formatRubExpense(v: Double): String =
+internal fun formatRubExpense(v: Double): String =
     String.format(Locale.US, "−%.0f ₽", kotlin.math.abs(v))
 
-private fun formatPercentSigned(v: Double): String {
+internal fun formatPercentSigned(v: Double): String {
     return String.format(Locale.US, "%+.2f%%", v)
+}
+@Composable
+internal fun ParamStepper(
+    title: String,
+    valueLabel: String,
+    onMinus: () -> Unit,
+    onPlus: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: Color = Color(0xFF1E1E1E),
+    titleColor: Color = Color(0xFF9E9E9E),
+    valueTextColor: Color = Color.White
+) {
+    Column(
+        modifier
+            .background(containerColor, RoundedCornerShape(8.dp))
+            .padding(horizontal = 6.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(title, color = titleColor, fontSize = 10.sp)
+        Text(valueLabel, color = valueTextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Button(onClick = onMinus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
+                Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(20.dp))
+            }
+            Button(onClick = onPlus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
+                Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+@Composable
+internal fun PortfolioStatCard(title: String, value: String) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 8.dp)
+    ) {
+        Text(title, color = Color(0xFF9E9E9E), fontSize = 10.sp)
+        Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+internal fun rubDeltaColor(v: Double): Color = when {
+    v > 0 -> Color(0xFF81C784)
+    v < 0 -> Color(0xFFE57373)
+    else -> Color(0xFFBDBDBD)
 }
