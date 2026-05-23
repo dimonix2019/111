@@ -3,7 +3,13 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from m15_iss_loader import STALE_HOURS, csv_file_status, download_m15_csv
+from m15_iss_loader import (
+    MIN_BARS_FULL,
+    STALE_HOURS,
+    csv_file_status,
+    download_csv_from_github,
+    download_m15_csv,
+)
 from zsim import (
     LOOKBACK_DAYS,
     MIN_BARS_FULL_HISTORY,
@@ -56,15 +62,40 @@ with st.sidebar:
             def on_progress(msg: str) -> None:
                 prog.info(msg)
 
-            with st.spinner("Загрузка с MOEX ISS…"):
+            with st.spinner("Загрузка с MOEX ISS (2–5 мин, не закрывайте вкладку)…"):
                 summary = download_m15_csv(csv_path, days=LOOKBACK_DAYS, on_progress=on_progress)
-            prog.success(
-                f"Готово: **{summary['bar_count']}** баров → `{summary['path']}`\n\n"
-                f"{summary['first_ts'][:10]} … {summary['last_ts'][:10]}"
-            )
+            if summary["bar_count"] < MIN_BARS_FULL:
+                prog.error(f"Слишком мало баров: {summary['bar_count']}")
+            else:
+                prog.success(
+                    f"Готово: **{summary['bar_count']}** баров → `{summary['path']}`\n\n"
+                    f"{summary['first_ts'][:10]} … {summary['last_ts'][:10]}"
+                )
             st.session_state.csv_path = str(csv_path)
         except Exception as e:
             prog.error(f"Ошибка загрузки: {e}")
+
+    if st.button("Скачать готовый CSV с GitHub (~700 KB)"):
+        prog = st.empty()
+        try:
+            with st.spinner("Скачивание готового ряда из репозитория…"):
+                summary = download_csv_from_github(csv_path)
+            prog.success(
+                f"Готово: **{summary['bar_count']}** баров (GitHub)\n\n"
+                f"{summary['first_ts'][:10]} … {summary['last_ts'][:10]}"
+            )
+        except Exception as e:
+            prog.error(
+                f"{e}\n\nЕсли репозиторий приватный — см. PowerShell ниже или кэш с телефона."
+            )
+
+    st.caption(
+        "MOEX ISS работает и ночью/в выходные (история). "
+        "Если в CSV **~1000 строк** — обрыв загрузки, не «биржа закрыта». "
+        "Надёжнее: PowerShell 2–5 мин:\n\n"
+        f"`..\\.venv\\Scripts\\python.exe scripts\\export_m15_iss.py --days {LOOKBACK_DAYS} "
+        f'--out data\\m15_tatn_255d.csv`'
+    )
 
     uploaded = st.file_uploader("Или загрузить CSV", type=["csv"])
 

@@ -17,6 +17,15 @@ MSK = ZoneInfo("Europe/Moscow")
 ISS_BASE = "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities"
 DEFAULT_LOOKBACK_DAYS = 255
 STALE_HOURS = 40
+MIN_BARS_FULL = 8_000  # ~255д 15м; меньше — неполная выгрузка
+ISS_PAGE_SIZE = 500
+CHUNK_CALENDAR_DAYS = 35  # окна по датам — надёжнее одного start=… на весь год
+
+# Готовый ряд в репозитории (если ISS оборвался в Streamlit)
+GITHUB_RAW_CSV = (
+    "https://raw.githubusercontent.com/dimonix2019/111/"
+    "cursor/strategy-web-moex-parity-4bf6/strategy-web/data/m15_tatn_255d.csv"
+)
 
 
 def _get_json(url: str, retries: int = 3) -> dict:
@@ -32,8 +41,10 @@ def _get_json(url: str, retries: int = 3) -> dict:
     raise RuntimeError(f"ISS request failed: {url}") from last_err
 
 
-def fetch_candles_10m(sec_id: str, from_d: date, till_d: date) -> List[Tuple[datetime, float]]:
-    page_size = 500
+def _fetch_candles_10m_window(
+    sec_id: str, from_d: date, till_d: date
+) -> List[Tuple[datetime, float]]:
+    """Одно окно дат с полной пагинацией start=0,500,1000…"""
     start = 0
     bars: List[Tuple[datetime, float]] = []
     while True:
@@ -44,7 +55,7 @@ def fetch_candles_10m(sec_id: str, from_d: date, till_d: date) -> List[Tuple[dat
                 "interval": 10,
                 "from": from_d.isoformat(),
                 "till": till_d.isoformat(),
-                "limit": page_size,
+                "limit": ISS_PAGE_SIZE,
                 "start": start,
             }
         )
@@ -56,10 +67,33 @@ def fetch_candles_10m(sec_id: str, from_d: date, till_d: date) -> List[Tuple[dat
         for row in rows:
             ts = datetime.strptime(row[0][:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=MSK)
             bars.append((ts, float(row[4])))
-        if len(rows) < page_size:
+        if len(rows) < ISS_PAGE_SIZE:
             break
-        start += page_size
+        start += ISS_PAGE_SIZE
     return bars
+
+
+def fetch_candles_10m(
+    sec_id: str,
+    from_d: date,
+    till_d: date,
+    on_progress: Optional[ProgressFn] = None,
+) -> List[Tuple[datetime, float]]:
+    """
+    10м свечи TQBR с пагинацией.
+    Большой диапазон качаем окнами по CHUNK_CALENDAR_DAYS — так не упираемся в лимиты ISS
+    и виден прогресс (важно для Streamlit).
+    """
+    merged: Dict[datetime, float] = {}
+    chunk_start = from_d
+    while chunk_start < till_d:
+        chunk_end = min(chunk_start + timedelta(days=CHUNK_CALENDAR_DAYS), till_d)
+        if on_progress:
+            on_progress(f"{sec_id} 10м: {chunk_start} … {chunk_end}")
+        for ts, close in _fetch_candles_10m_window(sec_id, chunk_start, chunk_end):
+            merged[ts] = close
+        chunk_start = chunk_end + timedelta(days=1)
+    return sorted(merged.items(), key=lambda x: x[0])
 
 
 def aggregate_15m(bars_10m: List[Tuple[datetime, float]]) -> Dict[datetime, float]:
@@ -131,11 +165,11 @@ def download_m15_csv(
     till = moex_fetch_till()
     from_d = till - timedelta(days=days + 2)
 
-    prog(f"MOEX ISS: TATN/TATNP 10м, {from_d} … {till}")
-    tatn_10 = fetch_candles_10m("TATN", from_d, till)
-    prog(f"TATN 10м: {len(tatn_10)} баров")
-    tatnp_10 = fetch_candles_10m("TATNP", from_d, till)
-    prog(f"TATNP 10м: {len(tatnp_10)} баров")
+    prog(f"MOEX ISS: TATN/TATNP 10м, {from_d} … {till} (окна по {CHUNK_CALENDAR_DAYS} дн.)")
+    tatn_10 = fetch_candles_10m("TATN", from_d, till, on_progress=prog)
+    prog(f"TATN 10м всего: {len(tatn_10)} баров")
+    tatnp_10 = fetch_candles_10m("TATNP", from_d, till, on_progress=prog)
+    prog(f"TATNP 10м всего: {len(tatnp_10)} баров")
 
     tatn_15 = aggregate_15m(tatn_10)
     tatnp_15 = aggregate_15m(tatnp_10)
@@ -145,6 +179,15 @@ def download_m15_csv(
     records = apply_z_scores(spread_rows)
     if not records:
         raise RuntimeError("MOEX вернул пустой ряд — проверьте интернет и даты.")
+
+    if len(records) < MIN_BARS_FULL:
+        raise RuntimeError(
+            f"Выгрузка неполная: {len(records)} баров 15м (нужно ≥{MIN_BARS_FULL}). "
+            f"Часто Streamlit обрывает долгий запрос (~1000 строк). "
+            f"Запустите в PowerShell: "
+            f'python scripts\\export_m15_iss.py --days {days} --out "{out_path}" '
+            f"или «Скачать готовый CSV с GitHub»."
+        )
 
     fieldnames = ["timestamp", "z_score", "spread_percent", "tatn_close", "tatnp_close"]
     with open(out_path, "w", newline="", encoding="utf-8") as f:
@@ -160,7 +203,37 @@ def download_m15_csv(
     }
 
 
-def csv_file_status(path: Path, min_bars: int = 8_000) -> dict:
+def download_csv_from_github(
+    out_path: Path,
+    url: str = GITHUB_RAW_CSV,
+    on_progress: Optional[ProgressFn] = None,
+) -> dict:
+    """Готовый полный CSV из репозитория (обход обрыва Streamlit / старого loader без пагинации)."""
+    if on_progress:
+        on_progress(f"GitHub: {url}")
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    req = urllib.request.Request(url, headers={"User-Agent": "moexmvp-strategy-web/1.0"})
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        data = resp.read()
+    out_path.write_bytes(data)
+    status = csv_file_status(out_path, min_bars=MIN_BARS_FULL)
+    if not status["looks_full"]:
+        raise RuntimeError(
+            f"С GitHub скачано только {status['bar_count']} строк "
+            f"(репозиторий приватный или URL недоступен). "
+            f"Скопируйте data/m15_tatn_255d.csv из git или запустите export_m15_iss.py в терминале."
+        )
+    return {
+        "bar_count": status["bar_count"],
+        "first_ts": status["first_ts"],
+        "last_ts": status["last_ts"],
+        "path": str(out_path),
+        "source": "github",
+    }
+
+
+def csv_file_status(path: Path, min_bars: int = MIN_BARS_FULL) -> dict:
     """Статус CSV на диске (для sidebar)."""
     path = Path(path)
     if not path.is_file():
