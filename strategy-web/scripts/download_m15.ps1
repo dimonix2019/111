@@ -4,5 +4,5 @@ $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 $Py = Join-Path (Split-Path -Parent $Root) ".venv\Scripts\python.exe"
 if (-not (Test-Path $Py)) { $Py = "python" }
-& $Py scripts\export_m15_iss.py --days 255 --out data\m15_tatn_255d.csv
+& $Py download_m15.py
 Write-Host "Готово. Проверьте строки в data\m15_tatn_255d.csv (нужно ~13000+)."

@@ -32,10 +32,12 @@ streamlit run app.py
 
 ```powershell
 cd "C:\Users\Lenovo\Documents\Тестер стратегий\strategy-web"
-..\.venv\Scripts\python.exe scripts\export_m15_iss.py --days 255 --out data\m15_tatn_255d.csv
+..\.venv\Scripts\python.exe download_m15.py
 ```
 
-Или: `.\scripts\download_m15.ps1`
+Или двойной клик **`download_m15.bat`**.
+
+Нужны файлы в папке `strategy-web`: **`download_m15.py`** и **`m15_iss_loader.py`** (из git / PR #24). Папка `scripts\` не обязательна.
 
 В Streamlit: **«Скачать готовый CSV с GitHub»** (если репозиторий открыт) или обновлённая **«Дозагрузить с MOEX»** (окна по 35 дней + проверка ≥8000 баров).
 

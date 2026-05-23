@@ -93,8 +93,8 @@ with st.sidebar:
         "MOEX ISS работает и ночью/в выходные (история). "
         "Если в CSV **~1000 строк** — обрыв загрузки, не «биржа закрыта». "
         "Надёжнее: PowerShell 2–5 мин:\n\n"
-        f"`..\\.venv\\Scripts\\python.exe scripts\\export_m15_iss.py --days {LOOKBACK_DAYS} "
-        f'--out data\\m15_tatn_255d.csv`'
+        f"`..\\.venv\\Scripts\\python.exe download_m15.py` "
+        f"(или двойной клик download_m15.bat)"
     )
 
     uploaded = st.file_uploader("Или загрузить CSV", type=["csv"])

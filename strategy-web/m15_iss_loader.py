@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+ProgressFn = Callable[[str], None]
+
 MSK = ZoneInfo("Europe/Moscow")
 ISS_BASE = "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities"
 DEFAULT_LOOKBACK_DAYS = 255
@@ -146,9 +148,6 @@ def moex_fetch_till() -> date:
     return (datetime.now(MSK).date() + timedelta(days=1))
 
 
-ProgressFn = Callable[[str], None]
-
-
 def download_m15_csv(
     out_path: Path,
     days: int = DEFAULT_LOOKBACK_DAYS,
@@ -185,7 +184,7 @@ def download_m15_csv(
             f"Выгрузка неполная: {len(records)} баров 15м (нужно ≥{MIN_BARS_FULL}). "
             f"Часто Streamlit обрывает долгий запрос (~1000 строк). "
             f"Запустите в PowerShell: "
-            f'python scripts\\export_m15_iss.py --days {days} --out "{out_path}" '
+            f'python download_m15.py --days {days} --out "{out_path}" '
             f"или «Скачать готовый CSV с GitHub»."
         )
 
@@ -222,7 +221,7 @@ def download_csv_from_github(
         raise RuntimeError(
             f"С GitHub скачано только {status['bar_count']} строк "
             f"(репозиторий приватный или URL недоступен). "
-            f"Скопируйте data/m15_tatn_255d.csv из git или запустите export_m15_iss.py в терминале."
+            f"Скопируйте data/m15_tatn_255d.csv из git или запустите download_m15.py в терминале."
         )
     return {
         "bar_count": status["bar_count"],
