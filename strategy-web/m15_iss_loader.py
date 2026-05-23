@@ -296,3 +296,47 @@ def ensure_csv(
         status["download_summary"] = summary
         return True, status
     return False, status
+
+
+def ensure_full_data_file(
+    path: Path,
+    days: int = DEFAULT_LOOKBACK_DAYS,
+    on_progress: Optional[ProgressFn] = None,
+) -> dict:
+    """
+    Гарантирует полный CSV (≥8000 баров). Без действий пользователя.
+    1) уже есть полный файл → OK
+    2) GitHub (быстро, ~700 KB)
+    3) MOEX ISS (2–5 мин)
+  """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    def prog(msg: str) -> None:
+        if on_progress:
+            on_progress(msg)
+
+    status = csv_file_status(path)
+    if status["looks_full"]:
+        return status
+
+    # Удалить обрезок (~1000 строк), чтобы не путать проверки
+    if status["exists"] and not status["looks_full"]:
+        try:
+            path.unlink()
+            prog("Удалён неполный CSV, загружаем заново…")
+        except OSError:
+            pass
+
+    prog("Скачиваем полный ряд с GitHub…")
+    try:
+        download_csv_from_github(path, on_progress=on_progress)
+        status = csv_file_status(path)
+        if status["looks_full"]:
+            return status
+    except Exception as e:
+        prog(f"GitHub недоступен ({e}), качаем с MOEX ISS…")
+
+    prog(f"MOEX ISS, {days} дней (2–5 мин)…")
+    download_m15_csv(path, days=days, on_progress=on_progress)
+    return csv_file_status(path)
