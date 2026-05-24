@@ -140,15 +140,63 @@ if st.button("Запустить симуляцию", type="primary"):
             )
 
         st.subheader("Z-Score over time")
-        st.line_chart(result.signals.set_index("timestamp")["z_score"])
+        sig = result.signals.copy()
+        sig["timestamp"] = pd.to_datetime(sig["timestamp"])
+
+        try:
+            import plotly.graph_objects as go
+
+            fig_z = go.Figure()
+            fig_z.add_trace(
+                go.Scatter(
+                    x=sig["timestamp"],
+                    y=sig["z_score"],
+                    mode="lines",
+                    name="Z",
+                    line=dict(width=1),
+                )
+            )
+            for y_val, color, name in (
+                (entry, "green", "+Entry"),
+                (-entry, "orange", "-Entry"),
+                (exit_z, "blue", "+Exit"),
+                (-exit_z, "red", "-Exit"),
+            ):
+                fig_z.add_hline(y=y_val, line_dash="dash", line_color=color, annotation_text=name)
+            fig_z.update_layout(
+                hovermode="x unified",
+                height=420,
+                margin=dict(l=40, r=20, t=40, b=40),
+            )
+            # spikemode только на осях, не в layout (иначе ValueError в Plotly 5.x)
+            fig_z.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor")
+            fig_z.update_yaxes(showspikes=True, spikemode="across")
+            st.plotly_chart(fig_z, use_container_width=True)
+        except ImportError:
+            st.line_chart(sig.set_index("timestamp")["z_score"])
 
         if result.equity_history:
             st.subheader("Equity (RUB)")
             eq_df = pd.DataFrame(
                 {"equity_rub": result.equity_history},
-                index=result.signals["timestamp"],
+                index=sig["timestamp"],
             )
-            st.line_chart(eq_df)
+            try:
+                import plotly.graph_objects as go
+
+                fig_eq = go.Figure(
+                    go.Scatter(
+                        x=eq_df.index,
+                        y=eq_df["equity_rub"],
+                        mode="lines",
+                        name="Equity ₽",
+                    )
+                )
+                fig_eq.update_layout(hovermode="x unified", height=360)
+                fig_eq.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor")
+                st.plotly_chart(fig_eq, use_container_width=True)
+            except ImportError:
+                st.line_chart(eq_df)
 
         st.subheader("Закрытые сделки")
         if result.trades:
