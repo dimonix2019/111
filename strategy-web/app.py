@@ -175,28 +175,53 @@ if st.button("Запустить симуляцию", type="primary"):
         except ImportError:
             st.line_chart(sig.set_index("timestamp")["z_score"])
 
-        if result.equity_history:
-            st.subheader("Equity (RUB)")
-            eq_df = pd.DataFrame(
-                {"equity_rub": result.equity_history},
-                index=sig["timestamp"],
-            )
+        eq_df = result.equity_frame()
+        if not eq_df.empty:
+            st.subheader("Equity и просадка (RUB)")
             try:
                 import plotly.graph_objects as go
+                from plotly.subplots import make_subplots
 
-                fig_eq = go.Figure(
+                fig_eq = make_subplots(
+                    rows=2,
+                    cols=1,
+                    shared_xaxes=True,
+                    row_heights=[0.65, 0.35],
+                    vertical_spacing=0.06,
+                    subplot_titles=("Equity", "Drawdown"),
+                )
+                fig_eq.add_trace(
                     go.Scatter(
                         x=eq_df.index,
                         y=eq_df["equity_rub"],
                         mode="lines",
                         name="Equity ₽",
-                    )
+                    ),
+                    row=1,
+                    col=1,
                 )
-                fig_eq.update_layout(hovermode="x unified", height=360)
+                fig_eq.add_trace(
+                    go.Scatter(
+                        x=eq_df.index,
+                        y=eq_df["drawdown_rub"],
+                        mode="lines",
+                        name="Drawdown ₽",
+                        fill="tozeroy",
+                        line=dict(color="crimson"),
+                    ),
+                    row=2,
+                    col=1,
+                )
+                y_min = min(eq_df["equity_rub"].min(), eq_df["drawdown_rub"].min())
+                y_max = eq_df["equity_rub"].max()
+                pad = (y_max - y_min) * 0.05 if y_max != y_min else 1.0
+                fig_eq.update_yaxes(range=[y_min - pad, y_max + pad], row=1, col=1)
+                fig_eq.update_layout(hovermode="x unified", height=480, showlegend=False)
                 fig_eq.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor")
                 st.plotly_chart(fig_eq, use_container_width=True)
             except ImportError:
-                st.line_chart(eq_df)
+                st.line_chart(eq_df[["equity_rub"]])
+                st.line_chart(eq_df[["drawdown_rub"]])
 
         st.subheader("Закрытые сделки")
         if result.trades:

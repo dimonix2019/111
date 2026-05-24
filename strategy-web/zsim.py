@@ -52,6 +52,20 @@ class SimResult:
     first_ts: str = ""
     last_ts: str = ""
 
+    def equity_frame(self) -> pd.DataFrame:
+        """DataFrame: equity_rub, drawdown_rub (для графиков в app.py)."""
+        if not self.equity_history:
+            return pd.DataFrame(columns=["equity_rub", "drawdown_rub"])
+        n = len(self.equity_history)
+        if self.signals is None or self.signals.empty:
+            idx = pd.RangeIndex(n)
+        else:
+            idx = pd.to_datetime(self.signals["timestamp"].iloc[:n])
+        eq = pd.Series(self.equity_history, index=idx, name="equity_rub", dtype=float)
+        drawdown = eq - eq.cummax()
+        drawdown.name = "drawdown_rub"
+        return pd.DataFrame({"equity_rub": eq, "drawdown_rub": drawdown})
+
 
 def apply_z_scores(spread_percent: List[float]) -> List[float]:
     """Как applyZScores() в MoexIssData.kt — Z по всему загруженному ряду."""
