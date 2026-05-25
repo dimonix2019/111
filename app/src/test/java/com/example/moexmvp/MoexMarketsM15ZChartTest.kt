@@ -125,6 +125,14 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun visibleCandleDrawIndexRange_fullWindow_coversAllIndices() {
+        val range = visibleCandleDrawIndexRange(maxIndex = 1999, windowStart = 0f, windowWidth = 1f)
+        assertEquals(0, range.first)
+        assertEquals(1999, range.last)
+        assertTrue(range.count() <= 2100)
+    }
+
+    @Test
     fun visibleCandleDrawIndexRange_coversWindow() {
         val range = visibleCandleDrawIndexRange(maxIndex = 100, windowStart = 0.4f, windowWidth = 0.2f)
         assertTrue(range.first <= 40)

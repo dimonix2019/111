@@ -258,22 +258,34 @@ internal fun LineChart(
             series.forEach { line ->
                 val values = line.values
                 if (values.isEmpty()) return@forEach
-                if (values.size == 1) {
-                    val y = topPadding + h - (((values.first() - min) / range).toFloat() * h)
+                val drawRange = visibleCandleDrawIndexRange(maxIndex, wStart, wWidth)
+                if (drawRange.isEmpty()) return@forEach
+                if (drawRange.first == drawRange.last) {
+                    val idx = drawRange.first
+                    val value = values.getOrNull(idx) ?: return@forEach
+                    val y = topPadding + h - (((value - min) / range).toFloat() * h)
                     drawCircle(
                         color = line.color,
                         radius = 6f,
-                        center = Offset(xForIndexDraw(0), y)
+                        center = Offset(xForIndexDraw(idx), y)
                     )
                     return@forEach
                 }
 
-            val path = Path()
-            values.forEachIndexed { index, value ->
+                val path = Path()
+                var started = false
+                for (index in drawRange) {
+                    val value = values.getOrNull(index) ?: continue
                     val x = xForIndexDraw(index)
                     val y = topPadding + h - (((value - min) / range).toFloat() * h)
-                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    if (!started) {
+                        path.moveTo(x, y)
+                        started = true
+                    } else {
+                        path.lineTo(x, y)
+                    }
                 }
+                if (!started) return@forEach
                 drawPath(
                     path = path,
                     color = line.color,

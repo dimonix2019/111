@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,6 +38,12 @@ internal fun MoexScreen() {
     }
     val marketsZScoreCandles = remember(marketsM15ChartPoints) {
         buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
+    }
+    val marketsZChartSignalMarkers = remember(marketsM15ChartPoints, screen.signalEvents) {
+        buildZScoreSignalMarkersFromEvents(
+            points = marketsM15ChartPoints,
+            events = screen.signalEvents
+        )
     }
     val portfolioZChartPoints = remember(screen.portfolioM15Points, screen.selectedPeriod) {
         downsampleDataPointsForChart(
@@ -80,19 +87,22 @@ internal fun MoexScreen() {
         screen.portfolioCommissionPercent,
         screen.marketsZChartPeriod
     ) {
-        screen.marketsZStrategyTapMetrics = withContext(Dispatchers.Default) {
-            val pts = marketsM15ChartPoints
-            if (pts.size < 2) return@withContext null
-            buildZStrategyPortfolioMetrics(
-                points = pts,
-                thresholds = marketsChartThresholds,
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                leverage = screen.portfolioLeverage,
-                commissionPercentPerSide = screen.portfolioCommissionPercent,
-                periodDescription = "${screen.marketsZChartPeriod.label} · тап Z",
-                compoundReturns = false
-            )
-        }
+        delay(300)
+        screen.marketsZStrategyTapMetrics = runCatching {
+            withContext(Dispatchers.Default) {
+                val pts = marketsM15ChartPoints
+                if (pts.size < 2) return@withContext null
+                buildZStrategyPortfolioMetrics(
+                    points = pts,
+                    thresholds = marketsChartThresholds,
+                    notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                    leverage = screen.portfolioLeverage,
+                    commissionPercentPerSide = screen.portfolioCommissionPercent,
+                    periodDescription = "${screen.marketsZChartPeriod.label} · тап Z",
+                    compoundReturns = false
+                )
+            }
+        }.getOrNull()
     }
 
     val dataSourceLabel = when {
@@ -166,6 +176,7 @@ internal fun MoexScreen() {
                 staleMarkets = staleMarkets,
                 marketsM15ChartPoints = marketsM15ChartPoints,
                 marketsZScoreCandles = marketsZScoreCandles,
+                marketsZChartSignalMarkers = marketsZChartSignalMarkers,
                 marketsChartThresholds = marketsChartThresholds,
                 marketsZStrategyTapMetrics = screen.marketsZStrategyTapMetrics,
                 dataSourceLabel = dataSourceLabel,

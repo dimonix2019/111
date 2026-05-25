@@ -58,6 +58,7 @@ internal fun MoexScreenTabMarkets(
     staleMarkets: Boolean,
     marketsM15ChartPoints: List<DataPoint>,
     marketsZScoreCandles: List<CandlePoint>,
+    marketsZChartSignalMarkers: List<ChartPointMarker>,
     marketsChartThresholds: DynamicThresholds,
     marketsZStrategyTapMetrics: PortfolioMetrics?,
     dataSourceLabel: MarketsDataSource,
@@ -119,10 +120,7 @@ internal fun MoexScreenTabMarkets(
                                 },
                                 candles = marketsZScoreCandles,
                                 referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
-                                pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                    points = marketsM15ChartPoints,
-                                    events = signalEvents
-                                ),
+                                pointMarkers = marketsZChartSignalMarkers,
                                 tradeTapHintFormatter = { idx ->
                                     formatZStrategyTradeTapHint(
                                         idx,
@@ -263,10 +261,7 @@ internal fun MoexScreenTabMarkets(
                                     candles = marketsZScoreCandles,
                                     chartHeightDp = 228,
                                     referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
-                                    pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                        points = marketsM15ChartPoints,
-                                        events = signalEvents
-                                    ),
+                                    pointMarkers = marketsZChartSignalMarkers,
                                     showLegend = false,
                                     enableZoomPan = true,
                                     markerScale = 1.35f,
@@ -306,10 +301,7 @@ internal fun MoexScreenTabMarkets(
                                             labels = marketsM15ChartPoints.map { it.tradeDate },
                                             chartHeightDp = 208,
                                             referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
-                                            pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                                points = marketsM15ChartPoints,
-                                                events = signalEvents
-                                            ),
+                                            pointMarkers = marketsZChartSignalMarkers,
                                             showLegend = false,
                                             enableZoomPan = true,
                                             markerScale = 1f,
