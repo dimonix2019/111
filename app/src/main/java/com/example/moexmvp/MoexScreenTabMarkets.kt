@@ -156,7 +156,6 @@ internal fun MoexScreenTabMarkets(
                                 selected = selectedPeriod,
                                 onSelect = {
                                     selectedPeriod = it
-                                    marketsZChartPeriod = it
                                     previousZScoreForAlert = null
                                 }
                             )
@@ -255,6 +254,9 @@ internal fun MoexScreenTabMarkets(
                         }
                         if (chartSuccess != null) {
                             val c = chartSuccess
+                            val spreadChartPoints = remember(c.points) {
+                                downsampleDataPointsForChart(c.points)
+                            }
                             item {
                                 CandlestickChartCard(
                                     title = "График 4: Z-score спрэда · 15м свечи",
@@ -320,16 +322,20 @@ internal fun MoexScreenTabMarkets(
                             item {
                                 ChartCard(
                                     title = "График 2: spread = (TATN / TATNP - 1) * 100",
-                                    series = listOf(
-                                        ChartSeries(
-                                            "Spread %",
-                                            Color(0xFF69F0AE),
-                                            c.points.map { it.spreadPercent }
+                                    series = remember(spreadChartPoints) {
+                                        listOf(
+                                            ChartSeries(
+                                                "Spread %",
+                                                Color(0xFF69F0AE),
+                                                spreadChartPoints.map { it.spreadPercent }
+                                            )
                                         )
-                                    ),
-                                    labels = c.points.map { it.tradeDate },
+                                    },
+                                    labels = remember(spreadChartPoints) {
+                                        spreadChartPoints.map { it.tradeDate }
+                                    },
                                     chartHeightDp = 208,
-                                    rightAxisPercentBase = c.points.minOfOrNull { it.spreadPercent },
+                                    rightAxisPercentBase = spreadChartPoints.minOfOrNull { it.spreadPercent },
                                     yScale = YAxisScale.Auto,
                                     showLegend = false,
                                     enableZoomPan = true,

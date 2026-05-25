@@ -67,6 +67,16 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun downsampleDataPointsForChart_preservesSpreadForGraph2() {
+        val points = (0 until 3000).map { i ->
+            point("2026-01-01 10:${(i % 60).toString().padStart(2, '0')}", z = 0.1, spread = i * 0.01)
+        }
+        val sampled = downsampleDataPointsForChart(points)
+        assertTrue(sampled.size <= CHART_MAX_DISPLAY_BARS + 1)
+        assertEquals(points.last().spreadPercent, sampled.last().spreadPercent, 1e-9)
+    }
+
+    @Test
     fun filterM15PointsForMarketsPeriod_oneWeek_doesNotRequireDailyRefresh() {
         val points = (0 until 30).map { day ->
             val d = java.time.LocalDate.of(2026, 5, 1).plusDays(day.toLong())

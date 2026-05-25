@@ -229,9 +229,9 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
     LaunchedEffect(selectedPeriod, selectedTab) {
-        if (selectedTab == MainTab.Markets) {
-            refreshData(showLoading = state !is UiState.Success, launchScope = scope, selectedPeriod = selectedPeriod)
-        }
+        if (selectedTab != MainTab.Markets) return@LaunchedEffect
+        delay(350)
+        refreshData(showLoading = state !is UiState.Success, launchScope = scope, selectedPeriod = selectedPeriod)
     }
 
     LaunchedEffect(realtimeEnabled, selectedPeriod) {

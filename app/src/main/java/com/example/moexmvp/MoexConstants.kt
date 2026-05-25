@@ -87,6 +87,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.06 — Рынок: 1W/1M без вылета — симуляция Z не на каждый период; debounce MOEX; график 2 downsample.
 1.7.05 — Рынок: LineChart рисует только видимое окно (1M/3M без ANR); маркеры Z в remember.
 1.7.04 — Рынок: период Z-графиков (1W на гр.3) без refresh MOEX — исправлен вылет.
 1.7.03 — Рынок: на графике 3 (Z линия) кнопки периода 1D/1W/… как у графика 4 в альбоме.

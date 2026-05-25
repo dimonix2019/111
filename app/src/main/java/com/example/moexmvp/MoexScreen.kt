@@ -79,26 +79,29 @@ internal fun MoexScreen() {
         portfolioChartZThresholds(screen.realTradeEntryThreshold, screen.realTradeExitThreshold)
     }
 
+    // Симуляция для подсказки по тапу — только при смене M15-ряда/порогов, не при 1W/1M на графике.
     LaunchedEffect(
-        marketsM15ChartPoints,
+        screen.marketsM15Points,
         marketsChartThresholds.entry,
         marketsChartThresholds.exit,
         screen.portfolioLeverage,
-        screen.portfolioCommissionPercent,
-        screen.marketsZChartPeriod
+        screen.portfolioCommissionPercent
     ) {
-        delay(300)
+        delay(400)
+        val pts = screen.marketsM15Points
+        if (pts.size < 2) {
+            screen.marketsZStrategyTapMetrics = null
+            return@LaunchedEffect
+        }
         screen.marketsZStrategyTapMetrics = runCatching {
             withContext(Dispatchers.Default) {
-                val pts = marketsM15ChartPoints
-                if (pts.size < 2) return@withContext null
                 buildZStrategyPortfolioMetrics(
                     points = pts,
                     thresholds = marketsChartThresholds,
                     notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                     leverage = screen.portfolioLeverage,
                     commissionPercentPerSide = screen.portfolioCommissionPercent,
-                    periodDescription = "${screen.marketsZChartPeriod.label} · тап Z",
+                    periodDescription = "${PORTFOLIO_M15_LOOKBACK_DAYS}д · тап Z",
                     compoundReturns = false
                 )
             }

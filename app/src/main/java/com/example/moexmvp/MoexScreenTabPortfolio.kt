@@ -63,16 +63,19 @@ internal fun MoexScreenTabPortfolio(
     Column(modifier) {
         with(screen) {
             if (landscapeZChartFullscreen) {
+                val portfolioLandscapeMarkers = remember(portfolioZChartPoints, signalEvents) {
+                    buildZScoreSignalMarkersFromEvents(
+                        points = portfolioZChartPoints,
+                        events = signalEvents
+                    )
+                }
                 LandscapeZScoreFullscreenPane(
                     modifier = Modifier.fillMaxSize(),
                         selectedPeriod = selectedPeriod,
                         onPeriodSelect = { selectedPeriod = it },
                         candles = portfolioZScoreCandles,
                         referenceLines = buildZScoreReferenceLines(portfolioLandscapeChartThresholds),
-                        pointMarkers = buildZScoreSignalMarkersFromEvents(
-                            points = portfolioZChartPoints,
-                            events = signalEvents
-                        ),
+                        pointMarkers = portfolioLandscapeMarkers,
                         tradeTapHintFormatter = { idx ->
                             formatZStrategyTradeTapHint(
                                 idx,
