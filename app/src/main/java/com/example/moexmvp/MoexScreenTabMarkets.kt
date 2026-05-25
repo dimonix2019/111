@@ -272,9 +272,45 @@ internal fun MoexScreenTabMarkets(
                                     rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
                                     showZoomHint = true,
                                     tradeTapHintFormatter = { idx ->
-                                        formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)
+                                        formatZStrategyTradeTapHint(
+                                            idx,
+                                            marketsM15ChartPoints,
+                                            marketsZStrategyTapMetrics
+                                        )
                                     }
                                 )
+                            }
+                            if (marketsM15ChartPoints.size >= 2) {
+                                item {
+                                    ChartCard(
+                                        title = "График 3: Z-score спрэда · 15м линия",
+                                        series = listOf(
+                                            ChartSeries(
+                                                name = "Z-score",
+                                                color = Color(0xFF4FC3F7),
+                                                values = marketsM15ChartPoints.map { it.zScore }
+                                            )
+                                        ),
+                                        labels = marketsM15ChartPoints.map { it.tradeDate },
+                                        chartHeightDp = 208,
+                                        referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
+                                        pointMarkers = buildZScoreSignalMarkersFromEvents(
+                                            points = marketsM15ChartPoints,
+                                            events = signalEvents
+                                        ),
+                                        showLegend = false,
+                                        enableZoomPan = true,
+                                        markerScale = 1f,
+                                        showZoomHint = false,
+                                        tradeTapHintFormatter = { idx ->
+                                            formatZStrategyTradeTapHint(
+                                                idx,
+                                                marketsM15ChartPoints,
+                                                marketsZStrategyTapMetrics
+                                            )
+                                        }
+                                    )
+                                }
                             }
                             item {
                                 ChartCard(
