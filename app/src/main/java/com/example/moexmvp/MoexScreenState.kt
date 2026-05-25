@@ -33,6 +33,8 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestEntryThreshold by mutableStateOf<Double?>(null)
     var strategyTestExitThreshold by mutableStateOf<Double?>(null)
     var selectedPeriod by mutableStateOf(Period.OneDay)
+    /** Окно 15м Z-графиков на «Рынке» / «Портфель» (альбом); не дергает refreshData MOEX. */
+    var marketsZChartPeriod by mutableStateOf(Period.OneDay)
     var realtimeEnabled by mutableStateOf(true)
     var isRefreshing by mutableStateOf(false)
     var realtimeError by mutableStateOf<String?>(null)

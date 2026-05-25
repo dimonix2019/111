@@ -112,9 +112,9 @@ internal fun MoexScreenTabMarkets(
                         if (landscapeZChartFullscreen) {
                             LandscapeZScoreFullscreenPane(
                                 modifier = Modifier.fillMaxSize(),
-                                selectedPeriod = selectedPeriod,
+                                selectedPeriod = marketsZChartPeriod,
                                 onPeriodSelect = {
-                                    selectedPeriod = it
+                                    marketsZChartPeriod = it
                                     previousZScoreForAlert = null
                                 },
                                 candles = marketsZScoreCandles,
@@ -158,6 +158,7 @@ internal fun MoexScreenTabMarkets(
                                 selected = selectedPeriod,
                                 onSelect = {
                                     selectedPeriod = it
+                                    marketsZChartPeriod = it
                                     previousZScoreForAlert = null
                                 }
                             )
@@ -287,9 +288,9 @@ internal fun MoexScreenTabMarkets(
                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         PeriodSelector(
-                                            selected = selectedPeriod,
+                                            selected = marketsZChartPeriod,
                                             onSelect = {
-                                                selectedPeriod = it
+                                                marketsZChartPeriod = it
                                                 previousZScoreForAlert = null
                                             }
                                         )
