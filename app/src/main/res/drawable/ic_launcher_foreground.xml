@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Тень под «группой» графика -->
+    <path
+        android:fillColor="#1B5E20"
+        android:fillAlpha="0.45"
+        android:pathData="M20,78h68v10c-22,4 -46,4 -68,0z" />
+
+    <!-- Бар 1: объём (бок + верх + фасад) -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M22,66h4v18h-4z" />
+    <path
+        android:fillColor="#388E3C"
+        android:pathData="M22,66h14v18h-14z" />
+    <path
+        android:fillColor="#81C784"
+        android:pathData="M22,66h14v5h-14z" />
+
+    <!-- Бар 2 -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M40,52h4v32h-4z" />
+    <path
+        android:fillColor="#43A047"
+        android:pathData="M40,52h14v32h-14z" />
+    <path
+        android:fillColor="#A5D6A7"
+        android:pathData="M40,52h14v5h-14z" />
+
+    <!-- Бар 3 -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M58,58h4v26h-4z" />
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M58,58h14v26h-14z" />
+    <path
+        android:fillColor="#B9F6CA"
+        android:pathData="M58,58h14v5h-14z" />
+
+    <!-- Бар 4 (самый высокий) -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M76,36h4v48h-4z" />
+    <path
+        android:fillColor="#66BB6A"
+        android:pathData="M76,36h14v48h-14z" />
+    <path
+        android:fillColor="#C8E6C9"
+        android:pathData="M76,36h14v5h-14z" />
+
+    <!-- Линия роста (свечение + ядро) -->
+    <path
+        android:strokeColor="#E8F5E9"
+        android:strokeAlpha="0.35"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="9"
+        android:pathData="M24,62 L42,48 L60,52 L86,30" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="5"
+        android:pathData="M24,62 L42,48 L60,52 L86,30" />
+
+    <!-- Стрелка вверх (позитивный акцент) -->
+    <path
+        android:fillColor="#E8F5E9"
+        android:pathData="M84,22 L96,26 L88,34 L92,34 L92,40 L76,40 L76,34 L80,34z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.55"
+        android:pathData="M86,24 L94,27 L88,32z" />
+</vector>
