@@ -67,7 +67,6 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
-    @Test
     fun filterM15PointsForMarketsPeriod_oneWeek_doesNotRequireDailyRefresh() {
         val points = (0 until 30).map { day ->
             val d = java.time.LocalDate.of(2026, 5, 1).plusDays(day.toLong())
