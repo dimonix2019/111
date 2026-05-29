@@ -41,7 +41,7 @@ def test_rolling_differs_from_global_on_regime_shift():
     spreads = [s for _, s in spreads_ts]
     ts = [t for t, _ in spreads_ts]
     idx = 100
-    z_global = apply_z_scores(spreads)[idx]
+    z_global = float(apply_z_scores(spreads)[idx])
     z_roll = apply_z_scores_rolling(spreads, ts, lookback_days=30, min_bars_in_window=2)[idx]
     assert abs(z_global - z_roll) > 0.1
 

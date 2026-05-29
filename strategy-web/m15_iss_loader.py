@@ -1,342 +1,342 @@
-"""Загрузка 15м TATN/TATNP с MOEX ISS для Streamlit (как MoexIssData.kt)."""
+"""Загрузка 15м TATN/TATNP с MOEX ISS (10м свечи → 15м spread + Z)."""
 
 from __future__ import annotations
 
-import csv
-import json
-import statistics
-import time
-import urllib.parse
-import urllib.request
-from datetime import date, datetime, timedelta
+import logging
+import threading
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
-from zoneinfo import ZoneInfo
 
-ProgressFn = Callable[[str], None]
+import numpy as np
+import pandas as pd
+import requests
 
-MSK = ZoneInfo("Europe/Moscow")
-ISS_BASE = "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities"
-DEFAULT_LOOKBACK_DAYS = 255
-STALE_HOURS = 40
-MIN_BARS_FULL = 8_000  # ~255д 15м; меньше — неполная выгрузка
-ISS_PAGE_SIZE = 500
-CHUNK_CALENDAR_DAYS = 35  # окна по датам — надёжнее одного start=… на весь год
+from api.moex_time import MOEX_TZ, moex_age_seconds, moex_now, parse_moex_datetime, to_moex_datetime
 
-# Готовый ряд в репозитории (если ISS оборвался в Streamlit)
-GITHUB_RAW_CSV = (
-    "https://raw.githubusercontent.com/dimonix2019/111/"
-    "cursor/strategy-web-moex-parity-4bf6/strategy-web/data/m15_tatn_255d.csv"
-)
+log = logging.getLogger(__name__)
 
+_download_lock = threading.Lock()
 
-def _get_json(url: str, retries: int = 3) -> dict:
-    last_err: Optional[Exception] = None
-    for attempt in range(retries):
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "moexmvp-strategy-web/1.0"})
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except Exception as e:
-            last_err = e
-            time.sleep(0.4 * (attempt + 1))
-    raise RuntimeError(f"ISS request failed: {url}") from last_err
+DEFAULT_M15_CSV = Path("data/m15_tatn_255d.csv")
+LOOKBACK_DAYS = 255
+STALE_HOURS = 3
+# Онлайн-опрос (5с): запасной порог по возрасту последнего бара
+LIVE_STALE_HOURS = 10 / 60.0
+BAR_MINUTES = 15
+BOARD = "TQBR"
+ISS_TIMEOUT = 60
+INTERVAL_10 = 10
 
 
-def _fetch_candles_10m_window(
-    sec_id: str, from_d: date, till_d: date
-) -> List[Tuple[datetime, float]]:
-    """Одно окно дат с полной пагинацией start=0,500,1000…"""
+def _iss_candles_url(secid: str) -> str:
+    return (
+        "https://iss.moex.com/iss/engines/stock/markets/shares/boards/"
+        f"{BOARD}/securities/{secid}/candles.json"
+    )
+
+
+def _fetch_candles(secid: str, date_from: str, date_till: str) -> pd.DataFrame:
+    rows: list = []
     start = 0
-    bars: List[Tuple[datetime, float]] = []
     while True:
-        qs = urllib.parse.urlencode(
-            {
-                "iss.meta": "off",
-                "candles.columns": "begin,open,high,low,close",
-                "interval": 10,
-                "from": from_d.isoformat(),
-                "till": till_d.isoformat(),
-                "limit": ISS_PAGE_SIZE,
-                "start": start,
-            }
-        )
-        url = f"{ISS_BASE}/{sec_id}/candles.json?{qs}"
-        data = _get_json(url)
-        rows = data.get("candles", {}).get("data") or []
-        if not rows:
+        params = {
+            "interval": INTERVAL_10,
+            "from": date_from,
+            "till": date_till,
+            "iss.meta": "off",
+            "iss.only": "candles",
+            "start": start,
+        }
+        resp = requests.get(_iss_candles_url(secid), params=params, timeout=ISS_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json().get("candles", {}).get("data") or []
+        if not data:
             break
-        for row in rows:
-            ts = datetime.strptime(row[0][:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=MSK)
-            bars.append((ts, float(row[4])))
-        if len(rows) < ISS_PAGE_SIZE:
+        rows.extend(data)
+        start += len(data)
+        if len(data) < 500:
             break
-        start += ISS_PAGE_SIZE
-    return bars
+    if not rows:
+        return pd.DataFrame(columns=["timestamp", "close"])
+    cols = ["open", "close", "high", "low", "value", "volume", "begin", "end"]
+    df = pd.DataFrame(rows, columns=cols)
+    df["timestamp"] = parse_moex_datetime(pd.to_datetime(df["begin"]))
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    return df[["timestamp", "close"]].dropna()
 
 
-def fetch_candles_10m(
-    sec_id: str,
-    from_d: date,
-    till_d: date,
-    on_progress: Optional[ProgressFn] = None,
-) -> List[Tuple[datetime, float]]:
-    """
-    10м свечи TQBR с пагинацией.
-    Большой диапазон качаем окнами по CHUNK_CALENDAR_DAYS — так не упираемся в лимиты ISS
-    и виден прогресс (важно для Streamlit).
-    """
-    merged: Dict[datetime, float] = {}
-    chunk_start = from_d
-    while chunk_start < till_d:
-        chunk_end = min(chunk_start + timedelta(days=CHUNK_CALENDAR_DAYS), till_d)
-        if on_progress:
-            on_progress(f"{sec_id} 10м: {chunk_start} … {chunk_end}")
-        for ts, close in _fetch_candles_10m_window(sec_id, chunk_start, chunk_end):
-            merged[ts] = close
-        chunk_start = chunk_end + timedelta(days=1)
-    return sorted(merged.items(), key=lambda x: x[0])
+def _floor_15m(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=MOEX_TZ)
+    return dt.replace(minute=(dt.minute // BAR_MINUTES) * BAR_MINUTES, second=0, microsecond=0)
 
 
-def aggregate_15m(bars_10m: List[Tuple[datetime, float]]) -> Dict[datetime, float]:
-    buckets: Dict[datetime, List[float]] = {}
-    for ts, close in sorted(bars_10m, key=lambda x: x[0]):
-        minute = (ts.minute // 15) * 15
-        bucket = ts.replace(minute=minute, second=0, microsecond=0)
-        buckets.setdefault(bucket, []).append(close)
-    return {bucket: closes[-1] for bucket, closes in buckets.items()}
-
-
-def build_spread_series(
-    tatn: Dict[datetime, float], tatnp: Dict[datetime, float]
-) -> List[Tuple[datetime, float, float, float]]:
-    times = sorted(set(tatn.keys()) & set(tatnp.keys()))
-    rows: List[Tuple[datetime, float, float, float]] = []
-    for ts in times:
-        c1, c2 = tatn[ts], tatnp[ts]
-        if c2 == 0:
-            continue
-        spread = (c1 / c2 - 1.0) * 100.0
-        rows.append((ts, c1, c2, spread))
-    return rows
-
-
-def apply_z_scores(rows: List[Tuple[datetime, float, float, float]]) -> List[dict]:
-    spreads = [r[3] for r in rows]
-    if not spreads:
-        return []
-    mean = statistics.mean(spreads)
-    std = statistics.pstdev(spreads) if len(spreads) > 1 else 1.0
-    if std <= 0:
-        std = 1.0
-    out = []
-    for ts, tatn, tatnp, spread in rows:
-        z = (spread - mean) / std
-        out.append(
-            {
-                "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
-                "z_score": round(z, 6),
-                "spread_percent": round(spread, 6),
-                "tatn_close": round(tatn, 6),
-                "tatnp_close": round(tatnp, 6),
-            }
-        )
+def _to_15m(df10: pd.DataFrame, price_col: str) -> pd.DataFrame:
+    if df10.empty:
+        return pd.DataFrame(columns=["timestamp", price_col])
+    s = df10.set_index("timestamp").sort_index()["close"].resample(f"{BAR_MINUTES}min").last().dropna()
+    out = s.to_frame(price_col).reset_index()
+    out.columns = ["timestamp", price_col]
     return out
 
 
-def moex_fetch_till() -> date:
-    return (datetime.now(MSK).date() + timedelta(days=1))
+def _recalc_z(merged: pd.DataFrame) -> pd.DataFrame:
+    arr = merged["spread_percent"].to_numpy(dtype=float)
+    std = float(np.std(arr))
+    merged = merged.copy()
+    merged["z_score"] = (arr - float(np.mean(arr))) / std if std > 0 else 0.0
+    return merged
 
 
-def download_m15_csv(
-    out_path: Path,
-    days: int = DEFAULT_LOOKBACK_DAYS,
-    on_progress: Optional[ProgressFn] = None,
-) -> dict:
-    """Скачать ISS → 15м → CSV. Возвращает сводку."""
-    def prog(msg: str) -> None:
-        if on_progress:
-            on_progress(msg)
+def _append_forming_15m_bar(
+    merged: pd.DataFrame, tatn10: pd.DataFrame, tatnp10: pd.DataFrame
+) -> pd.DataFrame:
+    """Незакрытый 15м бар по 10м свечам текущего слота (чтобы хвост не отставал на период)."""
+    if merged.empty or tatn10.empty or tatnp10.empty:
+        return merged
+    now = moex_now()
+    bucket = _floor_15m(now)
+    last_ts = to_moex_datetime(merged["timestamp"].iloc[-1])
+    if last_ts >= bucket:
+        return merged
 
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    t10_ts = parse_moex_datetime(tatn10["timestamp"])
+    p10_ts = parse_moex_datetime(tatnp10["timestamp"])
+    t10 = tatn10.loc[(t10_ts >= bucket) & (t10_ts <= now)]
+    p10 = tatnp10.loc[(p10_ts >= bucket) & (p10_ts <= now)]
+    if t10.empty or p10.empty:
+        return merged
 
-    till = moex_fetch_till()
-    from_d = till - timedelta(days=days + 2)
-
-    prog(f"MOEX ISS: TATN/TATNP 10м, {from_d} … {till} (окна по {CHUNK_CALENDAR_DAYS} дн.)")
-    tatn_10 = fetch_candles_10m("TATN", from_d, till, on_progress=prog)
-    prog(f"TATN 10м всего: {len(tatn_10)} баров")
-    tatnp_10 = fetch_candles_10m("TATNP", from_d, till, on_progress=prog)
-    prog(f"TATNP 10м всего: {len(tatnp_10)} баров")
-
-    tatn_15 = aggregate_15m(tatn_10)
-    tatnp_15 = aggregate_15m(tatnp_10)
-    spread_rows = build_spread_series(tatn_15, tatnp_15)
-    prog(f"15м после выравнивания: {len(spread_rows)} баров")
-
-    records = apply_z_scores(spread_rows)
-    if not records:
-        raise RuntimeError("MOEX вернул пустой ряд — проверьте интернет и даты.")
-
-    if len(records) < MIN_BARS_FULL:
-        raise RuntimeError(
-            f"Выгрузка неполная: {len(records)} баров 15м (нужно ≥{MIN_BARS_FULL}). "
-            f"Часто Streamlit обрывает долгий запрос (~1000 строк). "
-            f"Запустите в PowerShell: "
-            f'python download_m15.py --days {days} --out "{out_path}" '
-            f"или «Скачать готовый CSV с GitHub»."
-        )
-
-    fieldnames = ["timestamp", "z_score", "spread_percent", "tatn_close", "tatnp_close"]
-    with open(out_path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        w.writerows(records)
-
-    return {
-        "bar_count": len(records),
-        "first_ts": records[0]["timestamp"],
-        "last_ts": records[-1]["timestamp"],
-        "path": str(out_path),
-    }
+    row = pd.DataFrame(
+        [
+            {
+                "timestamp": bucket.strftime("%Y-%m-%d %H:%M:%S"),
+                "tatn_close": float(t10["close"].iloc[-1]),
+                "tatnp_close": float(p10["close"].iloc[-1]),
+            }
+        ]
+    )
+    row["spread_percent"] = (row["tatn_close"] / row["tatnp_close"] - 1.0) * 100.0
+    out = pd.concat([merged, row], ignore_index=True)
+    out["timestamp"] = parse_moex_datetime(out["timestamp"])
+    return _recalc_z(out)
 
 
-def download_csv_from_github(
-    out_path: Path,
-    url: str = GITHUB_RAW_CSV,
-    on_progress: Optional[ProgressFn] = None,
-) -> dict:
-    """Готовый полный CSV из репозитория (обход обрыва Streamlit / старого loader без пагинации)."""
-    if on_progress:
-        on_progress(f"GitHub: {url}")
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    req = urllib.request.Request(url, headers={"User-Agent": "moexmvp-strategy-web/1.0"})
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        data = resp.read()
-    out_path.write_bytes(data)
-    status = csv_file_status(out_path, min_bars=MIN_BARS_FULL)
-    if not status["looks_full"]:
-        raise RuntimeError(
-            f"С GitHub скачано только {status['bar_count']} строк "
-            f"(репозиторий приватный или URL недоступен). "
-            f"Скопируйте data/m15_tatn_255d.csv из git или запустите download_m15.py в терминале."
-        )
-    return {
-        "bar_count": status["bar_count"],
-        "first_ts": status["first_ts"],
-        "last_ts": status["last_ts"],
-        "path": str(out_path),
-        "source": "github",
-    }
+def _build_m15_frame(tatn10: pd.DataFrame, tatnp10: pd.DataFrame, *, include_forming: bool = True) -> pd.DataFrame:
+    tatn = _to_15m(tatn10, "tatn_close")
+    tatnp = _to_15m(tatnp10, "tatnp_close")
+    merged = pd.merge(tatn, tatnp, on="timestamp", how="inner")
+    if merged.empty:
+        return merged
+    merged["spread_percent"] = (merged["tatn_close"] / merged["tatnp_close"] - 1.0) * 100.0
+    merged = _recalc_z(merged)
+    if include_forming:
+        merged = _append_forming_15m_bar(merged, tatn10, tatnp10)
+    merged["timestamp"] = merged["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
+    return merged[["timestamp", "z_score", "spread_percent", "tatn_close", "tatnp_close"]]
 
 
-def csv_file_status(path: Path, min_bars: int = MIN_BARS_FULL) -> dict:
-    """Статус CSV на диске (для sidebar)."""
-    path = Path(path)
-    if not path.is_file():
-        return {
-            "exists": False,
-            "bar_count": 0,
-            "looks_full": False,
-            "stale": True,
-            "age_hours": None,
-            "first_ts": "",
-            "last_ts": "",
-            "mtime": None,
-        }
+def fetch_m15_from_iss(
+    days: int = LOOKBACK_DAYS,
+    date_from: str | None = None,
+    date_till: str | None = None,
+    progress_callback=None,
+) -> list[dict]:
+    end = moex_now()
+    till = date_till or end.strftime("%Y-%m-%d")
+    start = date_from or (end - timedelta(days=days)).strftime("%Y-%m-%d")
 
-    mtime = datetime.fromtimestamp(path.stat().st_mtime)
-    age_hours = (datetime.now() - mtime).total_seconds() / 3600.0
-    stale = age_hours > STALE_HOURS
+    if progress_callback:
+        progress_callback(0.1, "MOEX TATN…")
+    log.info("MOEX fetch TATN %s … %s", start, till)
+    tatn10 = _fetch_candles("TATN", start, till)
 
-    bar_count = 0
-    first_ts = ""
-    last_ts = ""
-    try:
-        with open(path, encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                bar_count += 1
-                ts = row.get("timestamp", "")
-                if bar_count == 1:
-                    first_ts = ts
-                last_ts = ts
-    except OSError:
-        pass
+    if progress_callback:
+        progress_callback(0.45, "MOEX TATNP…")
+    log.info("MOEX fetch TATNP %s … %s", start, till)
+    tatnp10 = _fetch_candles("TATNP", start, till)
 
-    return {
-        "exists": True,
-        "bar_count": bar_count,
-        "looks_full": bar_count >= min_bars,
-        "stale": stale,
-        "age_hours": round(age_hours, 1),
-        "first_ts": first_ts,
-        "last_ts": last_ts,
-        "mtime": mtime.isoformat(timespec="seconds"),
-    }
+    if progress_callback:
+        progress_callback(0.75, "15м spread…")
+    frame = _build_m15_frame(tatn10, tatnp10)
+    if frame.empty:
+        raise RuntimeError(f"MOEX: нет 15м баров за {start} … {till}")
+
+    if progress_callback:
+        progress_callback(0.95, "Готово")
+    log.info("MOEX 15m bars: %s rows", len(frame))
+    return frame.to_dict("records")
 
 
-def ensure_csv(
-    path: Path,
-    days: int = DEFAULT_LOOKBACK_DAYS,
-    auto_download: bool = False,
-    on_progress: Optional[ProgressFn] = None,
-) -> tuple[bool, dict]:
-    """
-    Если файла нет или мало баров — опционально скачать.
-    Возвращает (downloaded_now, status_dict).
-    """
-    status = csv_file_status(path)
-    need = not status["exists"] or not status["looks_full"]
-    if need and auto_download:
-        summary = download_m15_csv(path, days=days, on_progress=on_progress)
-        status = csv_file_status(path)
-        status["download_summary"] = summary
-        return True, status
-    return False, status
-
-
-def ensure_full_data_file(
-    path: Path,
-    days: int = DEFAULT_LOOKBACK_DAYS,
-    on_progress: Optional[ProgressFn] = None,
-) -> dict:
-    """
-    Гарантирует полный CSV (≥8000 баров). Без действий пользователя.
-    1) уже есть полный файл → OK
-    2) GitHub (быстро, ~700 KB)
-    3) MOEX ISS (2–5 мин)
-  """
-    path = Path(path)
+def save_m15_csv(rows, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(rows)
+    if "spread_percent" in df.columns:
+        arr = df["spread_percent"].to_numpy(dtype=float)
+        std = float(np.std(arr))
+        df["z_score"] = (arr - float(np.mean(arr))) / std if std > 0 else 0.0
+    df.to_csv(path, index=False)
 
-    def prog(msg: str) -> None:
-        if on_progress:
-            on_progress(msg)
 
-    status = csv_file_status(path)
-    if status["looks_full"]:
-        return status
+def _csv_row_count(path: Path) -> int:
+    with path.open("r", encoding="utf-8") as f:
+        return max(0, sum(1 for _ in f) - 1)
 
-    # Удалить обрезок (~1000 строк), чтобы не путать проверки
-    if status["exists"] and not status["looks_full"]:
-        try:
-            path.unlink()
-            prog("Удалён неполный CSV, загружаем заново…")
-        except OSError:
-            pass
 
-    prog("Скачиваем полный ряд с GitHub…")
+def _csv_last_timestamp(path: Path) -> str | None:
+    with path.open("rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        if size == 0:
+            return None
+        chunk = min(size, 16384)
+        f.seek(size - chunk)
+        tail = f.read().decode("utf-8", errors="ignore")
+    lines = [ln.strip() for ln in tail.splitlines() if ln.strip()]
+    if not lines:
+        return None
+    last = lines[-1]
+    if last.lower().startswith("timestamp"):
+        return None
+    return last.split(",", 1)[0].strip()
+
+
+def m15_data_status(path: Path, stale_hours: float = STALE_HOURS) -> dict:
+    if not path.exists():
+        return {"exists": False, "is_stale": True, "stale_hours": stale_hours}
+
     try:
-        download_csv_from_github(path, on_progress=on_progress)
-        status = csv_file_status(path)
-        if status["looks_full"]:
-            return status
-    except Exception as e:
-        prog(f"GitHub недоступен ({e}), качаем с MOEX ISS…")
+        row_count = _csv_row_count(path)
+        if row_count <= 0:
+            return {
+                "exists": True,
+                "row_count": 0,
+                "is_stale": True,
+                "stale_hours": stale_hours,
+            }
 
-    prog(f"MOEX ISS, {days} дней (2–5 мин)…")
-    download_m15_csv(path, days=days, on_progress=on_progress)
-    return csv_file_status(path)
+        last_raw = _csv_last_timestamp(path)
+        if not last_raw:
+            return {"exists": True, "row_count": row_count, "is_stale": True, "stale_hours": stale_hours}
+
+        age_sec = moex_age_seconds(last_raw)
+        is_stale = age_sec > stale_hours * 3600
+
+        # first_ts — только при необходимости (дорого на больших файлах не читаем целиком)
+        first_ts = None
+        with path.open("r", encoding="utf-8") as f:
+            f.readline()
+            first_line = f.readline().strip()
+            if first_line:
+                first_ts = first_line.split(",", 1)[0].strip()
+
+        return {
+            "exists": True,
+            "row_count": row_count,
+            "first_ts": first_ts,
+            "last_ts": str(last_raw),
+            "file_size": f"{path.stat().st_size / 1024:.1f} KB",
+            "is_stale": is_stale,
+            "stale_hours": stale_hours,
+            "age_hours": round(age_sec / 3600, 2),
+            "needs_refresh": is_stale,
+        }
+    except Exception as e:
+        return {"exists": False, "error": str(e), "is_stale": True, "stale_hours": stale_hours}
+
+
+def _merge_m15_csv(path: Path, new_rows: list[dict]) -> None:
+    old = pd.read_csv(path)
+    new = pd.DataFrame(new_rows)
+    merged = pd.concat([old, new], ignore_index=True)
+    merged["timestamp"] = parse_moex_datetime(merged["timestamp"])
+    merged = merged.drop_duplicates(subset=["timestamp"], keep="last").sort_values("timestamp")
+
+    cutoff = moex_now() - timedelta(days=LOOKBACK_DAYS + 5)
+    merged = merged[merged["timestamp"] >= cutoff]
+
+    arr = merged["spread_percent"].to_numpy(dtype=float)
+    std = float(np.std(arr))
+    merged["z_score"] = (arr - float(np.mean(arr))) / std if std > 0 else 0.0
+    merged["timestamp"] = merged["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
+    merged.to_csv(path, index=False)
+
+
+def needs_live_tail_refresh(path: Path) -> bool:
+    """True, если в CSV нет открытого сейчас 15м слота (напр. last=14:30 при now=14:46)."""
+    last_raw = _csv_last_timestamp(path)
+    if not last_raw:
+        return True
+    last_ts = pd.to_datetime(last_raw)
+    if last_ts.tzinfo is None:
+        last_ts = last_ts.tz_localize(MOEX_TZ)
+    return last_ts.to_pydatetime() < _floor_15m(moex_now())
+
+
+def _looks_like_stub_csv(path: Path) -> bool:
+    """Старый stub-CSV без колонок MOEX — перекачать полностью."""
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            header = f.readline().strip().lower()
+        return "tatn_close" not in header
+    except OSError:
+        return False
+
+
+def ensure_m15_data(
+    path: Path = DEFAULT_M15_CSV,
+    days: int = LOOKBACK_DAYS,
+    force: bool = False,
+    stale_hours: float = STALE_HOURS,
+    moex_live: bool = False,
+) -> tuple[Path, bool]:
+    """Обновить CSV: полная загрузка или догрузка хвоста. Возвращает (path, refreshed)."""
+    with _download_lock:
+        status = m15_data_status(path, stale_hours=stale_hours)
+        live_tail = moex_live and path.is_file() and needs_live_tail_refresh(path)
+        needs_download = (
+            force
+            or not status.get("exists", False)
+            or (path.is_file() and _looks_like_stub_csv(path))
+            or status.get("row_count", 0) < 500
+        )
+        incremental = (
+            not needs_download
+            and path.is_file()
+            and (status.get("is_stale", False) or live_tail)
+        )
+
+        if needs_download:
+            log.info("MOEX full download → %s", path)
+            data = fetch_m15_from_iss(days=days)
+            save_m15_csv(data, path)
+            return path, True
+
+        if incremental:
+            last_ts = pd.to_datetime(status["last_ts"])
+            from_d = (last_ts - timedelta(days=3)).strftime("%Y-%m-%d")
+            till_d = datetime.now().strftime("%Y-%m-%d")
+            reason = "live-tail" if live_tail else "stale"
+            log.info("MOEX incremental (%s) %s … %s → %s", reason, from_d, till_d, path)
+            new_rows = fetch_m15_from_iss(date_from=from_d, date_till=till_d)
+            _merge_m15_csv(path, new_rows)
+            return path, True
+
+        return path, False
+
+
+def merge_live_intraday(path: Path = DEFAULT_M15_CSV) -> bool:
+    """Каждый live-тик: MOEX за 2 дня → merge + формирующийся 15м бар (как TradingView)."""
+    with _download_lock:
+        till_d = datetime.now().strftime("%Y-%m-%d")
+        from_d = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
+        try:
+            if not path.is_file():
+                save_m15_csv(fetch_m15_from_iss(days=30), path)
+                return True
+            rows = fetch_m15_from_iss(date_from=from_d, date_till=till_d)
+            _merge_m15_csv(path, rows)
+            return True
+        except Exception as exc:
+            log.warning("merge_live_intraday failed: %s", exc)
+            return path.is_file()
