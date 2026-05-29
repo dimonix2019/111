@@ -1,0 +1,6 @@
+# Copy to sandbox-token.properties in the project root (that file is gitignored).
+# Gradle embeds SANDBOX_* into BuildConfig so the first app launch can persist them
+# to EncryptedSharedPreferences — convenient for local debug APK builds only.
+#
+# SANDBOX_TOKEN=t.your_sandbox_token_here
+# SANDBOX_ACCOUNT_ID=optional-uuid-from-getsandboxaccounts
