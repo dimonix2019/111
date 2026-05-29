@@ -17,6 +17,8 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_noSignalDayStreaks_threshold08_07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_compare_threshold08_07_vs_08_05_notional50k`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_vs_single100k`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_rolling30d_compare_threshold08_07_vs_08_05`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_rolling30d_vs_global255d_threshold08_07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_baseline_vs_pullbackEntry_peakExit`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_only_fixedExit07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_peakTrail_grid`
@@ -75,6 +77,97 @@ class MoexTodayBacktestTest {
         val tailNoEntry = trailingQuietDays(entriesPerDay.map { it == 0 })
         val tailNoAny = trailingQuietDays(anyPerDay.map { it == 0 })
         println("Текущая серия на конец ряда (${tradingDays.last()}): без входа $tailNoEntry дн., без сигналов $tailNoAny дн.")
+    }
+
+    @Test
+    fun moexBacktest_rolling30d_compare_threshold08_07_vs_08_05() = runBlocking {
+        val (_, points) = loadTatn15mPointsRollingZ()
+        val variants = listOf(
+            "вход 0.8 / выход 0.7" to THRESH_08_07,
+            "вход 0.8 / выход 0.5" to THRESH_08_05
+        )
+        println(
+            "=== MOEX ${PORTFOLIO_M15_LOOKBACK_DAYS}д ряд · Z скольз. ${Z_SCORE_ROLLING_LOOKBACK_DAYS}д (без look-ahead) ==="
+        )
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
+        printRollingZDiagnostics(points)
+        println(
+            "Номинал ${BACKTEST_NOTIONAL_100K_RUB.toInt()} ₽ · x${BACKTEST_LEVERAGE_X7} · комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона"
+        )
+        println(
+            String.format(
+                Locale.US,
+                "%-22s | %5s | %12s | %12s | %10s | %8s",
+                "вариант",
+                "сделок",
+                "PnL чистый ₽",
+                "max DD ₽",
+                "комис. ₽",
+                "оверн. ₽"
+            )
+        )
+        println("-".repeat(88))
+        for ((label, th) in variants) {
+            val m = runBacktest(
+                points = points,
+                thresholds = th,
+                notionalRub = BACKTEST_NOTIONAL_100K_RUB,
+                leverage = BACKTEST_LEVERAGE_X7,
+                commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE,
+                periodDescription = "$label · Z${Z_SCORE_ROLLING_LOOKBACK_DAYS}д"
+            )!!
+            println(
+                String.format(
+                    Locale.US,
+                    "%-22s | %5d | %12.2f | %12.2f | %10.2f | %8.2f",
+                    label,
+                    m.closedTrades.size,
+                    m.totalPnlRubApprox,
+                    m.maxDrawdownRubApprox,
+                    m.totalCommissionRub,
+                    m.totalOvernightRub
+                )
+            )
+            m.closedTrades.takeLast(3).forEach { t ->
+                println("  … ${t.direction} ${t.entryDate}→${t.exitDate} чистый ${fmt(t.pnlRubApprox)} ₽")
+            }
+        }
+    }
+
+    @Test
+    fun moexBacktest_rolling30d_vs_global255d_threshold08_07() = runBlocking {
+        val (_, raw) = loadTatn15mPointsRaw()
+        val global = applyZScores(raw)
+        val rolling = applyZScoresRolling(raw)
+        val th = THRESH_08_07
+        val mGlobal = runBacktest(
+            points = global,
+            thresholds = th,
+            notionalRub = BACKTEST_NOTIONAL_100K_RUB,
+            leverage = BACKTEST_LEVERAGE_X7
+        )!!
+        val mRoll = runBacktest(
+            points = rolling,
+            thresholds = th,
+            notionalRub = BACKTEST_NOTIONAL_100K_RUB,
+            leverage = BACKTEST_LEVERAGE_X7
+        )!!
+        println("=== Z global (255д μ,σ) vs rolling ${Z_SCORE_ROLLING_LOOKBACK_DAYS}д @ 0.8/0.7 · 100k x7 ===")
+        printRollingZDiagnostics(rolling)
+        println(
+            String.format(
+                Locale.US,
+                "global: %d сделок, PnL %,.0f ₽ | rolling30д: %d сделок, PnL %,.0f ₽",
+                mGlobal.closedTrades.size,
+                mGlobal.totalPnlRubApprox,
+                mRoll.closedTrades.size,
+                mRoll.totalPnlRubApprox
+            )
+        )
+        assertTrue(
+            "Ожидаем хотя бы одну сделку на rolling Z за ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+            mRoll.closedTrades.isNotEmpty() || mGlobal.closedTrades.isNotEmpty()
+        )
     }
 
     @Test
@@ -863,15 +956,38 @@ class MoexTodayBacktestTest {
         return count
     }
 
-    private suspend fun loadTatn15mPoints(): Pair<LocalDate, List<DataPoint>> {
+    private suspend fun loadTatn15mPointsRaw(): Pair<LocalDate, List<DataPoint>> {
         val today = LocalDate.now(zone)
         val from = today.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
         val till = portfolioM15MoexFetchTillDate()
         val entities = fetchPortfolio15mSpreadEntitiesChunked(from, till)
         assertTrue("Нет 15м данных с MOEX ($from…$till)", entities.isNotEmpty())
-        val points = applyZScores(entities.map { it.toDataPoint() })
+        val points = entities.map { it.toDataPoint() }
         assertTrue("Мало точек для Z", points.size >= 2)
         return today to points
+    }
+
+    private suspend fun loadTatn15mPoints(): Pair<LocalDate, List<DataPoint>> {
+        val (today, raw) = loadTatn15mPointsRaw()
+        return today to applyZScores(raw)
+    }
+
+    private suspend fun loadTatn15mPointsRollingZ(
+        lookbackDays: Long = Z_SCORE_ROLLING_LOOKBACK_DAYS
+    ): Pair<LocalDate, List<DataPoint>> {
+        val (today, raw) = loadTatn15mPointsRaw()
+        return today to applyZScoresRolling(raw, lookbackDays)
+    }
+
+    private fun printRollingZDiagnostics(points: List<DataPoint>) {
+        val absZ = points.map { kotlin.math.abs(it.zScore) }
+        val maxAbs = absZ.maxOrNull() ?: 0.0
+        val ge08 = absZ.count { it >= 0.8 }
+        val ge07 = absZ.count { it >= 0.7 }
+        println(
+            "Z (rolling): max |Z|=${fmt(maxAbs)} · баров |Z|≥0.8: $ge08 · |Z|≥0.7: $ge07 · " +
+                "последний Z=${fmt(points.last().zScore)} spread=${fmt(points.last().spreadPercent)}%"
+        )
     }
 
     private fun runPortfolioMetrics(

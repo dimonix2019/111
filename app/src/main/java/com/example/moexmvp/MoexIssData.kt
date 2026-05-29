@@ -244,10 +244,63 @@ internal fun applyZScores(points: List<DataPoint>): List<DataPoint> {
     val variance = spreads
         .map { (it - mean) * (it - mean) }
         .average()
-    val stdDev = kotlin.math.sqrt(variance).takeIf { it > 0.0 } ?: 1.0
+    val stdDev = sqrt(variance).takeIf { it > 0.0 } ?: 1.0
     return points.map {
         it.copy(zScore = (it.spreadPercent - mean) / stdDev)
     }
+}
+
+/**
+ * Z-score по скользящему календарному окну [lookbackDays] до текущего бара (включительно).
+ * Будущие бары не участвуют — подходит для честного бэктеста.
+ */
+internal fun applyZScoresRolling(
+    points: List<DataPoint>,
+    lookbackDays: Long = Z_SCORE_ROLLING_LOOKBACK_DAYS,
+    minBarsInWindow: Int = Z_SCORE_ROLLING_MIN_BARS
+): List<DataPoint> {
+    if (points.isEmpty()) return points
+    if (lookbackDays <= 0L) return applyZScores(points)
+
+    val zone = moexZoneId
+    val result = ArrayList<DataPoint>(points.size)
+    var windowStart = 0
+
+    for (i in points.indices) {
+        val barMillis = points[i].timestampMillis
+        val fromMillis = Instant.ofEpochMilli(barMillis)
+            .atZone(zone)
+            .toLocalDate()
+            .minusDays(lookbackDays)
+            .atStartOfDay(zone)
+            .toInstant()
+            .toEpochMilli()
+
+        while (windowStart < i && points[windowStart].timestampMillis < fromMillis) {
+            windowStart++
+        }
+
+        var count = 0
+        var sum = 0.0
+        var sumSq = 0.0
+        for (j in windowStart..i) {
+            val s = points[j].spreadPercent
+            sum += s
+            sumSq += s * s
+            count++
+        }
+
+        val z = if (count < minBarsInWindow.coerceAtLeast(2)) {
+            0.0
+        } else {
+            val mean = sum / count
+            val variance = (sumSq / count) - (mean * mean)
+            val stdDev = sqrt(variance.coerceAtLeast(0.0)).takeIf { it > 1e-12 } ?: 1.0
+            (points[i].spreadPercent - mean) / stdDev
+        }
+        result += points[i].copy(zScore = z)
+    }
+    return result
 }
 
 internal fun formatLabelForPeriod(timestamp: LocalDateTime, period: Period): String {

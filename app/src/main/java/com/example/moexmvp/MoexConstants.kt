@@ -64,6 +64,10 @@ internal const val CHART_Y_ZOOM_MAX = 24f
 internal const val CHART_MAX_DISPLAY_BARS = 2_000
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
+/** Скользящее окно μ/σ для Z-score (календарных дней, только прошлое — без look-ahead). */
+internal const val Z_SCORE_ROLLING_LOOKBACK_DAYS = 30L
+/** Минимум 15м баров в окне, иначе Z=0 (прогрев). */
+internal const val Z_SCORE_ROLLING_MIN_BARS = 48
 internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
 /** Откат Z от экстремума для отложенного входа (0 = сразу на пересечении порога). */
 internal const val DEFAULT_STRATEGY_ENTRY_PULLBACK_Z = 0.07
@@ -87,6 +91,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.07 — Z-score скольз. 30д (applyZScoresRolling) + бэктест порогов без look-ahead.
 1.7.05 — Рынок: LineChart рисует только видимое окно (1M/3M без ANR); маркеры Z в remember.
 1.7.04 — Рынок: период Z-графиков (1W на гр.3) без refresh MOEX — исправлен вылет.
 1.7.03 — Рынок: на графике 3 (Z линия) кнопки периода 1D/1W/… как у графика 4 в альбоме.
