@@ -574,7 +574,7 @@ internal fun CandlestickChart(
                                 if (pan.y != 0f && onYViewChange != null) {
                                     val fullSpan = (baseMax - baseMin).coerceAtLeast(1e-9)
                                     val visSpan = fullSpan / yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
-                                    val deltaY = -pan.y / chartHeightPx * visSpan
+                                    val deltaY = pan.y / chartHeightPx * visSpan
                                     onYViewChange(yZoom, yViewCenter + deltaY)
                                 }
                             }

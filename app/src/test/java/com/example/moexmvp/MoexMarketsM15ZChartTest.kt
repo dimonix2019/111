@@ -9,6 +9,23 @@ import java.time.ZoneId
 class MoexMarketsM15ZChartTest {
 
     @Test
+    fun aggregateZScoresTo15MinuteCandles_buildsFullOhlcWithinBucket() {
+        val points = listOf(
+            point("2026-05-19 10:00", z = -0.2),
+            point("2026-05-19 10:10", z = 0.9),
+            point("2026-05-19 10:15", z = 0.1),
+        )
+        val candles = aggregateZScoresTo15MinuteCandles(points)
+        assertEquals(2, candles.size)
+        assertEquals(-0.2, candles[0].open, 1e-9)
+        assertEquals(0.9, candles[0].close, 1e-9)
+        assertEquals(0.9, candles[0].high, 1e-9)
+        assertEquals(-0.2, candles[0].low, 1e-9)
+        assertTrue(candles[0].high >= candles[0].open)
+        assertTrue(candles[0].low <= candles[0].open)
+    }
+
+    @Test
     fun buildZScoreCandlesFromM15Points_keepsStrategyZAsClose() {
         val points = listOf(
             point("2026-05-19 10:00", z = -0.4),

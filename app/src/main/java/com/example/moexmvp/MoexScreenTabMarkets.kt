@@ -141,7 +141,7 @@ internal fun MoexScreenTabMarkets(
                                 initialWindowWidth = marketsZInitialWindow.first,
                                 initialWindowStart = marketsZInitialWindow.second,
                                 useDesktopStyle = true,
-                                displayMode = ChartDisplayMode.Line,
+                                displayMode = ChartDisplayMode.Candles,
                                 showPlotlyToolbar = true,
                                 tradeTapHintFormatter = { idx ->
                                     formatZStrategyTradeTapHint(
@@ -278,7 +278,7 @@ internal fun MoexScreenTabMarkets(
                             val c = chartSuccess
                             item {
                                 CandlestickChartCard(
-                                    title = "Z-score · 15м (как strategy-web)",
+                                    title = "Z-score · 15м свечи OHLC",
                                     candles = marketsZScoreCandles,
                                     chartHeightDp = 320,
                                     referenceLines = marketsZReferenceLines,
@@ -294,7 +294,7 @@ internal fun MoexScreenTabMarkets(
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
                                     useDesktopStyle = true,
-                                    displayMode = ChartDisplayMode.Line,
+                                    displayMode = ChartDisplayMode.Candles,
                                     showPlotlyToolbar = true,
                                     tradeTapHintFormatter = { idx ->
                                         formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)

@@ -220,7 +220,7 @@ internal fun Modifier.trackpadChartGestures(
                             if (chartHeightPx > 1f && delta.y != 0f) {
                                 val fullSpan = (dataYMax - dataYMin).coerceAtLeast(1e-9)
                                 val visSpan = fullSpan / viewport.yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
-                                viewport.panY(-delta.y / chartHeightPx * visSpan)
+                                viewport.panY(delta.y / chartHeightPx * visSpan)
                             }
                             change.consume()
                         }
@@ -274,4 +274,4 @@ private fun ChartToolbarButton(
 }
 
 internal const val CHART_TRACKPAD_HINT =
-    "1 палец — сдвиг (как тачпад) · 2 пальца — масштаб · двойной тап — сброс · кнопки справа"
+    "1 палец — сдвиг (вверх/вниз как тачпад) · 2 пальца — масштаб · двойной тап — сброс · кнопки справа"

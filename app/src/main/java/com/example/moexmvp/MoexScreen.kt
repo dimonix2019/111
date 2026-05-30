@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
@@ -35,8 +38,12 @@ internal fun MoexScreen() {
             filterM15PointsForMarketsPeriod(screen.marketsM15Points, screen.selectedPeriod)
         )
     }
-    val marketsZScoreCandles = remember(marketsM15ChartPoints) {
-        buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
+    var marketsZScoreCandles by remember { mutableStateOf<List<CandlePoint>>(emptyList()) }
+    LaunchedEffect(marketsM15ChartPoints) {
+        marketsZScoreCandles = buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
+        if (marketsM15ChartPoints.size >= 2) {
+            marketsZScoreCandles = buildZScoreCandlesFullOhlcForM15Series(marketsM15ChartPoints)
+        }
     }
     val portfolioZChartPoints = remember(screen.portfolioM15Points, screen.selectedPeriod) {
         downsampleDataPointsForChart(

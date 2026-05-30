@@ -51,6 +51,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -59,6 +60,8 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal fun buildZScoreReferenceLines(
     thresholds: DynamicThresholds,
@@ -339,6 +342,91 @@ internal fun buildZScoreCandlesFromM15Points(points: List<DataPoint>): List<Cand
             low = min(open, close),
             close = close
         )
+    }
+}
+
+/** 10м spread-точки по пересечению TATN/TATNP (для Z OHLC внутри 15м). */
+internal fun buildSpreadDataPointsFrom10mBars(
+    tatn10: List<CandleBar>,
+    tatnp10: List<CandleBar>,
+): List<DataPoint> {
+    val tatnByTime = tatn10.associateBy { it.timestamp }
+    val tatnpByTime = tatnp10.associateBy { it.timestamp }
+    val times = tatnByTime.keys.intersect(tatnpByTime.keys).sorted()
+    return times.mapNotNull { ts ->
+        val c1 = tatnByTime[ts]?.close ?: return@mapNotNull null
+        val c2 = tatnpByTime[ts]?.close ?: return@mapNotNull null
+        if (c2 == 0.0) return@mapNotNull null
+        val spread = (c1 / c2 - 1.0) * 100.0
+        DataPoint(
+            timestampMillis = ts.atZone(moexZoneId).toInstant().toEpochMilli(),
+            tradeDate = ts.format(portfolio15mLabelFormatter),
+            tatnClose = c1,
+            tatnpClose = c2,
+            spreadPercent = spread,
+            diff = c1 - c2,
+            zScore = 0.0,
+        )
+    }
+}
+
+/** Агрегация 10м Z → 15м свечи OHLC (open/first, close/last, high, low внутри слота). */
+internal fun aggregateZScoresTo15MinuteCandles(points10mWithZ: List<DataPoint>): List<CandlePoint> {
+    if (points10mWithZ.isEmpty()) return emptyList()
+    val grouped = linkedMapOf<LocalDateTime, MutableList<DataPoint>>()
+    points10mWithZ.sortedBy { it.timestampMillis }.forEach { point ->
+        val ts = Instant.ofEpochMilli(point.timestampMillis).atZone(moexZoneId).toLocalDateTime()
+        val bucket = ts.withMinute((ts.minute / 15) * 15).withSecond(0).withNano(0)
+        grouped.getOrPut(bucket) { mutableListOf() }.add(point)
+    }
+    return grouped.map { (bucket, bars) ->
+        val zs = bars.map { it.zScore }
+        val open = zs.first()
+        val close = zs.last()
+        CandlePoint(
+            label = bucket.format(portfolio15mLabelFormatter),
+            open = open,
+            high = zs.maxOrNull() ?: max(open, close),
+            low = zs.minOrNull() ?: min(open, close),
+            close = close,
+        )
+    }
+}
+
+/**
+ * Полный OHLC Z-score на 15м: rolling Z по 10м spread, затем min/max/open/close внутри 15м слота.
+ * Fallback на [buildZScoreCandlesFromM15Points], если 10м данных мало.
+ */
+internal suspend fun buildZScoreCandlesFullOhlcForM15Series(
+    m15Points: List<DataPoint>,
+): List<CandlePoint> = withContext(Dispatchers.IO) {
+    if (m15Points.isEmpty()) return@withContext emptyList()
+    if (m15Points.size == 1) return@withContext buildZScoreCandlesFromM15Points(m15Points)
+
+    val zone = moexZoneId
+    val firstDay = Instant.ofEpochMilli(m15Points.first().timestampMillis).atZone(zone).toLocalDate()
+    val lastDay = Instant.ofEpochMilli(m15Points.last().timestampMillis).atZone(zone).toLocalDate()
+    val tatn10 = loadCandleBars("TATN", firstDay, lastDay.plusDays(1), interval = 10)
+    val tatnp10 = loadCandleBars("TATNP", firstDay, lastDay.plusDays(1), interval = 10)
+    val spread10 = buildSpreadDataPointsFrom10mBars(tatn10, tatnp10)
+    if (spread10.size < Z_SCORE_ROLLING_MIN_BARS) {
+        return@withContext buildZScoreCandlesFromM15Points(m15Points)
+    }
+
+    val z10 = applyZScoresRolling(spread10)
+    val candlesByLabel = aggregateZScoresTo15MinuteCandles(z10).associateBy { it.label }
+    val fallback = buildZScoreCandlesFromM15Points(m15Points).associateBy { it.label }
+
+    m15Points.map { point ->
+        candlesByLabel[point.tradeDate]
+            ?: fallback[point.tradeDate]
+            ?: CandlePoint(
+                label = point.tradeDate,
+                open = point.zScore,
+                high = point.zScore,
+                low = point.zScore,
+                close = point.zScore,
+            )
     }
 }
 
