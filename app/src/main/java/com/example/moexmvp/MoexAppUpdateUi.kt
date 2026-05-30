@@ -99,6 +99,11 @@ internal fun AppUpdateDialogHost(
                         fontSize = 12.sp,
                         modifier = Modifier.padding(top = 8.dp)
                     )
+                    if (err.contains("404")) {
+                        TextButton(onClick = { openAppUpdateInBrowser(context) }) {
+                            Text("Открыть в браузере", color = Color(0xFF64B5F6))
+                        }
+                    }
                 }
                 if (!canInstallPackages(context)) {
                     Text(

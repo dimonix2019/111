@@ -57,6 +57,36 @@ class MoexAppUpdateParseTest {
     }
 
     @Test
+    fun parseAppUpdateManifestJson_publicMirrorUsesGhPagesApk() {
+        val json = """
+            {"versionCode":132,"versionName":"1.7.14","apkUrl":"https://github.com/x/y.apk"}
+        """.trimIndent()
+        val u = parseAppUpdateManifestJson(json, manifestUrl = APP_UPDATE_PUBLIC_MANIFEST_URL)
+        assertNotNull(u)
+        assertEquals(APP_UPDATE_PUBLIC_APK_URL, u!!.apkDownloadUrl)
+    }
+
+    @Test
+    fun formatAppUpdateFetchFailure_mentionsPrivateRepoOn404() {
+        val text = formatAppUpdateFetchFailure(
+            AppUpdateFetchDiagnostics(
+                update = null,
+                lastHttpCode = 404,
+                privateRepoLikely = true,
+                triedUrls = listOf(APP_UPDATE_PUBLIC_MANIFEST_URL),
+            )
+        )
+        assertTrue(text.contains("private"))
+        assertTrue(text.contains("404"))
+    }
+
+    @Test
+    fun appUpdateManifestUrlCandidates_prefersPublicMirror() {
+        val urls = appUpdateManifestUrlCandidates()
+        assertEquals(APP_UPDATE_PUBLIC_MANIFEST_URL, urls.first())
+    }
+
+    @Test
     fun isNewerAppUpdateAvailable_comparesVersionCode() {
         val remote = AppRemoteUpdate(105, "1.6.93", "https://example.com/a.apk")
         assertTrue(isNewerAppUpdateAvailable(remote, localVersionCode = 104))

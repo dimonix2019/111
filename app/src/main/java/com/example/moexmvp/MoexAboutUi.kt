@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +43,7 @@ internal fun AboutTabContent(
     val scope = rememberCoroutineScope()
     var updateCheckText by remember { mutableStateOf<String?>(null) }
     var updateChecking by remember { mutableStateOf(false) }
+    var showBrowserFallback by remember { mutableStateOf(false) }
     val entries = parseAppChangelog()
     val currentNotes = changelogSummaryForBuild()
     Column(
@@ -82,15 +84,24 @@ internal fun AboutTabContent(
                 if (updateChecking) return@Button
                 updateChecking = true
                 updateCheckText = "Проверка GitHub…"
+                showBrowserFallback = false
                 scope.launch {
-                    val status = withContext(Dispatchers.IO) {
-                        prepareManualAppUpdateCheck(context)
-                        checkAppUpdateStatus(context)
-                    }
-                    updateCheckText = formatAppUpdateCheckStatus(status)
-                    updateChecking = false
-                    if (status is AppUpdateCheckStatus.UpdateAvailable) {
-                        onUpdateFound?.invoke(status.remote)
+                    try {
+                        val status = withContext(Dispatchers.IO) {
+                            prepareManualAppUpdateCheck(context)
+                            checkAppUpdateStatus()
+                        }
+                        updateCheckText = formatAppUpdateCheckStatus(status)
+                        showBrowserFallback = status is AppUpdateCheckStatus.FetchFailed ||
+                            status is AppUpdateCheckStatus.RemoteOlder
+                        if (status is AppUpdateCheckStatus.UpdateAvailable) {
+                            onUpdateFound?.invoke(status.remote)
+                        }
+                    } catch (e: Exception) {
+                        updateCheckText = "Ошибка проверки: ${e.message ?: e.javaClass.simpleName}"
+                        showBrowserFallback = true
+                    } finally {
+                        updateChecking = false
                     }
                 }
             },
@@ -123,6 +134,17 @@ internal fun AboutTabContent(
                     .padding(10.dp)
             )
         }
+        if (showBrowserFallback) {
+            OutlinedButton(
+                onClick = { runCatching { openAppUpdateInBrowser(context) } },
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA))
+            ) {
+                Text("Открыть Release в браузере")
+            }
+        }
         if (currentNotes != null) {
             Text(
                 text = "Что сделано в этой версии",
@@ -150,7 +172,10 @@ internal fun AboutTabContent(
             modifier = Modifier.padding(top = 18.dp)
         )
         Text(
-            text = "Если по ссылке 404 на телефоне: чаще всего репозиторий на GitHub закрытый (private) — для него без входа GitHub отдаёт 404. Откройте ссылку в браузере под аккаунтом с доступом к репозиторию или сделайте репозиторий публичным. Файл появляется только после успешного прогона Actions «Build APK» (релиз moexmvp-debug-latest).",
+            text = "Репозиторий GitHub сейчас private: из приложения Release часто недоступен (HTTP 404). " +
+                "«Открыть Release в браузере» — если вы вошли в GitHub на телефоне. " +
+                "Чтобы проверка работала без браузера — сделайте репозиторий public " +
+                "(Settings → Danger zone → Change visibility).",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 6.dp)

@@ -21,6 +21,11 @@ internal const val APP_UPDATE_MANIFEST_URL =
     "https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/app-update.json"
 internal const val APP_UPDATE_GITHUB_API_URL =
     "https://api.github.com/repos/dimonix2019/111/releases/tags/moexmvp-debug-latest"
+/** Публичное зеркало (ветка gh-pages). Работает без входа, если репозиторий public. */
+internal const val APP_UPDATE_PUBLIC_MANIFEST_URL =
+    "https://raw.githubusercontent.com/dimonix2019/111/gh-pages/app-update.json"
+internal const val APP_UPDATE_PUBLIC_APK_URL =
+    "https://raw.githubusercontent.com/dimonix2019/111/gh-pages/moexmvp-debug.apk"
 internal const val PREF_APP_UPDATE_DISMISSED_VERSION_CODE = "app_update_dismissed_version_code"
 internal const val PREF_APP_UPDATE_NOTIFIED_VERSION_CODE = "app_update_notified_version_code"
 internal const val APP_UPDATE_PUSH_NOTIFICATION_ID = 12_002
@@ -35,6 +40,19 @@ internal data class AppRemoteUpdate(
     val versionCode: Int,
     val versionName: String,
     val apkDownloadUrl: String
+)
+
+internal data class HttpFetchResult(
+    val body: String?,
+    val httpCode: Int?,
+    val errorMessage: String? = null,
+)
+
+internal data class AppUpdateFetchDiagnostics(
+    val update: AppRemoteUpdate?,
+    val lastHttpCode: Int?,
+    val privateRepoLikely: Boolean,
+    val triedUrls: List<String>,
 )
 
 internal fun loadDismissedAppUpdateVersionCode(context: Context): Int =
@@ -95,14 +113,15 @@ internal sealed class AppUpdateCheckStatus {
     data object UpToDate : AppUpdateCheckStatus()
     /** На GitHub опубликована сборка старее, чем установленная (часто — CI ещё не обновил Release). */
     data class RemoteOlder(val remote: AppRemoteUpdate) : AppUpdateCheckStatus()
-    data class FetchFailed(val hint: String) : AppUpdateCheckStatus()
+    data class FetchFailed(val hint: String, val openBrowserRecommended: Boolean = true) : AppUpdateCheckStatus()
 }
 
-internal fun checkAppUpdateStatus(context: Context): AppUpdateCheckStatus {
-    val remote = fetchRemoteAppUpdate()
+internal fun checkAppUpdateStatus(): AppUpdateCheckStatus {
+    val diagnostics = fetchRemoteAppUpdateWithDiagnostics()
+    val remote = diagnostics.update
         ?: return AppUpdateCheckStatus.FetchFailed(
-            "Не удалось прочитать app-update.json или GitHub Release " +
-                "(private repo без входа → 404). Откройте «Прямая ссылка» в браузере под аккаунтом GitHub."
+            hint = formatAppUpdateFetchFailure(diagnostics),
+            openBrowserRecommended = true,
         )
     return when {
         isNewerAppUpdateAvailable(remote) -> AppUpdateCheckStatus.UpdateAvailable(remote)
@@ -122,18 +141,53 @@ internal fun formatAppUpdateCheckStatus(status: AppUpdateCheckStatus): String = 
     is AppUpdateCheckStatus.RemoteOlder -> {
         val r = status.remote
         "На GitHub пока ${r.versionName} (${r.versionCode}) — ниже вашей ${BuildConfig.VERSION_NAME} " +
-            "(${BuildConfig.VERSION_CODE}). Дождитесь CI или скачайте APK вручную после успешного Build APK."
+            "(${BuildConfig.VERSION_CODE}). Откройте «В браузере» или дождитесь публикации новой сборки."
     }
     is AppUpdateCheckStatus.FetchFailed -> status.hint
 }
 
-internal fun parseAppUpdateManifestJson(json: String): AppRemoteUpdate? {
+internal fun formatAppUpdateFetchFailure(diagnostics: AppUpdateFetchDiagnostics): String {
+    val code = diagnostics.lastHttpCode
+    val codePart = code?.let { " (HTTP $it)" }.orEmpty()
+    return buildString {
+        append("Не удалось проверить обновление$codePart. ")
+        if (diagnostics.privateRepoLikely) {
+            append(
+                "Репозиторий GitHub закрытый (private): без входа Release и app-update.json недоступны. "
+            )
+            append("Нажмите «Открыть в браузере» (нужен вход в GitHub) ")
+            append("или сделайте репозиторий public — тогда проверка заработает из приложения. ")
+        } else {
+            append("Проверьте интернет или откройте Release в браузере. ")
+        }
+        append("Прямая ссылка: $APK_GITHUB_RELEASES_PAGE_URL")
+    }
+}
+
+internal fun appUpdateManifestUrlCandidates(): List<String> = listOf(
+    APP_UPDATE_PUBLIC_MANIFEST_URL,
+    APP_UPDATE_MANIFEST_URL,
+)
+
+internal fun resolveApkDownloadUrl(manifestUrl: String, parsed: AppRemoteUpdate): String {
+    if (manifestUrl == APP_UPDATE_PUBLIC_MANIFEST_URL) {
+        return APP_UPDATE_PUBLIC_APK_URL
+    }
+    return parsed.apkDownloadUrl.ifBlank { APK_DOWNLOAD_DIRECT_URL }
+}
+
+internal fun parseAppUpdateManifestJson(json: String, manifestUrl: String = APP_UPDATE_MANIFEST_URL): AppRemoteUpdate? {
     val o = runCatching { JSONObject(json) }.getOrNull() ?: return null
     val versionCode = o.optInt("versionCode", -1)
     if (versionCode <= 0) return null
     val versionName = o.optString("versionName").trim().ifBlank { "?" }
-    val apkUrl = o.optString("apkUrl").trim().ifBlank { APK_DOWNLOAD_DIRECT_URL }
-    return AppRemoteUpdate(versionCode, versionName, apkUrl)
+    val apkUrl = o.optString("apkUrl").trim()
+    val parsed = AppRemoteUpdate(
+        versionCode,
+        versionName,
+        apkUrl.ifBlank { APK_DOWNLOAD_DIRECT_URL }
+    )
+    return parsed.copy(apkDownloadUrl = resolveApkDownloadUrl(manifestUrl, parsed))
 }
 
 /** «MOEX MVP debug — 1.6.91 (103)» → versionName + versionCode. */
@@ -171,25 +225,66 @@ private fun parseVersionFromReleaseBody(body: String): Pair<String, Int>? {
     return versionName to versionCode
 }
 
-internal fun fetchRemoteAppUpdate(): AppRemoteUpdate? {
-    fetchText(APP_UPDATE_MANIFEST_URL)?.let { parseAppUpdateManifestJson(it) }?.let { return it }
+internal fun fetchRemoteAppUpdateWithDiagnostics(): AppUpdateFetchDiagnostics {
+    var lastHttpCode: Int? = null
+    var privateRepoLikely = false
+    val tried = mutableListOf<String>()
+
+    for (url in appUpdateManifestUrlCandidates()) {
+        tried += url
+        val result = fetchText(url)
+        lastHttpCode = result.httpCode ?: lastHttpCode
+        if (result.httpCode == 404) privateRepoLikely = true
+        result.body?.let { body ->
+            parseAppUpdateManifestJson(body, manifestUrl = url)?.let { update ->
+                return AppUpdateFetchDiagnostics(update, result.httpCode, privateRepoLikely = false, triedUrls = tried)
+            }
+        }
+    }
+
+    tried += APP_UPDATE_GITHUB_API_URL
     fetchText(
         APP_UPDATE_GITHUB_API_URL,
         headers = mapOf("Accept" to "application/vnd.github+json")
-    )?.let { parseGitHubReleaseJson(it) }?.let { return it }
-    return null
+    ).let { result ->
+        lastHttpCode = result.httpCode ?: lastHttpCode
+        if (result.httpCode == 404) privateRepoLikely = true
+        result.body?.let { body ->
+            parseGitHubReleaseJson(body)?.let { update ->
+                return AppUpdateFetchDiagnostics(update, result.httpCode, privateRepoLikely = false, triedUrls = tried)
+            }
+        }
+    }
+
+    return AppUpdateFetchDiagnostics(
+        update = null,
+        lastHttpCode = lastHttpCode,
+        privateRepoLikely = privateRepoLikely,
+        triedUrls = tried,
+    )
 }
 
-private fun fetchText(url: String, headers: Map<String, String> = emptyMap()): String? {
+internal fun fetchRemoteAppUpdate(): AppRemoteUpdate? =
+    fetchRemoteAppUpdateWithDiagnostics().update
+
+private fun fetchText(url: String, headers: Map<String, String> = emptyMap()): HttpFetchResult {
     val request = Request.Builder().url(url).apply {
         headers.forEach { (k, v) -> addHeader(k, v) }
     }.build()
     return runCatching {
         updateHttpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return null
-            response.body?.string()?.takeIf { it.isNotBlank() }
+            val code = response.code
+            if (!response.isSuccessful) {
+                return@use HttpFetchResult(body = null, httpCode = code)
+            }
+            HttpFetchResult(
+                body = response.body?.string()?.takeIf { it.isNotBlank() },
+                httpCode = code,
+            )
         }
-    }.getOrNull()
+    }.getOrElse { err ->
+        HttpFetchResult(body = null, httpCode = null, errorMessage = err.message)
+    }
 }
 
 internal fun isNewerAppUpdateAvailable(
@@ -207,6 +302,12 @@ internal fun openUnknownAppSourcesSettings(context: Context) {
         Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
         Uri.parse("package:${context.packageName}")
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    context.startActivity(intent)
+}
+
+internal fun openAppUpdateInBrowser(context: Context) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(APK_GITHUB_RELEASES_PAGE_URL))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     context.startActivity(intent)
 }
 
@@ -228,7 +329,12 @@ internal fun downloadAppUpdateApk(
     val request = Request.Builder().url(update.apkDownloadUrl).build()
     updateHttpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
-            throw IOException("HTTP ${response.code}")
+            throw IOException(
+                when (response.code) {
+                    404 -> "HTTP 404 — APK недоступен (private repo? Откройте Release в браузере под аккаунтом GitHub)"
+                    else -> "HTTP ${response.code}"
+                }
+            )
         }
         val body = response.body ?: throw IOException("Пустой ответ")
         val total = body.contentLength().takeIf { it > 0L }
