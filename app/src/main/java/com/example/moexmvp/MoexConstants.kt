@@ -90,6 +90,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.15 — Обновления: «Позже» больше не показывает диалог снова каждые 5 мин; убран текст про private repo.
 1.7.14 — Обновления: проверка через public-зеркало gh-pages; понятная ошибка при private repo; кнопка «Открыть Release в браузере».
 1.7.13 — Рынок: фитили Z-свечей на той же μ/σ, что close 15м бара; отрисовка только верх/низ тени (не через тело).
 1.7.12 — О приложении: кнопка «Обновить приложение» (проверка GitHub, сброс «Позже», диалог установки).

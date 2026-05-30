@@ -92,8 +92,7 @@ internal fun AboutTabContent(
                             checkAppUpdateStatus()
                         }
                         updateCheckText = formatAppUpdateCheckStatus(status)
-                        showBrowserFallback = status is AppUpdateCheckStatus.FetchFailed ||
-                            status is AppUpdateCheckStatus.RemoteOlder
+                        showBrowserFallback = status is AppUpdateCheckStatus.FetchFailed
                         if (status is AppUpdateCheckStatus.UpdateAvailable) {
                             onUpdateFound?.invoke(status.remote)
                         }
@@ -172,10 +171,8 @@ internal fun AboutTabContent(
             modifier = Modifier.padding(top = 18.dp)
         )
         Text(
-            text = "Репозиторий GitHub сейчас private: из приложения Release часто недоступен (HTTP 404). " +
-                "«Открыть Release в браузере» — если вы вошли в GitHub на телефоне. " +
-                "Чтобы проверка работала без браузера — сделайте репозиторий public " +
-                "(Settings → Danger zone → Change visibility).",
+            text = "Сборки публикуются на GitHub Release moexmvp-debug-latest. " +
+                "«Обновить приложение» проверяет версию и скачивает APK.",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 6.dp)

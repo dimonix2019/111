@@ -34,6 +34,13 @@ private val updateHttpClient: OkHttpClient = OkHttpClient.Builder()
     .connectTimeout(20, TimeUnit.SECONDS)
     .readTimeout(90, TimeUnit.SECONDS)
     .followRedirects(true)
+    .addInterceptor { chain ->
+        chain.proceed(
+            chain.request().newBuilder()
+                .header("User-Agent", "MOEX-MVP-Android/${BuildConfig.VERSION_NAME}")
+                .build()
+        )
+    }
     .build()
 
 internal data class AppRemoteUpdate(
@@ -153,14 +160,13 @@ internal fun formatAppUpdateFetchFailure(diagnostics: AppUpdateFetchDiagnostics)
         append("Не удалось проверить обновление$codePart. ")
         if (diagnostics.privateRepoLikely) {
             append(
-                "Репозиторий GitHub закрытый (private): без входа Release и app-update.json недоступны. "
+                "GitHub вернул 404 — часто так бывает у private-репозитория без входа. "
             )
-            append("Нажмите «Открыть в браузере» (нужен вход в GitHub) ")
-            append("или сделайте репозиторий public — тогда проверка заработает из приложения. ")
+            append("Если repo уже public, проверьте интернет и повторите. ")
         } else {
-            append("Проверьте интернет или откройте Release в браузере. ")
+            append("Проверьте интернет. ")
         }
-        append("Прямая ссылка: $APK_GITHUB_RELEASES_PAGE_URL")
+        append("Release: $APK_GITHUB_RELEASES_PAGE_URL")
     }
 }
 

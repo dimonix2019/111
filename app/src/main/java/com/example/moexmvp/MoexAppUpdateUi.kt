@@ -167,7 +167,7 @@ internal fun AppUpdateDialogHost(
                                 } catch (e: Exception) {
                                     downloading = false
                                     errorText = e.message?.take(200)
-                                        ?: "Ошибка загрузки APK (404 — репозиторий private?)"
+                                        ?: "Ошибка загрузки APK"
                                 }
                             }
                         }
@@ -208,8 +208,8 @@ internal fun AppUpdateChecker(
     val context = LocalContext.current
     LaunchedEffect(enabled) {
         if (!enabled) return@LaunchedEffect
-        val dismissed = loadDismissedAppUpdateVersionCode(context)
         while (true) {
+            val dismissed = loadDismissedAppUpdateVersionCode(context)
             val remote = withContext(Dispatchers.IO) {
                 checkRemoteAppUpdateAndNotify(context) ?: fetchRemoteAppUpdate()
             }

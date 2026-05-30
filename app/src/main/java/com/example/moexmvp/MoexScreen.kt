@@ -117,7 +117,17 @@ internal fun MoexScreen() {
 
     MoexScreenEffects(screen, scope)
 
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val remote = fetchRemoteAppUpdate()
+            if (remote == null || !shouldOfferAppUpdateUi(remote, context)) {
+                screen.pendingAppUpdate = null
+            }
+        }
+    }
+
     AppUpdateChecker { remote ->
+        if (!shouldOfferAppUpdateUi(remote, context)) return@AppUpdateChecker
         if (screen.pendingAppUpdate == null || screen.pendingAppUpdate!!.versionCode < remote.versionCode) {
             screen.pendingAppUpdate = remote
         }
