@@ -49,6 +49,15 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".AppUpdateCheckReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.moexmvp.action.APP_UPDATE_CHECK" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

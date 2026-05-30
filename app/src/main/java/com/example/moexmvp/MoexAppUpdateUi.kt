@@ -205,9 +205,11 @@ internal fun AppUpdateChecker(
         if (!enabled) return@LaunchedEffect
         val dismissed = loadDismissedAppUpdateVersionCode(context)
         while (true) {
-            val remote = withContext(Dispatchers.IO) { fetchRemoteAppUpdate() }
+            val remote = withContext(Dispatchers.IO) {
+                checkRemoteAppUpdateAndNotify(context) ?: fetchRemoteAppUpdate()
+            }
             if (remote != null &&
-                isNewerAppUpdateAvailable(remote) &&
+                shouldOfferAppUpdateUi(remote, context) &&
                 remote.versionCode > dismissed
             ) {
                 onUpdateFound(remote)

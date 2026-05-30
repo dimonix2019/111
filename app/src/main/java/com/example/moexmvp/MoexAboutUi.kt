@@ -14,16 +14,33 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
-internal fun AboutTabContent(modifier: Modifier = Modifier) {
+internal fun AboutTabContent(
+    modifier: Modifier = Modifier,
+    onUpdateFound: ((AppRemoteUpdate) -> Unit)? = null,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var updateCheckText by remember { mutableStateOf<String?>(null) }
+    var updateChecking by remember { mutableStateOf(false) }
     val entries = parseAppChangelog()
     val currentNotes = changelogSummaryForBuild()
     Column(
@@ -59,6 +76,41 @@ internal fun AboutTabContent(modifier: Modifier = Modifier) {
             fontSize = 13.sp,
             modifier = Modifier.padding(top = 6.dp)
         )
+        TextButton(
+            onClick = {
+                if (updateChecking) return@TextButton
+                updateChecking = true
+                updateCheckText = "Проверка GitHub…"
+                scope.launch {
+                    val status = withContext(Dispatchers.IO) { checkAppUpdateStatus(context) }
+                    updateCheckText = formatAppUpdateCheckStatus(status)
+                    updateChecking = false
+                    if (status is AppUpdateCheckStatus.UpdateAvailable) {
+                        onUpdateFound?.invoke(status.remote)
+                    }
+                }
+            },
+            enabled = !updateChecking,
+            modifier = Modifier.padding(top = 8.dp)
+        ) {
+            Text(
+                text = if (updateChecking) "Проверка…" else "Проверить обновления",
+                color = Color(0xFF81C784)
+            )
+        }
+        updateCheckText?.let { msg ->
+            Text(
+                text = msg,
+                color = Color(0xFFBCAAA4),
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF1A2332), RoundedCornerShape(8.dp))
+                    .padding(10.dp)
+            )
+        }
         if (currentNotes != null) {
             Text(
                 text = "Что сделано в этой версии",

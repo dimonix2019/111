@@ -47,6 +47,16 @@ class MoexAppUpdateParseTest {
     }
 
     @Test
+    fun checkAppUpdateStatus_remoteOlderWhenLocalIsNewer() {
+        val status = AppUpdateCheckStatus.RemoteOlder(
+            AppRemoteUpdate(114, "1.7.02", "https://example.com/a.apk")
+        )
+        val text = formatAppUpdateCheckStatus(status)
+        assertTrue(text.contains("114"))
+        assertTrue(text.contains("GitHub"))
+    }
+
+    @Test
     fun isNewerAppUpdateAvailable_comparesVersionCode() {
         val remote = AppRemoteUpdate(105, "1.6.93", "https://example.com/a.apk")
         assertTrue(isNewerAppUpdateAvailable(remote, localVersionCode = 104))
