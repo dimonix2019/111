@@ -48,6 +48,11 @@ internal fun saveDismissedAppUpdateVersionCode(context: Context, versionCode: In
         .apply()
 }
 
+/** Сброс «Позже» перед ручной проверкой — диалог обновления снова покажется при наличии сборки. */
+internal fun prepareManualAppUpdateCheck(context: Context) {
+    saveDismissedAppUpdateVersionCode(context, 0)
+}
+
 internal fun loadNotifiedAppUpdateVersionCode(context: Context): Int =
     context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
         .getInt(PREF_APP_UPDATE_NOTIFIED_VERSION_CODE, 0)

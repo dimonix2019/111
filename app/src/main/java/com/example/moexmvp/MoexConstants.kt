@@ -90,6 +90,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.12 — О приложении: кнопка «Обновить приложение» (проверка GitHub, сброс «Позже», диалог установки).
 1.7.11 — Рынок: Z-свечи без разрывов (open=close предыдущего бара, 10м только для high/low внутри 15м).
 1.7.10 — Рынок: 15м Z-свечи полный OHLC (из 10м rolling Z); вертикальный сдвиг инвертирован (как тачпад).
 1.7.09 — Рынок: график Z как strategy-web (линия, тёмная тема, пороги amber/green); управление тачпадом (1 палец — сдвиг, 2 — масштаб) + панель Plotly.

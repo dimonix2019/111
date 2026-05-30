@@ -12,9 +12,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -76,13 +77,16 @@ internal fun AboutTabContent(
             fontSize = 13.sp,
             modifier = Modifier.padding(top = 6.dp)
         )
-        TextButton(
+        Button(
             onClick = {
-                if (updateChecking) return@TextButton
+                if (updateChecking) return@Button
                 updateChecking = true
                 updateCheckText = "Проверка GitHub…"
                 scope.launch {
-                    val status = withContext(Dispatchers.IO) { checkAppUpdateStatus(context) }
+                    val status = withContext(Dispatchers.IO) {
+                        prepareManualAppUpdateCheck(context)
+                        checkAppUpdateStatus(context)
+                    }
                     updateCheckText = formatAppUpdateCheckStatus(status)
                     updateChecking = false
                     if (status is AppUpdateCheckStatus.UpdateAvailable) {
@@ -91,11 +95,19 @@ internal fun AboutTabContent(
                 }
             },
             enabled = !updateChecking,
-            modifier = Modifier.padding(top = 8.dp)
+            modifier = Modifier
+                .padding(top = 12.dp)
+                .fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF2E7D32),
+                contentColor = Color.White,
+                disabledContainerColor = Color(0xFF1B5E20),
+                disabledContentColor = Color(0xFFBDBDBD)
+            )
         ) {
             Text(
-                text = if (updateChecking) "Проверка…" else "Проверить обновления",
-                color = Color(0xFF81C784)
+                text = if (updateChecking) "Проверка…" else "Обновить приложение",
+                fontWeight = FontWeight.SemiBold
             )
         }
         updateCheckText?.let { msg ->
