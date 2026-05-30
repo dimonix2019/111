@@ -15,9 +15,34 @@ internal data class ZStrategySimOptions(
     /** Закрыть открытую позицию на баре с временем ≥ cutoff (МСК). */
     val closeBeforeClearingMsk: LocalTime? = null,
     /** В день публикации отчёта Tatneft — принудительный выход. */
-    val closeOpenOnReportPublicationDay: Boolean = true
+    val closeOpenOnReportPublicationDay: Boolean = true,
+    /** Slippage в п.п. спреда на входе/выходе (parity с strategy-web). */
+    val slippageSpreadPts: Double = 0.0,
+    /** Стоп по убытку в п.п. спреда (0 = выкл.). */
+    val maxLossSpreadPts: Double = 0.0,
+    /** Стоп по убытку в ₽ после комиссии выхода и овернайта (0 = выкл.). */
+    val maxLossRub: Double = 0.0,
+    /** Не входить, если спред % ниже порога (0 = выкл.). */
+    val minSpreadPct: Double = 0.0,
+    /** Не входить, если спред % выше порога (0 = выкл.). */
+    val maxSpreadPct: Double = 0.0,
+    /** Доп. буфер |Z| поверх entry для входа (0 = только пересечение entry). */
+    val entryZBuffer: Double = 0.0,
+    /** Остановить новые входы при просадке эквити ≥ ₽ (0 = выкл.). */
+    val maxDrawdownHaltRub: Double = 0.0,
+    /** Остановить новые входы при просадке эквити ≥ % от пика (0 = выкл.). */
+    val maxDrawdownHaltPct: Double = 0.0,
 ) {
     val hasPyramiding: Boolean get() = pyramidAddNotionalRub > 0.0
+    val hasProtections: Boolean
+        get() = slippageSpreadPts > 0.0 ||
+            maxLossSpreadPts > 0.0 ||
+            maxLossRub > 0.0 ||
+            minSpreadPct > 0.0 ||
+            maxSpreadPct > 0.0 ||
+            entryZBuffer > 0.0 ||
+            maxDrawdownHaltRub > 0.0 ||
+            maxDrawdownHaltPct > 0.0
 }
 
 internal fun describeSimOptions(options: ZStrategySimOptions): String {
@@ -30,6 +55,27 @@ internal fun describeSimOptions(options: ZStrategySimOptions): String {
     }
     if (options.closeBeforeClearingMsk != null) {
         parts += "выход до ${options.closeBeforeClearingMsk} МСК"
+    }
+    if (options.slippageSpreadPts > 0.0) {
+        parts += "slip ${options.slippageSpreadPts}п"
+    }
+    if (options.maxLossSpreadPts > 0.0) {
+        parts += "SL ${options.maxLossSpreadPts}п"
+    }
+    if (options.maxLossRub > 0.0) {
+        parts += "SL ${options.maxLossRub.toInt()}₽"
+    }
+    if (options.minSpreadPct > 0.0 || options.maxSpreadPct > 0.0) {
+        parts += "спред ${options.minSpreadPct}–${options.maxSpreadPct}%"
+    }
+    if (options.entryZBuffer > 0.0) {
+        parts += "Z+${options.entryZBuffer}"
+    }
+    if (options.maxDrawdownHaltRub > 0.0) {
+        parts += "halt DD ${options.maxDrawdownHaltRub.toInt()}₽"
+    }
+    if (options.maxDrawdownHaltPct > 0.0) {
+        parts += "halt DD ${options.maxDrawdownHaltPct}%"
     }
     return if (parts.isEmpty()) "" else " · " + parts.joinToString(" · ")
 }

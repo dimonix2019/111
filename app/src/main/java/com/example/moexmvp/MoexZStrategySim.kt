@@ -27,6 +27,7 @@ internal fun buildZStrategyPortfolioMetrics(
 
     val entry = thresholds.entry
     val exit = thresholds.exit
+    val slip = max(0.0, simOptions.slippageSpreadPts)
 
     var position = ZStrategyPosition.Flat
     var entrySpread = 0.0
@@ -66,6 +67,8 @@ internal fun buildZStrategyPortfolioMetrics(
     var entryPendingArm = ZEntryPendingArm.None
     var zExtremeWhilePending = 0.0
     var pyramidAdded = false
+    var tradingHalted = false
+    var peakEquityRub = 0.0
 
     fun resetFlatState() {
         entryCommissionRub = 0.0
@@ -104,8 +107,54 @@ internal fun buildZStrategyPortfolioMetrics(
         return isTatnReportBlackoutDay(day)
     }
 
+    fun spreadOk(sp: Double): Boolean =
+        zSimSpreadOk(sp, simOptions.minSpreadPct, simOptions.maxSpreadPct)
+
+    fun entryZOk(z: Double, direction: ZStrategyPosition): Boolean =
+        zSimEntryZOk(z, direction, entry, simOptions.entryZBuffer)
+
+    fun stopLossHit(bar: DataPoint): Boolean =
+        zSimStopLossHit(
+            position = position,
+            entrySpread = entrySpread,
+            barSpreadPercent = bar.spreadPercent,
+            effectiveNotionalRub = tradeEffNotionalRub,
+            maxLossSpreadPts = simOptions.maxLossSpreadPts,
+            maxLossRub = simOptions.maxLossRub,
+            exitCommissionRub = tradeCommissionPerSideRub,
+            overnightPerDayRub = tradeOvernightFeePerDayRub,
+            entryDate = entryDate,
+            barTradeDate = bar.tradeDate,
+        )
+
+    fun checkTradingHalt(equityRub: Double) {
+        if (tradingHalted) return
+        peakEquityRub = max(peakEquityRub, equityRub)
+        val drawdownRub = peakEquityRub - equityRub
+        if (simOptions.maxDrawdownHaltRub > 0 && drawdownRub >= simOptions.maxDrawdownHaltRub) {
+            tradingHalted = true
+            return
+        }
+        if (simOptions.maxDrawdownHaltPct > 0 && peakEquityRub > 0) {
+            val drawdownPct = drawdownRub / abs(peakEquityRub) * 100.0
+            if (drawdownPct >= simOptions.maxDrawdownHaltPct) {
+                tradingHalted = true
+            }
+        }
+    }
+
+    fun equityRubAt(bar: DataPoint): Double {
+        val mtmSpread = when (position) {
+            ZStrategyPosition.Flat -> 0.0
+            ZStrategyPosition.Long -> bar.spreadPercent - entrySpread
+            ZStrategyPosition.Short -> entrySpread - bar.spreadPercent
+        }
+        return realizedRub + spreadPnlToRubApprox(mtmSpread, tradeEffNotionalRub)
+    }
+
     fun closeLongAt(current: DataPoint) {
-        val pnl = current.spreadPercent - entrySpread
+        val exitSpread = zSimExitSpread(current.spreadPercent, ZStrategyPosition.Long, slip)
+        val pnl = exitSpread - entrySpread
         val grossPnlRub = spreadPnlToRubApprox(pnl, tradeEffNotionalRub)
         val overnightRub = tradeOvernightFeePerDayRub * overnightDays(entryDate, current.tradeDate)
         val commissionRub = entryCommissionRub + tradeCommissionPerSideRub
@@ -120,7 +169,7 @@ internal fun buildZStrategyPortfolioMetrics(
             entryDate = entryDate,
             exitDate = current.tradeDate,
             entrySpreadPercent = entrySpread,
-            exitSpreadPercent = current.spreadPercent,
+            exitSpreadPercent = exitSpread,
             pnlSpreadPoints = pnl,
             grossPnlRubApprox = grossPnlRub,
             commissionRubApprox = commissionRub,
@@ -132,7 +181,8 @@ internal fun buildZStrategyPortfolioMetrics(
     }
 
     fun closeShortAt(current: DataPoint) {
-        val pnl = entrySpread - current.spreadPercent
+        val exitSpread = zSimExitSpread(current.spreadPercent, ZStrategyPosition.Short, slip)
+        val pnl = entrySpread - exitSpread
         val grossPnlRub = spreadPnlToRubApprox(pnl, tradeEffNotionalRub)
         val overnightRub = tradeOvernightFeePerDayRub * overnightDays(entryDate, current.tradeDate)
         val commissionRub = entryCommissionRub + tradeCommissionPerSideRub
@@ -147,7 +197,7 @@ internal fun buildZStrategyPortfolioMetrics(
             entryDate = entryDate,
             exitDate = current.tradeDate,
             entrySpreadPercent = entrySpread,
-            exitSpreadPercent = current.spreadPercent,
+            exitSpreadPercent = exitSpread,
             pnlSpreadPoints = pnl,
             grossPnlRubApprox = grossPnlRub,
             commissionRubApprox = commissionRub,
@@ -161,7 +211,7 @@ internal fun buildZStrategyPortfolioMetrics(
     fun enterLongAtBar(bar: DataPoint) {
         applyTradeSizingFromRealized()
         position = ZStrategyPosition.Long
-        entrySpread = bar.spreadPercent
+        entrySpread = zSimEntrySpread(bar.spreadPercent, ZStrategyPosition.Long, slip)
         entryDate = bar.tradeDate
         entryCommissionRub = tradeCommissionPerSideRub
         zBestSinceEntry = bar.zScore
@@ -174,7 +224,7 @@ internal fun buildZStrategyPortfolioMetrics(
     fun enterShortAtBar(bar: DataPoint) {
         applyTradeSizingFromRealized()
         position = ZStrategyPosition.Short
-        entrySpread = bar.spreadPercent
+        entrySpread = zSimEntrySpread(bar.spreadPercent, ZStrategyPosition.Short, slip)
         entryDate = bar.tradeDate
         entryCommissionRub = tradeCommissionPerSideRub
         zBestSinceEntry = bar.zScore
@@ -182,17 +232,6 @@ internal fun buildZStrategyPortfolioMetrics(
         realizedRub -= tradeCommissionPerSideRub
         entryPendingArm = ZEntryPendingArm.None
         pyramidAdded = false
-    }
-
-    fun pushEquitySnapshot(atIndex: Int) {
-        val bar = points[atIndex]
-        val mtm = when (position) {
-            ZStrategyPosition.Flat -> 0.0
-            ZStrategyPosition.Long -> bar.spreadPercent - entrySpread
-            ZStrategyPosition.Short -> entrySpread - bar.spreadPercent
-        }
-        val mtmRub = spreadPnlToRubApprox(mtm, tradeEffNotionalRub)
-        equityRubSeries += realizedRub + mtmRub
     }
 
     for (index in 1 until points.size) {
@@ -206,14 +245,18 @@ internal fun buildZStrategyPortfolioMetrics(
                 ) {
                     addPyramidLeg(current)
                 }
-                val ruleExit = when (exitMode) {
-                    ZStrategyExitMode.FixedThreshold ->
-                        fixedThresholdExitLong(prev.zScore, current.zScore, exit)
-                    ZStrategyExitMode.ZPeakTrailing ->
-                        zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
-                }
-                if (forceSessionExit(current) || forceReportExit(current) || ruleExit) {
-                    closeLongAt(current)
+                when {
+                    stopLossHit(current) -> closeLongAt(current)
+                    forceSessionExit(current) || forceReportExit(current) -> closeLongAt(current)
+                    else -> {
+                        val ruleExit = when (exitMode) {
+                            ZStrategyExitMode.FixedThreshold ->
+                                fixedThresholdExitLong(prev.zScore, current.zScore, exit)
+                            ZStrategyExitMode.ZPeakTrailing ->
+                                zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
+                        }
+                        if (ruleExit) closeLongAt(current)
+                    }
                 }
             }
 
@@ -224,24 +267,32 @@ internal fun buildZStrategyPortfolioMetrics(
                 ) {
                     addPyramidLeg(current)
                 }
-                val ruleExit = when (exitMode) {
-                    ZStrategyExitMode.FixedThreshold ->
-                        fixedThresholdExitShort(prev.zScore, current.zScore, exit)
-                    ZStrategyExitMode.ZPeakTrailing ->
-                        zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
-                }
-                if (forceSessionExit(current) || forceReportExit(current) || ruleExit) {
-                    closeShortAt(current)
+                when {
+                    stopLossHit(current) -> closeShortAt(current)
+                    forceSessionExit(current) || forceReportExit(current) -> closeShortAt(current)
+                    else -> {
+                        val ruleExit = when (exitMode) {
+                            ZStrategyExitMode.FixedThreshold ->
+                                fixedThresholdExitShort(prev.zScore, current.zScore, exit)
+                            ZStrategyExitMode.ZPeakTrailing ->
+                                zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
+                        }
+                        if (ruleExit) closeShortAt(current)
+                    }
                 }
             }
 
             ZStrategyPosition.Flat -> Unit
         }
-        if (position == ZStrategyPosition.Flat && !blockNewEntries(current)) {
+        if (position == ZStrategyPosition.Flat && !tradingHalted && !blockNewEntries(current)) {
             if (entryPullbackZ <= 0.0) {
-                if (prev.zScore > -entry && current.zScore <= -entry) {
+                if (prev.zScore > -entry && current.zScore <= -entry &&
+                    spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Long)
+                ) {
                     enterLongAtBar(current)
-                } else if (prev.zScore < entry && current.zScore >= entry) {
+                } else if (prev.zScore < entry && current.zScore >= entry &&
+                    spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Short)
+                ) {
                     enterShortAtBar(current)
                 }
             } else {
@@ -249,7 +300,9 @@ internal fun buildZStrategyPortfolioMetrics(
                     ZEntryPendingArm.Long -> {
                         zExtremeWhilePending = min(zExtremeWhilePending, current.zScore)
                         when {
-                            zPullbackLongEntryTriggered(current.zScore, zExtremeWhilePending, entryPullbackZ) ->
+                            zPullbackLongEntryTriggered(current.zScore, zExtremeWhilePending, entryPullbackZ) &&
+                                spreadOk(current.spreadPercent) &&
+                                entryZOk(current.zScore, ZStrategyPosition.Long) ->
                                 enterLongAtBar(current)
                             zPullbackEntryCancelLong(current.zScore, exit) ->
                                 entryPendingArm = ZEntryPendingArm.None
@@ -258,7 +311,9 @@ internal fun buildZStrategyPortfolioMetrics(
                     ZEntryPendingArm.Short -> {
                         zExtremeWhilePending = max(zExtremeWhilePending, current.zScore)
                         when {
-                            zPullbackShortEntryTriggered(current.zScore, zExtremeWhilePending, entryPullbackZ) ->
+                            zPullbackShortEntryTriggered(current.zScore, zExtremeWhilePending, entryPullbackZ) &&
+                                spreadOk(current.spreadPercent) &&
+                                entryZOk(current.zScore, ZStrategyPosition.Short) ->
                                 enterShortAtBar(current)
                             zPullbackEntryCancelShort(current.zScore, exit) ->
                                 entryPendingArm = ZEntryPendingArm.None
@@ -279,7 +334,9 @@ internal fun buildZStrategyPortfolioMetrics(
                 }
             }
         }
-        pushEquitySnapshot(index)
+        val equityRub = equityRubAt(current)
+        checkTradingHalt(equityRub)
+        equityRubSeries += equityRub
     }
 
     val last = points.last()
