@@ -85,6 +85,43 @@ internal fun checkRemoteAppUpdateAndNotify(context: Context): AppRemoteUpdate? {
     return remote
 }
 
+internal sealed class AppUpdateCheckStatus {
+    data class UpdateAvailable(val remote: AppRemoteUpdate) : AppUpdateCheckStatus()
+    data object UpToDate : AppUpdateCheckStatus()
+    /** На GitHub опубликована сборка старее, чем установленная (часто — CI ещё не обновил Release). */
+    data class RemoteOlder(val remote: AppRemoteUpdate) : AppUpdateCheckStatus()
+    data class FetchFailed(val hint: String) : AppUpdateCheckStatus()
+}
+
+internal fun checkAppUpdateStatus(context: Context): AppUpdateCheckStatus {
+    val remote = fetchRemoteAppUpdate()
+        ?: return AppUpdateCheckStatus.FetchFailed(
+            "Не удалось прочитать app-update.json или GitHub Release " +
+                "(private repo без входа → 404). Откройте «Прямая ссылка» в браузере под аккаунтом GitHub."
+        )
+    return when {
+        isNewerAppUpdateAvailable(remote) -> AppUpdateCheckStatus.UpdateAvailable(remote)
+        remote.versionCode < BuildConfig.VERSION_CODE ->
+            AppUpdateCheckStatus.RemoteOlder(remote)
+        else -> AppUpdateCheckStatus.UpToDate
+    }
+}
+
+internal fun formatAppUpdateCheckStatus(status: AppUpdateCheckStatus): String = when (status) {
+    is AppUpdateCheckStatus.UpdateAvailable -> {
+        val r = status.remote
+        "Доступна ${r.versionName} (${r.versionCode}). У вас ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})."
+    }
+    AppUpdateCheckStatus.UpToDate ->
+        "У вас актуальная сборка ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})."
+    is AppUpdateCheckStatus.RemoteOlder -> {
+        val r = status.remote
+        "На GitHub пока ${r.versionName} (${r.versionCode}) — ниже вашей ${BuildConfig.VERSION_NAME} " +
+            "(${BuildConfig.VERSION_CODE}). Дождитесь CI или скачайте APK вручную после успешного Build APK."
+    }
+    is AppUpdateCheckStatus.FetchFailed -> status.hint
+}
+
 internal fun parseAppUpdateManifestJson(json: String): AppRemoteUpdate? {
     val o = runCatching { JSONObject(json) }.getOrNull() ?: return null
     val versionCode = o.optInt("versionCode", -1)

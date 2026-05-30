@@ -194,7 +194,7 @@ internal fun AppUpdateDialogHost(
     )
 }
 
-/** Периодическая проверка обновлений; push + [onUpdateFound] при новой сборке. */
+/** Периодическая проверка обновлений; вызывает [onUpdateFound] при новой сборке. */
 @Composable
 internal fun AppUpdateChecker(
     enabled: Boolean = true,
@@ -203,11 +203,15 @@ internal fun AppUpdateChecker(
     val context = LocalContext.current
     LaunchedEffect(enabled) {
         if (!enabled) return@LaunchedEffect
+        val dismissed = loadDismissedAppUpdateVersionCode(context)
         while (true) {
             val remote = withContext(Dispatchers.IO) {
-                checkRemoteAppUpdateAndNotify(context.applicationContext)
+                checkRemoteAppUpdateAndNotify(context) ?: fetchRemoteAppUpdate()
             }
-            if (remote != null) {
+            if (remote != null &&
+                shouldOfferAppUpdateUi(remote, context) &&
+                remote.versionCode > dismissed
+            ) {
                 onUpdateFound(remote)
             }
             delay(APP_UPDATE_CHECK_INTERVAL_MS)

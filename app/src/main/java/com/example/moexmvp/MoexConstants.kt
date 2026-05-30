@@ -71,6 +71,9 @@ internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MIN = 0.05
 internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MAX = 2.0
 /** Calendar days of history for 15m-style portfolio (10m ISS → 15m bars). ~1y; smaller than 365*1m traffic. */
 internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 255L
+/** Rolling Z: окно μ/σ в календарных днях (MSK), parity с strategy-web. */
+internal const val Z_SCORE_ROLLING_LOOKBACK_DAYS = 30
+internal const val Z_SCORE_ROLLING_MIN_BARS = 48
 
 /** When refreshing from MOEX, re-fetch this many calendar days before last cached bar (overlap for ISS corrections). */
 internal const val PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS = 3L
@@ -87,6 +90,8 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.07 — Обновления: восстановлены push/AlarmManager проверки; кнопка «Проверить обновления» на «О приложении» с пояснением, если GitHub старее телефона.
+1.7.06 — Z-score: rolling 30д (μ/σ по скользящему окну МСК, min 48 баров) вместо global — parity с strategy-web; сигналы, портфель 15м, рынок, тест страт.
 1.7.02 — Обновления приложения: push-уведомление + фоновая проверка (AlarmManager, сервис сигналов).
 1.7.01 — Бэктест: пирамидинг при |Z|>1.0 (1.05–2.0) vs эталон @1.0.
 1.7.00 — Иконка приложения: зелёная, объёмная, «рост вверх» (adaptive icon).

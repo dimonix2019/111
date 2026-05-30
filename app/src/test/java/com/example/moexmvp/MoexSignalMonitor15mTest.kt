@@ -21,8 +21,8 @@ class MoexSignalMonitor15mTest {
         val longWindow = shortWindow + (21L..220L).map {
             point(it, spread = 0.05 * (it % 7 - 3))
         }
-        val zShort = applyZScores(shortWindow).last().zScore
-        val zLong = applyZScores(longWindow).last().zScore
+        val zShort = applyZScoresRolling(shortWindow, minBarsInWindow = 2).last().zScore
+        val zLong = applyZScoresRolling(longWindow, minBarsInWindow = 2).last().zScore
         assertNotEquals(zShort, zLong, 1e-9)
     }
 

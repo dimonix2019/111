@@ -869,7 +869,7 @@ class MoexTodayBacktestTest {
         val till = portfolioM15MoexFetchTillDate()
         val entities = fetchPortfolio15mSpreadEntitiesChunked(from, till)
         assertTrue("Нет 15м данных с MOEX ($from…$till)", entities.isNotEmpty())
-        val points = applyZScores(entities.map { it.toDataPoint() })
+        val points = applyZScoresDefault(entities.map { it.toDataPoint() })
         assertTrue("Мало точек для Z", points.size >= 2)
         return today to points
     }

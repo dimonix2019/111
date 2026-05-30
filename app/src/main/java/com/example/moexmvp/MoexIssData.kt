@@ -212,7 +212,7 @@ internal fun fetchData(period: Period): FetchedData {
             zScore = 0.0
         )
     }
-    val pointsWithZ = applyZScores(points)
+    val pointsWithZ = applyZScoresDefault(points)
 
     return FetchedData(
         points = pointsWithZ,
@@ -235,19 +235,6 @@ internal fun fetchData(period: Period): FetchedData {
             )
         }
     )
-}
-
-internal fun applyZScores(points: List<DataPoint>): List<DataPoint> {
-    if (points.isEmpty()) return points
-    val spreads = points.map { it.spreadPercent }
-    val mean = spreads.average()
-    val variance = spreads
-        .map { (it - mean) * (it - mean) }
-        .average()
-    val stdDev = kotlin.math.sqrt(variance).takeIf { it > 0.0 } ?: 1.0
-    return points.map {
-        it.copy(zScore = (it.spreadPercent - mean) / stdDev)
-    }
 }
 
 internal fun formatLabelForPeriod(timestamp: LocalDateTime, period: Period): String {
@@ -502,7 +489,7 @@ internal suspend fun loadPortfolio15mDataPoints(
         }
         val rows = dao.getSince(cutoffMillis)
         if (rows.isEmpty()) return@withPortfolioM15LoadLock emptyList()
-        applyZScores(rows.map { it.toDataPoint() })
+        applyZScoresDefault(rows.map { it.toDataPoint() })
     }
 }
 
