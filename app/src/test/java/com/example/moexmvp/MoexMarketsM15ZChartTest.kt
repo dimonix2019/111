@@ -9,20 +9,30 @@ import java.time.ZoneId
 class MoexMarketsM15ZChartTest {
 
     @Test
-    fun aggregateZScoresTo15MinuteCandles_buildsFullOhlcWithinBucket() {
+    fun buildZScoreCandlesOhlcAnchoredToM15Series_keepsContinuousOpenClose() {
+        val points = listOf(
+            point("2026-05-19 10:00", z = -0.4),
+            point("2026-05-19 10:15", z = 0.7),
+            point("2026-05-19 10:30", z = 0.2),
+        )
+        val candles = buildZScoreCandlesFromM15Points(points)
+        for (i in 1 until candles.size) {
+            assertEquals(candles[i - 1].close, candles[i].open, 1e-9)
+        }
+        assertEquals(points.map { it.zScore }, candles.map { it.close })
+    }
+
+    @Test
+    fun buildIntrabarZRangesBy15mBucket_groups10mBars() {
         val points = listOf(
             point("2026-05-19 10:00", z = -0.2),
             point("2026-05-19 10:10", z = 0.9),
             point("2026-05-19 10:15", z = 0.1),
         )
-        val candles = aggregateZScoresTo15MinuteCandles(points)
-        assertEquals(2, candles.size)
-        assertEquals(-0.2, candles[0].open, 1e-9)
-        assertEquals(0.9, candles[0].close, 1e-9)
-        assertEquals(0.9, candles[0].high, 1e-9)
-        assertEquals(-0.2, candles[0].low, 1e-9)
-        assertTrue(candles[0].high >= candles[0].open)
-        assertTrue(candles[0].low <= candles[0].open)
+        val ranges = buildIntrabarZRangesBy15mBucket(points)
+        val bucket = floor15mMillis(points[0].timestampMillis)
+        assertEquals(-0.2, ranges[bucket]!!.min, 1e-9)
+        assertEquals(0.9, ranges[bucket]!!.max, 1e-9)
     }
 
     @Test

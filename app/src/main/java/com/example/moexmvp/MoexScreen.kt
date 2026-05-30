@@ -40,9 +40,15 @@ internal fun MoexScreen() {
     }
     var marketsZScoreCandles by remember { mutableStateOf<List<CandlePoint>>(emptyList()) }
     LaunchedEffect(marketsM15ChartPoints) {
+        if (marketsM15ChartPoints.isEmpty()) {
+            marketsZScoreCandles = emptyList()
+            return@LaunchedEffect
+        }
         marketsZScoreCandles = buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
         if (marketsM15ChartPoints.size >= 2) {
-            marketsZScoreCandles = buildZScoreCandlesFullOhlcForM15Series(marketsM15ChartPoints)
+            runCatching {
+                buildZScoreCandlesOhlcAnchoredToM15Series(marketsM15ChartPoints)
+            }.getOrNull()?.let { marketsZScoreCandles = it }
         }
     }
     val portfolioZChartPoints = remember(screen.portfolioM15Points, screen.selectedPeriod) {
