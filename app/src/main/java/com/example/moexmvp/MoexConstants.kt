@@ -90,6 +90,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.13 — Рынок: фитили Z-свечей на той же μ/σ, что close 15м бара; отрисовка только верх/низ тени (не через тело).
 1.7.12 — О приложении: кнопка «Обновить приложение» (проверка GitHub, сброс «Позже», диалог установки).
 1.7.11 — Рынок: Z-свечи без разрывов (open=close предыдущего бара, 10м только для high/low внутри 15м).
 1.7.10 — Рынок: 15м Z-свечи полный OHLC (из 10м rolling Z); вертикальный сдвиг инвертирован (как тачпад).

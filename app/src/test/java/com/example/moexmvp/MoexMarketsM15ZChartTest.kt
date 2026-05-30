@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDateTime
@@ -33,6 +34,46 @@ class MoexMarketsM15ZChartTest {
         val bucket = floor15mMillis(points[0].timestampMillis)
         assertEquals(-0.2, ranges[bucket]!!.min, 1e-9)
         assertEquals(0.9, ranges[bucket]!!.max, 1e-9)
+    }
+
+    @Test
+    fun build10mSpreadsByM15Index_assignsByTimestamp() {
+        val m15 = listOf(
+            point("2026-05-19 10:00", z = 0.0, spread = 10.0),
+            point("2026-05-19 10:15", z = 0.0, spread = 10.5),
+        )
+        val s10 = listOf(
+            point("2026-05-19 10:05", z = 0.0, spread = 9.8),
+            point("2026-05-19 10:10", z = 0.0, spread = 10.2),
+            point("2026-05-19 10:20", z = 0.0, spread = 10.6),
+        )
+        val buckets = build10mSpreadsByM15Index(m15, s10)
+        assertEquals(listOf(9.8, 10.2), buckets[0])
+        assertEquals(listOf(10.6), buckets[1])
+    }
+
+    @Test
+    fun intrabarZRangeForM15Bar_usesSameRollingStatsAsClose() {
+        val raw = (0 until 60).map { i ->
+            val dt = LocalDateTime.of(2026, 5, 1, 10, 0).plusMinutes(i * 15L)
+            point(
+                dt.format(portfolio15mLabelFormatter),
+                z = 0.0,
+                spread = 10.0 + i * 0.01
+            )
+        }
+        val m15 = applyZScoresRolling(raw)
+        val idx = m15.lastIndex
+        val stats = rollingSpreadStatsAt(m15, idx)!!
+        val closeZ = zScoreAtSpread(m15[idx].spreadPercent, stats)
+        assertEquals(m15[idx].zScore, closeZ, 1e-9)
+        val range = intrabarZRangeForM15Bar(
+            listOf(m15[idx].spreadPercent - 0.05, m15[idx].spreadPercent + 0.05),
+            stats
+        )
+        assertNotNull(range)
+        assertTrue(range!!.min <= closeZ)
+        assertTrue(range.max >= closeZ)
     }
 
     @Test

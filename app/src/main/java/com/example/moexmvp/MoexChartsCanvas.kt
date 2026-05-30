@@ -729,16 +729,27 @@ internal fun CandlestickChart(
                 val rising = candle.close >= candle.open
                 val color = if (rising) Color(0xFF69F0AE) else Color(0xFFFF5252)
 
-                val wickW = (2f * candleStrokeMul).coerceAtLeast(1.5f)
-                drawLine(
-                    color = color,
-                    start = Offset(x, highY),
-                    end = Offset(x, lowY),
-                    strokeWidth = wickW
-                )
-
+                val wickW = (1.5f * candleStrokeMul).coerceIn(1f, 3f)
                 val bodyTop = min(openY, closeY)
-                val bodyHeight = max(abs(closeY - openY), 2f * candleStrokeMul)
+                val bodyBottom = max(openY, closeY)
+                if (highY < bodyTop - 0.5f) {
+                    drawLine(
+                        color = color,
+                        start = Offset(x, highY),
+                        end = Offset(x, bodyTop),
+                        strokeWidth = wickW
+                    )
+                }
+                if (lowY > bodyBottom + 0.5f) {
+                    drawLine(
+                        color = color,
+                        start = Offset(x, bodyBottom),
+                        end = Offset(x, lowY),
+                        strokeWidth = wickW
+                    )
+                }
+
+                val bodyHeight = max(bodyBottom - bodyTop, 2f * candleStrokeMul)
                 drawRect(
                     color = color,
                     topLeft = Offset(x - candleWidth / 2f, bodyTop),

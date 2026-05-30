@@ -391,9 +391,34 @@ internal fun buildIntrabarZRangesBy15mBucket(z10: List<DataPoint>): Map<Long, In
         grouped.getOrPut(bucket) { mutableListOf() }.add(point.zScore)
     }
     return grouped.mapNotNull { (bucket, zs) ->
-        val valid = zs.filter { it != 0.0 }
-        if (valid.isEmpty()) null else bucket to IntrabarZRange(valid.min(), valid.max())
+        if (zs.isEmpty()) null else bucket to IntrabarZRange(zs.min(), zs.max())
     }.toMap()
+}
+
+/** 10м spread-точки, привязанные к 15м бару по времени (≤ timestamp 15м close). */
+internal fun build10mSpreadsByM15Index(
+    m15Points: List<DataPoint>,
+    spread10: List<DataPoint>,
+): List<List<Double>> {
+    if (m15Points.isEmpty()) return emptyList()
+    val m15Millis = m15Points.map { barMillisAt(it) }
+    val buckets = List(m15Points.size) { mutableListOf<Double>() }
+    spread10.forEach { pt ->
+        val ts = barMillisAt(pt)
+        val idx = m15Millis.indexOfLast { it <= ts }
+        if (idx >= 0) buckets[idx].add(pt.spreadPercent)
+    }
+    return buckets
+}
+
+/** Z-диапазон внутри 15м слота: 10м spread через μ/σ того же rolling-окна, что close 15м бара. */
+internal fun intrabarZRangeForM15Bar(
+    spreads10mInBar: List<Double>,
+    m15Stats: RollingSpreadStats?,
+): IntrabarZRange? {
+    if (m15Stats == null || spreads10mInBar.isEmpty()) return null
+    val zs = spreads10mInBar.map { zScoreAtSpread(it, m15Stats) }
+    return IntrabarZRange(zs.min(), zs.max())
 }
 
 /**
@@ -416,14 +441,17 @@ internal suspend fun buildZScoreCandlesOhlcAnchoredToM15Series(
     )
     if (spread10.size < Z_SCORE_ROLLING_MIN_BARS) return@withContext base
 
-    val intrabar = buildIntrabarZRangesBy15mBucket(applyZScoresRolling(spread10))
+    val spreadsByM15 = build10mSpreadsByM15Index(m15Points, spread10)
 
     m15Points.mapIndexed { index, point ->
         val open = if (index == 0) point.zScore else m15Points[index - 1].zScore
         val close = point.zScore
         val bodyHigh = max(open, close)
         val bodyLow = min(open, close)
-        val range = intrabar[floor15mMillis(point.timestampMillis)]
+        val range = intrabarZRangeForM15Bar(
+            spreads10mInBar = spreadsByM15.getOrNull(index).orEmpty(),
+            m15Stats = rollingSpreadStatsAt(m15Points, index),
+        )
         CandlePoint(
             label = point.tradeDate,
             open = open,
