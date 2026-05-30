@@ -426,7 +426,10 @@ internal fun CandlestickChart(
     dataYMax: Double? = null,
     yZoom: Float = 1f,
     yViewCenter: Double = 0.0,
-    onYViewChange: ((zoom: Float, viewCenter: Double) -> Unit)? = null
+    onYViewChange: ((zoom: Float, viewCenter: Double) -> Unit)? = null,
+    viewport: ChartViewportState? = null,
+    displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
+    useDesktopStyle: Boolean = false,
 ) {
     if (candles.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -452,8 +455,10 @@ internal fun CandlestickChart(
 
         val baseMin = dataYMin ?: yTicks.minOrNull() ?: candles.minOfOrNull { it.low } ?: 0.0
         val baseMax = dataYMax ?: yTicks.maxOrNull() ?: candles.maxOfOrNull { it.high } ?: 1.0
-        val (visMin, visMax) = if (enableZoomPan && onYViewChange != null) {
-            visibleCandleYRange(baseMin, baseMax, yZoom, yViewCenter)
+        val effectiveYZoom = viewport?.yZoom ?: yZoom
+        val effectiveYCenter = viewport?.yViewCenter ?: yViewCenter
+        val (visMin, visMax) = if (enableZoomPan && (onYViewChange != null || viewport != null)) {
+            visibleCandleYRange(baseMin, baseMax, effectiveYZoom, effectiveYCenter)
         } else {
             baseMin to baseMax
         }
@@ -465,7 +470,8 @@ internal fun CandlestickChart(
 
         var windowStart by remember(candles) { mutableFloatStateOf(0f) }
         var windowWidth by remember(candles) { mutableFloatStateOf(1f) }
-        LaunchedEffect(candles, initialWindowWidth, initialWindowStart, enableZoomPan) {
+        LaunchedEffect(candles, initialWindowWidth, initialWindowStart, enableZoomPan, viewport) {
+            if (viewport != null) return@LaunchedEffect
             if (enableZoomPan) {
                 windowWidth = initialWindowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
                 windowStart = initialWindowStart.coerceIn(0f, 1f - windowWidth)
@@ -475,8 +481,12 @@ internal fun CandlestickChart(
             }
         }
 
-        val wStart = if (enableZoomPan) windowStart else 0f
-        val wWidth = if (enableZoomPan) windowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f) else 1f
+        val wStart = if (enableZoomPan) (viewport?.windowStart ?: windowStart) else 0f
+        val wWidth = if (enableZoomPan) {
+            (viewport?.windowWidth ?: windowWidth).coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
+        } else {
+            1f
+        }
 
         fun fracForIndex(index: Int): Float =
             if (maxIndex <= 0) 0f else index / maxIndex.toFloat()
@@ -496,12 +506,30 @@ internal fun CandlestickChart(
             return (frac * maxIndex).roundToInt().coerceIn(0, maxIndex)
         }
 
+        val plotBg = if (useDesktopStyle) DesktopChartColors.plotBackground else Color(0xFF0F1722)
+        val gridColor = if (useDesktopStyle) DesktopChartColors.gridMajor else Color(0xFF30455A)
+        val gridMinorColor = if (useDesktopStyle) DesktopChartColors.gridMinor else Color(0xFF2A3D50)
+        val axisColor = if (useDesktopStyle) DesktopChartColors.axis else Color(0xFF8AA6C1)
+        val selectionColor = if (useDesktopStyle) DesktopChartColors.selection else Color(0xFF90CAF9)
+        val lineColor = if (useDesktopStyle) DesktopChartColors.zLine else Color(0xFF69F0AE)
+
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
+                .background(plotBg, RoundedCornerShape(8.dp))
             .then(
-                if (enableZoomPan) {
+                if (enableZoomPan && viewport != null) {
+                    Modifier.trackpadChartGestures(
+                        enabled = true,
+                        leftPadding = leftPadding,
+                        rightPadding = rightPadding,
+                        topPadding = topPadding,
+                        bottomPadding = bottomPadding,
+                        dataYMin = baseMin,
+                        dataYMax = baseMax,
+                        viewport = viewport,
+                    )
+                } else if (enableZoomPan) {
                     Modifier.pointerInput(
                         candles,
                         maxIndex,
@@ -556,16 +584,20 @@ internal fun CandlestickChart(
                     Modifier
                 }
             )
-            .pointerInput(candles, wStart, wWidth, maxIndex, enableZoomPan, rightPadding) {
+            .pointerInput(candles, wStart, wWidth, maxIndex, enableZoomPan, rightPadding, viewport) {
                 detectTapGestures(
                     onDoubleTap = if (enableZoomPan) {
                         { _: Offset ->
-                            windowStart = 0f
-                            windowWidth = 1f
-                            onYViewChange?.invoke(
-                                1f,
-                                candleDefaultYViewCenter(baseMin, baseMax)
-                            )
+                            if (viewport != null) {
+                                viewport.resetWindow(initialWindowWidth, initialWindowStart)
+                            } else {
+                                windowStart = 0f
+                                windowWidth = 1f
+                                onYViewChange?.invoke(
+                                    1f,
+                                    candleDefaultYViewCenter(baseMin, baseMax)
+                                )
+                            }
                         }
                     } else {
                         null
@@ -581,15 +613,15 @@ internal fun CandlestickChart(
         val w = chartW(size.width)
         val h = size.height - topPadding - bottomPadding
         fun xForIndexDraw(index: Int): Float = xForIndex(index, size.width)
-        val clipPlotY = enableZoomPan && onYViewChange != null
+        val clipPlotY = enableZoomPan && (onYViewChange != null || viewport != null)
         fun yForValue(value: Double): Float {
             val rel = ((value - visMin) / range).toFloat()
             val clamped = if (clipPlotY) rel else rel.coerceIn(0f, 1f)
             return topPadding + h * (1f - clamped)
         }
         val xStretch = if (enableZoomPan) (1f / wWidth).coerceIn(1f, CHART_Y_ZOOM_MAX) else 1f
-        val yStretch = if (enableZoomPan && onYViewChange != null) {
-            yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
+        val yStretch = if (enableZoomPan && (onYViewChange != null || viewport != null)) {
+            effectiveYZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
         } else {
             1f
         }
@@ -598,7 +630,7 @@ internal fun CandlestickChart(
         yTicks.forEach { tick ->
             val y = yForValue(tick)
             drawLine(
-                color = Color(0xFF30455A),
+                color = gridColor,
                 start = Offset(leftPadding, y),
                 end = Offset(leftPadding + w, y),
                 strokeWidth = 1.5f
@@ -610,7 +642,7 @@ internal fun CandlestickChart(
             if (frac < wStart - 0.02f || frac > wStart + wWidth + 0.02f) return@forEach
             val x = xForIndexDraw(tick.index)
             drawLine(
-                color = Color(0xFF2A3D50),
+                color = gridMinorColor,
                 start = Offset(x, topPadding),
                 end = Offset(x, topPadding + h),
                 strokeWidth = 1.5f
@@ -618,13 +650,13 @@ internal fun CandlestickChart(
         }
 
         drawLine(
-            color = Color(0xFF8AA6C1),
+            color = axisColor,
             start = Offset(leftPadding, topPadding + h),
             end = Offset(leftPadding + w, topPadding + h),
             strokeWidth = 2f
         )
         drawLine(
-            color = Color(0xFF8AA6C1),
+            color = axisColor,
             start = Offset(leftPadding, topPadding),
             end = Offset(leftPadding, topPadding + h),
             strokeWidth = 2f
@@ -653,7 +685,40 @@ internal fun CandlestickChart(
                     )
                 )
             }
+            if (useDesktopStyle && displayMode == ChartDisplayMode.Line) {
+                val zeroY = yForValue(0.0)
+                if (zeroY in topPadding..(topPadding + h)) {
+                    drawLine(
+                        color = DesktopChartColors.zeroLine,
+                        start = Offset(leftPadding, zeroY),
+                        end = Offset(leftPadding + w, zeroY),
+                        strokeWidth = 1.5f,
+                    )
+                }
+            }
             val drawRange = visibleCandleDrawIndexRange(maxIndex, wStart, wWidth)
+            if (displayMode == ChartDisplayMode.Line) {
+                val path = Path()
+                var started = false
+                for (index in drawRange) {
+                    val candle = candles.getOrNull(index) ?: continue
+                    val x = xForIndexDraw(index)
+                    val y = yForValue(candle.close)
+                    if (!started) {
+                        path.moveTo(x, y)
+                        started = true
+                    } else {
+                        path.lineTo(x, y)
+                    }
+                }
+                if (started) {
+                    drawPath(
+                        path = path,
+                        color = lineColor,
+                        style = Stroke(width = 2.5f * candleStrokeMul.coerceAtMost(2f), cap = StrokeCap.Round),
+                    )
+                }
+            } else {
             for (index in drawRange) {
                 val candle = candles.getOrNull(index) ?: continue
                 val x = xForIndexDraw(index)
@@ -679,6 +744,7 @@ internal fun CandlestickChart(
                     topLeft = Offset(x - candleWidth / 2f, bodyTop),
                     size = Size(candleWidth, bodyHeight)
                 )
+            }
             }
 
             pointMarkers.forEach { marker ->
@@ -720,7 +786,7 @@ internal fun CandlestickChart(
         selected?.let { idx ->
             val x = xForIndexDraw(idx)
             drawLine(
-                color = Color(0xFF90CAF9),
+                color = selectionColor,
                 start = Offset(x, topPadding),
                 end = Offset(x, topPadding + h),
                 strokeWidth = 2f

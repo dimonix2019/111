@@ -90,6 +90,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.09 — Рынок: график Z как strategy-web (линия, тёмная тема, пороги amber/green); управление тачпадом (1 палец — сдвиг, 2 — масштаб) + панель Plotly.
 1.7.08 — Симуляция Z-стратегии: parity с strategy-web — slippage, стоп-лосс (спред/₽), фильтр спреда, буфер Z на вход, halt по просадке; rolling 30д Z по умолчанию.
 1.7.07 — Обновления: восстановлены push/AlarmManager проверки; кнопка «Проверить обновления» на «О приложении» с пояснением, если GitHub старее телефона.
 1.7.06 — Z-score: rolling 30д (μ/σ по скользящему окну МСК, min 48 баров) вместо global — parity с strategy-web; сигналы, портфель 15м, рынок, тест страт.

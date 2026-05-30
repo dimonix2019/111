@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,10 +32,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -394,7 +397,10 @@ internal fun CandlestickChartCard(
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
     tradeTapHintFormatter: ((Int) -> String?)? = null,
-    landscapeMinimal: Boolean = false
+    landscapeMinimal: Boolean = false,
+    useDesktopStyle: Boolean = false,
+    displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
+    showPlotlyToolbar: Boolean = false,
 ) {
     val axisScale = remember(candles, referenceLines) {
         buildCandleAxisScale(candles, valueHints = referenceLines.map { it.value })
@@ -402,12 +408,26 @@ internal fun CandlestickChartCard(
     val dataYRange = remember(candles, referenceLines) {
         candleChartDataYRange(candles, referenceLines.map { it.value })
     }
+    val viewport = remember(candles, initialWindowWidth, initialWindowStart, dataYRange) {
+        ChartViewportState(
+            initialWindowWidth = initialWindowWidth,
+            initialWindowStart = initialWindowStart,
+            dataYMin = dataYRange.first,
+            dataYMax = dataYRange.second,
+        )
+    }
+    LaunchedEffect(candles, initialWindowWidth, initialWindowStart) {
+        viewport.resetWindow(initialWindowWidth, initialWindowStart)
+    }
     var yZoom by remember(candles) { mutableFloatStateOf(1f) }
     var yViewCenter by remember(candles, dataYRange) {
         mutableDoubleStateOf(candleDefaultYViewCenter(dataYRange.first, dataYRange.second))
     }
-    val visibleYRange = remember(dataYRange, yZoom, yViewCenter) {
-        visibleCandleYRange(dataYRange.first, dataYRange.second, yZoom, yViewCenter)
+    val useViewport = enableZoomPan && (useDesktopStyle || showPlotlyToolbar)
+    val effectiveYZoom = if (useViewport) viewport.yZoom else yZoom
+    val effectiveYCenter = if (useViewport) viewport.yViewCenter else yViewCenter
+    val visibleYRange = remember(dataYRange, effectiveYZoom, effectiveYCenter) {
+        visibleCandleYRange(dataYRange.first, dataYRange.second, effectiveYZoom, effectiveYCenter)
     }
     val displayYTicks = remember(visibleYRange, enableZoomPan, axisScale.yTicks) {
         if (enableZoomPan) {
@@ -420,82 +440,104 @@ internal fun CandlestickChartCard(
     val stats = remember(candles) { buildCandleStats(candles) }
     var selectedIndex by remember(candles) { mutableStateOf<Int?>(null) }
 
+    val cardBg = if (useDesktopStyle) DesktopChartColors.plotBackground else Color(0xFF171717)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (landscapeMinimal) Modifier.fillMaxHeight() else Modifier)
-            .background(Color(0xFF171717), RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp))
+            .background(cardBg, RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp))
             .padding(if (landscapeMinimal) 2.dp else 10.dp),
         verticalArrangement = Arrangement.spacedBy(if (landscapeMinimal) 2.dp else 8.dp)
     ) {
         if (!landscapeMinimal && title.isNotBlank()) {
-            Text(title, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(title, fontWeight = FontWeight.Bold, color = Color(0xFFE5E7EB))
         }
         if (showZoomHint && enableZoomPan && !landscapeMinimal) {
             Text(
-                text = "Масштаб: pinch — свечи и пороги по X и Y · сдвиг · двойной тап: сброс",
-                color = Color(0xFF9FA8DA),
+                text = if (useDesktopStyle) CHART_TRACKPAD_HINT else
+                    "Масштаб: pinch — свечи и пороги по X и Y · сдвиг · двойной тап: сброс",
+                color = Color(0xFF94A3B8),
                 fontSize = 10.sp
             )
         }
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
                     if (landscapeMinimal) Modifier.weight(1f).fillMaxHeight()
                     else Modifier
                 ),
-            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                modifier = Modifier
-                    .then(
-                        if (landscapeMinimal) Modifier.fillMaxHeight()
-                        else Modifier.height(chartHeightDp.dp)
-                    )
-                    .width(54.dp),
-                verticalArrangement = Arrangement.SpaceBetween
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                displayYTicks
-                    .asReversed()
-                    .forEach { tick ->
-                        Text(
-                            text = formatAxisValue(tick),
-                            fontSize = 10.sp,
-                            color = Color(0xFFD7E3F4)
+                Column(
+                    modifier = Modifier
+                        .then(
+                            if (landscapeMinimal) Modifier.fillMaxHeight()
+                            else Modifier.height(chartHeightDp.dp)
                         )
-                    }
-            }
-            CandlestickChart(
-                candles = candles,
-                yTicks = displayYTicks,
-                xTicks = axisScale.xTicks,
-                selectedIndex = selectedIndex,
-                onSelectIndex = { selectedIndex = it },
-                referenceLines = referenceLines,
-                pointMarkers = pointMarkers,
-                modifier = Modifier
-                    .weight(1f)
-                    .then(
-                        if (landscapeMinimal) Modifier.fillMaxHeight()
-                        else Modifier.height(chartHeightDp.dp)
-                    ),
-                enableZoomPan = enableZoomPan,
-                markerScale = markerScale,
-                rightPlotPaddingPx = rightPlotPaddingPx,
-                rightPlotPaddingFraction = rightPlotPaddingFraction,
-                initialWindowWidth = initialWindowWidth,
-                initialWindowStart = initialWindowStart,
-                dataYMin = dataYRange.first,
-                dataYMax = dataYRange.second,
-                yZoom = yZoom,
-                yViewCenter = yViewCenter,
-                onYViewChange = if (enableZoomPan) {
-                    { zoom, center -> yZoom = zoom; yViewCenter = center }
-                } else {
-                    null
+                        .width(54.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    displayYTicks
+                        .asReversed()
+                        .forEach { tick ->
+                            Text(
+                                text = formatAxisValue(tick),
+                                fontSize = 10.sp,
+                                color = if (useDesktopStyle) DesktopChartColors.axis else Color(0xFFD7E3F4)
+                            )
+                        }
                 }
-            )
+                CandlestickChart(
+                    candles = candles,
+                    yTicks = displayYTicks,
+                    xTicks = axisScale.xTicks,
+                    selectedIndex = selectedIndex,
+                    onSelectIndex = { selectedIndex = it },
+                    referenceLines = referenceLines,
+                    pointMarkers = pointMarkers,
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            if (landscapeMinimal) Modifier.fillMaxHeight()
+                            else Modifier.height(chartHeightDp.dp)
+                        ),
+                    enableZoomPan = enableZoomPan,
+                    markerScale = markerScale,
+                    rightPlotPaddingPx = rightPlotPaddingPx,
+                    rightPlotPaddingFraction = rightPlotPaddingFraction,
+                    initialWindowWidth = initialWindowWidth,
+                    initialWindowStart = initialWindowStart,
+                    dataYMin = dataYRange.first,
+                    dataYMax = dataYRange.second,
+                    yZoom = effectiveYZoom,
+                    yViewCenter = effectiveYCenter,
+                    onYViewChange = if (enableZoomPan && !useViewport) {
+                        { zoom, center -> yZoom = zoom; yViewCenter = center }
+                    } else {
+                        null
+                    },
+                    viewport = if (useViewport) viewport else null,
+                    displayMode = displayMode,
+                    useDesktopStyle = useDesktopStyle,
+                )
+            }
+            if (showPlotlyToolbar && enableZoomPan) {
+                ChartPlotlyToolbar(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 4.dp, end = 4.dp),
+                    onZoomIn = { viewport.zoomX(0.82f) },
+                    onZoomOut = { viewport.zoomX(1.22f) },
+                    onReset = { viewport.resetWindow(initialWindowWidth, initialWindowStart) },
+                    onPanLeft = { viewport.panX(-viewport.windowWidth * 0.12f) },
+                    onPanRight = { viewport.panX(viewport.windowWidth * 0.12f) },
+                )
+            }
         }
         if (showLegend && !landscapeMinimal) {
             Legend(
@@ -507,10 +549,15 @@ internal fun CandlestickChartCard(
         if (!landscapeMinimal) {
             selectedIndex?.let { selected ->
                 candles.getOrNull(selected)?.let { candle ->
-                    Text(
-                        text = "↕ ${candle.label} | O ${formatAxisValue(candle.open)} | " +
+                    val detail = if (displayMode == ChartDisplayMode.Line) {
+                        "↕ ${candle.label} | Z ${formatAxisValue(candle.close)}"
+                    } else {
+                        "↕ ${candle.label} | O ${formatAxisValue(candle.open)} | " +
                             "H ${formatAxisValue(candle.high)} | L ${formatAxisValue(candle.low)} | " +
-                            "C ${formatAxisValue(candle.close)}",
+                            "C ${formatAxisValue(candle.close)}"
+                    }
+                    Text(
+                        text = detail,
                         fontSize = 12.sp,
                         color = Color(0xFFF1F8FF)
                     )
@@ -544,7 +591,10 @@ internal fun LandscapeZScoreFullscreenPane(
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
     tradeTapHintFormatter: ((Int) -> String?)? = null,
-    emptyContent: @Composable () -> Unit = { EmptyState() }
+    emptyContent: @Composable () -> Unit = { EmptyState() },
+    useDesktopStyle: Boolean = false,
+    displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
+    showPlotlyToolbar: Boolean = false,
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
@@ -572,7 +622,10 @@ internal fun LandscapeZScoreFullscreenPane(
                     landscapeMinimal = true,
                     initialWindowWidth = initialWindowWidth,
                     initialWindowStart = initialWindowStart,
-                    tradeTapHintFormatter = tradeTapHintFormatter
+                    tradeTapHintFormatter = tradeTapHintFormatter,
+                    useDesktopStyle = useDesktopStyle,
+                    displayMode = displayMode,
+                    showPlotlyToolbar = showPlotlyToolbar,
                 )
             } else {
                 emptyContent()

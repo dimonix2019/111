@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -63,6 +64,20 @@ internal fun MoexScreenTabMarkets(
     dataSourceLabel: MarketsDataSource,
     todayPnlHint: String?,
 ) {
+    val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.selectedPeriod) {
+        chartInitialWindowForLastCalendarDays(
+            marketsM15ChartPoints,
+            visibleDays = when (screen.selectedPeriod) {
+                Period.OneDay -> 1L
+                Period.OneWeek -> 7L
+                Period.OneMonth -> 30L
+                else -> STRATEGY_TEST_Z_CHART_VISIBLE_DAYS
+            }
+        )
+    }
+    val marketsZReferenceLines = remember(marketsChartThresholds) {
+        buildZScoreReferenceLines(marketsChartThresholds, desktopStyle = true)
+    }
     Column(modifier) {
     with(screen) {
                 Column(Modifier.fillMaxSize()) {
@@ -118,11 +133,16 @@ internal fun MoexScreenTabMarkets(
                                     previousZScoreForAlert = null
                                 },
                                 candles = marketsZScoreCandles,
-                                referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
+                                referenceLines = marketsZReferenceLines,
                                 pointMarkers = buildZScoreSignalMarkersFromEvents(
                                     points = marketsM15ChartPoints,
                                     events = signalEvents
                                 ),
+                                initialWindowWidth = marketsZInitialWindow.first,
+                                initialWindowStart = marketsZInitialWindow.second,
+                                useDesktopStyle = true,
+                                displayMode = ChartDisplayMode.Line,
+                                showPlotlyToolbar = true,
                                 tradeTapHintFormatter = { idx ->
                                     formatZStrategyTradeTapHint(
                                         idx,
@@ -258,19 +278,24 @@ internal fun MoexScreenTabMarkets(
                             val c = chartSuccess
                             item {
                                 CandlestickChartCard(
-                                    title = "График 4: Z-score спрэда · 15м свечи",
+                                    title = "Z-score · 15м (как strategy-web)",
                                     candles = marketsZScoreCandles,
-                                    chartHeightDp = 228,
-                                    referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
+                                    chartHeightDp = 320,
+                                    referenceLines = marketsZReferenceLines,
                                     pointMarkers = buildZScoreSignalMarkersFromEvents(
                                         points = marketsM15ChartPoints,
                                         events = signalEvents
                                     ),
-                                    showLegend = false,
+                                    showLegend = true,
                                     enableZoomPan = true,
                                     markerScale = 1.35f,
                                     rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
                                     showZoomHint = true,
+                                    initialWindowWidth = marketsZInitialWindow.first,
+                                    initialWindowStart = marketsZInitialWindow.second,
+                                    useDesktopStyle = true,
+                                    displayMode = ChartDisplayMode.Line,
+                                    showPlotlyToolbar = true,
                                     tradeTapHintFormatter = { idx ->
                                         formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)
                                     }

@@ -60,26 +60,31 @@ import kotlin.math.roundToInt
 import kotlin.math.max
 import kotlin.math.min
 
-internal fun buildZScoreReferenceLines(thresholds: DynamicThresholds): List<ChartReferenceLine> {
+internal fun buildZScoreReferenceLines(
+    thresholds: DynamicThresholds,
+    desktopStyle: Boolean = false,
+): List<ChartReferenceLine> {
+    val entryColor = if (desktopStyle) DesktopChartColors.entryThreshold else Color(0xFFFFB74D)
+    val exitColor = if (desktopStyle) DesktopChartColors.exitThreshold else Color(0xFFA5D6A7)
     return listOf(
         ChartReferenceLine(
             value = thresholds.entry,
-            color = Color(0xFFFFB74D),
+            color = entryColor,
             label = String.format(Locale.US, "+%.2f", thresholds.entry)
         ),
         ChartReferenceLine(
             value = -thresholds.entry,
-            color = Color(0xFFFFB74D),
+            color = entryColor,
             label = String.format(Locale.US, "-%.2f", thresholds.entry)
         ),
         ChartReferenceLine(
             value = thresholds.exit,
-            color = Color(0xFFA5D6A7),
+            color = exitColor,
             label = String.format(Locale.US, "+%.2f", thresholds.exit)
         ),
         ChartReferenceLine(
             value = -thresholds.exit,
-            color = Color(0xFFA5D6A7),
+            color = exitColor,
             label = String.format(Locale.US, "-%.2f", thresholds.exit)
         )
     )
