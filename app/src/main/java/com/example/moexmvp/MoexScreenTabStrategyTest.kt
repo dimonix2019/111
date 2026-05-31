@@ -66,10 +66,21 @@ internal fun MoexScreenTabStrategyTest(
                             metrics = strategyTestPortfolioMetrics,
                             simulationComputing = strategyTestSimComputing,
                             tradeItems = strategyTestTradeItems,
-                            portfolioLoading = portfolioLoading,
-                            portfolioError = portfolioError,
-                            onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
-                            onMoex15mFullReload = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.FULL_REFRESH) } },
+                            m15Loading = strategyTestM15Loading,
+                            m15Error = strategyTestError,
+                            onRefresh = {
+                                scope.launch {
+                                    ensureM15PointsForStrategyTest(preferNetwork = true)
+                                }
+                            },
+                            onMoex15mFullReload = {
+                                scope.launch {
+                                    ensureM15PointsForStrategyTest(
+                                        preferNetwork = true,
+                                        networkMode = PortfolioM15LoadMode.FULL_REFRESH
+                                    )
+                                }
+                            },
                             leverage = portfolioLeverage,
                             commissionPercentPerSide = portfolioCommissionPercent,
                             entryThreshold = (strategyTestEntryThreshold ?: dynamicThresholds.entry)

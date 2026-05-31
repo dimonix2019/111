@@ -79,6 +79,8 @@ internal class MoexScreenState(val context: Context) {
     var bgMonitorToggleEpoch by mutableStateOf(0)
     var strategyTestPortfolioMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var strategyTestSimComputing by mutableStateOf(false)
+    var strategyTestM15Loading by mutableStateOf(false)
+    var strategyTestError by mutableStateOf<String?>(null)
     var dailyReconciliation by mutableStateOf<DailyPortfolioReconciliation?>(null)
     var marketsZStrategyTapMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var initialMarketsRefreshDone by mutableStateOf(false)

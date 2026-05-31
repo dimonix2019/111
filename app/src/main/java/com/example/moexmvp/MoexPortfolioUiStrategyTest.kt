@@ -61,8 +61,8 @@ internal fun StrategyTestTabContent(
     metrics: PortfolioMetrics?,
     simulationComputing: Boolean = false,
     tradeItems: List<StrategyTestTradeItem>,
-    portfolioLoading: Boolean,
-    portfolioError: String?,
+    m15Loading: Boolean,
+    m15Error: String?,
     onRefresh: () -> Unit,
     onMoex15mFullReload: () -> Unit,
     leverage: Double,
@@ -93,11 +93,11 @@ internal fun StrategyTestTabContent(
         AppVersionBriefCard(tabHint = "Симуляция на полном 15м ряду; пороги только для «Тест страт.»")
         PortfolioDataRefreshHeader(
             title = "Тест стратегии · 15м",
-            portfolioLoading = portfolioLoading || simulationComputing,
+            portfolioLoading = m15Loading || simulationComputing,
             onRefresh = onRefresh,
             onMoex15mFullReload = onMoex15mFullReload
         )
-        if (simulationComputing && metrics == null && portfolioError == null) {
+        if (simulationComputing && metrics == null && m15Error == null) {
             Text(
                 text = "Считаем симуляцию на ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. 15м…",
                 color = Color(0xFF9FA8DA),
@@ -233,7 +233,7 @@ internal fun StrategyTestTabContent(
             )
         }
 
-        val dataTailWarning = portfolioError
+        val dataTailWarning = m15Error
         if (dataTailWarning != null && metrics == null) {
             Text(dataTailWarning, color = Color(0xFFEF9A9A), fontSize = 11.sp)
             Button(onClick = onRefresh, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
@@ -243,7 +243,7 @@ internal fun StrategyTestTabContent(
                     Text("Повторить", fontSize = 11.sp)
                 }
             }
-        } else if (!portfolioLoading && !simulationComputing && metrics == null) {
+        } else if (!m15Loading && !simulationComputing && metrics == null) {
             Text("Недостаточно данных для симуляции.", color = Color(0xFFBDBDBD), fontSize = 11.sp)
         } else {
             metrics?.let { m ->
