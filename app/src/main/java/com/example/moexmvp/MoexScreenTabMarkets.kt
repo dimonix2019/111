@@ -29,7 +29,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -151,13 +150,23 @@ internal fun MoexScreenTabMarkets(
                                     )
                                 },
                                 emptyContent = {
-                                    when (val st = state) {
-                                        is UiState.Loading -> LoadingState()
-                                        is UiState.Error -> ErrorState(st.message) {
-                                            scope.launch { refreshData(showLoading = true, launchScope = scope, selectedPeriod = selectedPeriod) }
+                                    when {
+                                        marketsZScoreCandles.isNotEmpty() -> Unit
+                                        isRefreshing || chartSuccess != null -> LoadingState()
+                                        else -> when (val st = state) {
+                                            is UiState.Loading -> LoadingState()
+                                            is UiState.Error -> ErrorState(st.message) {
+                                                scope.launch {
+                                                    refreshData(
+                                                        showLoading = true,
+                                                        launchScope = scope,
+                                                        selectedPeriod = selectedPeriod
+                                                    )
+                                                }
+                                            }
+                                            is UiState.Empty -> EmptyState()
+                                            else -> EmptyState()
                                         }
-                                        is UiState.Empty -> EmptyState()
-                                        else -> EmptyState()
                                     }
                                 }
                             )
@@ -274,7 +283,9 @@ internal fun MoexScreenTabMarkets(
                                 onToggle = { realtimeEnabled = !realtimeEnabled }
                             )
                         }
-                        if (marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()) {
+                        val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()
+                        val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null)
+                        if (showZCharts) {
                             item {
                                 CandlestickChartCard(
                                     title = "Z-score · 15м (ISS 10м→15м, как «Тест страт.»)",
@@ -295,6 +306,7 @@ internal fun MoexScreenTabMarkets(
                                     useDesktopStyle = true,
                                     displayMode = ChartDisplayMode.Candles,
                                     showPlotlyToolbar = true,
+                                    trackpadGestures = false,
                                     tradeTapHintFormatter = { idx ->
                                         formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)
                                     }
@@ -315,9 +327,19 @@ internal fun MoexScreenTabMarkets(
                                     rightAxisPercentBase = marketsM15ChartPoints.minOfOrNull { it.spreadPercent },
                                     yScale = YAxisScale.Auto,
                                     showLegend = false,
-                                    enableZoomPan = true,
+                                    enableZoomPan = false,
                                     markerScale = 1f,
                                     showZoomHint = false
+                                )
+                            }
+                        } else if (waitingM15) {
+                            item {
+                                LoadingState()
+                                Text(
+                                    text = "Загрузка 15м данных для графика Z…",
+                                    color = Color(0xFF9FA8DA),
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(top = 8.dp)
                                 )
                             }
                         } else {
@@ -329,7 +351,13 @@ internal fun MoexScreenTabMarkets(
                                     }
                                 }
                                 is UiState.Empty -> item { EmptyState() }
-                                else -> Unit
+                                else -> item {
+                                    Text(
+                                        text = "Нет 15м данных. Потяните вниз для обновления.",
+                                        color = Color(0xFFBDBDBD),
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
                         }
                     }

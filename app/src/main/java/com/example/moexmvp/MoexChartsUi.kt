@@ -401,6 +401,7 @@ internal fun CandlestickChartCard(
     useDesktopStyle: Boolean = false,
     displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
     showPlotlyToolbar: Boolean = false,
+    trackpadGestures: Boolean = true,
 ) {
     val axisScale = remember(candles, referenceLines) {
         buildCandleAxisScale(candles, valueHints = referenceLines.map { it.value })
@@ -524,6 +525,7 @@ internal fun CandlestickChartCard(
                     viewport = if (useViewport) viewport else null,
                     displayMode = displayMode,
                     useDesktopStyle = useDesktopStyle,
+                    trackpadGestures = trackpadGestures,
                 )
             }
             if (showPlotlyToolbar && enableZoomPan) {

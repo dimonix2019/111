@@ -156,15 +156,16 @@ internal fun Modifier.trackpadChartGestures(
     dataYMin: Double,
     dataYMax: Double,
     viewport: ChartViewportState,
+    /** false внутри LazyColumn — не перехватывать вертикальную прокрутку (зум через toolbar). */
+    captureTouchGestures: Boolean = true,
 ): Modifier {
-    if (!enabled) return this
+    if (!enabled || !captureTouchGestures) return this
     return this
         .nestedScroll(chartNestedScrollConnection { viewport.isInteracting })
         .pointerInput(viewport) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
-                down.consume()
-                viewport.isInteracting = true
+                var interacting = false
                 val chartWidthPx = (size.width - leftPadding - rightPadding).coerceAtLeast(1f)
                 val chartHeightPx = (size.height - topPadding - bottomPadding).coerceAtLeast(1f)
                 var pinchBaseDistance = 0f
@@ -179,6 +180,8 @@ internal fun Modifier.trackpadChartGestures(
                     if (pressed.isEmpty()) break
 
                     if (pressed.size >= 2) {
+                        interacting = true
+                        viewport.isInteracting = true
                         val p0 = pressed[0].position
                         val p1 = pressed[1].position
                         val centroid = Offset((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f)
@@ -212,16 +215,14 @@ internal fun Modifier.trackpadChartGestures(
                     } else {
                         val change = pressed.first()
                         val delta = change.positionChange()
-                        if (delta != Offset.Zero) {
-                            if (chartWidthPx > 1f && delta.x != 0f) {
-                                val panFrac = -delta.x / chartWidthPx * viewport.windowWidth
-                                viewport.panX(panFrac)
-                            }
-                            if (chartHeightPx > 1f && delta.y != 0f) {
-                                val fullSpan = (dataYMax - dataYMin).coerceAtLeast(1e-9)
-                                val visSpan = fullSpan / viewport.yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
-                                viewport.panY(delta.y / chartHeightPx * visSpan)
-                            }
+                        if (delta != Offset.Zero &&
+                            abs(delta.x) > abs(delta.y) &&
+                            chartWidthPx > 1f
+                        ) {
+                            interacting = true
+                            viewport.isInteracting = true
+                            val panFrac = -delta.x / chartWidthPx * viewport.windowWidth
+                            viewport.panX(panFrac)
                             change.consume()
                         }
                     }

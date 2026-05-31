@@ -40,6 +40,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -67,7 +68,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         selectedTab,
     ) {
         if (selectedTab == MainTab.Markets) {
-            delay(2500)
+            delay(800)
         }
         strategyTestSimComputing = true
         try {
@@ -266,8 +267,9 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
 
     LaunchedEffect(Unit) {
         coroutineScope {
-            launch { hydrateMarketsFromLocalCache(selectedPeriod) }
+            val marketsHydrate = async { hydrateMarketsFromLocalCache(selectedPeriod) }
             launch { hydrateDeferredUiState() }
+            marketsHydrate.await()
         }
         initialMarketsRefreshDone = true
         if (selectedTab == MainTab.Markets) {

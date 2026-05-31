@@ -12,7 +12,6 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,7 +43,6 @@ internal fun MoexScreen() {
             return@produceState
         }
         value = buildM15ZChartDisplay(marketsM15SimPoints)
-        delay(2500)
         runCatching {
             withContext(Dispatchers.IO) {
                 buildM15ZChartDisplayWithSpreadOhlc(marketsM15SimPoints)
@@ -93,7 +91,6 @@ internal fun MoexScreen() {
             return@produceState
         }
         value = buildM15ZChartDisplay(strategyTestM15SimPoints)
-        delay(2500)
         runCatching {
             withContext(Dispatchers.IO) {
                 buildM15ZChartDisplayWithSpreadOhlc(strategyTestM15SimPoints)
@@ -142,7 +139,6 @@ internal fun MoexScreen() {
         screen.portfolioCommissionPercent,
         screen.selectedPeriod
     ) {
-        delay(1500)
         screen.marketsZStrategyTapMetrics = withContext(Dispatchers.Default) {
             val pts = marketsM15SimPoints
             if (pts.size < 2) return@withContext null

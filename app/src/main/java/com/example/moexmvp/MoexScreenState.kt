@@ -297,15 +297,40 @@ internal class MoexScreenState(val context: Context) {
                     }
 
                     if (skipDailyNetwork) {
-                        val m15CachedReady = marketsM15Points.size >= 2 &&
-                            !portfolio15mSeriesTailStale(marketsM15Points)
-                        if (!m15CachedReady) {
-                            launchScope.launch(Dispatchers.IO) {
-                                runCatching {
+                        lastGoodMarkets?.let { cached ->
+                            state = cached
+                            marketsStale = false
+                        }
+                        if (marketsM15Points.size < 2) {
+                            withContext(Dispatchers.IO) {
+                                loadPortfolio15mPointsForSignalMonitor(
+                                    context,
+                                    PortfolioM15LoadMode.CACHE_ONLY
+                                )
+                            }.takeIf { it.size >= 2 }?.let { loaded ->
+                                marketsM15Points = loaded
+                                if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
+                            }
+                        }
+                        when {
+                            marketsM15Points.size < 2 -> {
+                                val loaded = withContext(Dispatchers.IO) {
                                     loadPortfolio15mPointsForSignalMonitor(context)
-                                }.getOrNull()?.takeIf { it.size >= 2 }?.let { loaded ->
+                                }
+                                if (loaded.size >= 2) {
                                     marketsM15Points = loaded
-                                    if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
+                                    portfolioM15Points = loaded
+                                }
+                            }
+                            portfolio15mSeriesTailStale(marketsM15Points) -> {
+                                launchScope.launch {
+                                    val loaded = withContext(Dispatchers.IO) {
+                                        loadPortfolio15mPointsForSignalMonitor(context)
+                                    }
+                                    if (loaded.size >= 2) {
+                                        marketsM15Points = loaded
+                                        if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
+                                    }
                                 }
                             }
                         }
@@ -338,8 +363,15 @@ internal class MoexScreenState(val context: Context) {
                         !portfolio15mSeriesTailStale(marketsM15Points)
                     val deferM15Network = preferBackground && m15CachedReady
                     if (deferM15Network) {
-                        launchScope.launch(Dispatchers.IO) {
-                            runCatching { loadMarketsM15PointsOnce() }
+                        launchScope.launch {
+                            val loaded = withContext(Dispatchers.IO) {
+                                loadPortfolio15mPointsForSignalMonitor(context)
+                            }
+                            if (loaded.size >= 2) {
+                                loadedM15ForMarkets = loaded
+                                marketsM15Points = loaded
+                                portfolioM15Points = loaded
+                            }
                         }
                     } else if (!fromDiskCache || marketsM15Points.isEmpty()) {
                         runCatching { loadMarketsM15PointsOnce() }

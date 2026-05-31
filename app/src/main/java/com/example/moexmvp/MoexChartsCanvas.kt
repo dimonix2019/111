@@ -430,6 +430,7 @@ internal fun CandlestickChart(
     viewport: ChartViewportState? = null,
     displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
     useDesktopStyle: Boolean = false,
+    trackpadGestures: Boolean = true,
 ) {
     if (candles.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -528,6 +529,7 @@ internal fun CandlestickChart(
                         dataYMin = baseMin,
                         dataYMax = baseMax,
                         viewport = viewport,
+                        captureTouchGestures = trackpadGestures,
                     )
                 } else if (enableZoomPan) {
                     Modifier.pointerInput(

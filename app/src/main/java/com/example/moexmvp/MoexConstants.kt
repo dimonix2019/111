@@ -92,6 +92,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.26 — Рынок: прокрутка LazyColumn (жесты графика не блокируют вертикаль); landscape/график — 15м из кэша сразу; fix гонки hydrate.
 1.7.25 — Быстрый старт: кэш сразу на экран, MOEX/15м/симуляция в фоне; журнал и prefs не блокируют ctor; realtime выкл. по умолчанию.
 1.7.24 — Z-свечи 15м: исправлены «кривые» тела (полный ряд → downsample OHLC); open/high/low из spread 10м в слоте; формирующийся 15м бар.
 1.7.23 — Рынок / Тест страт.: единые 15м свечи Z (ISS 10м→15м, rolling Z) — вид и расчёт по одному ряду; spread-график тоже 15м; убраны 10м фитили.
