@@ -27,6 +27,20 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun clampZScoreCandleWicks_limitsIntrabarShadows() {
+        val raw = CandlePoint(
+            label = "2026-05-19 10:15",
+            open = 0.0,
+            high = 2.5,
+            low = -2.0,
+            close = 0.05,
+        )
+        val capped = clampZScoreCandleWicks(raw, maxExtension = 0.22)
+        assertEquals(0.05 + 0.22, capped.high, 1e-9)
+        assertEquals(0.0 - 0.22, capped.low, 1e-9)
+    }
+
+    @Test
     fun buildZScoreCandlesFrom15mSpreadOhlc_closeMatchesSimulationZ() {
         val raw = (0 until 60).map { i ->
             val dt = LocalDateTime.of(2026, 5, 1, 10, 0).plusMinutes(i * 15L)

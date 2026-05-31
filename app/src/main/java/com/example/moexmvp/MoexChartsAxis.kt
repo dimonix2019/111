@@ -271,7 +271,7 @@ internal suspend fun buildZScoreCandlesOhlcAnchoredToM15Series(
             high = if (range != null) max(bodyHigh, range.max) else bodyHigh,
             low = if (range != null) min(bodyLow, range.min) else bodyLow,
             close = close,
-        )
+        ).let(::clampZScoreCandleWicks)
     }
 }
 

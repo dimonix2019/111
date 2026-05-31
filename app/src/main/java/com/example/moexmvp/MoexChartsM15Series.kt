@@ -63,6 +63,24 @@ import kotlin.math.min
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * Ограничивает фитили Z-свечи: тело = open/close между 15м барами,
+ * а 10м spread внутри слота при малой σ давал Z-тени на несколько единиц.
+ */
+internal fun clampZScoreCandleWicks(
+    candle: CandlePoint,
+    maxExtension: Double = CHART_Z_INTRABAR_WICK_MAX,
+): CandlePoint {
+    val bodyHigh = max(candle.open, candle.close)
+    val bodyLow = min(candle.open, candle.close)
+    val bodySpan = bodyHigh - bodyLow
+    val allowed = max(maxExtension, bodySpan * 1.25).coerceAtMost(maxExtension * 2.5)
+    return candle.copy(
+        high = min(candle.high, bodyHigh + allowed).coerceAtLeast(bodyHigh),
+        low = max(candle.low, bodyLow - allowed).coerceAtMost(bodyLow),
+    )
+}
+
 internal fun downsampleDataPointsForChart(
     points: List<DataPoint>,
     maxBars: Int = CHART_MAX_DISPLAY_BARS
@@ -134,7 +152,7 @@ internal fun buildZScoreCandlesFrom15mSpreadOhlc(
             high = wickRange?.second?.let { max(bodyHigh, it) } ?: bodyHigh,
             low = wickRange?.first?.let { min(bodyLow, it) } ?: bodyLow,
             close = close,
-        )
+        ).let(::clampZScoreCandleWicks)
     }
 }
 
@@ -158,18 +176,20 @@ internal fun downsampleM15ChartSeries(
         val pSlice = points.subList(start, endIdx + 1)
         val cSlice = candles.subList(start, endIdx + 1)
         outPoints += pSlice.last()
-        outCandles += CandlePoint(
-            label = pSlice.last().tradeDate,
-            open = cSlice.first().open,
-            high = cSlice.maxOf { it.high },
-            low = cSlice.minOf { it.low },
-            close = cSlice.last().close
+        outCandles += clampZScoreCandleWicks(
+            CandlePoint(
+                label = pSlice.last().tradeDate,
+                open = cSlice.first().open,
+                high = cSlice.maxOf { it.high },
+                low = cSlice.minOf { it.low },
+                close = cSlice.last().close
+            )
         )
         start = endIdx + 1
     }
     if (outPoints.isEmpty() || outPoints.last() != points.last()) {
         outPoints += points.last()
-        outCandles += candles.last()
+        outCandles += clampZScoreCandleWicks(candles.last())
     }
     return outPoints to outCandles
 }
