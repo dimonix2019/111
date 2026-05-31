@@ -128,8 +128,13 @@ internal fun MarketsPullRefreshBox(
     refreshing: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    if (!enabled) {
+        Box(modifier) { content() }
+        return
+    }
     val pullState = rememberPullRefreshState(refreshing, onRefresh)
     Box(modifier.pullRefresh(pullState)) {
         content()

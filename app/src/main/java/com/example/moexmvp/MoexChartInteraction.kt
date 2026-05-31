@@ -215,15 +215,22 @@ internal fun Modifier.trackpadChartGestures(
                     } else {
                         val change = pressed.first()
                         val delta = change.positionChange()
-                        if (delta != Offset.Zero &&
-                            abs(delta.x) > abs(delta.y) &&
-                            chartWidthPx > 1f
-                        ) {
-                            interacting = true
-                            viewport.isInteracting = true
-                            val panFrac = -delta.x / chartWidthPx * viewport.windowWidth
-                            viewport.panX(panFrac)
-                            change.consume()
+                        if (delta != Offset.Zero && chartWidthPx > 1f) {
+                            if (abs(delta.x) >= abs(delta.y)) {
+                                interacting = true
+                                viewport.isInteracting = true
+                                val panFrac = -delta.x / chartWidthPx * viewport.windowWidth
+                                viewport.panX(panFrac)
+                                change.consume()
+                            } else if (chartHeightPx > 1f && abs(delta.y) > 2f) {
+                                interacting = true
+                                viewport.isInteracting = true
+                                val fullSpan = (dataYMax - dataYMin).coerceAtLeast(1e-9)
+                                val visSpan = fullSpan / viewport.yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
+                                val deltaY = delta.y / chartHeightPx * visSpan
+                                viewport.panY(deltaY)
+                                change.consume()
+                            }
                         }
                     }
                 } while (true)

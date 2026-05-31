@@ -73,6 +73,9 @@ internal fun MoexScreenTabPortfolio(
                             points = portfolioZChartPoints,
                             events = signalEvents
                         ),
+                        useDesktopStyle = true,
+                        showPlotlyToolbar = true,
+                        trackpadGestures = true,
                         tradeTapHintFormatter = { idx ->
                             formatZStrategyTradeTapHint(
                                 idx,

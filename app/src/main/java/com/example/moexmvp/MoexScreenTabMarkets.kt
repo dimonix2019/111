@@ -121,7 +121,8 @@ internal fun MoexScreenTabMarkets(
                         onRefresh = { scope.launch { refreshData(showLoading = false, launchScope = scope, selectedPeriod = selectedPeriod) } },
                         modifier = Modifier
                             .weight(1f)
-                            .padding(top = if (landscapeZChartFullscreen) 0.dp else 8.dp)
+                            .padding(top = if (landscapeZChartFullscreen) 0.dp else 8.dp),
+                        enabled = !landscapeZChartFullscreen,
                     ) {
                         if (landscapeZChartFullscreen) {
                             LandscapeZScoreFullscreenPane(

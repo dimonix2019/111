@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -242,7 +243,14 @@ internal fun CandlestickChartCard(
     var yViewCenter by remember(candles, dataYRange) {
         mutableDoubleStateOf(candleDefaultYViewCenter(dataYRange.first, dataYRange.second))
     }
-    val useViewport = enableZoomPan && (useDesktopStyle || showPlotlyToolbar)
+    val useViewport = enableZoomPan
+    if (useViewport) {
+        // Подписка Compose на изменения viewport (кнопки toolbar / жесты).
+        viewport.windowStart
+        viewport.windowWidth
+        viewport.yZoom
+        viewport.yViewCenter
+    }
     val effectiveYZoom = if (useViewport) viewport.yZoom else yZoom
     val effectiveYCenter = if (useViewport) viewport.yViewCenter else yViewCenter
     val visibleYRange = remember(dataYRange, effectiveYZoom, effectiveYCenter) {
@@ -346,11 +354,12 @@ internal fun CandlestickChartCard(
                     trackpadGestures = trackpadGestures,
                 )
             }
-            if (showPlotlyToolbar && enableZoomPan) {
+            if (enableZoomPan && useViewport && (showPlotlyToolbar || landscapeMinimal)) {
                 ChartPlotlyToolbar(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = 4.dp, end = 4.dp),
+                        .padding(top = 4.dp, end = 4.dp)
+                        .zIndex(2f),
                     onZoomIn = { viewport.zoomX(0.82f) },
                     onZoomOut = { viewport.zoomX(1.22f) },
                     onReset = { viewport.resetWindow(initialWindowWidth, initialWindowStart) },

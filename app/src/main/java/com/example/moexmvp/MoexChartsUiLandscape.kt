@@ -75,9 +75,10 @@ internal fun LandscapeZScoreFullscreenPane(
     initialWindowStart: Float = 0f,
     tradeTapHintFormatter: ((Int) -> String?)? = null,
     emptyContent: @Composable () -> Unit = { EmptyState() },
-    useDesktopStyle: Boolean = false,
+    useDesktopStyle: Boolean = true,
     displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
-    showPlotlyToolbar: Boolean = false,
+    showPlotlyToolbar: Boolean = true,
+    trackpadGestures: Boolean = true,
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
@@ -113,6 +114,7 @@ internal fun LandscapeZScoreFullscreenPane(
                     useDesktopStyle = useDesktopStyle,
                     displayMode = displayMode,
                     showPlotlyToolbar = showPlotlyToolbar,
+                    trackpadGestures = trackpadGestures,
                 )
             } else {
                 emptyContent()
