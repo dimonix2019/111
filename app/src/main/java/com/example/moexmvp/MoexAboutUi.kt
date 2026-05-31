@@ -172,9 +172,11 @@ internal fun AboutTabContent(
         )
         Text(
             text = "Сборки публикуются на GitHub Release moexmvp-debug-latest. " +
-                "«Обновить приложение» проверяет версию и скачивает APK.",
+                "«Обновить приложение» проверяет версию и скачивает APK. " +
+                "При установке Android может запросить «неизвестный источник» (один раз) и PIN/отпечаток — это защита Google, не ошибка приложения.",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp,
+            lineHeight = 15.sp,
             modifier = Modifier.padding(top = 6.dp)
         )
         Row(modifier = Modifier.padding(top = 10.dp)) {

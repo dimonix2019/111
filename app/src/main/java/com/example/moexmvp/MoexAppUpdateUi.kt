@@ -8,6 +8,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -18,13 +19,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Пояснение: системные экраны Google/Android при sideload нельзя отключить из приложения. */
+internal const val APP_UPDATE_ANDROID_INSTALL_HINT =
+    "MOEX MVP ставится с GitHub, не из Play Store. Android покажет:\n" +
+        "• один раз — «Установка из неизвестных источников» (включите для MOEX MVP);\n" +
+        "• при каждой установке — PIN или отпечаток (защита Google, это нормально).\n" +
+        "Если в приложении много лишних экранов — проще «Через браузер»: скачайте APK и установите из «Загрузок»."
 
 @Composable
 internal fun AppUpdateDialogHost(
@@ -33,12 +44,25 @@ internal fun AppUpdateDialogHost(
     onInstalledOffer: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     var downloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableFloatStateOf(0f) }
     var downloadIndeterminate by remember { mutableStateOf(true) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var readyApk by remember { mutableStateOf<File?>(null) }
+    var canInstall by remember { mutableStateOf(canInstallPackages(context)) }
+    var sentToInstallSettings by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                canInstall = canInstallPackages(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val update = pendingUpdate ?: return
 
@@ -76,6 +100,13 @@ internal fun AppUpdateDialogHost(
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
+                Text(
+                    text = APP_UPDATE_ANDROID_INSTALL_HINT,
+                    color = Color(0xFFBCAAA4),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
                 if (downloading) {
                     LinearProgressIndicator(
                         progress = { if (downloadIndeterminate) 0.3f else downloadProgress },
@@ -105,11 +136,12 @@ internal fun AppUpdateDialogHost(
                         }
                     }
                 }
-                if (!canInstallPackages(context)) {
+                if (!canInstall && sentToInstallSettings) {
                     Text(
-                        text = "Для установки из приложения разрешите «Установку из неизвестных источников» для MOEX MVP.",
+                        text = "После включения «Разрешить установку» для MOEX MVP вернитесь сюда и нажмите «Скачать APK».",
                         color = Color(0xFFFFCC80),
                         fontSize = 11.sp,
+                        lineHeight = 15.sp,
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
@@ -133,18 +165,20 @@ internal fun AppUpdateDialogHost(
                     }
                 }
                 downloading -> Unit
-                !canInstallPackages(context) -> {
-                    TextButton(onClick = { openUnknownAppSourcesSettings(context) }) {
-                        Text("Разрешить установку", color = Color(0xFF64B5F6))
+                !canInstall -> {
+                    TextButton(onClick = {
+                        sentToInstallSettings = true
+                        openUnknownAppSourcesSettings(context)
+                    }) {
+                        Text(
+                            if (sentToInstallSettings) "Настройки установки" else "Разрешить установку",
+                            color = Color(0xFF64B5F6)
+                        )
                     }
                 }
                 else -> {
                     TextButton(
                         onClick = {
-                            if (!canInstallPackages(context)) {
-                                openUnknownAppSourcesSettings(context)
-                                return@TextButton
-                            }
                             downloading = true
                             errorText = null
                             scope.launch {
@@ -172,26 +206,33 @@ internal fun AppUpdateDialogHost(
                             }
                         }
                     ) {
-                        Text("Скачать", color = Color(0xFF64B5F6))
+                        Text("Скачать APK", color = Color(0xFF64B5F6))
                     }
                 }
             }
         },
         dismissButton = {
             if (!downloading) {
-                TextButton(
-                    onClick = {
-                        if (errorText != null) {
-                            resetDownloadState()
-                        } else {
-                            onDismiss(update)
+                Column {
+                    if (readyApk == null) {
+                        TextButton(onClick = { openAppUpdateInBrowser(context) }) {
+                            Text("Через браузер", color = Color(0xFF81D4FA))
                         }
                     }
-                ) {
-                    Text(
-                        text = if (errorText != null) "Закрыть" else "Позже",
-                        color = Color(0xFFB0BEC5)
-                    )
+                    TextButton(
+                        onClick = {
+                            if (errorText != null) {
+                                resetDownloadState()
+                            } else {
+                                onDismiss(update)
+                            }
+                        }
+                    ) {
+                        Text(
+                            text = if (errorText != null) "Закрыть" else "Позже",
+                            color = Color(0xFFB0BEC5)
+                        )
+                    }
                 }
             }
         },
@@ -199,25 +240,17 @@ internal fun AppUpdateDialogHost(
     )
 }
 
-/** Периодическая проверка обновлений; вызывает [onUpdateFound] при новой сборке. */
+/** Фоновая проверка: push-уведомление раз в versionCode; диалог — только вручную или по тапу push. */
 @Composable
-internal fun AppUpdateChecker(
+internal fun AppUpdateBackgroundChecker(
     enabled: Boolean = true,
-    onUpdateFound: (AppRemoteUpdate) -> Unit
 ) {
     val context = LocalContext.current
     LaunchedEffect(enabled) {
         if (!enabled) return@LaunchedEffect
         while (true) {
-            val dismissed = loadDismissedAppUpdateVersionCode(context)
-            val remote = withContext(Dispatchers.IO) {
-                checkRemoteAppUpdateAndNotify(context) ?: fetchRemoteAppUpdate()
-            }
-            if (remote != null &&
-                shouldOfferAppUpdateUi(remote, context) &&
-                remote.versionCode > dismissed
-            ) {
-                onUpdateFound(remote)
+            withContext(Dispatchers.IO) {
+                checkRemoteAppUpdateAndNotify(context)
             }
             delay(APP_UPDATE_CHECK_INTERVAL_MS)
         }
