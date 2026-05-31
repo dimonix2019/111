@@ -144,7 +144,8 @@ internal fun formatAppUpdateCheckStatus(status: AppUpdateCheckStatus): String = 
         "Доступна ${r.versionName} (${r.versionCode}). У вас ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})."
     }
     AppUpdateCheckStatus.UpToDate ->
-        "У вас актуальная сборка ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})."
+        "У вас актуальная сборка ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}). " +
+            "На GitHub опубликована та же версия."
     is AppUpdateCheckStatus.RemoteOlder -> {
         val r = status.remote
         "На GitHub пока ${r.versionName} (${r.versionCode}) — ниже вашей ${BuildConfig.VERSION_NAME} " +
@@ -171,12 +172,20 @@ internal fun formatAppUpdateFetchFailure(diagnostics: AppUpdateFetchDiagnostics)
 }
 
 internal fun appUpdateManifestUrlCandidates(): List<String> = listOf(
-    APP_UPDATE_PUBLIC_MANIFEST_URL,
     APP_UPDATE_MANIFEST_URL,
+    APP_UPDATE_PUBLIC_MANIFEST_URL,
 )
+
+/** Из нескольких источников берём сборку с наибольшим versionCode (release может быть новее gh-pages). */
+internal fun selectBestRemoteAppUpdate(candidates: List<AppRemoteUpdate>): AppRemoteUpdate? =
+    candidates.maxByOrNull { it.versionCode }
 
 internal fun resolveApkDownloadUrl(manifestUrl: String, parsed: AppRemoteUpdate): String {
     if (manifestUrl == APP_UPDATE_PUBLIC_MANIFEST_URL) {
+        val explicit = parsed.apkDownloadUrl
+        if (explicit.isNotBlank() && explicit.contains("/releases/download/")) {
+            return explicit
+        }
         return APP_UPDATE_PUBLIC_APK_URL
     }
     return parsed.apkDownloadUrl.ifBlank { APK_DOWNLOAD_DIRECT_URL }
@@ -191,7 +200,7 @@ internal fun parseAppUpdateManifestJson(json: String, manifestUrl: String = APP_
     val parsed = AppRemoteUpdate(
         versionCode,
         versionName,
-        apkUrl.ifBlank { APK_DOWNLOAD_DIRECT_URL }
+        apkUrl
     )
     return parsed.copy(apkDownloadUrl = resolveApkDownloadUrl(manifestUrl, parsed))
 }
@@ -235,6 +244,7 @@ internal fun fetchRemoteAppUpdateWithDiagnostics(): AppUpdateFetchDiagnostics {
     var lastHttpCode: Int? = null
     var privateRepoLikely = false
     val tried = mutableListOf<String>()
+    val candidates = mutableListOf<AppRemoteUpdate>()
 
     for (url in appUpdateManifestUrlCandidates()) {
         tried += url
@@ -242,9 +252,7 @@ internal fun fetchRemoteAppUpdateWithDiagnostics(): AppUpdateFetchDiagnostics {
         lastHttpCode = result.httpCode ?: lastHttpCode
         if (result.httpCode == 404) privateRepoLikely = true
         result.body?.let { body ->
-            parseAppUpdateManifestJson(body, manifestUrl = url)?.let { update ->
-                return AppUpdateFetchDiagnostics(update, result.httpCode, privateRepoLikely = false, triedUrls = tried)
-            }
+            parseAppUpdateManifestJson(body, manifestUrl = url)?.let { candidates += it }
         }
     }
 
@@ -256,10 +264,12 @@ internal fun fetchRemoteAppUpdateWithDiagnostics(): AppUpdateFetchDiagnostics {
         lastHttpCode = result.httpCode ?: lastHttpCode
         if (result.httpCode == 404) privateRepoLikely = true
         result.body?.let { body ->
-            parseGitHubReleaseJson(body)?.let { update ->
-                return AppUpdateFetchDiagnostics(update, result.httpCode, privateRepoLikely = false, triedUrls = tried)
-            }
+            parseGitHubReleaseJson(body)?.let { candidates += it }
         }
+    }
+
+    selectBestRemoteAppUpdate(candidates)?.let { update ->
+        return AppUpdateFetchDiagnostics(update, lastHttpCode, privateRepoLikely = false, triedUrls = tried)
     }
 
     return AppUpdateFetchDiagnostics(

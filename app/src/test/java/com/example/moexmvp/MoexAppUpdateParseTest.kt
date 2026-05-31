@@ -57,9 +57,19 @@ class MoexAppUpdateParseTest {
     }
 
     @Test
-    fun parseAppUpdateManifestJson_publicMirrorUsesGhPagesApk() {
+    fun parseAppUpdateManifestJson_publicMirrorUsesReleaseApkWhenManifestSaysSo() {
         val json = """
-            {"versionCode":132,"versionName":"1.7.14","apkUrl":"https://github.com/x/y.apk"}
+            {"versionCode":136,"versionName":"1.7.18","apkUrl":"https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk"}
+        """.trimIndent()
+        val u = parseAppUpdateManifestJson(json, manifestUrl = APP_UPDATE_PUBLIC_MANIFEST_URL)
+        assertNotNull(u)
+        assertEquals(APK_DOWNLOAD_DIRECT_URL, u!!.apkDownloadUrl)
+    }
+
+    @Test
+    fun parseAppUpdateManifestJson_publicMirrorFallsBackToGhPagesApkWithoutReleaseUrl() {
+        val json = """
+            {"versionCode":132,"versionName":"1.7.14","apkUrl":""}
         """.trimIndent()
         val u = parseAppUpdateManifestJson(json, manifestUrl = APP_UPDATE_PUBLIC_MANIFEST_URL)
         assertNotNull(u)
@@ -81,9 +91,23 @@ class MoexAppUpdateParseTest {
     }
 
     @Test
-    fun appUpdateManifestUrlCandidates_prefersPublicMirror() {
+    fun appUpdateManifestUrlCandidates_prefersReleaseManifest() {
         val urls = appUpdateManifestUrlCandidates()
-        assertEquals(APP_UPDATE_PUBLIC_MANIFEST_URL, urls.first())
+        assertEquals(APP_UPDATE_MANIFEST_URL, urls.first())
+    }
+
+    @Test
+    fun selectBestRemoteAppUpdate_picksHighestVersionCode() {
+        val best = selectBestRemoteAppUpdate(
+            listOf(
+                AppRemoteUpdate(132, "1.7.14", "https://gh-pages/apk"),
+                AppRemoteUpdate(135, "1.7.17", "https://release/apk"),
+            )
+        )
+        assertNotNull(best)
+        assertEquals(135, best!!.versionCode)
+        assertEquals("1.7.17", best.versionName)
+        assertEquals("https://release/apk", best.apkDownloadUrl)
     }
 
     @Test

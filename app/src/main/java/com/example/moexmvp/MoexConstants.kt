@@ -92,6 +92,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.18 — Обновления: проверка берёт максимальный versionCode из Release и gh-pages (устаревшее зеркало больше не блокирует апдейт).
 1.7.17 — Портфель: PnL открытых сделок демо считается сразу (кэш 15м, без полного refresh); нереализованный PnL в таблице и сводке.
 1.7.16 — Быстрый старт (кэш 15м + снимок рынка); 1W/1M без полного refresh (вылет в landscape); OHLC только за 30д хвост.
 1.7.15 — Обновления: «Позже» больше не показывает диалог снова каждые 5 мин; убран текст про private repo.
