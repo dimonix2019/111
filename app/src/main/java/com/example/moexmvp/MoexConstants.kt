@@ -92,6 +92,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.23 — Рынок / Тест страт.: единые 15м свечи Z (ISS 10м→15м, rolling Z) — вид и расчёт по одному ряду; spread-график тоже 15м; убраны 10м фитили.
 1.7.22 — Тест страт.: симуляция снова работает — отдельная загрузка 15м (кэш/рынок), без полного refresh портфеля; fallback на marketsM15.
 1.7.21 — Портфель: PnL/Z открытых сделок — кэш 15м, снимок рынка, мгновенный MTM в UI; обогащение при старте и входе на вкладку.
 1.7.20 — Обновления: пояснение про экраны Google (неизвестный источник, PIN); установка через браузер; без автодиалога каждые 5 мин.

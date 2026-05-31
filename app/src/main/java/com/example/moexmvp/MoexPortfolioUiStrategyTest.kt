@@ -63,6 +63,10 @@ internal fun StrategyTestTabContent(
     tradeItems: List<StrategyTestTradeItem>,
     m15Loading: Boolean,
     m15Error: String?,
+    m15ChartPoints: List<DataPoint> = emptyList(),
+    zScoreCandles: List<CandlePoint> = emptyList(),
+    chartThresholds: DynamicThresholds? = null,
+    zInitialWindow: Pair<Float, Float> = 1f to 0f,
     onRefresh: () -> Unit,
     onMoex15mFullReload: () -> Unit,
     leverage: Double,
@@ -128,6 +132,26 @@ internal fun StrategyTestTabContent(
             onEntryThresholdChange = onEntryThresholdChange,
             onExitThresholdChange = onExitThresholdChange
         )
+        if (zScoreCandles.isNotEmpty() && chartThresholds != null) {
+            val zReferenceLines = buildZScoreReferenceLines(chartThresholds, desktopStyle = true)
+            CandlestickChartCard(
+                title = "Z-score · 15м (тот же ряд, что симуляция)",
+                candles = zScoreCandles,
+                chartHeightDp = 260,
+                referenceLines = zReferenceLines,
+                pointMarkers = buildZScoreMarkersFromStrategyTestTrades(m15ChartPoints, tradeItems),
+                showLegend = true,
+                enableZoomPan = true,
+                markerScale = 1.25f,
+                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
+                showZoomHint = true,
+                initialWindowWidth = zInitialWindow.first,
+                initialWindowStart = zInitialWindow.second,
+                useDesktopStyle = true,
+                displayMode = ChartDisplayMode.Candles,
+                showPlotlyToolbar = true,
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()

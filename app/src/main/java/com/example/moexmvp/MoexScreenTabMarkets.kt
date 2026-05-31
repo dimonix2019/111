@@ -274,11 +274,10 @@ internal fun MoexScreenTabMarkets(
                                 onToggle = { realtimeEnabled = !realtimeEnabled }
                             )
                         }
-                        if (chartSuccess != null) {
-                            val c = chartSuccess
+                        if (marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()) {
                             item {
                                 CandlestickChartCard(
-                                    title = "Z-score · 15м свечи OHLC",
+                                    title = "Z-score · 15м (ISS 10м→15м, как «Тест страт.»)",
                                     candles = marketsZScoreCandles,
                                     chartHeightDp = 320,
                                     referenceLines = marketsZReferenceLines,
@@ -303,17 +302,17 @@ internal fun MoexScreenTabMarkets(
                             }
                             item {
                                 ChartCard(
-                                    title = "График 2: spread = (TATN / TATNP - 1) * 100",
+                                    title = "Spread 15м = (TATN / TATNP - 1) * 100",
                                     series = listOf(
                                         ChartSeries(
                                             "Spread %",
                                             Color(0xFF69F0AE),
-                                            c.points.map { it.spreadPercent }
+                                            marketsM15ChartPoints.map { it.spreadPercent }
                                         )
                                     ),
-                                    labels = c.points.map { it.tradeDate },
+                                    labels = marketsM15ChartPoints.map { it.tradeDate },
                                     chartHeightDp = 208,
-                                    rightAxisPercentBase = c.points.minOfOrNull { it.spreadPercent },
+                                    rightAxisPercentBase = marketsM15ChartPoints.minOfOrNull { it.spreadPercent },
                                     yScale = YAxisScale.Auto,
                                     showLegend = false,
                                     enableZoomPan = true,

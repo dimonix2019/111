@@ -8,13 +8,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,36 +30,14 @@ internal fun MoexScreen() {
 
     val chartSuccess = (screen.state as? UiState.Success) ?: screen.lastGoodMarkets
     val staleMarkets = screen.marketsStale || (screen.realtimeError != null && chartSuccess != null)
-    val marketsM15ChartPoints = remember(screen.marketsM15Points, screen.selectedPeriod) {
-        downsampleDataPointsForChart(
-            filterM15PointsForMarketsPeriod(screen.marketsM15Points, screen.selectedPeriod)
-        )
+    val marketsM15SimPoints = remember(screen.marketsM15Points, screen.selectedPeriod) {
+        filterM15PointsForMarketsPeriod(screen.marketsM15Points, screen.selectedPeriod)
     }
-    var marketsZScoreCandles by remember { mutableStateOf<List<CandlePoint>>(emptyList()) }
-    val ohlcLookbackDays = remember(screen.selectedPeriod) {
-        when (screen.selectedPeriod) {
-            Period.OneDay -> 3L
-            Period.OneWeek -> 10L
-            Period.OneMonth -> 14L
-            else -> CHART_INTRABAR_OHLC_LOOKBACK_DAYS
-        }
+    val marketsM15ChartPoints = remember(marketsM15SimPoints) {
+        downsampleDataPointsForChart(marketsM15SimPoints)
     }
-    LaunchedEffect(marketsM15ChartPoints, ohlcLookbackDays) {
-        if (marketsM15ChartPoints.isEmpty()) {
-            marketsZScoreCandles = emptyList()
-            return@LaunchedEffect
-        }
-        marketsZScoreCandles = buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
-        if (marketsM15ChartPoints.size < 2) return@LaunchedEffect
-        delay(350)
-        runCatching {
-            withContext(Dispatchers.IO) {
-                buildZScoreCandlesOhlcAnchoredToM15Series(
-                    marketsM15ChartPoints,
-                    intrabarLookbackDays = ohlcLookbackDays,
-                )
-            }
-        }.getOrNull()?.let { marketsZScoreCandles = it }
+    val marketsZScoreCandles = remember(marketsM15ChartPoints) {
+        buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
     }
     val portfolioZChartPoints = remember(screen.portfolioM15Points, screen.selectedPeriod) {
         downsampleDataPointsForChart(
@@ -87,6 +61,40 @@ internal fun MoexScreen() {
     ) {
         portfolioChartZThresholds(screen.realTradeEntryThreshold, screen.realTradeExitThreshold)
     }
+    val strategyTestM15Full = remember(screen.portfolioM15Points, screen.marketsM15Points) {
+        when {
+            screen.portfolioM15Points.size >= 2 -> screen.portfolioM15Points
+            screen.marketsM15Points.size >= 2 -> screen.marketsM15Points
+            else -> emptyList()
+        }
+    }
+    val strategyTestM15ChartPoints = remember(strategyTestM15Full) {
+        val tail = filterM15PointsForMarketsPeriod(strategyTestM15Full, Period.OneMonth)
+        downsampleDataPointsForChart(if (tail.size >= 2) tail else strategyTestM15Full)
+    }
+    val strategyTestZScoreCandles = remember(strategyTestM15ChartPoints) {
+        buildZScoreCandlesFromM15Points(strategyTestM15ChartPoints)
+    }
+    val strategyTestChartThresholds = remember(
+        screen.strategyTestEntryThreshold,
+        screen.strategyTestExitThreshold,
+        screen.dynamicThresholds
+    ) {
+        DynamicThresholds(
+            entry = (screen.strategyTestEntryThreshold ?: screen.dynamicThresholds.entry)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+            exit = (screen.strategyTestExitThreshold ?: screen.dynamicThresholds.exit)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+            calculatedDate = screen.dynamicThresholds.calculatedDate
+        )
+    }
+    val strategyTestZInitialWindow = remember(strategyTestM15ChartPoints) {
+        chartInitialWindowForLastCalendarDays(
+            strategyTestM15ChartPoints,
+            visibleDays = STRATEGY_TEST_Z_CHART_VISIBLE_DAYS
+        )
+    }
+
     val strategyTestTradeItems = remember(screen.strategyTestPortfolioMetrics) {
         buildStrategyTestTradeListFromSimulation(
             screen.strategyTestPortfolioMetrics?.closedTrades.orEmpty()
@@ -100,7 +108,7 @@ internal fun MoexScreen() {
     }
 
     LaunchedEffect(
-        marketsM15ChartPoints,
+        marketsM15SimPoints,
         marketsChartThresholds.entry,
         marketsChartThresholds.exit,
         screen.portfolioLeverage,
@@ -108,7 +116,7 @@ internal fun MoexScreen() {
         screen.selectedPeriod
     ) {
         screen.marketsZStrategyTapMetrics = withContext(Dispatchers.Default) {
-            val pts = marketsM15ChartPoints
+            val pts = marketsM15SimPoints
             if (pts.size < 2) return@withContext null
             buildZStrategyPortfolioMetrics(
                 points = pts,
@@ -178,7 +186,11 @@ internal fun MoexScreen() {
                 screen = screen,
                 scope = scope,
                 modifier = Modifier.weight(1f),
-                strategyTestTradeItems = strategyTestTradeItems
+                strategyTestTradeItems = strategyTestTradeItems,
+                strategyTestM15ChartPoints = strategyTestM15ChartPoints,
+                strategyTestZScoreCandles = strategyTestZScoreCandles,
+                strategyTestChartThresholds = strategyTestChartThresholds,
+                strategyTestZInitialWindow = strategyTestZInitialWindow
             )
             MainTab.Markets -> MoexScreenTabMarkets(
                 screen = screen,

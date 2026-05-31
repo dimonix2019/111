@@ -328,8 +328,8 @@ internal fun chartRightPlotPaddingPx(
 }
 
 /**
- * Свечи Z-score строятся из того же 15м close-ряда, который идёт в стратегию:
- * close = Z бара, open = Z предыдущего бара, high/low = границы тела.
+ * 15м Z-свечи из того же close-ряда, что симуляция «Тест страт.»:
+ * close = Z бара, open = Z предыдущего бара (без 10м фитилей).
  */
 internal fun buildZScoreCandlesFromM15Points(points: List<DataPoint>): List<CandlePoint> {
     return points.mapIndexed { index, point ->

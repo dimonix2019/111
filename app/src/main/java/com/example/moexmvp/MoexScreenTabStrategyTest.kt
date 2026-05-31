@@ -54,6 +54,10 @@ internal fun MoexScreenTabStrategyTest(
     scope: CoroutineScope,
     modifier: Modifier,
     strategyTestTradeItems: List<StrategyTestTradeItem>,
+    strategyTestM15ChartPoints: List<DataPoint>,
+    strategyTestZScoreCandles: List<CandlePoint>,
+    strategyTestChartThresholds: DynamicThresholds,
+    strategyTestZInitialWindow: Pair<Float, Float>,
 ) {
     Column(modifier) {
     with(screen) {
@@ -68,6 +72,10 @@ internal fun MoexScreenTabStrategyTest(
                             tradeItems = strategyTestTradeItems,
                             m15Loading = strategyTestM15Loading,
                             m15Error = strategyTestError,
+                            m15ChartPoints = strategyTestM15ChartPoints,
+                            zScoreCandles = strategyTestZScoreCandles,
+                            chartThresholds = strategyTestChartThresholds,
+                            zInitialWindow = strategyTestZInitialWindow,
                             onRefresh = {
                                 scope.launch {
                                     ensureM15PointsForStrategyTest(preferNetwork = true)
