@@ -350,7 +350,7 @@ internal suspend fun fetchPortfolio15mSpreadEntities(
     val tatnp15 = aggregateTo15MinuteBars(tatnpBars).associateBy { it.timestamp }
     val times = tatn15.keys.intersect(tatnp15.keys).sorted()
     if (times.isEmpty()) return@withContext emptyList()
-    times.mapNotNull { ts ->
+    val closed = times.mapNotNull { ts ->
         val c1 = tatn15[ts]?.close ?: return@mapNotNull null
         val c2 = tatnp15[ts]?.close ?: return@mapNotNull null
         if (c2 == 0.0) return@mapNotNull null
@@ -363,6 +363,42 @@ internal suspend fun fetchPortfolio15mSpreadEntities(
             diff = c1 - c2
         )
     }
+    appendFormingPortfolio15mBar(closed, tatnBars, tatnpBars)
+}
+
+/** Незакрытый 15м слот по 10м свечам (хвост не отстаёт на период). */
+internal fun appendFormingPortfolio15mBar(
+    entities: List<PortfolioM15SpreadEntity>,
+    tatn10: List<CandleBar>,
+    tatnp10: List<CandleBar>,
+): List<PortfolioM15SpreadEntity> {
+    if (entities.isEmpty() || tatn10.isEmpty() || tatnp10.isEmpty()) return entities
+    val zone = moexZoneId
+    val now = java.time.ZonedDateTime.now(zone)
+    val bucket = now.withMinute((now.minute / 15) * 15).withSecond(0).withNano(0).toLocalDateTime()
+    val bucketMillis = bucket.atZone(zone).toInstant().toEpochMilli()
+    if (entities.last().tsMillis >= bucketMillis) return entities
+
+    val tatnByTime = tatn10.associateBy { it.timestamp }
+    val tatnpByTime = tatnp10.associateBy { it.timestamp }
+    val nowLdt = now.toLocalDateTime()
+    val alignedTimes = tatnByTime.keys.intersect(tatnpByTime.keys)
+        .filter { !it.isBefore(bucket) && !it.isAfter(nowLdt) }
+        .sorted()
+    if (alignedTimes.isEmpty()) return entities
+
+    val lastTatn = alignedTimes.mapNotNull { tatnByTime[it]?.close }.lastOrNull() ?: return entities
+    val lastTatnp = alignedTimes.mapNotNull { tatnpByTime[it]?.close }.lastOrNull() ?: return entities
+    if (lastTatnp == 0.0) return entities
+
+    val spread = (lastTatn / lastTatnp - 1.0) * 100.0
+    return entities + PortfolioM15SpreadEntity(
+        tsMillis = bucketMillis,
+        tatnClose = lastTatn,
+        tatnpClose = lastTatnp,
+        spreadPercent = spread,
+        diff = lastTatn - lastTatnp
+    )
 }
 
 /** MOEX ISS: параметр till — как правило до начала следующего календарного дня (включить сегодня). */

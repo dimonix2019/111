@@ -6,11 +6,70 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDateTime
 import java.time.ZoneId
+import kotlin.math.max
+import kotlin.math.min
 
 class MoexMarketsM15ZChartTest {
 
     @Test
-    fun buildZScoreCandlesOhlcAnchoredToM15Series_keepsContinuousOpenClose() {
+    fun downsampleM15ChartSeries_mergesOhlcWithoutGiantBodies() {
+        val points = (0 until 100).map { i ->
+            val dt = LocalDateTime.of(2026, 5, 1, 10, 0).plusMinutes(i * 15L)
+            point(dt.format(portfolio15mLabelFormatter), z = i * 0.01)
+        }
+        val candles = buildZScoreCandlesFromM15Points(points)
+        val (_, sampled) = downsampleM15ChartSeries(points, candles, maxBars = 10)
+        assertTrue(sampled.size <= 11)
+        sampled.forEach { c ->
+            val body = kotlin.math.abs(c.close - c.open)
+            assertTrue("body=$body open=${c.open} close=${c.close}", body <= 0.15)
+        }
+    }
+
+    @Test
+    fun buildZScoreCandlesFrom15mSpreadOhlc_closeMatchesSimulationZ() {
+        val raw = (0 until 60).map { i ->
+            val dt = LocalDateTime.of(2026, 5, 1, 10, 0).plusMinutes(i * 15L)
+            point(
+                dt.format(portfolio15mLabelFormatter),
+                z = 0.0,
+                spread = 10.0 + i * 0.02
+            )
+        }
+        val m15 = applyZScoresRolling(raw)
+        val spreadOhlc = m15.associate { floor15mMillis(it.timestampMillis) to
+            SpreadOhlc(
+                open = it.spreadPercent - 0.01,
+                high = it.spreadPercent + 0.02,
+                low = it.spreadPercent - 0.02,
+                close = it.spreadPercent
+            )
+        }
+        val candles = buildZScoreCandlesFrom15mSpreadOhlc(m15, spreadOhlc)
+        assertEquals(m15.map { it.zScore }, candles.map { it.close })
+        candles.forEach { c ->
+            assertTrue(c.high >= max(c.open, c.close) - 1e-9)
+            assertTrue(c.low <= min(c.open, c.close) + 1e-9)
+        }
+    }
+
+    @Test
+    fun buildSpreadOhlcBy15mBucket_aggregates10mSpreads() {
+        val s10 = listOf(
+            point("2026-05-19 10:05", z = 0.0, spread = 9.8),
+            point("2026-05-19 10:10", z = 0.0, spread = 10.2),
+            point("2026-05-19 10:20", z = 0.0, spread = 10.6),
+        )
+        val ohlc = buildSpreadOhlcBy15mBucket(s10)
+        val bucket = floor15mMillis(s10[0].timestampMillis)
+        assertEquals(9.8, ohlc[bucket]!!.open, 1e-9)
+        assertEquals(10.2, ohlc[bucket]!!.close, 1e-9)
+        assertEquals(10.2, ohlc[bucket]!!.high, 1e-9)
+        assertEquals(9.8, ohlc[bucket]!!.low, 1e-9)
+    }
+
+    @Test
+    fun buildZScoreCandlesFromM15Points_keepsContinuousOpenCloseOnFullSeries() {
         val points = listOf(
             point("2026-05-19 10:00", z = -0.4),
             point("2026-05-19 10:15", z = 0.7),
