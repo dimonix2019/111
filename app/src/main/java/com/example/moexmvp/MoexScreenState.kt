@@ -33,7 +33,7 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestEntryThreshold by mutableStateOf<Double?>(null)
     var strategyTestExitThreshold by mutableStateOf<Double?>(null)
     var selectedPeriod by mutableStateOf(Period.OneDay)
-    var realtimeEnabled by mutableStateOf(true)
+    var realtimeEnabled by mutableStateOf(false)
     var isRefreshing by mutableStateOf(false)
     var realtimeError by mutableStateOf<String?>(null)
     var previousZScoreForAlert by mutableStateOf<Double?>(null)
@@ -45,10 +45,10 @@ internal class MoexScreenState(val context: Context) {
                 calculatedDate = null
             )
     )
-    var zStrategyPosition by mutableStateOf(loadSavedStrategyPosition(context))
-    var dailySignalLimit by mutableStateOf(loadDailySignalLimit(context, LocalDate.now()))
-    var signalEvents by mutableStateOf(loadStrategySignalEvents(context))
-    var pushNotificationLog by mutableStateOf(loadPushNotificationLog(context))
+    var zStrategyPosition by mutableStateOf(ZStrategyPosition.Flat)
+    var dailySignalLimit by mutableStateOf(DailySignalLimit(date = LocalDate.now().toString(), sentCount = 0))
+    var signalEvents by mutableStateOf(emptyList<StrategySignalEvent>())
+    var pushNotificationLog by mutableStateOf(emptyList<PushNotificationLogEntry>())
     var state by mutableStateOf<UiState>(UiState.Loading)
     var lastGoodMarkets by mutableStateOf<UiState.Success?>(null)
     var marketsStale by mutableStateOf(false)
@@ -59,7 +59,7 @@ internal class MoexScreenState(val context: Context) {
     var walkForwardBusy by mutableStateOf(false)
     var todayPnlHint by mutableStateOf<String?>(null)
     var pendingVirtualTrade by mutableStateOf<PendingVirtualTradeProposal?>(null)
-    var sandboxExecState by mutableStateOf(TinkoffSandboxStorage.resolveExecUiState(context))
+    var sandboxExecState by mutableStateOf(SandboxExecUiState.Off)
     var sandboxTokenInput by mutableStateOf("")
     var sandboxAccountInput by mutableStateOf("")
     var sandboxSpreadExecReload by mutableStateOf(0)
@@ -106,7 +106,20 @@ internal class MoexScreenState(val context: Context) {
                     if (portfolioM15Points.isEmpty()) portfolioM15Points = pts
                 }
             }
-            syncSandboxExecutionsEnrichment()
+        }
+    }
+
+    /** Подгрузка prefs/журнала после первого кадра (не блокирует ctor). */
+    suspend fun hydrateDeferredUiState() {
+        withContext(Dispatchers.IO) {
+            zStrategyPosition = loadSavedStrategyPosition(context)
+            dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
+            signalEvents = loadStrategySignalEvents(context)
+            pushNotificationLog = loadPushNotificationLog(context)
+            sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+            portfolioLedgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
+            executeSignalsOnSandbox = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
+            sandboxSpreadAutoExecute = TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)
         }
     }
 
@@ -276,9 +289,27 @@ internal class MoexScreenState(val context: Context) {
 
         suspend fun performRefresh() {
             try {
+                val skipDailyNetwork = lastGoodMarkets != null &&
+                    marketsSnapshotFreshEnough(context, selectedPeriod)
                 refreshMutex.withLock {
                     if (blockUi) {
                         state = UiState.Loading
+                    }
+
+                    if (skipDailyNetwork) {
+                        val m15CachedReady = marketsM15Points.size >= 2 &&
+                            !portfolio15mSeriesTailStale(marketsM15Points)
+                        if (!m15CachedReady) {
+                            launchScope.launch(Dispatchers.IO) {
+                                runCatching {
+                                    loadPortfolio15mPointsForSignalMonitor(context)
+                                }.getOrNull()?.takeIf { it.size >= 2 }?.let { loaded ->
+                                    marketsM15Points = loaded
+                                    if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
+                                }
+                            }
+                        }
+                        return@withLock
                     }
 
                     when (val next = loadState(context, selectedPeriod)) {
@@ -543,11 +574,14 @@ internal class MoexScreenState(val context: Context) {
         }
 
         if (hasDisplayCache && preferBackground) {
-            isRefreshing = true
-            try {
-                performRefresh()
-            } finally {
-                isRefreshing = false
+            initialMarketsRefreshDone = true
+            launchScope.launch {
+                isRefreshing = true
+                try {
+                    performRefresh()
+                } finally {
+                    isRefreshing = false
+                }
             }
             return
         }

@@ -40,6 +40,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -62,8 +63,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         strategyTestCompoundReturns,
         dynamicThresholds.entry,
         dynamicThresholds.exit,
-        dynamicThresholds.calculatedDate
+        dynamicThresholds.calculatedDate,
+        selectedTab,
     ) {
+        if (selectedTab == MainTab.Markets) {
+            delay(2500)
+        }
         strategyTestSimComputing = true
         try {
             val points = m15PointsForStrategyTest()
@@ -260,14 +265,20 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     }
 
     LaunchedEffect(Unit) {
-        hydrateMarketsFromLocalCache(selectedPeriod)
+        coroutineScope {
+            launch { hydrateMarketsFromLocalCache(selectedPeriod) }
+            launch { hydrateDeferredUiState() }
+        }
+        initialMarketsRefreshDone = true
         if (selectedTab == MainTab.Markets) {
-            refreshData(
-                showLoading = screen.lastGoodMarkets == null,
-                launchScope = scope,
-                selectedPeriod = selectedPeriod,
-                preferBackground = screen.lastGoodMarkets != null,
-            )
+            scope.launch {
+                refreshData(
+                    showLoading = lastGoodMarkets == null,
+                    launchScope = scope,
+                    selectedPeriod = selectedPeriod,
+                    preferBackground = lastGoodMarkets != null,
+                )
+            }
         }
     }
 

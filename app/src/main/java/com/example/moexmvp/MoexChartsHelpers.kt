@@ -338,12 +338,16 @@ internal fun buildM15ZChartDisplay(
     return downsampleM15ChartSeries(simPoints, fullCandles)
 }
 
-internal suspend fun loadSpreadOhlcForM15Range(m15Points: List<DataPoint>): Map<Long, SpreadOhlc> =
+internal suspend fun loadSpreadOhlcForM15Range(
+    m15Points: List<DataPoint>,
+    lookbackDays: Long = CHART_INTRABAR_OHLC_LOOKBACK_DAYS,
+): Map<Long, SpreadOhlc> =
     withContext(Dispatchers.IO) {
         if (m15Points.isEmpty()) return@withContext emptyMap<Long, SpreadOhlc>()
         val zone = moexZoneId
-        val firstDay = Instant.ofEpochMilli(m15Points.first().timestampMillis).atZone(zone).toLocalDate()
         val lastDay = Instant.ofEpochMilli(m15Points.last().timestampMillis).atZone(zone).toLocalDate()
+        val seriesFirstDay = Instant.ofEpochMilli(m15Points.first().timestampMillis).atZone(zone).toLocalDate()
+        val firstDay = maxOf(seriesFirstDay, lastDay.minusDays(lookbackDays.coerceAtLeast(1L)))
         val spread10 = buildSpreadDataPointsFrom10mBars(
             loadCandleBars("TATN", firstDay, lastDay.plusDays(1), interval = 10),
             loadCandleBars("TATNP", firstDay, lastDay.plusDays(1), interval = 10),

@@ -144,3 +144,9 @@ internal fun marketsSnapshotAgeMillis(context: Context, period: Period): Long? {
     if (savedAt <= 0L) return null
     return System.currentTimeMillis() - savedAt
 }
+
+/** Снимок «Рынка» свежий — сеть MOEX для daily-ряда не нужна. */
+internal fun marketsSnapshotFreshEnough(context: Context, period: Period): Boolean {
+    val age = marketsSnapshotAgeMillis(context, period) ?: return false
+    return age <= MARKETS_SNAPSHOT_TTL_MS
+}
