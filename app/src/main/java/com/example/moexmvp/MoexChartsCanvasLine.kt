@@ -83,7 +83,7 @@ internal fun LineChart(
     val leftPadding = 16f
     val rightPadding = rightPlotPaddingPx.coerceAtLeast(16f)
     val topPadding = 12f
-    val bottomPadding = 60f
+    val bottomPadding = CHART_BOTTOM_PADDING_PX
 
     val maxIndex = series.maxOfOrNull { it.values.lastIndex }?.coerceAtLeast(0) ?: 0
 
@@ -312,16 +312,16 @@ internal fun LineChart(
                 isAntiAlias = true
                 color = android.graphics.Color.rgb(221, 236, 255)
                 textSize = 10.sp.toPx()
-                textAlign = Paint.Align.RIGHT
+                textAlign = Paint.Align.CENTER
             }
+            val labelBaselineY = size.height - CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX
             xTicks.forEach { tick ->
                 val frac = fracForIndex(tick.index)
                 if (frac < wStart - 0.02f || frac > wStart + wWidth + 0.02f) return@forEach
                 val x = xForIndexDraw(tick.index)
-                val y = topPadding + h + 34f
                 drawContext.canvas.nativeCanvas.save()
-                drawContext.canvas.nativeCanvas.rotate(-55f, x, y)
-                drawContext.canvas.nativeCanvas.drawText(tick.label, x, y, labelPaint)
+                drawContext.canvas.nativeCanvas.rotate(CHART_X_LABEL_ROTATION_DEG, x, labelBaselineY)
+                drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
                 drawContext.canvas.nativeCanvas.restore()
             }
         }

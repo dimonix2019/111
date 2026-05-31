@@ -101,8 +101,8 @@ internal fun buildSpreadOhlcBy15mBucket(spread10: List<DataPoint>): Map<Long, Sp
 }
 
 /**
- * Z-свечи 15м: open/high/low/close из spread OHLC слота через μ/σ того же бара,
- * close совпадает с [DataPoint.zScore] симуляции.
+ * Z-свечи 15м: open/close = rolling Z между барами (как стратегия);
+ * high/low расширяются spread OHLC слота (фитили внутри 15м).
  */
 internal fun buildZScoreCandlesFrom15mSpreadOhlc(
     m15Points: List<DataPoint>,
@@ -110,32 +110,31 @@ internal fun buildZScoreCandlesFrom15mSpreadOhlc(
 ): List<CandlePoint> {
     if (m15Points.isEmpty()) return emptyList()
     return m15Points.mapIndexed { index, point ->
+        val open = if (index == 0) point.zScore else m15Points[index - 1].zScore
+        val close = point.zScore
+        val bodyHigh = max(open, close)
+        val bodyLow = min(open, close)
         val bucket = floor15mMillis(point.timestampMillis)
         val ohlc = spreadOhlcByBucket[bucket]
         val stats = rollingSpreadStatsAt(m15Points, index)
-        if (ohlc == null || stats == null) {
-            val close = point.zScore
-            val open = m15Points.getOrNull(index - 1)?.zScore ?: close
-            CandlePoint(
-                label = point.tradeDate,
-                open = open,
-                high = max(open, close),
-                low = min(open, close),
-                close = close
-            )
+        val wickRange = if (ohlc != null && stats != null) {
+            listOf(
+                zScoreAtSpread(ohlc.open, stats),
+                zScoreAtSpread(ohlc.high, stats),
+                zScoreAtSpread(ohlc.low, stats),
+                open,
+                close,
+            ).let { it.min() to it.max() }
         } else {
-            val openZ = zScoreAtSpread(ohlc.open, stats)
-            val highZ = zScoreAtSpread(ohlc.high, stats)
-            val lowZ = zScoreAtSpread(ohlc.low, stats)
-            val closeZ = point.zScore
-            CandlePoint(
-                label = point.tradeDate,
-                open = openZ,
-                high = maxOf(openZ, highZ, lowZ, closeZ),
-                low = minOf(openZ, highZ, lowZ, closeZ),
-                close = closeZ
-            )
+            null
         }
+        CandlePoint(
+            label = point.tradeDate,
+            open = open,
+            high = wickRange?.second?.let { max(bodyHigh, it) } ?: bodyHigh,
+            low = wickRange?.first?.let { min(bodyLow, it) } ?: bodyLow,
+            close = close,
+        )
     }
 }
 
@@ -206,8 +205,7 @@ internal suspend fun buildM15ZChartDisplayWithSpreadOhlc(
     simPoints: List<DataPoint>,
 ): Pair<List<DataPoint>, List<CandlePoint>> {
     if (simPoints.isEmpty()) return emptyList<DataPoint>() to emptyList<CandlePoint>()
-    val ohlc = loadSpreadOhlcForM15Range(simPoints)
-    val fullCandles = buildZScoreCandlesFrom15mSpreadOhlc(simPoints, ohlc)
+    val fullCandles = buildZScoreCandlesOhlcAnchoredToM15Series(simPoints)
     return downsampleM15ChartSeries(simPoints, fullCandles)
 }
 

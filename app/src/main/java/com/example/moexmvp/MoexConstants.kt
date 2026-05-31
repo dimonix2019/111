@@ -64,6 +64,10 @@ internal const val CHART_Y_ZOOM_MAX = 24f
 internal const val CHART_MAX_DISPLAY_BARS = 2_000
 /** Фитили Z-свечей (10м OHLC) считаем только для хвоста — ускоряет старт и смену 1D/1W. */
 internal const val CHART_INTRABAR_OHLC_LOOKBACK_DAYS = 30L
+/** Нижний отступ под подписи времени (px), чтобы не обрезались при наклоне. */
+internal const val CHART_BOTTOM_PADDING_PX = 84f
+internal const val CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX = 10f
+internal const val CHART_X_LABEL_ROTATION_DEG = -42f
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
@@ -92,6 +96,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.27 — Z-свечи: open = Z предыдущего бара (красные/зелёные тела); подписи времени по оси X не обрезаются.
 1.7.26 — Рынок: прокрутка LazyColumn (жесты графика не блокируют вертикаль); landscape/график — 15м из кэша сразу; fix гонки hydrate.
 1.7.25 — Быстрый старт: кэш сразу на экран, MOEX/15м/симуляция в фоне; журнал и prefs не блокируют ctor; realtime выкл. по умолчанию.
 1.7.24 — Z-свечи 15м: исправлены «кривые» тела (полный ряд → downsample OHLC); open/high/low из spread 10м в слоте; формирующийся 15м бар.

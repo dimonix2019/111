@@ -115,7 +115,7 @@ internal fun CandlestickChart(
         val range = (visMax - visMin).takeIf { it > 0.0 } ?: 1.0
         val leftPadding = 16f
         val topPadding = 12f
-        val bottomPadding = 60f
+        val bottomPadding = CHART_BOTTOM_PADDING_PX
         val maxIndex = candles.lastIndex.coerceAtLeast(0)
 
         var windowStart by remember(candles) { mutableFloatStateOf(0f) }
@@ -378,7 +378,9 @@ internal fun CandlestickChart(
                 val lowY = yForValue(candle.low)
                 val closeY = yForValue(candle.close)
                 val rising = candle.close >= candle.open
-                val color = if (rising) Color(0xFF69F0AE) else Color(0xFFFF5252)
+                val risingColor = if (useDesktopStyle) Color(0xFF22C55E) else Color(0xFF69F0AE)
+                val fallingColor = if (useDesktopStyle) Color(0xFFEF4444) else Color(0xFFFF5252)
+                val color = if (rising) risingColor else fallingColor
 
                 val wickW = (1.5f * candleStrokeMul).coerceIn(1f, 3f)
                 val bodyTop = min(openY, closeY)
@@ -458,18 +460,18 @@ internal fun CandlestickChart(
         if (xTicks.isNotEmpty()) {
             val labelPaint = Paint().apply {
                 isAntiAlias = true
-                color = android.graphics.Color.rgb(221, 236, 255)
+                color = axisColor.toArgb()
                 textSize = 10.sp.toPx()
-                textAlign = Paint.Align.RIGHT
+                textAlign = Paint.Align.CENTER
             }
+            val labelBaselineY = size.height - CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX
             xTicks.forEach { tick ->
                 val frac = fracForIndex(tick.index)
                 if (frac < wStart - 0.02f || frac > wStart + wWidth + 0.02f) return@forEach
                 val x = xForIndexDraw(tick.index)
-                val y = topPadding + h + 34f
                 drawContext.canvas.nativeCanvas.save()
-                drawContext.canvas.nativeCanvas.rotate(-55f, x, y)
-                drawContext.canvas.nativeCanvas.drawText(tick.label, x, y, labelPaint)
+                drawContext.canvas.nativeCanvas.rotate(CHART_X_LABEL_ROTATION_DEG, x, labelBaselineY)
+                drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
                 drawContext.canvas.nativeCanvas.restore()
             }
         }
@@ -501,8 +503,3 @@ private fun DrawScope.drawMarkerBadge(
     canvas.drawText(text, x, y, outline)
     canvas.drawText(text, x, y, fill)
 }
-
-/**
- * Equity (столбцы, ₽) в верхней половине; Drawdown (отрицательный, линия) в нижней.
- * Нулевая линия по центру; подписи сумм слева, месяцы по оси X под углом.
- */

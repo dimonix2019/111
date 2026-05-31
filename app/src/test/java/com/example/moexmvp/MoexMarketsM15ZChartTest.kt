@@ -47,6 +47,9 @@ class MoexMarketsM15ZChartTest {
         }
         val candles = buildZScoreCandlesFrom15mSpreadOhlc(m15, spreadOhlc)
         assertEquals(m15.map { it.zScore }, candles.map { it.close })
+        for (i in 1 until candles.size) {
+            assertEquals(candles[i - 1].close, candles[i].open, 1e-9)
+        }
         candles.forEach { c ->
             assertTrue(c.high >= max(c.open, c.close) - 1e-9)
             assertTrue(c.low <= min(c.open, c.close) + 1e-9)
