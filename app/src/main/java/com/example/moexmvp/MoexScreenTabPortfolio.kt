@@ -85,6 +85,32 @@ internal fun MoexScreenTabPortfolio(
                         }
                 )
             } else {
+                val enrichmentPoints = remember(
+                    portfolioM15Points,
+                    marketsM15Points,
+                    lastGoodMarkets?.points
+                ) {
+                    when {
+                        portfolioM15Points.isNotEmpty() -> portfolioM15Points
+                        marketsM15Points.isNotEmpty() -> marketsM15Points
+                        !lastGoodMarkets?.points.isNullOrEmpty() ->
+                            applyZScoresDefault(lastGoodMarkets!!.points)
+                        else -> emptyList()
+                    }
+                }
+                val displayOpenExecutions = remember(
+                    sandboxSpreadExecutions,
+                    enrichmentPoints,
+                    portfolioLeverage,
+                    portfolioCommissionPercent
+                ) {
+                    enrichSandboxExecutionsIfNeeded(
+                        executions = sandboxSpreadExecutions,
+                        points = enrichmentPoints,
+                        leverage = portfolioLeverage,
+                        commissionPercentPerSide = portfolioCommissionPercent
+                    )
+                }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -93,7 +119,7 @@ internal fun MoexScreenTabPortfolio(
                         ConfirmedPortfolioTabContent(
                             metrics = confirmedPortfolioMetrics,
                             confirmedTradeTableRows = confirmedPortfolioTableRows,
-                            sandboxSpreadExecutions = sandboxSpreadExecutions,
+                            sandboxSpreadExecutions = displayOpenExecutions,
                             portfolioLoading = portfolioLoading,
                             portfolioError = portfolioError,
                             onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },

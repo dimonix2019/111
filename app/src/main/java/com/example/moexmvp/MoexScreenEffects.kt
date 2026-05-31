@@ -240,6 +240,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         syncSandboxExecutionsEnrichment()
     }
 
+    LaunchedEffect(selectedTab, sandboxSpreadExecReload) {
+        if (selectedTab == MainTab.Portfolio) {
+            syncSandboxExecutionsEnrichment()
+        }
+    }
+
     LaunchedEffect(Unit) {
         hydrateMarketsFromLocalCache(selectedPeriod)
         if (selectedTab == MainTab.Markets) {

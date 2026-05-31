@@ -62,16 +62,50 @@ internal fun enrichOpenSandboxExecutions(
     }
 }
 
-internal suspend fun resolvePortfolioPointsForEnrichment(
-    context: Context,
-    portfolioM15Points: List<DataPoint>,
-    marketsM15Points: List<DataPoint>,
-): List<DataPoint> {
+internal fun openSandboxExecutionsNeedMtmEnrichment(executions: List<SandboxSpreadExecUi>): Boolean =
+    executions.any { exec ->
+        (exec.signalType == StrategySignalType.EnterLong ||
+            exec.signalType == StrategySignalType.EnterShort) &&
+            (exec.netPnlRubApprox.isNaN() || exec.exitZDisplay.isNaN())
+    }
+
+/** Синхронный MTM для UI, если в state ещё сырые записи из SQLite prefs. */
+internal fun enrichSandboxExecutionsIfNeeded(
+    executions: List<SandboxSpreadExecUi>,
+    points: List<DataPoint>,
+    leverage: Double,
+    commissionPercentPerSide: Double,
+): List<SandboxSpreadExecUi> {
+    if (executions.isEmpty() || points.isEmpty() || !openSandboxExecutionsNeedMtmEnrichment(executions)) {
+        return executions
+    }
+    return enrichOpenSandboxExecutions(
+        executions = executions,
+        points = points,
+        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+        leverage = leverage,
+        commissionPercentPerSide = commissionPercentPerSide
+    )
+}
+
+internal suspend fun MoexScreenState.resolveEnrichmentPoints(): List<DataPoint> {
     if (portfolioM15Points.isNotEmpty()) return portfolioM15Points
     if (marketsM15Points.isNotEmpty()) return marketsM15Points
-    return withContext(Dispatchers.IO) {
+    val cached = withContext(Dispatchers.IO) {
         loadPortfolio15mPointsForSignalMonitor(context, PortfolioM15LoadMode.CACHE_ONLY)
     }
+    if (cached.isNotEmpty()) {
+        if (portfolioM15Points.isEmpty()) portfolioM15Points = cached
+        if (marketsM15Points.isEmpty()) marketsM15Points = cached
+        return cached
+    }
+    val snapshotPoints = lastGoodMarkets?.points.orEmpty()
+    if (snapshotPoints.isNotEmpty()) {
+        return withContext(Dispatchers.Default) {
+            applyZScoresDefault(snapshotPoints)
+        }
+    }
+    return emptyList()
 }
 
 /** Пересчёт Z/PnL открытых сделок демо по последнему 15м ряду. */
@@ -85,7 +119,7 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
         sandboxSpreadExecutions = emptyList()
         return
     }
-    val points = resolvePortfolioPointsForEnrichment(context, portfolioM15Points, marketsM15Points)
+    val points = resolveEnrichmentPoints()
     val ledgerIncludeAuto = portfolioLedgerIncludeAuto
     if (points.isEmpty()) {
         sandboxSpreadExecutions = filterSandboxExecutionsByPortfolioMode(raw, ledgerIncludeAuto)

@@ -63,7 +63,7 @@ internal class MoexScreenState(val context: Context) {
     var sandboxTokenInput by mutableStateOf("")
     var sandboxAccountInput by mutableStateOf("")
     var sandboxSpreadExecReload by mutableStateOf(0)
-    var sandboxSpreadExecutions by mutableStateOf(TinkoffSandboxSpreadExecLog.loadRecent(context))
+    var sandboxSpreadExecutions by mutableStateOf<List<SandboxSpreadExecUi>>(emptyList())
     var portfolioLedgerIncludeAuto by mutableStateOf(
         TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
     )
@@ -104,6 +104,7 @@ internal class MoexScreenState(val context: Context) {
                     if (portfolioM15Points.isEmpty()) portfolioM15Points = pts
                 }
             }
+            syncSandboxExecutionsEnrichment()
         }
     }
 
