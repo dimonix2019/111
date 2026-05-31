@@ -86,14 +86,15 @@ internal class MoexScreenState(val context: Context) {
     /** Быстрый старт: снимок «Рынка» + 15м из SQLite до сети MOEX. */
     suspend fun hydrateMarketsFromLocalCache(preferredPeriod: Period = Period.OneDay) {
         withContext(Dispatchers.IO) {
-            val snapshot = readMarketsSnapshotIfFresh(context, preferredPeriod)
-                ?: Period.entries.firstNotNullOfOrNull { readMarketsSnapshotIfFresh(context, it) }
+            val snapshot = readMarketsSnapshotForDisplay(context, preferredPeriod)
+                ?: Period.entries.firstNotNullOfOrNull { readMarketsSnapshotForDisplay(context, it) }
             snapshot?.let {
                 lastGoodMarkets = it
                 if (state is UiState.Loading) {
                     state = it
-                    marketsStale = false
                 }
+                val ageMs = marketsSnapshotAgeMillis(context, preferredPeriod)
+                marketsStale = ageMs != null && ageMs > MARKETS_SNAPSHOT_TTL_MS
             }
             if (marketsM15Points.isEmpty()) {
                 runCatching {
@@ -103,7 +104,6 @@ internal class MoexScreenState(val context: Context) {
                     if (portfolioM15Points.isEmpty()) portfolioM15Points = pts
                 }
             }
-            syncSandboxExecutionsEnrichment()
         }
     }
 
@@ -262,15 +262,23 @@ internal class MoexScreenState(val context: Context) {
         }
     }
 
-    suspend fun refreshData(showLoading: Boolean, launchScope: CoroutineScope, selectedPeriod: Period) {
-        refreshMutex.withLock {
-            if (showLoading) {
-                state = UiState.Loading
-            } else {
-                isRefreshing = true
-            }
+    suspend fun refreshData(
+        showLoading: Boolean,
+        launchScope: CoroutineScope,
+        selectedPeriod: Period,
+        preferBackground: Boolean = false,
+    ) {
+        val hasDisplayCache = lastGoodMarkets != null
+        val blockUi = showLoading && !hasDisplayCache
 
-            when (val next = loadState(context, selectedPeriod)) {
+        suspend fun performRefresh() {
+            try {
+                refreshMutex.withLock {
+                    if (blockUi) {
+                        state = UiState.Loading
+                    }
+
+                    when (val next = loadState(context, selectedPeriod)) {
                 is UiState.Success -> {
                     lastGoodMarkets = next
                     marketsStale = false
@@ -292,9 +300,14 @@ internal class MoexScreenState(val context: Context) {
                         portfolioM15Points = loaded
                         return loaded
                     }
-                    if (!fromDiskCache) {
-                        runCatching { loadMarketsM15PointsOnce() }
-                    } else if (showLoading || marketsM15Points.isEmpty()) {
+                    val m15CachedReady = marketsM15Points.size >= 2 &&
+                        !portfolio15mSeriesTailStale(marketsM15Points)
+                    val deferM15Network = preferBackground && m15CachedReady
+                    if (deferM15Network) {
+                        launchScope.launch(Dispatchers.IO) {
+                            runCatching { loadMarketsM15PointsOnce() }
+                        }
+                    } else if (!fromDiskCache || marketsM15Points.isEmpty()) {
                         runCatching { loadMarketsM15PointsOnce() }
                     }
                     if (thresholdUpdate.recalculated &&
@@ -310,7 +323,7 @@ internal class MoexScreenState(val context: Context) {
                         )
                     }
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
-                    if (!fromDiskCache) {
+                    if (!fromDiskCache && !deferM15Network) {
                         val m15ForSignal = loadMarketsM15PointsOnce()
                         if (!backgroundMonitorEnabled && m15ForSignal.size >= 2) {
                             val signalThresholds = DynamicThresholds(
@@ -519,9 +532,28 @@ internal class MoexScreenState(val context: Context) {
                 }
 
                 UiState.Loading -> Unit
+                    }
+                }
+            } finally {
+                initialMarketsRefreshDone = true
             }
+        }
+
+        if (hasDisplayCache && preferBackground) {
+            isRefreshing = true
+            try {
+                performRefresh()
+            } finally {
+                isRefreshing = false
+            }
+            return
+        }
+
+        if (!blockUi) isRefreshing = true
+        try {
+            performRefresh()
+        } finally {
             isRefreshing = false
-            initialMarketsRefreshDone = true
         }
     }
 

@@ -476,15 +476,9 @@ internal suspend fun loadPortfolio15mDataPoints(
             }
         }
 
-        val needsTailMerge = when (mode) {
-            PortfolioM15LoadMode.CACHE_ONLY -> {
-                val lastTs = dao.maxTsMillis() ?: 0L
-                System.currentTimeMillis() - lastTs > PORTFOLIO_M15_TAIL_MAX_AGE_MS
-            }
-            PortfolioM15LoadMode.INCREMENTAL,
-            PortfolioM15LoadMode.FULL_REFRESH -> true
-        }
-        if (needsTailMerge) {
+        val lastTsAfterLoad = dao.maxTsMillis() ?: 0L
+        val tailStillStale = System.currentTimeMillis() - lastTsAfterLoad > PORTFOLIO_M15_TAIL_MAX_AGE_MS
+        if (mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
             mergePortfolio15mRecentTailFromMoex(dao)
         }
         val rows = dao.getSince(cutoffMillis)

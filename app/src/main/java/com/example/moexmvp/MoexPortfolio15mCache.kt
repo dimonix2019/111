@@ -11,8 +11,8 @@ internal const val PORTFOLIO_M15_ROOM_INSERT_BATCH = 80
 /** Загрузка MOEX по окнам, чтобы не обрывать соединение на 255 днях. */
 internal const val PORTFOLIO_M15_FETCH_CHUNK_DAYS = 21L
 
-/** Всегда перекачиваем последние N дней отдельными чанками после основной загрузки. */
-internal const val PORTFOLIO_M15_TAIL_REFETCH_DAYS = 45L
+/** Догрузка хвоста 15м с MOEX только если кэш устарел (не при каждом INCREMENTAL). */
+internal const val PORTFOLIO_M15_TAIL_REFETCH_DAYS = 7L
 
 /** Если последний бар в кэше старше — не CACHE_ONLY, а догрузка с MOEX. */
 internal const val PORTFOLIO_M15_CACHE_STALE_MS = 6L * 60L * 60L * 1000L

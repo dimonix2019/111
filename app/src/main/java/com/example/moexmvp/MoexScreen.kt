@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,19 +40,30 @@ internal fun MoexScreen() {
         )
     }
     var marketsZScoreCandles by remember { mutableStateOf<List<CandlePoint>>(emptyList()) }
-    LaunchedEffect(marketsM15ChartPoints) {
+    val ohlcLookbackDays = remember(screen.selectedPeriod) {
+        when (screen.selectedPeriod) {
+            Period.OneDay -> 3L
+            Period.OneWeek -> 10L
+            Period.OneMonth -> 14L
+            else -> CHART_INTRABAR_OHLC_LOOKBACK_DAYS
+        }
+    }
+    LaunchedEffect(marketsM15ChartPoints, ohlcLookbackDays) {
         if (marketsM15ChartPoints.isEmpty()) {
             marketsZScoreCandles = emptyList()
             return@LaunchedEffect
         }
         marketsZScoreCandles = buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
-        if (marketsM15ChartPoints.size >= 2) {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    buildZScoreCandlesOhlcAnchoredToM15Series(marketsM15ChartPoints)
-                }
-            }.getOrNull()?.let { marketsZScoreCandles = it }
-        }
+        if (marketsM15ChartPoints.size < 2) return@LaunchedEffect
+        delay(350)
+        runCatching {
+            withContext(Dispatchers.IO) {
+                buildZScoreCandlesOhlcAnchoredToM15Series(
+                    marketsM15ChartPoints,
+                    intrabarLookbackDays = ohlcLookbackDays,
+                )
+            }
+        }.getOrNull()?.let { marketsZScoreCandles = it }
     }
     val portfolioZChartPoints = remember(screen.portfolioM15Points, screen.selectedPeriod) {
         downsampleDataPointsForChart(

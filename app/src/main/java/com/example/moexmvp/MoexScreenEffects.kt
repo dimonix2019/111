@@ -242,11 +242,19 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
 
     LaunchedEffect(Unit) {
         hydrateMarketsFromLocalCache(selectedPeriod)
+        if (selectedTab == MainTab.Markets) {
+            refreshData(
+                showLoading = screen.lastGoodMarkets == null,
+                launchScope = scope,
+                selectedPeriod = selectedPeriod,
+                preferBackground = screen.lastGoodMarkets != null,
+            )
+        }
     }
 
     LaunchedEffect(selectedTab) {
-        if (selectedTab == MainTab.Markets) {
-            refreshData(showLoading = state !is UiState.Success, launchScope = scope, selectedPeriod = selectedPeriod)
+        if (selectedTab == MainTab.Markets && initialMarketsRefreshDone) {
+            refreshData(showLoading = false, launchScope = scope, selectedPeriod = selectedPeriod)
         }
     }
 
