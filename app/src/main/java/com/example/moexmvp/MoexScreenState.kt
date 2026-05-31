@@ -81,6 +81,62 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestSimComputing by mutableStateOf(false)
     var dailyReconciliation by mutableStateOf<DailyPortfolioReconciliation?>(null)
     var marketsZStrategyTapMetrics by mutableStateOf<PortfolioMetrics?>(null)
+    var initialMarketsRefreshDone by mutableStateOf(false)
+
+    /** Быстрый старт: снимок «Рынка» + 15м из SQLite до сети MOEX. */
+    suspend fun hydrateMarketsFromLocalCache(preferredPeriod: Period = Period.OneDay) {
+        withContext(Dispatchers.IO) {
+            val snapshot = readMarketsSnapshotIfFresh(context, preferredPeriod)
+                ?: Period.entries.firstNotNullOfOrNull { readMarketsSnapshotIfFresh(context, it) }
+            snapshot?.let {
+                lastGoodMarkets = it
+                if (state is UiState.Loading) {
+                    state = it
+                    marketsStale = false
+                }
+            }
+            if (marketsM15Points.isEmpty()) {
+                runCatching {
+                    loadPortfolio15mPointsForSignalMonitor(context, PortfolioM15LoadMode.CACHE_ONLY)
+                }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { pts ->
+                    marketsM15Points = pts
+                    if (portfolioM15Points.isEmpty()) portfolioM15Points = pts
+                }
+            }
+        }
+    }
+
+    /** Только дневной ряд spread для портретных графиков; Z-график фильтруется локально. */
+    suspend fun refreshMarketsDailyOnly(period: Period) {
+        refreshMutex.withLock {
+            isRefreshing = true
+            try {
+                when (val next = loadState(context, period)) {
+                    is UiState.Success -> {
+                        lastGoodMarkets = next
+                        marketsStale = false
+                        state = next
+                        realtimeError = null
+                    }
+                    is UiState.Error -> {
+                        realtimeError = next.message
+                        if (lastGoodMarkets != null) {
+                            marketsStale = true
+                            state = lastGoodMarkets!!
+                        } else {
+                            state = next
+                        }
+                    }
+                    is UiState.Empty -> {
+                        if (lastGoodMarkets == null) state = UiState.Empty
+                    }
+                    UiState.Loading -> Unit
+                }
+            } finally {
+                isRefreshing = false
+            }
+        }
+    }
 
     suspend fun refreshPortfolioUnlocked(m15LoadHint: PortfolioM15LoadMode? = null) {
         portfolioLoading = true
@@ -459,6 +515,7 @@ internal class MoexScreenState(val context: Context) {
                 UiState.Loading -> Unit
             }
             isRefreshing = false
+            initialMarketsRefreshDone = true
         }
     }
 

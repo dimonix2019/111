@@ -62,6 +62,8 @@ internal const val CHART_ZOOM_MIN_WINDOW = 0.06f
 internal const val CHART_Y_ZOOM_MAX = 24f
 /** Макс. 15м баров на графике (downsample при большем ряду — защита от вылетов/ANR). */
 internal const val CHART_MAX_DISPLAY_BARS = 2_000
+/** Фитили Z-свечей (10м OHLC) считаем только для хвоста — ускоряет старт и смену 1D/1W. */
+internal const val CHART_INTRABAR_OHLC_LOOKBACK_DAYS = 30L
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
@@ -90,6 +92,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.16 — Быстрый старт (кэш 15м + снимок рынка); 1W/1M без полного refresh (вылет в landscape); OHLC только за 30д хвост.
 1.7.15 — Обновления: «Позже» больше не показывает диалог снова каждые 5 мин; убран текст про private repo.
 1.7.14 — Обновления: проверка через public-зеркало gh-pages; понятная ошибка при private repo; кнопка «Открыть Release в браузере».
 1.7.13 — Рынок: фитили Z-свечей на той же μ/σ, что close 15м бара; отрисовка только верх/низ тени (не через тело).

@@ -47,7 +47,9 @@ internal fun MoexScreen() {
         marketsZScoreCandles = buildZScoreCandlesFromM15Points(marketsM15ChartPoints)
         if (marketsM15ChartPoints.size >= 2) {
             runCatching {
-                buildZScoreCandlesOhlcAnchoredToM15Series(marketsM15ChartPoints)
+                withContext(Dispatchers.IO) {
+                    buildZScoreCandlesOhlcAnchoredToM15Series(marketsM15ChartPoints)
+                }
             }.getOrNull()?.let { marketsZScoreCandles = it }
         }
     }

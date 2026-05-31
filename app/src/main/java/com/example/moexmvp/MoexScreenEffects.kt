@@ -228,6 +228,16 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        hydrateMarketsFromLocalCache(selectedPeriod)
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == MainTab.Markets) {
+            refreshData(showLoading = state !is UiState.Success, launchScope = scope, selectedPeriod = selectedPeriod)
+        }
+    }
+
     LaunchedEffect(selectedTab, sandboxSpreadExecReload, signalJournalFingerprint) {
         if (selectedTab == MainTab.Journal) {
             pushNotificationLog = withContext(Dispatchers.IO) {
@@ -236,8 +246,8 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
     LaunchedEffect(selectedPeriod, selectedTab) {
-        if (selectedTab == MainTab.Markets) {
-            refreshData(showLoading = state !is UiState.Success, launchScope = scope, selectedPeriod = selectedPeriod)
+        if (selectedTab == MainTab.Markets && initialMarketsRefreshDone) {
+            refreshMarketsDailyOnly(selectedPeriod)
         }
     }
 

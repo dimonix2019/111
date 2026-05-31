@@ -395,7 +395,7 @@ internal fun buildIntrabarZRangesBy15mBucket(z10: List<DataPoint>): Map<Long, In
     }.toMap()
 }
 
-/** 10м spread-точки, привязанные к 15м бару по времени (≤ timestamp 15м close). */
+/** 10м spread-точки, привязанные к 15м бару по времени (≤ timestamp 15м close). O(n+m). */
 internal fun build10mSpreadsByM15Index(
     m15Points: List<DataPoint>,
     spread10: List<DataPoint>,
@@ -403,10 +403,15 @@ internal fun build10mSpreadsByM15Index(
     if (m15Points.isEmpty()) return emptyList()
     val m15Millis = m15Points.map { barMillisAt(it) }
     val buckets = List(m15Points.size) { mutableListOf<Double>() }
+    var m15Idx = 0
     spread10.forEach { pt ->
         val ts = barMillisAt(pt)
-        val idx = m15Millis.indexOfLast { it <= ts }
-        if (idx >= 0) buckets[idx].add(pt.spreadPercent)
+        while (m15Idx + 1 < m15Millis.size && m15Millis[m15Idx + 1] <= ts) {
+            m15Idx++
+        }
+        if (ts >= m15Millis[m15Idx]) {
+            buckets[m15Idx].add(pt.spreadPercent)
+        }
     }
     return buckets
 }
@@ -427,17 +432,21 @@ internal fun intrabarZRangeForM15Bar(
  */
 internal suspend fun buildZScoreCandlesOhlcAnchoredToM15Series(
     m15Points: List<DataPoint>,
+    intrabarLookbackDays: Long = CHART_INTRABAR_OHLC_LOOKBACK_DAYS,
 ): List<CandlePoint> = withContext(Dispatchers.IO) {
     if (m15Points.isEmpty()) return@withContext emptyList()
     val base = buildZScoreCandlesFromM15Points(m15Points)
     if (m15Points.size < 2) return@withContext base
 
     val zone = moexZoneId
-    val firstDay = Instant.ofEpochMilli(m15Points.first().timestampMillis).atZone(zone).toLocalDate()
     val lastDay = Instant.ofEpochMilli(m15Points.last().timestampMillis).atZone(zone).toLocalDate()
+    val intrabarFromDay = lastDay.minusDays(intrabarLookbackDays.coerceAtLeast(1L))
+    val intrabarFromMillis = intrabarFromDay.atStartOfDay(zone).toInstant().toEpochMilli()
+    val firstEnrichIdx = m15Points.indexOfFirst { it.timestampMillis >= intrabarFromMillis }.coerceAtLeast(0)
+
     val spread10 = buildSpreadDataPointsFrom10mBars(
-        loadCandleBars("TATN", firstDay, lastDay.plusDays(1), interval = 10),
-        loadCandleBars("TATNP", firstDay, lastDay.plusDays(1), interval = 10),
+        loadCandleBars("TATN", intrabarFromDay, lastDay.plusDays(1), interval = 10),
+        loadCandleBars("TATNP", intrabarFromDay, lastDay.plusDays(1), interval = 10),
     )
     if (spread10.size < Z_SCORE_ROLLING_MIN_BARS) return@withContext base
 
@@ -448,10 +457,14 @@ internal suspend fun buildZScoreCandlesOhlcAnchoredToM15Series(
         val close = point.zScore
         val bodyHigh = max(open, close)
         val bodyLow = min(open, close)
-        val range = intrabarZRangeForM15Bar(
-            spreads10mInBar = spreadsByM15.getOrNull(index).orEmpty(),
-            m15Stats = rollingSpreadStatsAt(m15Points, index),
-        )
+        val range = if (index >= firstEnrichIdx) {
+            intrabarZRangeForM15Bar(
+                spreads10mInBar = spreadsByM15.getOrNull(index).orEmpty(),
+                m15Stats = rollingSpreadStatsAt(m15Points, index),
+            )
+        } else {
+            null
+        }
         CandlePoint(
             label = point.tradeDate,
             open = open,

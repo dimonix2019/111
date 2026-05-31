@@ -606,7 +606,11 @@ internal fun LandscapeZScoreFullscreenPane(
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            val chartH = maxHeight.value.roundToInt().coerceIn(80, 2400)
+            val chartH = maxHeight.value
+                .takeIf { it.isFinite() && it > 0f }
+                ?.roundToInt()
+                ?.coerceIn(80, 720)
+                ?: 320
             if (candles.isNotEmpty()) {
                 CandlestickChartCard(
                     title = "",
