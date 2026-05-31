@@ -103,6 +103,7 @@ internal class MoexScreenState(val context: Context) {
                     if (portfolioM15Points.isEmpty()) portfolioM15Points = pts
                 }
             }
+            syncSandboxExecutionsEnrichment()
         }
     }
 
@@ -155,6 +156,11 @@ internal class MoexScreenState(val context: Context) {
                     else ->
                         "Нет 15-мин данных (ISS / сеть). Попробуйте «MOEX заново»."
                 }
+                if (loaded.isNotEmpty()) {
+                    portfolioM15Points = loaded
+                    if (marketsM15Points.isEmpty()) marketsM15Points = loaded
+                }
+                syncSandboxExecutionsEnrichment()
                 return@refreshPortfolioUnlocked
             }
             val points = loaded

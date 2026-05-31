@@ -313,7 +313,18 @@ internal fun ConfirmedPortfolioTabContent(
                 }
             }
         } else if (!portfolioLoading && metrics == null) {
-            Text("Нет сделок по данным портфеля (или нет 15м данных).", color = Color(0xFFBDBDBD), fontSize = 11.sp)
+            val (openBucket, _) = buildPortfolioTradesBuckets(sandboxSpreadExecutions, confirmedTradeTableRows)
+            val hasOpenMtm = openBucket.groups.any { !it.netPnlRubApprox.isNaN() }
+            if (hasOpenMtm) {
+                Text(
+                    text = "Сводка по журналу недоступна (мало 15м данных). Нереализованный PnL открытых: ${formatRubSigned(openBucket.totalPnlRub)}",
+                    color = Color(0xFFBDBDBD),
+                    fontSize = 11.sp,
+                    maxLines = 4
+                )
+            } else {
+                Text("Нет сделок по данным портфеля (или нет 15м данных).", color = Color(0xFFBDBDBD), fontSize = 11.sp)
+            }
         } else {
             metrics?.let { m ->
                 PortfolioCompactHeroInline(m)

@@ -228,6 +228,18 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(
+        portfolioM15Points,
+        marketsM15Points,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        sandboxSpreadExecReload,
+        portfolioLedgerIncludeAuto,
+        signalJournalFingerprint
+    ) {
+        syncSandboxExecutionsEnrichment()
+    }
+
     LaunchedEffect(Unit) {
         hydrateMarketsFromLocalCache(selectedPeriod)
     }
