@@ -49,8 +49,10 @@ internal class MoexScreenState(val context: Context) {
     var marketsStale by mutableStateOf(false)
     var marketsM15Points by mutableStateOf<List<DataPoint>>(emptyList())
     var portfolioM15Points by mutableStateOf<List<DataPoint>>(emptyList())
-    /** 15м ряд только для «Тест страт.» (до 255 дн.), не смешивать с коротким рядом портфеля. */
-    var strategyTestM15Points by mutableStateOf<List<DataPoint>>(emptyList())
+    /** Полный 15м ряд (~255д) для симуляции — не в Compose state (OOM). */
+    var strategyTestM15SessionCache: List<DataPoint> = emptyList()
+    /** Хвост ~1M для Z-графика на «Тест страт.» */
+    var strategyTestM15ChartTail by mutableStateOf<List<DataPoint>>(emptyList())
     var portfolioPresets by mutableStateOf(loadPortfolioPresets(context))
     var robustCandidate by mutableStateOf<DynamicThresholds?>(null)
     var walkForwardBusy by mutableStateOf(false)

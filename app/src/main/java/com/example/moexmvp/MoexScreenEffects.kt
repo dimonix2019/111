@@ -58,7 +58,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
     LaunchedEffect(
         selectedTab,
-        strategyTestM15Points,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
         portfolioLeverage,
@@ -68,30 +67,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         dynamicThresholds.exit,
         dynamicThresholds.calculatedDate,
     ) {
-        if (selectedTab != MainTab.StrategyTest) return@LaunchedEffect
-        strategyTestSimComputing = true
-        try {
-            val points = m15PointsForStrategyTest()
-            strategyTestPortfolioMetrics = withContext(Dispatchers.Default) {
-                if (!points.sufficientForStrategyTestSimulation()) return@withContext null
-                val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-                val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-                buildZStrategyPortfolioMetrics(
-                    points = points,
-                    thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
-                    notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                    leverage = portfolioLeverage,
-                    commissionPercentPerSide = portfolioCommissionPercent,
-                    periodDescription = "Тест страт. · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
-                    compoundReturns = strategyTestCompoundReturns,
-                    exitMode = ZStrategyExitMode.FixedThreshold
-                )
-            }
-        } finally {
-            strategyTestSimComputing = false
+        if (selectedTab != MainTab.StrategyTest) {
+            clearStrategyTestSession()
+            return@LaunchedEffect
         }
+        val reloadFromDb = !strategyTestM15SessionCache.sufficientForStrategyTestSimulation()
+        refreshStrategyTestTab(preferNetwork = false, reloadFromDb = reloadFromDb)
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -240,17 +221,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                 else -> PortfolioM15LoadMode.INCREMENTAL
             }
             refreshPortfolio(mode)
-        }
-    }
-
-    LaunchedEffect(selectedTab) {
-        if (selectedTab == MainTab.StrategyTest) {
-            if (!ensureM15PointsForStrategyTest(preferNetwork = false)) {
-                ensureM15PointsForStrategyTest(preferNetwork = true)
-            }
-        } else if (strategyTestM15Points.isNotEmpty()) {
-            strategyTestM15Points = emptyList()
-            strategyTestSimComputing = false
         }
     }
 
