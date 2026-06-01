@@ -12,6 +12,15 @@ Web-версия **того же приложения**, что Android APK (`co
 
 ## Запуск
 
+**Windows** — двойной клик или из cmd:
+
+```bat
+cd moex-web
+run-web.bat
+```
+
+**Linux / сервер:**
+
 ```bash
 cd moex-web
 chmod +x deploy/run.sh

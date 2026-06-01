@@ -4,6 +4,10 @@
 
 ## Запуск на сервере
 
+**Windows:** `moex-web\run-web.bat`
+
+**Linux:**
+
 ```bash
 cd moex-web
 chmod +x deploy/run.sh
