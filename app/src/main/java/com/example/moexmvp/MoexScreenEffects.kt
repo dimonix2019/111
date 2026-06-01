@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,7 @@ import java.util.Locale
 
 @Composable
 internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
+    val configuration = LocalConfiguration.current
     with(screen) {
         val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
     LaunchedEffect(
@@ -300,6 +302,14 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     LaunchedEffect(selectedTab, marketsZChartPeriod) {
         if (selectedTab == MainTab.Markets && initialMarketsRefreshDone) {
             ensureMarketsM15ForPeriod(marketsZChartPeriod)
+        }
+    }
+
+    LaunchedEffect(selectedTab, configuration.orientation) {
+        if (selectedTab == MainTab.Markets) {
+            val coerced = marketsZChartPeriod.coerceToMarketsUiPeriod()
+            if (coerced != marketsZChartPeriod) marketsZChartPeriod = coerced
+            if (coerced != selectedPeriod) selectedPeriod = coerced
         }
     }
 

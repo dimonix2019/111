@@ -120,9 +120,10 @@ internal fun MoexScreenTabMarkets(
                         enabled = !landscapeZChartFullscreen,
                     ) {
                         if (landscapeZChartFullscreen) {
+                            val landscapePeriod = marketsZChartPeriod.coerceToMarketsUiPeriod()
                             LandscapeZScoreFullscreenPane(
                                 modifier = Modifier.fillMaxSize(),
-                                selectedPeriod = marketsZChartPeriod,
+                                selectedPeriod = landscapePeriod,
                                 onPeriodSelect = { period ->
                                     val p = period.coerceToMarketsUiPeriod()
                                     marketsZChartPeriod = p
@@ -188,7 +189,7 @@ internal fun MoexScreenTabMarkets(
                             )
                         }
                         item {
-                            PeriodSelector(
+                            MarketsPeriodSelector(
                                 selected = selectedPeriod,
                                 onSelect = { period ->
                                     val p = period.coerceToMarketsUiPeriod()

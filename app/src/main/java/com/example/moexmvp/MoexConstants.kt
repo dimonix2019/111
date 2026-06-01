@@ -107,6 +107,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.41 — Рынок альбом: только 1D/1W/1M/3M (MarketsPeriodSelector), сброс 6M/1Y при повороте.
 1.7.40 — Рынок: убраны 6M/1Y; оптимизация графика (прореживание, без MOEX OHLC на длинных рядах).
 1.7.39 — Рынок: 15м по выбранному периоду (1D ~1.3k баров); не грузить 255д при старте.
 1.7.38 — Портфель: без графика Z; загрузка 15м за 90 дн. (~3k баров), не 255; кэш без wipe при обновлении.

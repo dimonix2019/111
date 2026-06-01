@@ -84,7 +84,10 @@ internal fun LandscapeZScoreFullscreenPane(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        PeriodSelector(selected = selectedPeriod, onSelect = onPeriodSelect)
+        MarketsPeriodSelector(
+            selected = selectedPeriod,
+            onSelect = onPeriodSelect,
+        )
         BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)

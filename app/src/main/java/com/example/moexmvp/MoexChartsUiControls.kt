@@ -64,13 +64,29 @@ import kotlin.math.max
 import kotlin.math.min
 
 @Composable
+internal fun MarketsPeriodSelector(
+    selected: Period,
+    onSelect: (Period) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val uiSelected = selected.coerceToMarketsUiPeriod()
+    PeriodSelector(
+        selected = uiSelected,
+        onSelect = { onSelect(it.coerceToMarketsUiPeriod()) },
+        periods = MARKETS_UI_PERIODS,
+        modifier = modifier,
+    )
+}
+
+@Composable
 internal fun PeriodSelector(
     selected: Period,
     onSelect: (Period) -> Unit,
     periods: List<Period> = MARKETS_UI_PERIODS,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        modifier = modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         periods.forEach { period ->
