@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -25,17 +27,20 @@ internal fun MoexScreenTabPortfolio(
 ) {
     Column(modifier) {
         with(screen) {
-            val enrichmentPoints = remember(
+            val enrichmentPoints by produceState(
+                initialValue = emptyList<DataPoint>(),
                 portfolioM15Points,
                 marketsM15Points,
-                lastGoodMarkets?.points
+                lastGoodMarkets?.points,
             ) {
-                when {
-                    portfolioM15Points.isNotEmpty() -> portfolioM15Points
-                    marketsM15Points.isNotEmpty() -> marketsM15Points
-                    !lastGoodMarkets?.points.isNullOrEmpty() ->
-                        applyZScoresDefault(lastGoodMarkets!!.points)
-                    else -> emptyList()
+                value = withContext(Dispatchers.Default) {
+                    when {
+                        portfolioM15Points.isNotEmpty() -> portfolioM15Points
+                        marketsM15Points.isNotEmpty() -> marketsM15Points
+                        !lastGoodMarkets?.points.isNullOrEmpty() ->
+                            applyZScoresDefault(lastGoodMarkets!!.points)
+                        else -> emptyList()
+                    }
                 }
             }
             val displayOpenExecutions = remember(

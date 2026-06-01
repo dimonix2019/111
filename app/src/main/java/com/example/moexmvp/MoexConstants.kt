@@ -61,7 +61,7 @@ internal const val CHART_ZOOM_MIN_WINDOW = 0.06f
 /** Максимальный вертикальный zoom по оси Z (1 = весь диапазон данных). */
 internal const val CHART_Y_ZOOM_MAX = 24f
 /** Макс. 15м баров на графике (downsample при большем ряду — защита от вылетов/ANR). */
-internal const val CHART_MAX_DISPLAY_BARS = 2_000
+internal const val CHART_MAX_DISPLAY_BARS = 1_200
 /** Фитили Z-свечей (10м OHLC) считаем только для хвоста — ускоряет старт и смену 1D/1W. */
 internal const val CHART_INTRABAR_OHLC_LOOKBACK_DAYS = 30L
 /** Нижний отступ под подписи времени (px), чтобы не обрезались при наклоне. */
@@ -107,6 +107,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.43 — Стабильность: Z-график и 255д 15м только на активной вкладке; освобождение памяти при уходе с «Тест страт.»; CHART_MAX 1200.
 1.7.42 — Тест страт.: исправлен вылет (LazyColumn), отдельный ряд 255д, симуляция только на вкладке.
 1.7.41 — Рынок альбом: только 1D/1W/1M/3M (MarketsPeriodSelector), сброс 6M/1Y при повороте.
 1.7.40 — Рынок: убраны 6M/1Y; оптимизация графика (прореживание, без MOEX OHLC на длинных рядах).

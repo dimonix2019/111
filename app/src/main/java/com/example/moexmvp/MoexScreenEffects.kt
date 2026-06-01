@@ -248,6 +248,9 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             if (!ensureM15PointsForStrategyTest(preferNetwork = false)) {
                 ensureM15PointsForStrategyTest(preferNetwork = true)
             }
+        } else if (strategyTestM15Points.isNotEmpty()) {
+            strategyTestM15Points = emptyList()
+            strategyTestSimComputing = false
         }
     }
 

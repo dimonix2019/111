@@ -17,6 +17,13 @@ internal fun List<DataPoint>.m15CalendarSpanDays(): Long {
 internal fun List<DataPoint>.sufficientForStrategyTestSimulation(): Boolean =
     size >= Z_SCORE_ROLLING_MIN_BARS && m15CalendarSpanDays() >= STRATEGY_TEST_MIN_SPAN_DAYS
 
+/** Хвост ~1M для Z-графика на «Тест страт.» (симуляция — полный [strategyTestM15Points]). */
+internal fun strategyTestM15PointsForChart(full: List<DataPoint>): List<DataPoint> {
+    if (full.size < 2) return emptyList()
+    val tail = filterM15PointsForMarketsPeriod(full, Period.OneMonth)
+    return if (tail.size >= 2) tail else full
+}
+
 /** 15м ряд для симуляции «Тест страт.» */
 internal fun MoexScreenState.m15PointsForStrategyTest(): List<DataPoint> =
     strategyTestM15Points.takeIf { it.sufficientForStrategyTestSimulation() }

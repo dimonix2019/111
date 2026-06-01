@@ -31,20 +31,30 @@ internal fun MoexScreen() {
 
     val chartSuccess = (screen.state as? UiState.Success) ?: screen.lastGoodMarkets
     val staleMarkets = screen.marketsStale || (screen.realtimeError != null && chartSuccess != null)
-    val marketsM15SimPoints = remember(screen.marketsM15Points, screen.marketsZChartPeriod) {
+    val onMarketsTab = screen.selectedTab == MainTab.Markets
+    val onStrategyTestTab = screen.selectedTab == MainTab.StrategyTest
+
+    val marketsM15SimPoints = remember(screen.marketsM15Points, screen.marketsZChartPeriod, onMarketsTab) {
+        if (!onMarketsTab) return@remember emptyList()
         filterM15PointsForMarketsPeriod(screen.marketsM15Points, screen.marketsZChartPeriod)
     }
-    val marketsChartSeries = rememberM15ZChartSeries(marketsM15SimPoints)
+    val marketsChartSeries = if (onMarketsTab) {
+        rememberM15ZChartSeries(marketsM15SimPoints)
+    } else {
+        emptyList<DataPoint>() to emptyList()
+    }
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second
 
-    val strategyTestM15SimPoints = remember(screen.strategyTestM15Points) {
-        val full = screen.strategyTestM15Points
-        if (full.size < 2) return@remember emptyList()
-        val tail = filterM15PointsForMarketsPeriod(full, Period.OneMonth)
-        if (tail.size >= 2) tail else full
+    val strategyTestM15SimPoints = remember(screen.strategyTestM15Points, onStrategyTestTab) {
+        if (!onStrategyTestTab) return@remember emptyList()
+        strategyTestM15PointsForChart(screen.strategyTestM15Points)
     }
-    val strategyTestChartSeries = rememberM15ZChartSeries(strategyTestM15SimPoints)
+    val strategyTestChartSeries = if (onStrategyTestTab) {
+        rememberM15ZChartSeries(strategyTestM15SimPoints)
+    } else {
+        emptyList<DataPoint>() to emptyList()
+    }
     val strategyTestM15ChartPoints = strategyTestChartSeries.first
     val strategyTestZScoreCandles = strategyTestChartSeries.second
     val strategyTestChartThresholds = remember(
@@ -80,6 +90,7 @@ internal fun MoexScreen() {
     }
 
     LaunchedEffect(
+        onMarketsTab,
         marketsM15SimPoints,
         marketsChartThresholds.entry,
         marketsChartThresholds.exit,
@@ -87,6 +98,10 @@ internal fun MoexScreen() {
         screen.portfolioCommissionPercent,
         screen.marketsZChartPeriod
     ) {
+        if (!onMarketsTab) {
+            screen.marketsZStrategyTapMetrics = null
+            return@LaunchedEffect
+        }
         delay(250)
         screen.marketsZStrategyTapMetrics = withContext(Dispatchers.Default) {
             val pts = marketsM15SimPoints
