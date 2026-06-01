@@ -114,7 +114,7 @@ internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
     preferredMode: PortfolioM15LoadMode,
     onProgress: DataLoadProgressCallback = null,
     wipeAllOnFullRefresh: Boolean = true,
-    retentionDays: Long = PORTFOLIO_M15_LOOKBACK_DAYS,
+    retentionDays: Long = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
 ): List<DataPoint> {
     val till = LocalDate.now(moexZoneId)
     val today = till
@@ -153,15 +153,19 @@ internal suspend fun loadPortfolio15mPointsForSignalMonitor(
     context: Context,
     mode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL,
     onProgress: DataLoadProgressCallback = null,
+    lookbackDays: Long = marketsM15LookbackDays(Period.OneDay),
+    retentionDays: Long = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
 ): List<DataPoint> {
     val app = context.applicationContext
     val till = LocalDate.now(moexZoneId)
-    val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
+    val from = till.minusDays(lookbackDays)
     return when (mode) {
         PortfolioM15LoadMode.CACHE_ONLY ->
-            loadPortfolio15mDataPoints(app, from, till, mode, onProgress)
+            loadPortfolio15mDataPoints(app, from, till, mode, onProgress, true, retentionDays)
         else ->
-            loadPortfolio15mSeriesEnsuringRecentTail(app, from, mode, onProgress)
+            loadPortfolio15mSeriesEnsuringRecentTail(
+                app, from, mode, onProgress, true, retentionDays,
+            )
     }
 }
 
@@ -179,7 +183,7 @@ internal suspend fun loadPortfolio15mDataPoints(
     mode: PortfolioM15LoadMode,
     onProgress: DataLoadProgressCallback = null,
     wipeAllOnFullRefresh: Boolean = true,
-    retentionDays: Long = PORTFOLIO_M15_LOOKBACK_DAYS,
+    retentionDays: Long = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
 ): List<DataPoint> = withContext(Dispatchers.IO) {
     withPortfolioM15LoadLock {
         val dao = PortfolioM15Database.get(context).dao()

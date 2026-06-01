@@ -139,6 +139,10 @@ internal fun buildZScoreSignalMarkersFromEvents(
         .toList()
 }
 
+/** 15м для «Рынок»: видимый период + rolling Z (30д) + запас. 1D ≈ 38д (~1.3k баров), 1Y ≈ 402д. */
+internal fun marketsM15LookbackDays(period: Period): Long =
+    calendarDaysForMarketsZChartPeriod(period) + Z_SCORE_ROLLING_LOOKBACK_DAYS + 7L
+
 /** Календарных дней для начального окна Z-графика по кнопке периода (1D…1Y). */
 internal fun calendarDaysForMarketsZChartPeriod(period: Period): Long = when (period) {
     Period.OneDay -> 1L

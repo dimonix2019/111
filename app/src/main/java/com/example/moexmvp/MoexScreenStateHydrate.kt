@@ -27,6 +27,7 @@ internal suspend fun MoexScreenState.hydrateMarketsFromLocalCache(preferredPerio
                             context,
                             PortfolioM15LoadMode.CACHE_ONLY,
                             dataLoadProgressSink(),
+                            lookbackDays = marketsM15LookbackDays(Period.OneDay),
                         )
                     }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { pts ->
                         marketsM15Points = pts

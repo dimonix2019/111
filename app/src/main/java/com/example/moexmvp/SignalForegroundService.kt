@@ -93,7 +93,10 @@ class SignalForegroundService : Service() {
             runCatching { checkRemoteAppUpdateAndNotify(applicationContext) }
         }
 
-        val points = loadPortfolio15mPointsForSignalMonitor(applicationContext)
+        val points = loadPortfolio15mPointsForSignalMonitor(
+            applicationContext,
+            lookbackDays = marketsM15LookbackDays(Period.OneMonth),
+        )
         if (points.size < 2) return@withContext
 
         val signalThresholds = loadRealTradeZThresholds(applicationContext, bgSignalFallbackThresholds)

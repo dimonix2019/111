@@ -295,6 +295,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(selectedTab, marketsZChartPeriod) {
+        if (selectedTab == MainTab.Markets && initialMarketsRefreshDone) {
+            ensureMarketsM15ForPeriod(marketsZChartPeriod)
+        }
+    }
+
     LaunchedEffect(selectedTab, sandboxSpreadExecReload, signalJournalFingerprint) {
         if (selectedTab == MainTab.Journal) {
             pushNotificationLog = withContext(Dispatchers.IO) {

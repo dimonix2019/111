@@ -123,9 +123,10 @@ internal fun MoexScreenTabMarkets(
                             LandscapeZScoreFullscreenPane(
                                 modifier = Modifier.fillMaxSize(),
                                 selectedPeriod = marketsZChartPeriod,
-                                onPeriodSelect = {
-                                    marketsZChartPeriod = it
+                                onPeriodSelect = { period ->
+                                    marketsZChartPeriod = period
                                     previousZScoreForAlert = null
+                                    scope.launch { ensureMarketsM15ForPeriod(period) }
                                 },
                                 candles = marketsZScoreCandles,
                                 referenceLines = marketsZReferenceLines,
@@ -194,6 +195,7 @@ internal fun MoexScreenTabMarkets(
                                     previousZScoreForAlert = null
                                     scope.launch {
                                         refreshMarketsDailyOnly(period)
+                                        ensureMarketsM15ForPeriod(period)
                                     }
                                 }
                             )
