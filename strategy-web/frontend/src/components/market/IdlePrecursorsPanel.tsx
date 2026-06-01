@@ -18,6 +18,24 @@ function riskBarColor(score: number): string {
   return 'bg-good'
 }
 
+const EVENT_KIND_LABELS: Record<string, string> = {
+  div_announce: 'див. — рекомендация СД',
+  div_registry: 'див. — отсечка / реестр',
+  agm: 'ГОСА',
+  конец_месяца: 'конец месяца',
+  конец_квартала: 'конец квартала',
+}
+
+function tagLabel(tag: string): string {
+  return EVENT_KIND_LABELS[tag] ?? tag
+}
+
+function strengthLabel(strength: 'none' | 'weak' | 'moderate'): string {
+  if (strength === 'moderate') return 'заметная'
+  if (strength === 'weak') return 'частичная'
+  return 'слабая'
+}
+
 export function IdlePrecursorsPanel({ data, loading, error }: Props) {
   if (loading) {
     return (
@@ -116,6 +134,68 @@ export function IdlePrecursorsPanel({ data, loading, error }: Props) {
             </p>
           ) : null}
         </div>
+      ) : null}
+
+      {data.event_correlation ? (
+        <details className="group rounded-lg border border-slate-500/30 bg-slate-900/30">
+          <summary className="cursor-pointer list-none px-3 py-2 text-[12px] font-semibold text-slate-200 marker:content-none hover:text-ink-1 [&::-webkit-details-marker]:hidden">
+            <span className="inline-flex items-center gap-2">
+              <span className="text-slate-400 transition group-open:rotate-90">▸</span>
+              Календарь TATN и паузы (корреляция)
+              {data.event_correlation.matches_count > 0 ? (
+                <span className="font-normal text-cyan-300/90">
+                  · {data.event_correlation.matches_count} совпад.
+                </span>
+              ) : null}
+            </span>
+          </summary>
+          <div className="space-y-2 border-t border-slate-500/25 px-3 pb-2 pt-2">
+            <p className="text-[11px] leading-snug text-slate-200">{data.event_correlation.summary}</p>
+            <p className="text-[10px] text-slate-400">
+              Длинных пауз ≥7 дн.: {data.event_correlation.long_gaps_count} · окно ±
+              {data.event_correlation.window_days} дн. · связь с дивидендами/СД:{' '}
+              {strengthLabel(data.event_correlation.strength)}
+            </p>
+
+            {data.event_correlation.events.length > 0 ? (
+              <div>
+                <p className="mb-1 text-[11px] font-semibold text-ink-2">События бумаги TATN (ручной календарь)</p>
+                <ul className="space-y-1 text-[10px] text-slate-300">
+                  {data.event_correlation.events.map((ev) => (
+                    <li key={`${ev.kind}-${ev.date}`}>
+                      <span className="tabular-nums text-ink-2">{ev.date.slice(0, 10)}</span>{' '}
+                      <span className="text-cyan-300/80">[{tagLabel(ev.kind)}]</span> {ev.label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {data.event_correlation.rows.length > 0 ? (
+              <div>
+                <p className="mb-1 text-[11px] font-semibold text-ink-2">Длинные паузы и теги</p>
+                <ul className="space-y-1.5">
+                  {data.event_correlation.rows.map((row) => (
+                    <li
+                      key={`${row.from}-${row.to}`}
+                      className="rounded-lg border border-slate-600/40 bg-slate-800/40 px-2 py-1.5 text-[10px] text-slate-200"
+                    >
+                      <span className="font-semibold tabular-nums">{row.days} дн.</span>{' '}
+                      <span className="text-slate-400">
+                        {row.from.slice(0, 10)} → {row.to.slice(0, 10)}
+                      </span>
+                      {row.tags.length > 0 ? (
+                        <p className="mt-0.5 text-cyan-200/90">{row.tags.map(tagLabel).join(' · ')}</p>
+                      ) : (
+                        <p className="mt-0.5 text-slate-500">без календаря/событий в окне</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        </details>
       ) : null}
 
       {signs.length > 0 || Object.keys(data.features ?? {}).length > 0 ? (

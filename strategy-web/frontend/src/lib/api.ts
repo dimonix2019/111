@@ -1,7 +1,9 @@
-import type { BasisScanResponse, IdlePrecursors, Presets, SimParams, SimResponse } from '@/types'
+import type { BasisScanResponse, Presets, SimParams, SimResponse, SimPack } from '@/types'
+import type { GridSearchRequest, GridSearchResponse } from '@/types/gridSearch'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const SIMULATE_TIMEOUT_MS = 90_000
+const GRID_SEARCH_TIMEOUT_MS = 600_000
 
 function mergeSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined {
   if (!a && !b) return undefined
@@ -44,9 +46,13 @@ async function api<T>(path: string, init?: RequestInit & { timeoutMs?: number })
 }
 
 export function getHealth() {
-  return api<{ ok: boolean; lookback_days: number; bars_cache?: unknown }>('/api/health', {
-    timeoutMs: 5_000,
-  })
+  return api<{
+    ok: boolean
+    lookback_days: number
+    bars_cache?: unknown
+    features?: { llm?: boolean }
+    api_build?: number
+  }>('/api/health', { timeoutMs: 5_000 })
 }
 
 export function getPresets() {
@@ -81,6 +87,30 @@ export function sweep(body: Record<string, unknown>) {
   })
 }
 
+export function gridSearch(body: GridSearchRequest) {
+  return api<GridSearchResponse>('/api/grid-search', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    timeoutMs: GRID_SEARCH_TIMEOUT_MS,
+  })
+}
+
+export type LlmMarketSeriesResponse = {
+  path: string
+  bar_count_total: number
+  bar_count_returned: number
+  truncated: boolean
+  bars: SimPack['zscore']
+}
+
+export function fetchLlmMarketSeries(csvPath: string, maxBars = 16_000) {
+  const q = new URLSearchParams({
+    path: csvPath,
+    max_bars: String(maxBars),
+  })
+  return api<LlmMarketSeriesResponse>(`/api/llm/market-series?${q}`, { timeoutMs: 60_000 })
+}
+
 export function fmtRub(v: number) {
   return `${Math.round(v).toLocaleString('ru-RU')} ₽`
 }
@@ -88,4 +118,41 @@ export function fmtRub(v: number) {
 export function fmtPf(v: number | null) {
   return v == null ? '∞' : v.toFixed(2)
 }
-
+
+export type MarketLiveResponse = {
+  ok: boolean
+  refreshed?: boolean
+  tick_at?: string
+  zscore: { time: number; z_score: number; spread_percent: number }[]
+  latest_quote?: Record<string, unknown>
+  data_meta?: Record<string, unknown>
+  last_ts?: string
+}
+
+export function refreshMoexTail(path: string) {
+  return api<Record<string, unknown>>('/api/data/refresh-tail', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+    timeoutMs: 60_000,
+  })
+}
+
+export function fetchMarketLive(path: string, zMode: 'rolling30' | 'global' = 'rolling30') {
+  const q = new URLSearchParams({ path, z_mode: zMode })
+  return api<MarketLiveResponse>(`/api/market/live?${q}`, { timeoutMs: 45_000 })
+}
+
+export function fetchBasisScan(params: {
+  fin_rate: number
+  min_yield_ann: number
+  z_entry: number
+  history_days?: number
+}) {
+  const q = new URLSearchParams({
+    fin_rate: String(params.fin_rate),
+    min_yield_ann: String(params.min_yield_ann),
+    z_entry: String(params.z_entry),
+    history_days: String(params.history_days ?? 90),
+  })
+  return api<BasisScanResponse>(`/api/basis/scan?${q}`, { timeoutMs: 120_000 })
+}

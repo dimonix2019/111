@@ -9,7 +9,7 @@ import {
   tradeGrossPnlRub,
 } from '@/lib/spreadLegs'
 
-type Variant = 'compact' | 'detailed' | 'inline'
+type Variant = 'compact' | 'detailed' | 'inline' | 'tooltip'
 
 type Props = {
   trade: Trade
@@ -17,6 +17,8 @@ type Props = {
   /** вход / выход — для тултипа графика */
   event?: string
   className?: string
+  /** Крупнее на ~30% (полноэкранный график). */
+  tooltipLarge?: boolean
 }
 
 function fmtPrice(v: number | undefined): string {
@@ -43,7 +45,13 @@ export function TradeArbitrageBadge({ tradeNo }: { tradeNo: number }) {
   )
 }
 
-export function TradeLegsBlock({ trade, variant = 'detailed', event, className = '' }: Props) {
+export function TradeLegsBlock({
+  trade,
+  variant = 'detailed',
+  event,
+  className = '',
+  tooltipLarge = false,
+}: Props) {
   const legs = allocateLegPnls(trade)
   const showPrices = hasLegPrices(trade)
   const isEntry = event === 'вход'
@@ -80,6 +88,31 @@ export function TradeLegsBlock({ trade, variant = 'detailed', event, className =
           ))}
         </div>
       </div>
+    )
+  }
+
+  if (variant === 'tooltip') {
+    const legText = tooltipLarge ? 'text-[12px]' : 'text-[9px]'
+    const tickerW = tooltipLarge ? 'min-w-[3.25rem]' : 'min-w-[2.5rem]'
+    return (
+      <ul className={`space-y-0.5 tabular-nums ${className}`}>
+        {legs.map((leg) => (
+          <li key={leg.ticker} className={`flex items-baseline gap-1.5 leading-snug ${legText}`}>
+            <span className={`${tickerW} font-semibold text-ink-1`}>{leg.ticker}</span>
+            <span className={`font-medium ${leg.side === 'buy' ? 'text-good' : 'text-bad'}`}>{leg.sideRu}</span>
+            {showPrices ? (
+              <span className="text-ink-2">
+                {isEntry
+                  ? `@ ${fmtPrice(leg.entry_price)}`
+                  : isExit
+                    ? `@ ${fmtPrice(leg.exit_price)}`
+                    : `${fmtPrice(leg.entry_price)}→${fmtPrice(leg.exit_price)}`}
+                {leg.qty != null ? <span className="text-ink-3"> · {fmtQty(leg.qty)} шт</span> : null}
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
     )
   }
 

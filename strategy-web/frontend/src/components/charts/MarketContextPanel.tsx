@@ -40,21 +40,34 @@ export function DistributionChart({ metric }: { metric: DistributionMetric }) {
   )
 }
 
-export function MarketContextPanel({ ctx }: { ctx: MarketContext }) {
+export function MarketContextPanel({
+  ctx,
+  metricIds,
+  showBanner = true,
+}: {
+  ctx: MarketContext
+  metricIds?: string[]
+  showBanner?: boolean
+  refreshKey?: number | null
+}) {
+  const metrics = metricIds?.length ? ctx.metrics.filter((m) => metricIds.includes(m.id)) : ctx.metrics
+
   return (
     <div className="space-y-3">
-      <div className="rounded-xl border border-panel-border-soft bg-[rgba(8,16,28,0.4)] px-4 py-3">
-        <div className="text-[11px] font-semibold tracking-[0.18em] text-ink-3">РЫНОК СЕЙЧАС</div>
-        <div className="mt-1 text-[13px] font-medium text-ink-1">
-          На {ctx.as_of_display}
-          {ctx.in_position ? ' · есть открытая позиция' : ' · flat'}
+      {showBanner ? (
+        <div className="rounded-xl border border-panel-border-soft bg-[rgba(8,16,28,0.4)] px-4 py-3">
+          <div className="text-[11px] font-semibold tracking-[0.18em] text-ink-3">РЫНОК СЕЙЧАС</div>
+          <div className="mt-1 text-[13px] font-medium text-ink-1">
+            На {ctx.as_of_display}
+            {ctx.in_position ? ' · есть открытая позиция' : ' · flat'}
+          </div>
+          <p className="mt-1 text-[11px] text-ink-3">
+            Оранжевым — текущее значение (Z, spread, пауза) или медиана удержания при flat
+          </p>
         </div>
-        <p className="mt-1 text-[11px] text-ink-3">
-          Оранжевым — текущее значение (Z, spread, пауза) или медиана удержания при flat
-        </p>
-      </div>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
-        {ctx.metrics.map((m) => (
+        {metrics.map((m) => (
           <DistributionChart key={m.id} metric={m} />
         ))}
       </div>

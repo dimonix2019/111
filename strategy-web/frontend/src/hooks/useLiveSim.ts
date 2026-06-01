@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SimParams, SimResponse } from '@/types'
-import { simulate } from '@/lib/api'
+import { refreshMoexTail, simulate } from '@/lib/api'
+import { loadCachedSimResult, saveCachedSimResult, simResultCacheKey } from '@/lib/simResultCache'
 
 const DEBOUNCE_MS = 400
 const CSV_DEBOUNCE_MS = 700
@@ -17,10 +18,26 @@ function paramsKey(compare: boolean, params: SimParams) {
   return JSON.stringify({ compare, ...params })
 }
 
+function parseHqLastTsSec(lastTs: string | undefined): number | null {
+  if (!lastTs?.trim()) return null
+  const t = new Date(lastTs.trim().replace(' ', 'T')).getTime()
+  return Number.isFinite(t) ? Math.floor(t / 1000) : null
+}
+
+/** Кэшированный zscore короче CSV/MOEX — нужен пересчёт с хвостом. */
+export function simZscoreBehindHq(result: SimResponse): boolean {
+  const z = result.packs[0]?.zscore
+  const hqSec = parseHqLastTsSec(result.hq?.last_ts)
+  if (!z?.length || hqSec == null) return false
+  const lastZ = z[z.length - 1]!.time
+  return lastZ < hqSec - 900
+}
+
 export function useLiveSim({ csvPath, compare, params, enabled, onResult }: Args) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastMs, setLastMs] = useState<number | null>(null)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null)
   const [pending, setPending] = useState(false)
   const [appliedKey, setAppliedKey] = useState('')
 
@@ -31,13 +48,13 @@ export function useLiveSim({ csvPath, compare, params, enabled, onResult }: Args
   const onResultRef = useRef(onResult)
   const prevCsvRef = useRef(csvPath)
   const firstRunRef = useRef(true)
-  const moexInFlightRef = useRef(false)
 
   const ctxRef = useRef({ csvPath, compare, params })
   ctxRef.current = { csvPath, compare, params }
 
   onResultRef.current = onResult
   const pKey = useMemo(() => paramsKey(compare, params), [compare, params])
+  const cacheKey = useMemo(() => simResultCacheKey(csvPath, compare, params), [csvPath, compare, params])
 
   const clearTimer = useCallback(() => {
     if (timerRef.current != null) {
@@ -47,7 +64,7 @@ export function useLiveSim({ csvPath, compare, params, enabled, onResult }: Args
   }, [])
 
   const runRequest = useCallback(
-    (forceDownload: boolean) => {
+    (forceDownload: boolean, refreshTail = false) => {
       clearTimer()
       abortRef.current?.abort()
 
@@ -62,15 +79,24 @@ export function useLiveSim({ csvPath, compare, params, enabled, onResult }: Args
       setPending(false)
 
       const t0 = performance.now()
-      void simulate(
-        {
-          ...p,
-          csv_path: path,
-          auto_download: forceDownload || !hasDataRef.current,
-          compare_mode: cmp,
-        },
-        ac.signal,
-      )
+      const run = async () => {
+        if (refreshTail && !forceDownload && hasDataRef.current) {
+          await refreshMoexTail(path).catch(() => undefined)
+        }
+        return simulate(
+          {
+            ...p,
+            csv_path: path,
+            auto_download: forceDownload || !hasDataRef.current,
+            compare_mode: cmp,
+            oos_enabled: p.oos_enabled,
+            oos_train_ratio: p.oos_train_ratio,
+          },
+          ac.signal,
+        )
+      }
+
+      void run()
         .then((res) => {
           if (reqId !== reqIdRef.current) return
           const latestKey = paramsKey(ctxRef.current.compare, ctxRef.current.params)
@@ -78,6 +104,8 @@ export function useLiveSim({ csvPath, compare, params, enabled, onResult }: Args
           hasDataRef.current = true
           setAppliedKey(requestKey)
           setLastMs(Math.round(performance.now() - t0))
+          setLastUpdatedAt(Date.now())
+          void saveCachedSimResult(simResultCacheKey(path, cmp, p), res)
           onResultRef.current(res)
         })
         .catch((e) => {
@@ -99,12 +127,12 @@ export function useLiveSim({ csvPath, compare, params, enabled, onResult }: Args
   )
 
   const scheduleRun = useCallback(
-    (delayMs: number, forceDownload = false) => {
+    (delayMs: number, forceDownload = false, refreshTail = false) => {
       clearTimer()
       setPending(true)
       timerRef.current = window.setTimeout(() => {
         timerRef.current = null
-        runRequest(forceDownload)
+        runRequest(forceDownload, refreshTail)
       }, delayMs)
     },
     [clearTimer, runRequest],
@@ -121,14 +149,29 @@ export function useLiveSim({ csvPath, compare, params, enabled, onResult }: Args
     prevCsvRef.current = csvPath
     if (csvChanged) hasDataRef.current = false
 
-    const delay = firstRunRef.current ? 0 : csvChanged ? CSV_DEBOUNCE_MS : DEBOUNCE_MS
+    const firstRun = firstRunRef.current
     firstRunRef.current = false
-    scheduleRun(delay)
+    let cancelled = false
+
+    void loadCachedSimResult(cacheKey).then((cached) => {
+      if (cancelled) return
+      let refreshTail = false
+      if (cached) {
+        hasDataRef.current = true
+        setAppliedKey(pKey)
+        setLastUpdatedAt(cached.savedAt)
+        onResultRef.current(cached.result)
+        refreshTail = simZscoreBehindHq(cached.result)
+      }
+      const delay = firstRun ? 0 : csvChanged ? CSV_DEBOUNCE_MS : DEBOUNCE_MS
+      scheduleRun(delay, false, refreshTail || !!cached)
+    })
 
     return () => {
+      cancelled = true
       clearTimer()
     }
-  }, [enabled, csvPath, pKey, scheduleRun, clearTimer])
+  }, [enabled, csvPath, pKey, cacheKey, scheduleRun, clearTimer])
 
   useEffect(
     () => () => {
@@ -139,12 +182,11 @@ export function useLiveSim({ csvPath, compare, params, enabled, onResult }: Args
   )
 
   const runNow = useCallback(() => {
-    hasDataRef.current = false
-    runRequest(true)
+    runRequest(false)
   }, [runRequest])
 
   const stale = enabled && !loading && !pending && appliedKey !== '' && appliedKey !== pKey
 
-  return { loading, error, lastMs, pending, stale, runNow }
+  return { loading, error, lastMs, lastUpdatedAt, pending, stale, runNow }
 }
-
+

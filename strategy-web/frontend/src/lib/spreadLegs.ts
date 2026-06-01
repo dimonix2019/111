@@ -32,13 +32,17 @@ export function resolveTradeLegs(trade: Trade): TradeOrderLeg[] {
   if (trade.legs?.length === 2) {
     return trade.legs.map((leg) => ({
       ...leg,
-      sideRu: SIDE_RU[leg.side] ?? leg.side,
+      sideRu: SIDE_RU[leg.side as SpreadLegSide] ?? leg.side,
     }))
   }
   return spreadLegs(trade.direction).map((leg) => ({
     ticker: leg.ticker,
     side: leg.side,
     sideRu: leg.sideRu,
+    entry_price: 0,
+    exit_price: 0,
+    qty: 0,
+    pnl_rub: 0,
   }))
 }
 
@@ -107,6 +111,9 @@ export function legsCompactLabel(trade: Trade): string {
     })
     .join(' · ')
 }
+
+/** Alias for chart markers (same as legsCompactLabel). */
+export const legsArrowsLabel = legsCompactLabel
 
 export function spreadDirectionLabel(direction: string): string {
   if (direction === 'LONG') return 'LONG спред'

@@ -10,15 +10,19 @@ type Props = {
   chartHeight?: number
   /** Горизонтальная прокрутка для длинных рядов (время суток) */
   scrollable?: boolean
+  /** Для подписи «N (X%)» на столбцах */
+  totalCount?: number
 }
 
-export function HistogramBars({ bars, chartHeight = 112, scrollable = false }: Props) {
+export function HistogramBars({ bars, chartHeight = 120, scrollable = false, totalCount }: Props) {
   const maxCount = Math.max(1, ...bars.map((b) => b.count))
+  const total = totalCount && totalCount > 0 ? totalCount : bars.reduce((s, b) => s + b.count, 0)
 
   const content = (
-    <div className={`flex gap-px border-b border-panel-border-soft pb-1 ${scrollable ? 'min-w-max' : ''}`}>
+    <div className={`flex gap-1 border-b border-panel-border-soft pb-1.5 ${scrollable ? 'min-w-max' : ''}`}>
       {bars.map(({ bucket, count, highlight, tone = 'neutral' }) => {
-        const barPx = count > 0 ? Math.max(3, Math.round((count / maxCount) * chartHeight)) : 2
+        const barPx = count > 0 ? Math.max(4, Math.round((count / maxCount) * chartHeight)) : 2
+        const pct = total > 0 && count > 0 ? Math.round((100 * count) / total) : 0
         const bg =
           highlight
             ? 'linear-gradient(180deg, rgba(212,184,106,0.9), rgba(209,122,136,0.8))'
@@ -32,17 +36,20 @@ export function HistogramBars({ bars, chartHeight = 112, scrollable = false }: P
         return (
           <div
             key={bucket}
-            className={`flex shrink-0 flex-col items-center gap-0.5 ${scrollable ? 'w-10' : 'min-w-0 flex-1'}`}
-            title={`${bucket}: ${count}`}
+            className={`flex shrink-0 flex-col items-center gap-1 ${scrollable ? 'w-14' : 'min-w-0 flex-1 px-0.5'}`}
+            title={`${bucket}: ${count}${pct ? ` (${pct}%)` : ''}`}
           >
             {count > 0 ? (
-              <span className="text-[8px] font-semibold leading-none text-ink-3">{count}</span>
+              <span className={`font-semibold leading-tight tabular-nums ${scrollable ? 'text-[10px]' : 'text-[12px]'} text-ink-2`}>
+                {count}
+                {pct > 0 ? <span className={`font-normal text-ink-3 ${scrollable ? 'text-[9px]' : 'text-[11px]'}`}> · {pct}%</span> : null}
+              </span>
             ) : (
-              <span className="text-[8px] leading-none text-transparent">0</span>
+              <span className="text-[11px] leading-none text-transparent">0</span>
             )}
             <div className="flex w-full items-end justify-center" style={{ height: chartHeight }}>
               <div
-                className={`rounded-t-sm ${scrollable ? 'w-5' : 'w-full max-w-[44px]'}`}
+                className={`rounded-t-sm ${scrollable ? 'w-6' : 'w-full max-w-[52px]'}`}
                 style={{
                   height: barPx,
                   background: bg,
@@ -51,16 +58,18 @@ export function HistogramBars({ bars, chartHeight = 112, scrollable = false }: P
               />
             </div>
             <span
-              className={`max-w-full truncate text-center text-[7px] font-medium leading-tight ${
-                highlight ? 'text-warn' : tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-bad' : 'text-ink-3'
-              } ${scrollable && !bucket.endsWith(':00') && !bucket.endsWith(':30') ? 'opacity-40' : ''}`}
+              className={`max-w-full text-center font-medium leading-tight ${
+                scrollable ? 'text-[10px]' : 'text-[12px]'
+              } ${highlight ? 'text-warn' : tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-bad' : 'text-ink-2'} ${
+                scrollable && !bucket.endsWith(':00') && !bucket.endsWith(':30') ? 'opacity-50' : ''
+              }`}
             >
               {scrollable ? bucket.replace(':00', '') : bucket}
             </span>
           </div>
         )
       })}
-    </motion div>
+    </div>
   )
 
   if (scrollable) {

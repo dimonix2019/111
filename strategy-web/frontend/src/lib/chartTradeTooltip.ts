@@ -1,5 +1,6 @@
 import type { IChartApi, ISeriesApi, MouseEventParams, Time } from 'lightweight-charts'
 import type { Trade, TradeMarker } from '@/types'
+import { lookupDrawdownAtTime, type EquityPoint } from '@/lib/drawdownOverlay'
 
 /** 15m bar length (seconds). */
 export const BAR_15M_SEC = 15 * 60
@@ -8,10 +9,13 @@ export const BAR_15M_SEC = 15 * 60
 export const MARKER_NEAR_SEC = BAR_15M_SEC / 2
 
 /** Euclidean hit radius around marker screen position. */
-export const MARKER_HIT_RADIUS_PX = 38
+export const MARKER_HIT_RADIUS_PX = 48
 
 /** X-only slack when Y is off (стрелки входа выше/ниже бара). */
-export const MARKER_HIT_RADIUS_X_PX = 32
+export const MARKER_HIT_RADIUS_X_PX = 44
+
+/** Доп. slack по X для маркеров входа (belowBar / aboveBar). */
+export const MARKER_ENTRY_HIT_RADIUS_X_PX = 56
 
 export type ChartTradeTooltipView = {
   trade: Trade
@@ -20,7 +24,25 @@ export type ChartTradeTooltipView = {
   left: number
   top: number
   accumulatedPnlRub: number
+  /** Просадка ₽ на момент маркера (≤ 0). */
+  drawdownRub: number
 }
+
+export type ChartTradeTooltipPersist = {
+  /** `${trade_no}:${event}:${time}` — переживает переподключение tooltip. */
+  pinnedKey: string | null
+}
+
+export function markerPersistKey(marker: TradeMarker): string {
+  return `${marker.trade_no}:${marker.event}:${marker.time}`
+}
+
+function findMarkerByKey(markers: TradeMarker[], key: string): TradeMarker | null {
+  return markers.find((m) => markerPersistKey(m) === key) ?? null
+}
+
+/** Задержка перед скрытием hover-карточки (resize/setData дают кратковременный «пустой» crosshair). */
+const HOVER_CLEAR_MS = 160
 
 export type MarkerHitOptions = {
   maxDeltaSec?: number
@@ -97,9 +119,20 @@ export function markerScreenPosition(
   if (x == null) return null
   const trade = tradeByNo.get(marker.trade_no)
   const price = markerChartPrice(marker, trade)
-  const y = series.priceToCoordinate(price)
+  let y = series.priceToCoordinate(price)
   if (y == null) return null
-  return { x, y }
+  // Стрелки входа рисуются belowBar/aboveBar — смещаем hit-point к иконке.
+  const yOffset = marker.event === 'вход' ? (marker.direction === 'LONG' ? 18 : -18) : 0
+  return { x, y: y + yOffset }
+}
+
+/** Локальные координаты lightweight-charts → viewport (для position: fixed). */
+export function chartLocalToViewport(
+  chart: IChartApi,
+  local: { x: number; y: number },
+): { left: number; top: number } {
+  const rect = chart.chartElement().getBoundingClientRect()
+  return { left: rect.left + local.x, top: rect.top + local.y }
 }
 
 type MarkerCandidate = { marker: TradeMarker; score: number }
@@ -121,7 +154,6 @@ export function findNearestMarkerAtPoint(
 
   const maxDeltaSec = options.maxDeltaSec ?? MARKER_NEAR_SEC
   const hitRadiusPx = options.hitRadiusPx ?? MARKER_HIT_RADIUS_PX
-  const hitRadiusXPx = options.hitRadiusXPx ?? MARKER_HIT_RADIUS_X_PX
   const preferPixelHit = options.preferPixelHit ?? false
 
   let bestPixel: MarkerCandidate | null = null
@@ -133,6 +165,10 @@ export function findNearestMarkerAtPoint(
     if (x == null) continue
 
     const dx = Math.abs(point.x - x)
+    const hitRadiusXPx =
+      m.event === 'вход'
+        ? (options.hitRadiusXPx ?? MARKER_ENTRY_HIT_RADIUS_X_PX)
+        : (options.hitRadiusXPx ?? MARKER_HIT_RADIUS_X_PX)
     let pixelHit = false
     let pixelScore = Number.POSITIVE_INFINITY
 
@@ -183,6 +219,71 @@ function crosshairTimeSec(
   return null
 }
 
+function buildTooltipViewFromMarker(
+  chart: IChartApi,
+  series: ISeriesApi<'Line'> | ISeriesApi<'Candlestick'>,
+  marker: TradeMarker,
+  trade: Trade,
+  tradeByNo: Map<number, Trade>,
+  accumulatedByNo: Map<number, number>,
+  getEquity?: () => EquityPoint[] | undefined,
+  fallbackLocal?: { x: number; y: number },
+): ChartTradeTooltipView {
+  const pos = markerScreenPosition(chart, series, marker, tradeByNo)
+  const local = pos ?? fallbackLocal ?? { x: 0, y: 0 }
+  const viewport = chartLocalToViewport(chart, local)
+  const isEntry = marker.event === 'вход'
+  const eq = getEquity?.()
+  return {
+    trade,
+    marker,
+    left: viewport.left,
+    top: viewport.top,
+    accumulatedPnlRub: accumulatedPnlForMarker(accumulatedByNo, marker.trade_no, isEntry),
+    drawdownRub: eq?.length ? lookupDrawdownAtTime(eq, marker.time) : 0,
+  }
+}
+
+function buildTooltipView(
+  chart: IChartApi,
+  series: ISeriesApi<'Line'> | ISeriesApi<'Candlestick'>,
+  marker: TradeMarker,
+  trade: Trade,
+  param: MouseEventParams,
+  tradeByNo: Map<number, Trade>,
+  accumulatedByNo: Map<number, number>,
+  getEquity?: () => EquityPoint[] | undefined,
+): ChartTradeTooltipView {
+  const fallback =
+    param.point && param.point.x >= 0 && param.point.y >= 0
+      ? { x: param.point.x, y: param.point.y }
+      : undefined
+  return buildTooltipViewFromMarker(
+    chart,
+    series,
+    marker,
+    trade,
+    tradeByNo,
+    accumulatedByNo,
+    getEquity,
+    fallback,
+  )
+}
+
+function resolveMarkerAtCrosshair(
+  chart: IChartApi,
+  series: ISeriesApi<'Line'> | ISeriesApi<'Candlestick'>,
+  markers: TradeMarker[],
+  param: MouseEventParams,
+  tradeByNo: Map<number, Trade>,
+  options: MarkerHitOptions,
+  preferXTime: boolean,
+): TradeMarker | null {
+  if (!param.point || param.point.x < 0 || param.point.y < 0) return null
+  const timeSec = crosshairTimeSec(param, chart, preferXTime)
+  return findNearestMarkerAtPoint(chart, series, markers, param.point, timeSec, tradeByNo, options)
+}
+
 export function attachChartTradeTooltip(
   chart: IChartApi,
   series: ISeriesApi<'Line'> | ISeriesApi<'Candlestick'>,
@@ -190,55 +291,176 @@ export function attachChartTradeTooltip(
   trades: Trade[] | undefined,
   onChange: (view: ChartTradeTooltipView | null) => void,
   options: MarkerHitOptions = {},
+  getEquity?: () => EquityPoint[] | undefined,
+  persistRef?: { current: ChartTradeTooltipPersist },
 ): () => void {
   const tradeByNo = trades?.length ? buildTradeByNo(trades) : new Map<number, Trade>()
   const accumulatedByNo = trades?.length ? buildAccumulatedPnlByTradeNo(trades) : new Map<number, number>()
   if (!markers?.length || tradeByNo.size === 0) {
-    onChange(null)
-    return () => onChange(null)
+    if (!persistRef?.current.pinnedKey) onChange(null)
+    return () => {
+      if (!persistRef?.current.pinnedKey) onChange(null)
+    }
   }
 
+  const markerList = markers!
   const preferXTime = options.preferPixelHit === true
+  let hoverMarker: TradeMarker | null = null
+  let lastViewport: { left: number; top: number } | null = null
+  let clearTimer: ReturnType<typeof setTimeout> | null = null
 
-  const handler = (param: MouseEventParams) => {
-    if (!param.point || param.point.x < 0 || param.point.y < 0) {
-      onChange(null)
-      return
+  const rememberViewport = (view: ChartTradeTooltipView) => {
+    lastViewport = { left: view.left, top: view.top }
+    onChange(view)
+  }
+
+  const isPinned = () => !!persistRef?.current.pinnedKey
+
+  const clearHover = () => {
+    hoverMarker = null
+    if (!isPinned()) onChange(null)
+  }
+
+  const cancelClearHover = () => {
+    if (clearTimer != null) {
+      clearTimeout(clearTimer)
+      clearTimer = null
     }
+  }
 
-    const timeSec = crosshairTimeSec(param, chart, preferXTime)
-    const marker = findNearestMarkerAtPoint(
+  const scheduleClearHover = () => {
+    if (isPinned()) return
+    cancelClearHover()
+    clearTimer = setTimeout(clearHover, HOVER_CLEAR_MS)
+  }
+
+  const viewForMarker = (marker: TradeMarker, fallbackLocal?: { x: number; y: number }) => {
+    const trade = tradeByNo.get(marker.trade_no)
+    if (!trade) return null
+    const view = buildTooltipViewFromMarker(
       chart,
       series,
-      markers,
-      param.point,
-      timeSec,
-      tradeByNo,
-      options,
-    )
-    if (!marker) {
-      onChange(null)
-      return
-    }
-
-    const trade = tradeByNo.get(marker.trade_no)
-    if (!trade) {
-      onChange(null)
-      return
-    }
-
-    const pos = markerScreenPosition(chart, series, marker, tradeByNo)
-    onChange({
-      trade,
       marker,
-      left: pos?.x ?? param.point.x,
-      top: pos?.y ?? param.point.y,
-    })
+      trade,
+      tradeByNo,
+      accumulatedByNo,
+      getEquity,
+      fallbackLocal,
+    )
+    if (!markerScreenPosition(chart, series, marker, tradeByNo) && lastViewport) {
+      return { ...view, left: lastViewport.left, top: lastViewport.top }
+    }
+    return view
   }
 
-  chart.subscribeCrosshairMove(handler)
+  const refreshActiveTooltip = () => {
+    const pinnedKey = persistRef?.current.pinnedKey
+    if (pinnedKey) {
+      const marker = findMarkerByKey(markerList, pinnedKey)
+      if (!marker) {
+        persistRef!.current.pinnedKey = null
+        clearHover()
+        return
+      }
+      const view = viewForMarker(marker)
+      if (view) rememberViewport(view)
+      return
+    }
+    if (hoverMarker) {
+      const view = viewForMarker(hoverMarker)
+      if (view) rememberViewport(view)
+    }
+  }
+
+  const restorePinnedOnAttach = () => {
+    const pinnedKey = persistRef?.current.pinnedKey
+    if (!pinnedKey) return
+    const marker = findMarkerByKey(markerList, pinnedKey)
+    if (!marker) {
+      persistRef!.current.pinnedKey = null
+      return
+    }
+    const view = viewForMarker(marker)
+    if (view) rememberViewport(view)
+  }
+
+  restorePinnedOnAttach()
+
+  const showHoverAt = (param: MouseEventParams) => {
+    if (isPinned()) return
+    if (!param.point || param.point.x < 0 || param.point.y < 0) {
+      scheduleClearHover()
+      return
+    }
+    cancelClearHover()
+    const marker = resolveMarkerAtCrosshair(chart, series, markerList, param, tradeByNo, options, preferXTime)
+    if (!marker) {
+      scheduleClearHover()
+      return
+    }
+    const trade = tradeByNo.get(marker.trade_no)
+    if (!trade) {
+      scheduleClearHover()
+      return
+    }
+    hoverMarker = marker
+    rememberViewport(
+      buildTooltipView(chart, series, marker, trade, param, tradeByNo, accumulatedByNo, getEquity),
+    )
+  }
+
+  const onCrosshairMove = (param: MouseEventParams) => {
+    if (isPinned()) {
+      refreshActiveTooltip()
+      return
+    }
+    showHoverAt(param)
+  }
+
+  const onClick = (param: MouseEventParams) => {
+    cancelClearHover()
+    if (!param.point || param.point.x < 0 || param.point.y < 0) {
+      if (persistRef) persistRef.current.pinnedKey = null
+      clearHover()
+      return
+    }
+    const marker = resolveMarkerAtCrosshair(chart, series, markerList, param, tradeByNo, options, preferXTime)
+    if (!marker) {
+      if (persistRef) persistRef.current.pinnedKey = null
+      clearHover()
+      return
+    }
+    const trade = tradeByNo.get(marker.trade_no)
+    if (!trade) {
+      if (persistRef) persistRef.current.pinnedKey = null
+      clearHover()
+      return
+    }
+    hoverMarker = marker
+    if (persistRef) persistRef.current.pinnedKey = markerPersistKey(marker)
+    rememberViewport(
+      buildTooltipView(chart, series, marker, trade, param, tradeByNo, accumulatedByNo, getEquity),
+    )
+  }
+
+  const onLayoutChange = () => {
+    refreshActiveTooltip()
+  }
+
+  const chartEl = chart.chartElement()
+  const ro = new ResizeObserver(() => refreshActiveTooltip())
+  ro.observe(chartEl)
+
+  chart.timeScale().subscribeVisibleLogicalRangeChange(onLayoutChange)
+  chart.subscribeCrosshairMove(onCrosshairMove)
+  chart.subscribeClick(onClick)
+
   return () => {
-    chart.unsubscribeCrosshairMove(handler)
-    onChange(null)
+    cancelClearHover()
+    ro.disconnect()
+    chart.timeScale().unsubscribeVisibleLogicalRangeChange(onLayoutChange)
+    chart.unsubscribeCrosshairMove(onCrosshairMove)
+    chart.unsubscribeClick(onClick)
+    if (!persistRef?.current.pinnedKey) onChange(null)
   }
 }

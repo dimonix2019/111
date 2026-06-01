@@ -4,7 +4,7 @@ import { fmtPf, fmtRub } from '@/lib/api'
 
 type MetricTone = 'neutral' | 'profit' | 'cost' | 'activity'
 
-function MetricCard({
+export function MetricCard({
   label,
   value,
   tone = 'neutral',
@@ -36,7 +36,7 @@ function MetricCard({
   )
 }
 
-function MetricSection({
+export function MetricSection({
   title,
   subtitle,
   children,
@@ -83,6 +83,7 @@ export function MetricsOverview({ stats, unrealizedRub }: { stats: Stats; unreal
                 : 'cost'
           }
         />
+        <MetricCard label="Ср. PnL" value={fmtRub(stats.avg_pnl_rub)} tone={pnlTone(stats.avg_pnl_rub)} />
         <MetricCard label="Long" value={fmtRub(stats.long_pnl_rub)} tone="profit" />
         <MetricCard label="Short" value={fmtRub(stats.short_pnl_rub)} tone="profit" />
         <MetricCard

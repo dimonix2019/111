@@ -1,35 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
-  ColorType,
   createChart,
   createSeriesMarkers,
   LineSeries,
   type IChartApi,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
-  type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
 
 import type { Trade, TradeMarker } from '@/types'
-import { buildTradeByNo } from '@/lib/chartTradeTooltip'
-import { legsCompactLabel } from '@/lib/spreadLegs'
-
+import { ChartPanel } from '@/components/charts/ChartPanel'
+import { ChartTradeTooltip } from '@/components/charts/ChartTradeTooltip'
 import { prepareLineData } from '@/lib/chartData'
 import { syncLineSeriesLive } from '@/lib/chartLiveUpdate'
+import { applyChartRightMargin, type ChartValueFormat } from '@/lib/format'
+import { attachChartTradeTooltip, type ChartTradeTooltipPersist, type ChartTradeTooltipView } from '@/lib/chartTradeTooltip'
 import {
-  applyChartRightMargin,
-  chartPriceFormat,
-  chartRightPriceScaleOptions,
-  chartTimeScaleOptions,
-  type ChartValueFormat,
-} from '@/lib/format'
-import { attachChartTradeTooltip, type ChartTradeTooltipView } from '@/lib/chartTradeTooltip'
-import { useChartKeyboard } from '@/hooks/useChartKeyboard'
-import { ChartTradeTooltip } from '@/components/charts/ChartTradeTooltip'
-
+  attachDrawdownLineSeries,
+  equitySeriesSignature,
+  setDrawdownSeriesData,
+  type DrawdownOverlayVariant,
+  type EquityPoint,
+} from '@/lib/drawdownOverlay'
+import {
+  tradingViewChartOptions,
+  tradingViewLineSeriesOptions,
+  tradingViewPriceLineOptions,
+  toTradeSeriesMarkers,
+} from '@/lib/chartTheme'
 export type HLine = { value: number; color: string; title: string }
 
 /** Стабильная ссылка: дефолт `hlines = []` в параметрах ломал useEffect на каждом рендере. */
@@ -43,41 +44,27 @@ type Props = {
   hlines?: HLine[]
   markers?: TradeMarker[]
   trades?: Trade[]
+  equity?: EquityPoint[]
+  /** Кривая drawdown внизу (только если явно true). */
+  showDrawdownOverlay?: boolean
+  /** combined — тонкая пунктирная линия на графике капитала. */
+  drawdownOverlayVariant?: DrawdownOverlayVariant
   valueFormat?: ChartValueFormat
   /** Обновление update() каждые 5 с без сброса zoom/pan. */
   liveMode?: boolean
 }
 
-function toMarkers(
-  markers: TradeMarker[] | undefined,
-  trades: Trade[] | undefined,
-): SeriesMarker<Time>[] {
-  if (!markers?.length) return []
-  const tradeByNo = trades?.length ? buildTradeByNo(trades) : new Map<number, Trade>()
-  return markers
-    .map((m) => {
-      const isEntry = m.event === 'вход'
-      const trade = tradeByNo.get(m.trade_no)
-      const legsHint = trade ? legsCompactLabel(trade) : ''
-      return {
-        time: m.time as UTCTimestamp,
-        position: isEntry ? (m.direction === 'LONG' ? 'belowBar' : 'aboveBar') : 'inBar',
-        color: m.marker_color || (isEntry ? '#27d17f' : '#f0b93a'),
-        shape: isEntry ? (m.direction === 'LONG' ? 'arrowUp' : 'arrowDown') : 'circle',
-        text: isEntry && legsHint ? `#${m.trade_no} ${legsHint}` : `#${m.trade_no}`,
-      } as SeriesMarker<Time>
-    })
-    .sort((a, b) => (a.time as number) - (b.time as number))
-}
-
 export function TimeSeriesChart({
   title,
   data,
-  color = '#27d17f',
+  color = '#2962FF',
   height = 280,
   hlines = EMPTY_HLINES,
   markers,
   trades,
+  equity,
+  showDrawdownOverlay = false,
+  drawdownOverlayVariant = 'market',
   valueFormat = 'rub',
   liveMode = false,
 }: Props) {
@@ -85,6 +72,7 @@ export function TimeSeriesChart({
   const keyboardRootRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const ddSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
   const fittedRef = useRef(false)
   const prevLenRef = useRef(0)
@@ -99,6 +87,7 @@ export function TimeSeriesChart({
     [],
   )
   const [tooltip, setTooltip] = useState<ChartTradeTooltipView | null>(null)
+  const tooltipPersistRef = useRef<ChartTradeTooltipPersist>({ pinnedKey: null })
   const lineData = useMemo(() => prepareLineData(data), [data])
   const hlinesKey = useMemo(() => JSON.stringify(hlines), [hlines])
   const seriesPoints = useMemo(
@@ -106,47 +95,38 @@ export function TimeSeriesChart({
     [lineData],
   )
   const markersKey = useMemo(() => JSON.stringify(markers ?? []), [markers])
-
-  useChartKeyboard(keyboardRootRef, chartRef, seriesPoints.length, userInteractedRef)
+  const equityRef = useRef(equity)
+  equityRef.current = equity
+  const equitySig = useMemo(() => equitySeriesSignature(equity), [equity])
+  const getEquity = useCallback(() => equityRef.current, [])
+  const wantDrawdownOverlay = showDrawdownOverlay === true && !!equity?.length
 
   useEffect(() => {
     const el = ref.current
-    if (!el) return
+    if (!el || !lineData.length) return
 
-    const priceFmt = chartPriceFormat(valueFormat)
     const chart = createChart(el, {
-      height,
-      layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: 'rgba(186, 196, 210, 0.75)',
-        fontFamily: 'Inter, system-ui, sans-serif',
-      },
-      grid: {
-        vertLines: { color: 'rgba(255,255,255,0.04)' },
-        horzLines: { color: 'rgba(255,255,255,0.04)' },
-      },
-      rightPriceScale: chartRightPriceScaleOptions(),
-      timeScale: { borderColor: 'rgba(255,255,255,0.06)', ...chartTimeScaleOptions() },
-      localization: priceFmt.localization,
+      width: Math.max(el.clientWidth, 100),
+      height: Math.max(el.clientHeight, height),
+      ...tradingViewChartOptions(valueFormat, showDrawdownOverlay),
     })
 
-    const series = chart.addSeries(LineSeries, {
-      color,
-      lineWidth: 1,
-      crosshairMarkerRadius: 4,
-      priceFormat: priceFmt.seriesPriceFormat,
-    })
+    const series = chart.addSeries(LineSeries, tradingViewLineSeriesOptions(color, valueFormat))
     for (const hl of hlines) {
-      series.createPriceLine({
-        price: hl.value,
-        color: hl.color,
-        lineWidth: 1,
-        lineStyle: 2,
-        title: hl.title,
-      })
+      series.createPriceLine(tradingViewPriceLineOptions(hl))
     }
+
+    let ddSeries: ISeriesApi<'Line'> | null = null
+    if (showDrawdownOverlay) {
+      ddSeries = attachDrawdownLineSeries(chart, drawdownOverlayVariant)
+      if (equityRef.current?.length) {
+        setDrawdownSeriesData(ddSeries, equityRef.current)
+      }
+    }
+
     chartRef.current = chart
     seriesRef.current = series
+    ddSeriesRef.current = ddSeries
     fittedRef.current = false
     prevLenRef.current = 0
     prevLastKeyRef.current = null
@@ -157,7 +137,12 @@ export function TimeSeriesChart({
     }
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRange)
 
-    const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }))
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth
+      const h = el.clientHeight
+      if (w > 0 && h > 0) chart.resize(w, h)
+      else if (w > 0) chart.applyOptions({ width: w })
+    })
     ro.observe(el)
 
     return () => {
@@ -168,8 +153,9 @@ export function TimeSeriesChart({
       chart.remove()
       chartRef.current = null
       seriesRef.current = null
+      ddSeriesRef.current = null
     }
-  }, [color, height, valueFormat, hlinesKey, layoutHeight])
+  }, [color, valueFormat, hlinesKey, lineData.length, showDrawdownOverlay, drawdownOverlayVariant])
 
   useEffect(() => {
     const series = seriesRef.current
@@ -185,6 +171,12 @@ export function TimeSeriesChart({
   }, [seriesPoints, liveMode, liveRefs, hlinesKey])
 
   useEffect(() => {
+    const dd = ddSeriesRef.current
+    if (!dd || !wantDrawdownOverlay) return
+    setDrawdownSeriesData(dd, equity)
+  }, [equitySig, equity, wantDrawdownOverlay])
+
+  useEffect(() => {
     const series = seriesRef.current
     if (!series) return
     const markerData = toTradeSeriesMarkers(markers, trades)
@@ -195,30 +187,39 @@ export function TimeSeriesChart({
   useEffect(() => {
     const chart = chartRef.current
     const series = seriesRef.current
-    const el = ref.current
-    if (!chart || !series || !el) return
-    const detach = attachChartTradeTooltip(chart, el, series, markers, trades, setTooltip, {
+    if (!chart || !series) return
+    const detach = attachChartTradeTooltip(chart, series, markers, trades, setTooltip, {
       preferPixelHit: true,
-    })
+    }, getEquity, tooltipPersistRef)
     return () => detach?.()
-  }, [markersKey, markers, trades, hlinesKey])
-
-  if (!lineData.length) {
-    return (
-      <div className="rounded-xl2 border border-panel-border-soft bg-[rgba(8,16,28,0.4)] p-3">
-        <div className="mb-2 text-[13px] font-semibold text-ink-2">{title}</div>
-        <p className="text-[12px] text-ink-3">Нет данных для графика</p>
-      </div>
-    )
-  }
+  }, [markersKey, trades, getEquity])
 
   return (
-    <div className="rounded-xl2 border border-panel-border-soft bg-[rgba(8,16,28,0.4)] p-3">
-      <div className="mb-2 text-[13px] font-semibold text-ink-2">{title}</div>
-      <div className="relative w-full">
-        <div ref={ref} className="w-full" />
-        <ChartTradeTooltip view={tooltip} />
-      </div>
-    </div>
+    <ChartPanel
+      title={title}
+      defaultHeight={height}
+      chartRef={chartRef}
+      keyboardRootRef={keyboardRootRef}
+      containerRef={ref}
+      empty={!lineData.length}
+      barCount={seriesPoints.length}
+      onUserInteract={() => {
+        userInteractedRef.current = true
+      }}
+    >
+      {({ fullscreen }) => (
+        <div
+          className="chart-canvas-host relative overflow-hidden px-1"
+          style={
+            fullscreen
+              ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }
+              : { height, minHeight: height }
+          }
+        >
+          <div ref={ref} className="chart-canvas-slot w-full" style={fullscreen ? { flex: 1, minHeight: 0 } : undefined} />
+          <ChartTradeTooltip view={tooltip} />
+        </div>
+      )}
+    </ChartPanel>
   )
 }

@@ -1,6 +1,5 @@
 import type { OosResult, OosVerdict } from '@/types'
 import { fmtPf, fmtRub } from '@/lib/api'
-import { resolveOosVerdict } from '@/lib/oosVerdict'
 import { Panel } from '@/components/ui/Panel'
 
 type Props = {
@@ -35,7 +34,7 @@ const GRADE_STYLES: Record<
 
 function SideMetrics({ title, stats }: { title: string; stats: OosResult['train'] }) {
   return (
-    <div className="surface-inner p-3">
+    <div className="rounded-xl border border-panel-border-soft bg-[rgba(8,16,28,0.5)] p-3">
       <h4 className="mb-2 text-[12px] font-semibold text-ink-2">{title}</h4>
       <dl className="space-y-1.5 text-[12px]">
         <div className="flex justify-between gap-2">
@@ -81,7 +80,7 @@ function OosVerdictBlock({ verdict }: { verdict: OosVerdict }) {
           <ul className="space-y-1 text-[11px] text-ink-3">
             {verdict.signals.map((s) => (
               <li key={s} className="flex gap-2">
-                <span>·</span>
+                <span className="text-ink-3">·</span>
                 <span>{s}</span>
               </li>
             ))}
@@ -117,12 +116,10 @@ export function OosPanel({ oos }: Props) {
 
   const trainPct = Math.round(oos.train_ratio * 100)
   const testPct = 100 - trainPct
-  const verdict = resolveOosVerdict(oos)
 
   return (
     <Panel title="OOS train / test">
-      <OosVerdictBlock verdict={verdict} />
-      <p className="mb-3 mt-4 text-[11px] text-ink-3">
+      <p className="mb-3 text-[11px] text-ink-3">
         Разделение {trainPct}/{testPct} · split на баре {oos.split_bar} · Train ratio = {oos.train_ratio}
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -143,6 +140,7 @@ export function OosPanel({ oos }: Props) {
           </span>
         </div>
       </div>
+      {oos.verdict ? <OosVerdictBlock verdict={oos.verdict} /> : null}
     </Panel>
   )
 }

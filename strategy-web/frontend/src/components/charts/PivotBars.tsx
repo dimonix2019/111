@@ -9,7 +9,7 @@ type Props = {
   scrollable?: boolean
 }
 
-export function PivotBars({ rows, measure, totalTrades, chartHeight = 96, scrollable = false }: Props) {
+export function PivotBars({ rows, measure, totalTrades, chartHeight = 120, scrollable = false }: Props) {
   const chartRows = scrollable ? rows.filter((r) => r.count > 0) : rows
   const active = chartRows.filter((r) => r.count > 0)
   const maxVal = Math.max(1, ...active.map((r) => Math.abs(r.value)))
@@ -23,10 +23,10 @@ export function PivotBars({ rows, measure, totalTrades, chartHeight = 96, scroll
   }
 
   const content = (
-    <div className={`flex gap-px border-b border-panel-border-soft pb-1 ${scrollable ? 'min-w-max' : ''}`}>
+    <div className={`flex gap-1 border-b border-panel-border-soft pb-1.5 ${scrollable ? 'min-w-max' : ''}`}>
       {chartRows.map((row) => {
         const { rowKey, count, value } = row
-        const barPx = count > 0 ? Math.max(3, Math.round((Math.abs(value) / maxVal) * chartHeight)) : 2
+        const barPx = count > 0 ? Math.max(4, Math.round((Math.abs(value) / maxVal) * chartHeight)) : 2
         const pctLabel = count > 0 ? formatPct(count, totalTrades) : null
         const valLabel = count > 0 ? formatPivotValue(measure, value) : ''
         const highlight = rowKey === peakKey && count > 0
@@ -43,36 +43,29 @@ export function PivotBars({ rows, measure, totalTrades, chartHeight = 96, scroll
                   ? 'linear-gradient(180deg, rgba(130,150,170,0.75), rgba(95,110,130,0.5))'
                   : 'linear-gradient(180deg, rgba(80,90,105,0.25), rgba(60,70,85,0.15))'
 
+        const labelTone = highlight ? 'text-warn' : pnlTone && value > 0 ? 'text-good' : pnlTone && value < 0 ? 'text-bad' : 'text-ink-2'
+
         return (
           <div
             key={rowKey}
-            className={`flex shrink-0 flex-col items-center gap-0.5 ${scrollable ? 'w-11' : 'min-w-0 flex-1'}`}
+            className={`flex shrink-0 flex-col items-center gap-1 ${scrollable ? 'w-14' : 'min-w-0 flex-1 px-0.5'}`}
             title={title}
           >
             {count > 0 ? (
-              scrollable ? (
-                <span className={`flex flex-col items-center leading-none ${highlight ? 'text-warn' : 'text-ink-3'}`}>
-                  <span className="max-w-full truncate text-[7px] font-semibold">{valLabel}</span>
-                  <span className="text-[7px]">
-                    {count} ({pctLabel})
-                  </span>
-                </span>
-              ) : (
-                <span
-                  className={`max-w-full truncate text-center text-[7px] font-semibold leading-none ${highlight ? 'text-warn' : 'text-ink-3'}`}
-                >
+              <div className={`flex w-full flex-col items-center gap-0.5 leading-tight ${labelTone}`}>
+                <span className={`text-center font-semibold tabular-nums ${scrollable ? 'text-[10px]' : 'text-[12px]'}`}>
                   {valLabel}
-                  <span className="block text-[6px] font-normal opacity-80">
-                    {count} ({pctLabel})
-                  </span>
                 </span>
-              )
+                <span className={`text-center tabular-nums text-ink-3 ${scrollable ? 'text-[9px]' : 'text-[11px]'}`}>
+                  {count} ({pctLabel})
+                </span>
+              </div>
             ) : (
-              <span className="text-[8px] leading-none text-transparent">0</span>
+              <span className="text-[11px] leading-none text-transparent">0</span>
             )}
             <div className="flex w-full items-end justify-center" style={{ height: chartHeight }}>
               <div
-                className={`rounded-t-sm ${scrollable ? 'w-5' : 'w-full max-w-[44px]'}`}
+                className={`rounded-t-sm ${scrollable ? 'w-6' : 'w-full max-w-[52px]'}`}
                 style={{
                   height: barPx,
                   background: bg,
@@ -81,9 +74,11 @@ export function PivotBars({ rows, measure, totalTrades, chartHeight = 96, scroll
               />
             </div>
             <span
-              className={`max-w-full truncate text-center text-[7px] font-medium leading-tight ${
-                highlight ? 'text-warn' : 'text-ink-3'
-              } ${scrollable && !rowKey.endsWith(':00') && !rowKey.endsWith(':30') ? 'opacity-40' : ''}`}
+              className={`max-w-full text-center font-medium leading-tight ${
+                scrollable ? 'text-[10px]' : 'text-[12px]'
+              } ${highlight ? 'text-warn' : 'text-ink-2'} ${
+                scrollable && !rowKey.endsWith(':00') && !rowKey.endsWith(':30') ? 'opacity-50' : ''
+              }`}
             >
               {scrollable ? rowKey.replace(':00', '') : rowKey}
             </span>

@@ -1,5 +1,7 @@
 import type { IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts'
 
+import { scrollChartToEndWithMargin } from '@/lib/format'
+
 /** Ключ последней точки — обновлять series.update только при изменении. */
 export function linePointKey(p: { time: UTCTimestamp; value: number }): string {
   return `${p.time}:${p.value}`
@@ -23,12 +25,12 @@ type LiveSyncRefs = {
   userInteracted: Ref<boolean>
 }
 
-function restoreVisibleRange(chart: IChartApi, refs: LiveSyncRefs): void {
+function restoreVisibleRange(chart: IChartApi, refs: LiveSyncRefs, barCount: number): void {
   const range = refs.userInteracted.current ? chart.timeScale().getVisibleLogicalRange() : null
   if (range) {
     chart.timeScale().setVisibleLogicalRange(range)
   } else {
-    chart.timeScale().scrollToRealTime()
+    scrollChartToEndWithMargin(chart.timeScale(), barCount)
   }
 }
 
@@ -57,7 +59,7 @@ export function syncLineSeriesLive(
 
   if (points.length !== refs.prevLen.current || lastKey !== refs.prevLastKey.current) {
     series.setData(points)
-    restoreVisibleRange(chart, refs)
+    restoreVisibleRange(chart, refs, points.length)
     refs.prevLen.current = points.length
     refs.prevLastKey.current = lastKey
   }
@@ -91,7 +93,7 @@ export function syncCandleSeriesLive(
 
   if (points.length !== refs.prevLen.current || lastKey !== refs.prevLastKey.current) {
     series.setData(points)
-    restoreVisibleRange(chart, refs)
+    restoreVisibleRange(chart, refs, points.length)
     refs.prevLen.current = points.length
     refs.prevLastKey.current = lastKey
   }

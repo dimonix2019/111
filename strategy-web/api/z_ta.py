@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import numpy as np
 
 BARS_PER_DAY = 26  # ~6.5 ч × 4 (15м) — оценка для MOEX
+
+# Публичные даты TATN/TATNP (дивиденды, СД) — окно CSV + ближайший контекст
+CORP_EVENTS: tuple[tuple[str, str, str], ...] = (
+    ("2025-08-18", "div_announce", "див. 6м2025 — рекомендация СД"),
+    ("2025-10-14", "div_registry", "див. 6м2025 — закрытие реестра / отсечка"),
+    ("2025-11-17", "div_announce", "див. 9м2025 — рекомендация СД"),
+    ("2026-01-11", "div_registry", "див. 9м2025 — закрытие реестра"),
+    ("2026-04-28", "div_announce", "див. 2025 финал — рекомендация СД"),
+    ("2026-06-25", "agm", "ГОСА (план)"),
+    ("2026-07-15", "div_registry", "див. 2025 финал — реестр (после конца CSV)"),
+)
 
 
 def _pct_le(arr: np.ndarray, x: float) -> float:
@@ -409,4 +422,168 @@ def idle_duration_forecast(
         "percentile_vs_history": None,
         "label": label,
         "display_short": f"~{med:.0f} дн.",
+    }
+
+
+def _parse_day(ts: str | None) -> date | None:
+    if not ts:
+        return None
+    try:
+        return date.fromisoformat(str(ts)[:10])
+    except ValueError:
+        return None
+
+
+def _days_in_range(a: date, b: date) -> list[date]:
+    out: list[date] = []
+    cur = a
+    while cur <= b:
+        out.append(cur)
+        cur += timedelta(days=1)
+    return out
+
+
+def _month_end(d: date) -> date:
+    if d.month == 12:
+        return date(d.year, 12, 31)
+    return date(d.year, d.month + 1, 1) - timedelta(days=1)
+
+
+def _quarter_end(d: date) -> date:
+    qm = ((d.month - 1) // 3 + 1) * 3
+    return _month_end(date(d.year, qm, 1))
+
+
+def _near_calendar_anchor(day: date, anchor: date, window: int) -> bool:
+    return abs((day - anchor).days) <= window
+
+
+def _gap_hits_window(g_from: date, g_to: date, event: date, window: int) -> bool:
+    return g_from - timedelta(days=window) <= event <= g_to + timedelta(days=window)
+
+
+def _label_share(days_list: list[date], predicate) -> float:
+    if not days_list:
+        return 0.0
+    return sum(1 for d in days_list if predicate(d)) / len(days_list)
+
+
+def idle_event_correlation(
+    gaps: list[dict],
+    *,
+    first_ts: str | None,
+    last_ts: str | None,
+    window_days: int = 5,
+) -> dict:
+    """Связь пауз между сделками с концом месяца/квартала и корп. событиями TATN."""
+    first = _parse_day(first_ts)
+    last = _parse_day(last_ts)
+    if not first or not last or not gaps:
+        return {
+            "window_days": window_days,
+            "long_gaps_count": 0,
+            "matches_count": 0,
+            "strength": "none",
+            "summary": "Недостаточно данных для календарной корреляции.",
+            "events": [],
+            "rows": [],
+        }
+
+    window = window_days
+    all_days = _days_in_range(first, last)
+    base_me = _label_share(all_days, lambda d: _near_calendar_anchor(d, _month_end(d), window))
+    base_qe = _label_share(all_days, lambda d: _near_calendar_anchor(d, _quarter_end(d), window))
+
+    idle_days: set[date] = set()
+    for g in gaps:
+        gf, gt = _parse_day(g.get("from")), _parse_day(g.get("to"))
+        if gf and gt:
+            idle_days.update(_days_in_range(gf, gt))
+    idle_list = sorted(idle_days)
+    idle_me = _label_share(idle_list, lambda d: _near_calendar_anchor(d, _month_end(d), window))
+    idle_qe = _label_share(idle_list, lambda d: _near_calendar_anchor(d, _quarter_end(d), window))
+
+    long_gaps = [g for g in gaps if int(g.get("days", 0)) >= 7]
+    events_in_range = [
+        (t, k, lbl)
+        for t, k, lbl in CORP_EVENTS
+        if first <= (_parse_day(t) or first) <= last + timedelta(days=14)
+    ]
+
+    rows: list[dict] = []
+    long_with_corp = 0
+    for g in sorted(long_gaps, key=lambda x: -int(x.get("days", 0))):
+        gf, gt = _parse_day(g.get("from")), _parse_day(g.get("to"))
+        if not gf or not gt:
+            continue
+        tags: list[str] = []
+        if _near_calendar_anchor(gf, _month_end(gf), window) or _near_calendar_anchor(gt, _month_end(gt), window):
+            tags.append("конец_месяца")
+        if _near_calendar_anchor(gf, _quarter_end(gf), window) or _near_calendar_anchor(gt, _quarter_end(gt), window):
+            tags.append("конец_квартала")
+        hit_corp = False
+        for t, k, _lbl in events_in_range:
+            ev = _parse_day(t)
+            if ev and _gap_hits_window(gf, gt, ev, window):
+                if k not in tags:
+                    tags.append(k)
+                hit_corp = True
+        if hit_corp:
+            long_with_corp += 1
+        rows.append(
+            {
+                "days": int(g.get("days", 0)),
+                "from": str(g.get("from", "")),
+                "to": str(g.get("to", "")),
+                "tags": tags,
+            }
+        )
+
+    if not long_gaps:
+        return {
+            "window_days": window,
+            "long_gaps_count": 0,
+            "matches_count": 0,
+            "strength": "none",
+            "summary": "Длинных пауз ≥7 дн. нет — корреляцию с дивидендами/календарём оценить нельзя.",
+            "events": [{"date": t, "kind": k, "label": lbl} for t, k, lbl in events_in_range],
+            "rows": [],
+        }
+
+    parts: list[str] = []
+    if abs(idle_me - base_me) < 0.02 and abs(idle_qe - base_qe) < 0.02:
+        parts.append(
+            f"Конец месяца/квартала (±{window} дн.): слабая связь — доли в паузах близки к фону "
+            f"({idle_me:.0%} vs {base_me:.0%} по месяцу)."
+        )
+    elif idle_me > base_me + 0.05 or idle_qe > base_qe + 0.05:
+        parts.append("Паузы чаще попадают на конец месяца/квартала, чем случайный день.")
+    else:
+        parts.append("Явной концентрации пауз у конца месяца/квартала нет.")
+
+    if long_with_corp >= len(long_gaps) * 0.5 and len(long_gaps) >= 3:
+        parts.append(
+            f"Корп. события: {long_with_corp} из {len(long_gaps)} длинных пауз в окне ±{window} дн. "
+            f"от дивидендов/СД — возможен режимный фактор."
+        )
+        strength = "moderate"
+    elif long_with_corp >= 2:
+        parts.append(
+            f"Корп. события: частичное совпадение ({long_with_corp}/{len(long_gaps)} длинных пауз рядом с дивидендами/СД)."
+        )
+        strength = "weak"
+    else:
+        parts.append(
+            "Дивиденды и СД: слабая связь; паузы в основном от Z в нейтрали (mean-reversion)."
+        )
+        strength = "none"
+
+    return {
+        "window_days": window,
+        "long_gaps_count": len(long_gaps),
+        "matches_count": long_with_corp,
+        "strength": strength,
+        "summary": " ".join(parts),
+        "events": [{"date": t, "kind": k, "label": lbl} for t, k, lbl in events_in_range],
+        "rows": rows[:12],
     }

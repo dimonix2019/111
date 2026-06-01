@@ -10,12 +10,12 @@ export type DistributionBar = {
 export type TimeGranularityMin = 5 | 10 | 15 | 30 | 60 | 240
 
 export const TIME_GRANULARITY_OPTIONS: { value: TimeGranularityMin; label: string; hint: string }[] = [
-  { value: 240, label: '4 ч · 6 столбцов', hint: 'Обзор по сессиям' },
-  { value: 60, label: '1 ч · 24 столбца', hint: 'Почасово' },
-  { value: 30, label: '30 мин · 48', hint: 'Полчаса' },
-  { value: 15, label: '15 мин · 96', hint: 'Как бар MOEX 15м' },
-  { value: 10, label: '10 мин · 144', hint: 'Детально' },
-  { value: 5, label: '5 мин · 288', hint: 'Максимум детализации' },
+  { value: 240, label: '4 ч × 6 интервалов', hint: 'Сессии по полдня' },
+  { value: 60, label: '1 ч × 24 слота', hint: 'Почасово' },
+  { value: 30, label: '30 мин × 48', hint: 'Полчаса' },
+  { value: 15, label: '15 мин × 96', hint: 'Как бар MOEX 15м' },
+  { value: 10, label: '10 мин × 144', hint: 'Детально' },
+  { value: 5, label: '5 мин × 288', hint: 'Максимальная детализация' },
 ]
 
 export type DistributionDef = {
@@ -37,7 +37,34 @@ function parseTs(s: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-const HOUR_ORDER = ['0–6', '6–10', '10–14', '14–18', '18–22', '22–24']
+export { parseTs }
+
+export function formatPct(count: number, total: number): string {
+  if (!total) return '0%'
+  return `${((100 * count) / total).toFixed(1).replace('.', ',')}%`
+}
+
+function slotLabel(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+export function bucketTimeOfDay(d: Date, granMin: TimeGranularityMin): string {
+  const mod = d.getHours() * 60 + d.getMinutes()
+  const slot = Math.floor(mod / granMin) * granMin
+  return slotLabel(slot)
+}
+
+function allDaySlotLabels(granMin: TimeGranularityMin): string[] {
+  const out: string[] = []
+  for (let m = 0; m < 1440; m += granMin) out.push(slotLabel(m))
+  return out
+}
+
+export function isTimeOfDayDistribution(id: string): boolean {
+  return id === 'entry_hour' || id === 'exit_hour'
+}
 
 function hourBucketFixed(d: Date): string {
   const h = d.getHours()
@@ -48,6 +75,8 @@ function hourBucketFixed(d: Date): string {
   if (h < 22) return '18–22'
   return '22–24'
 }
+
+const HOUR_ORDER = ['0–6', '6–10', '10–14', '14–18', '18–22', '22–24']
 
 function monthBucket(d: Date): string {
   const y = d.getFullYear()
@@ -62,6 +91,11 @@ function holdHours(t: Trade): number {
   return Math.max(0, (b.getTime() - a.getTime()) / 3_600_000)
 }
 
+/** Длительность сделки entry→exit, часы. */
+export function tradeHoldHours(t: Trade): number {
+  return holdHours(t)
+}
+
 function holdLabel(h: number): string {
   if (h < 4) return '<4ч'
   if (h < 12) return '4–12ч'
@@ -73,6 +107,12 @@ function holdLabel(h: number): string {
 }
 
 const HOLD_ORDER = ['<4ч', '4–12ч', '12–24ч', '1–2д', '2–3д', '3–5д', '>5д']
+
+export const HOLD_DURATION_ORDER = HOLD_ORDER
+
+export function holdDurationBucket(hours: number): string {
+  return holdLabel(hours)
+}
 
 function pnlRubBucket(v: number): string {
   if (v < 0) return '<0 ₽'
@@ -133,105 +173,6 @@ function numericSummary(trades: Trade[], pick: (t: Trade) => number, fmt: (v: nu
   return `ср. ${fmt(mean)} · медиана ${fmt(med)} · min ${fmt(sorted[0]!)} · max ${fmt(sorted[sorted.length - 1]!)}`
 }
 
-function slotLabel(totalMinutes: number): string {
-  const h = Math.floor(totalMinutes / 60)
-  const m = totalMinutes % 60
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-}
-
-function bucketTimeOfDay(d: Date, granMin: number): string {
-  const mod = d.getHours() * 60 + d.getMinutes()
-  const slot = Math.floor(mod / granMin) * granMin
-  return slotLabel(slot)
-}
-
-function allDaySlotLabels(granMin: number): string[] {
-  const out: string[] = []
-  for (let m = 0; m < 1440; m += granMin) out.push(slotLabel(m))
-  return out
-}
-
-function countMinutesWindow(trades: Trade[], field: 'entry_time' | 'exit_time', fromMin: number, toMin: number): number {
-  let n = 0
-  for (const t of trades) {
-    const d = parseTs(t[field])
-    if (!d) continue
-    const mod = d.getHours() * 60 + d.getMinutes()
-    if (mod >= fromMin && mod < toMin) n++
-  }
-  return n
-}
-
-function timeOfDaySummary(trades: Trade[], field: 'entry_time' | 'exit_time', kind: 'entry' | 'exit'): string {
-  if (!trades.length) return 'Нет данных'
-  const range = timeSummary(trades, field)
-  const morning = countMinutesWindow(trades, field, 7 * 60, 8 * 60)
-  const evening = countMinutesWindow(trades, field, 17 * 60, 22 * 60)
-  if (kind === 'entry') {
-    return `${range} · 07:00–08:00: ${morning} (${((morning / trades.length) * 100).toFixed(0)}%)`
-  }
-  return `${range} · 17:00–22:00: ${evening} (${((evening / trades.length) * 100).toFixed(0)}%)`
-}
-
-export function isTimeOfDayDistribution(id: string): boolean {
-  return id === 'entry_hour' || id === 'exit_hour'
-}
-
-function buildTimeOfDayHistogram(
-  trades: Trade[],
-  field: 'entry_time' | 'exit_time',
-  granMin: TimeGranularityMin,
-): DistributionBar[] {
-  if (granMin === 240) {
-    const counts = new Map<string, number>()
-    for (const k of HOUR_ORDER) counts.set(k, 0)
-    for (const t of trades) {
-      const d = parseTs(t[field])
-      if (!d) continue
-      const b = hourBucketFixed(d)
-      counts.set(b, (counts.get(b) ?? 0) + 1)
-    }
-    let peak = ''
-    let peakN = 0
-    for (const [k, v] of counts) {
-      if (v > peakN) {
-        peakN = v
-        peak = k
-      }
-    }
-    return HOUR_ORDER.map((bucket) => ({
-      bucket,
-      count: counts.get(bucket) ?? 0,
-      highlight: bucket === peak && peakN > 0,
-      tone: bucket === peak && peakN > 0 ? 'good' : 'neutral',
-    }))
-  }
-
-  const labels = allDaySlotLabels(granMin)
-  const counts = new Map<string, number>()
-  for (const label of labels) counts.set(label, 0)
-  for (const t of trades) {
-    const d = parseTs(t[field])
-    if (!d) continue
-    const b = bucketTimeOfDay(d, granMin)
-    counts.set(b, (counts.get(b) ?? 0) + 1)
-  }
-  let peak = ''
-  let peakN = 0
-  for (const [k, v] of counts) {
-    if (v > peakN) {
-      peakN = v
-      peak = k
-    }
-  }
-  return labels.map((bucket) => ({
-    bucket,
-    count: counts.get(bucket) ?? 0,
-    highlight: bucket === peak && peakN > 0,
-    tone: bucket === peak && peakN > 0 ? 'good' : 'neutral',
-  }))
-}
-
 function timeSummary(trades: Trade[], field: 'entry_time' | 'exit_time'): string {
   if (!trades.length) return 'Нет данных'
   const dates = trades.map((t) => parseTs(t[field])).filter(Boolean) as Date[]
@@ -245,29 +186,28 @@ function timeSummary(trades: Trade[], field: 'entry_time' | 'exit_time'): string
 export const TRADE_DISTRIBUTIONS: DistributionDef[] = [
   {
     id: 'entry_hour',
-    label: 'Время входа',
+    label: 'Час входа',
     group: 'Время',
+    hint: 'Сессия суток (MSK по timestamp CSV)',
     timeField: 'entry_time',
-    hint: 'Распределение по времени суток (timestamp CSV)',
     bucket: (t) => {
       const d = parseTs(t.entry_time)
       return d ? hourBucketFixed(d) : '?'
     },
     sortBuckets: sortByOrder(HOUR_ORDER),
-    summary: (trades) => timeOfDaySummary(trades, 'entry_time', 'entry'),
+    summary: (trades) => timeSummary(trades, 'entry_time'),
   },
   {
     id: 'exit_hour',
-    label: 'Время выхода',
+    label: 'Час выхода',
     group: 'Время',
     timeField: 'exit_time',
-    hint: 'Распределение по времени суток (timestamp CSV)',
     bucket: (t) => {
       const d = parseTs(t.exit_time)
       return d ? hourBucketFixed(d) : '?'
     },
     sortBuckets: sortByOrder(HOUR_ORDER),
-    summary: (trades) => timeOfDaySummary(trades, 'exit_time', 'exit'),
+    summary: (trades) => timeSummary(trades, 'exit_time'),
   },
   {
     id: 'entry_dow',
@@ -401,6 +341,61 @@ export const TRADE_DISTRIBUTIONS: DistributionDef[] = [
 
 export const DISTRIBUTION_BY_ID = new Map(TRADE_DISTRIBUTIONS.map((d) => [d.id, d]))
 
+function buildTimeOfDayHistogram(
+  trades: Trade[],
+  field: 'entry_time' | 'exit_time',
+  granMin: TimeGranularityMin,
+): DistributionBar[] {
+  if (granMin === 240) {
+    const counts = new Map<string, number>()
+    for (const k of HOUR_ORDER) counts.set(k, 0)
+    for (const t of trades) {
+      const d = parseTs(t[field])
+      if (!d) continue
+      const b = hourBucketFixed(d)
+      counts.set(b, (counts.get(b) ?? 0) + 1)
+    }
+    let peak = ''
+    let peakN = 0
+    for (const [k, v] of counts) {
+      if (v > peakN) {
+        peakN = v
+        peak = k
+      }
+    }
+    return HOUR_ORDER.map((bucket) => ({
+      bucket,
+      count: counts.get(bucket) ?? 0,
+      highlight: bucket === peak && peakN > 0,
+      tone: bucket === peak && peakN > 0 ? 'good' : 'neutral',
+    }))
+  }
+
+  const labels = allDaySlotLabels(granMin)
+  const counts = new Map<string, number>()
+  for (const label of labels) counts.set(label, 0)
+  for (const t of trades) {
+    const d = parseTs(t[field])
+    if (!d) continue
+    const b = bucketTimeOfDay(d, granMin)
+    counts.set(b, (counts.get(b) ?? 0) + 1)
+  }
+  let peak = ''
+  let peakN = 0
+  for (const [k, v] of counts) {
+    if (v > peakN) {
+      peakN = v
+      peak = k
+    }
+  }
+  return labels.map((bucket) => ({
+    bucket,
+    count: counts.get(bucket) ?? 0,
+    highlight: bucket === peak && peakN > 0,
+    tone: bucket === peak && peakN > 0 ? 'good' : 'neutral',
+  }))
+}
+
 export function getTradeDimensionBucket(
   trade: Trade,
   dimId: string,
@@ -417,7 +412,6 @@ export function getTradeDimensionBucket(
   return def.bucket(trade)
 }
 
-/** Упорядоченные метки разреза (для pivot / таблицы) */
 export function orderedDimensionKeys(
   dimId: string,
   timeGranularityMin?: TimeGranularityMin,
@@ -451,10 +445,12 @@ export function buildTradeHistogram(
   let keys = [...counts.keys()]
   if (def.sortBuckets) keys = def.sortBuckets(keys)
   else keys.sort((a, b) => a.localeCompare(b, 'ru'))
+  const max = Math.max(...keys.map((k) => counts.get(k) ?? 0), 0)
   return keys.map((bucket) => ({
     bucket,
     count: counts.get(bucket) ?? 0,
     tone: def.tone?.(bucket) ?? 'neutral',
+    highlight: (counts.get(bucket) ?? 0) === max && max > 0,
   }))
 }
 

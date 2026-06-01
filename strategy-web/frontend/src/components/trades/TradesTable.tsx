@@ -1,11 +1,12 @@
-import { allocateLegPnls, hasLegPrices, legPnlRub, spreadDirectionHint } from '@/lib/spreadLegs'
-import { TradeArbitrageBadge } from '@/components/trades/TradeLegsBlock'import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { SimPack, Trade } from '@/types'
 import { spreadDirectionHint, spreadLegs } from '@/lib/spreadLegs'
 import { columnsForTrades, type TradeColumn } from '@/lib/tradeTableColumns'
 import { TradeDistributionPanel } from '@/components/trades/TradeDistributionPanel'
 import { TradePivotPanel } from '@/components/trades/TradePivotPanel'
+import { ExitScenarioPanel } from '@/components/trades/ExitScenarioPanel'
 import { StrategyChatPanel } from '@/components/trades/StrategyChatPanel'
+import { downloadTradesCsv } from '@/lib/exportTradesCsv'
 
 type SortDir = 'asc' | 'desc'
 type SortKey = TradeColumn['key']
@@ -15,24 +16,16 @@ type FilterPreset = {
   options: { value: string; label: string }[]
 }
 
-const LEG_KEYS = new Set([
-  'leg_ticker',
-  'leg_action',
-  'leg_entry_price',
-  'leg_exit_price',
-  'leg_qty',
-  'leg_pnl',
-])
-
 function isTradeKey(key: SortKey): key is keyof Trade {
-  return !LEG_KEYS.has(key)
+  return key !== 'leg_ticker' && key !== 'leg_action'
 }
 
 function cellText(trade: Trade, col: TradeColumn): string {
-  if (LEG_KEYS.has(col.key)) return ''
+  if (col.key === 'leg_ticker' || col.key === 'leg_action') return ''
+  if (col.key.startsWith('leg_')) return ''
   if (col.render) return col.render(trade)
-  if (!isTradeKey(col.key)) return ''
-  return String(trade[col.key])
+  if (isTradeKey(col.key)) return String(trade[col.key] ?? '')
+  return ''
 }
 
 function compareValues(a: Trade, b: Trade, key: SortKey, dir: SortDir): number {
@@ -51,7 +44,7 @@ function compareValues(a: Trade, b: Trade, key: SortKey, dir: SortDir): number {
 }
 
 function matchesFilter(trade: Trade, col: TradeColumn, filter: string): boolean {
-  if (LEG_KEYS.has(col.key)) return true
+  if (col.key === 'leg_ticker' || col.key === 'leg_action') return true
 
   const q = filter.trim().toLowerCase()
   if (!q || q === 'все') return true
@@ -79,7 +72,7 @@ function matchesFilter(trade: Trade, col: TradeColumn, filter: string): boolean 
 }
 
 function buildPresets(trades: Trade[], col: TradeColumn): FilterPreset {
-  if (LEG_KEYS.has(col.key)) {
+  if (col.key === 'leg_ticker' || col.key === 'leg_action') {
     return { placeholder: '—', options: [{ value: '', label: 'Все' }] }
   }
 
@@ -182,8 +175,7 @@ function tradeLevelCellClass(col: TradeColumn, trade: Trade): string {
 }
 
 function PairTradeRows({ trade, columns }: { trade: Trade; columns: TradeColumn[] }) {
-  const legs = allocateLegPnls(trade)
-  const showPrices = hasLegPrices(trade)
+  const legs = spreadLegs(trade.direction)
   const tradeCols = columns.filter((c) => c.tradeLevel)
   const legCols = columns.filter((c) => !c.tradeLevel)
 
@@ -192,7 +184,7 @@ function PairTradeRows({ trade, columns }: { trade: Trade; columns: TradeColumn[
       {legs.map((leg, legIdx) => (
         <tr
           key={`${trade.no}-${leg.ticker}`}
-          className={`table-row ${legIdx === 0 ? 'border-t-2 border-cyan-500/20' : ''}`}
+          className={`table-row ${legIdx === 0 ? 'border-t-2 border-surface-border-soft' : ''}`}
         >
           {legIdx === 0
             ? tradeCols.map((col) => (
@@ -202,20 +194,15 @@ function PairTradeRows({ trade, columns }: { trade: Trade; columns: TradeColumn[
                   className={`px-2 py-2 ${tradeLevelCellClass(col, trade)}`}
                   title={col.key === 'direction' ? spreadDirectionHint(trade.direction) : undefined}
                 >
-                  {col.key === 'no' ? (
-                    <div className="space-y-1">
-                      <span className="font-semibold tabular-nums">{trade.no}</span>
-                      <TradeArbitrageBadge tradeNo={trade.no} />
-                    </div>
-                  ) : col.key === 'direction' ? (
+                  {col.key === 'direction' ? (
                     <div className="space-y-0.5">
                       <div className="font-semibold">{col.render ? col.render(trade) : trade.direction}</div>
-                      <div className="text-[10px] font-normal text-ink-3">2 ордера · одна сделка</div>
+                      <div className="text-[10px] font-normal text-ink-3">2 ноги · одновременно</div>
                     </div>
                   ) : col.render ? (
                     col.render(trade)
                   ) : isTradeKey(col.key) ? (
-                    String(trade[col.key])
+                    String(trade[col.key] ?? '')
                   ) : null}
                 </td>
               ))
@@ -228,7 +215,7 @@ function PairTradeRows({ trade, columns }: { trade: Trade; columns: TradeColumn[
                   <span className="rounded-md border border-surface-border-soft bg-surface-inner/80 px-2 py-0.5 font-semibold text-ink-1">
                     {leg.ticker}
                   </span>
-                  <span className="ml-1.5 text-[10px] text-ink-3">ордер {legIdx + 1}/2</span>
+                  <span className="ml-1.5 text-[10px] text-ink-3">нога {legIdx + 1}/2</span>
                 </td>
               )
             }
@@ -238,41 +225,7 @@ function PairTradeRows({ trade, columns }: { trade: Trade; columns: TradeColumn[
                   key={col.key}
                   className={`px-2 py-1.5 font-medium ${leg.side === 'buy' ? 'text-good' : 'text-bad'}`}
                 >
-                  {leg.sideRu ?? leg.side}
-                </td>
-              )
-            }
-            if (col.key === 'leg_entry_price') {
-              return (
-                <td key={col.key} className="px-2 py-1.5 text-right tabular-nums text-ink-2">
-                  {showPrices && leg.entry_price != null ? leg.entry_price.toFixed(1) : '—'}
-                </td>
-              )
-            }
-            if (col.key === 'leg_exit_price') {
-              return (
-                <td key={col.key} className="px-2 py-1.5 text-right tabular-nums text-ink-2">
-                  {showPrices && leg.exit_price != null ? leg.exit_price.toFixed(1) : '—'}
-                </td>
-              )
-            }
-            if (col.key === 'leg_qty') {
-              return (
-                <td key={col.key} className="px-2 py-1.5 text-right tabular-nums text-ink-3">
-                  {showPrices && leg.qty != null ? leg.qty.toFixed(0) : '—'}
-                </td>
-              )
-            }
-            if (col.key === 'leg_pnl') {
-              const lp = legPnlRub(leg)
-              return (
-                <td
-                  key={col.key}
-                  className={`px-2 py-1.5 text-right tabular-nums font-medium ${
-                    lp != null ? (lp >= 0 ? 'text-good' : 'text-bad') : 'text-ink-3'
-                  }`}
-                >
-                  {lp != null ? `${lp >= 0 ? '+' : ''}${Math.round(lp).toLocaleString('ru-RU')} ₽` : '—'}
+                  {leg.sideRu}
                 </td>
               )
             }
@@ -284,7 +237,7 @@ function PairTradeRows({ trade, columns }: { trade: Trade; columns: TradeColumn[
   )
 }
 
-export function TradesTable({ pack }: { pack: SimPack }) {
+export function TradesTable({ pack, csvPath }: { pack: SimPack; csvPath: string }) {
   const columns = useMemo(() => columnsForTrades(pack.trades), [pack.trades])
   const [sortKey, setSortKey] = useState<SortKey>('no')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -309,7 +262,7 @@ export function TradesTable({ pack }: { pack: SimPack }) {
   }, [pack.trades, filters, sortKey, sortDir, columns])
 
   function toggleSort(key: SortKey) {
-    if (LEG_KEYS.has(key)) return
+    if (key === 'leg_ticker' || key === 'leg_action') return
     if (sortKey === key) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
@@ -333,9 +286,10 @@ export function TradesTable({ pack }: { pack: SimPack }) {
 
   return (
     <div className="space-y-4">
-      <TradeDistributionPanel trades={filtered} totalCount={pack.trades.length} pack={pack} />
+      <TradeDistributionPanel trades={filtered} totalCount={pack.trades.length} />
+      <ExitScenarioPanel pack={pack} trades={filtered} totalCount={pack.trades.length} />
       <TradePivotPanel trades={filtered} totalCount={pack.trades.length} />
-      <StrategyChatPanel pack={pack} filteredTrades={filtered} />
+      <StrategyChatPanel pack={pack} filteredTrades={filtered} csvPath={csvPath} />
       <div className="space-y-2">
         <div className="surface-inner px-3 py-2 text-[11px] leading-relaxed text-ink-3">
           Каждая сделка — <span className="text-ink-2">одна спред-пара</span>: две строки (TATN и TATNP) открываются и
@@ -347,11 +301,20 @@ export function TradesTable({ pack }: { pack: SimPack }) {
             Показано <b className="text-ink-2">{filtered.length}</b> пар ({filtered.length * 2} ног) из{' '}
             {pack.trades.length}
           </span>
-          {hasFilters ? (
-            <button type="button" className="tab-btn !px-2 !py-1 text-[11px]" onClick={clearFilters}>
-              Сбросить фильтры
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="tab-btn !px-2 !py-1 text-[11px]"
+              onClick={() => downloadTradesCsv(filtered, `trades_tatn_${filtered.length}.csv`)}
+            >
+              CSV ({filtered.length})
             </button>
-          ) : null}
+            {hasFilters ? (
+              <button type="button" className="tab-btn !px-2 !py-1 text-[11px]" onClick={clearFilters}>
+                Сбросить фильтры
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="scrollbar-thin max-h-[560px] overflow-auto rounded-xl border border-panel-border-soft">
           <table className="w-full min-w-[1100px] text-left text-[12px] text-ink-2">

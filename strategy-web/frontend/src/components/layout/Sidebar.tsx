@@ -1,15 +1,25 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import type { Presets, SimParams, SimResponse } from '@/types'
-import { getDataStatus, getHealth, getPresets } from '@/lib/api'
+import { downloadMoex, getDataStatus, getHealth, getPresets } from '@/lib/api'
 import { getLlmStatus } from '@/lib/llmApi'
 import { useLiveSim } from '@/hooks/useLiveSim'
+import { useOnlineMoexPoll } from '@/hooks/useOnlineMoexPoll'
+import type { MarketLiveControls } from '@/components/market/MarketTab'
+import {
+  defaultSimParams,
+  loadPersistedSimSettings,
+  savePersistedSimSettings,
+} from '@/lib/simSettingsStorage'
 import { Panel } from '@/components/ui/Panel'
-
-const DEFAULT_CSV = 'data/m15_tatn_255d.csv'
 
 type Props = {
   onResult: (r: SimResponse) => void
   onLoading?: (loading: boolean) => void
+  onLiveControls?: (ctrl: MarketLiveControls) => void
+  onSimContext?: (ctx: { params: SimParams; csvPath: string; compare: boolean }) => void
+  marketPollActive?: boolean
+  paramsPatch?: Partial<SimParams> | null
+  paramsPatchTick?: number
 }
 
 function parseNum(raw: string): number | null {
@@ -17,32 +27,29 @@ function parseNum(raw: string): number | null {
   return Number.isFinite(v) ? v : null
 }
 
-export function Sidebar({ onResult, onLoading }: Props) {
-  const [csvPath, setCsvPath] = useState(DEFAULT_CSV)
+export function Sidebar({
+  onResult,
+  onLoading,
+  onLiveControls,
+  onSimContext,
+  marketPollActive = false,
+  paramsPatch,
+  paramsPatchTick = 0,
+}: Props) {
+  const saved = loadPersistedSimSettings()
+  const [csvPath, setCsvPath] = useState(saved.csvPath)
   const [dataInfo, setDataInfo] = useState<Record<string, unknown> | null>(null)
   const [presets, setPresets] = useState<Presets>({})
-  const [preset, setPreset] = useState('Свои')
-  const [compare, setCompare] = useState(false)
-  const [liveMode, setLiveMode] = useState(true)
+  const [preset, setPreset] = useState(saved.preset)
+  const [compare, setCompare] = useState(saved.compare)
+  const [liveMode, setLiveMode] = useState(saved.liveMode)
+  const [online5s, setOnline5s] = useState(false)
   const [apiOk, setApiOk] = useState<boolean | null>(null)
   const [apiLlmOk, setApiLlmOk] = useState<boolean | null>(null)
-  const [params, setParams] = useState<SimParams>({
-    z_mode: 'rolling30',
-    entry: 0.8,
-    exit_z: 0.7,
-    notional: 100_000,
-    leverage: 7,
-    commission: 0.04,
-    compound: false,
-    entry_a: 0.8,
-    exit_a: 0.7,
-    notional_a: 100_000,
-    entry_b: 1.0,
-    exit_b: 0.7,
-    notional_b: 100_000,
-  })
+  const [moexBusy, setMoexBusy] = useState(false)
+  const [params, setParams] = useState<SimParams>(saved.params)
 
-  const { loading, error, lastMs, pending, stale, runNow } = useLiveSim({
+  const { loading, error, lastMs, lastUpdatedAt, pending, stale, runNow } = useLiveSim({
     csvPath,
     compare,
     params,
@@ -50,9 +57,70 @@ export function Sidebar({ onResult, onLoading }: Props) {
     onResult,
   })
 
+  useOnlineMoexPoll({
+    enabled: marketPollActive && online5s,
+    loading,
+    csvPath,
+    runSim: runNow,
+  })
+
+  const onDownloadMoex = useCallback(async () => {
+    setMoexBusy(true)
+    try {
+      await downloadMoex(csvPath)
+      void getDataStatus(csvPath).then(setDataInfo)
+      runNow()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e))
+    } finally {
+      setMoexBusy(false)
+    }
+  }, [csvPath, runNow])
+
   useEffect(() => {
     onLoading?.(loading)
   }, [loading, onLoading])
+
+  useEffect(() => {
+    onSimContext?.({ params, csvPath, compare })
+  }, [params, csvPath, compare, onSimContext])
+
+  useEffect(() => {
+    onLiveControls?.({
+      liveMode,
+      setLiveMode,
+      online5s,
+      setOnline5s,
+      loading,
+      pending,
+      stale,
+      lastMs,
+      lastUpdatedAt,
+      runNow,
+      refreshMoex: onDownloadMoex,
+    })
+  }, [
+    onLiveControls,
+    liveMode,
+    online5s,
+    loading,
+    pending,
+    stale,
+    lastMs,
+    lastUpdatedAt,
+    runNow,
+    onDownloadMoex,
+  ])
+
+  useEffect(() => {
+    if (!paramsPatch || paramsPatchTick === 0) return
+    setParams((s) => ({ ...s, ...paramsPatch }))
+    setPreset('Свои')
+  }, [paramsPatch, paramsPatchTick])
+
+  useEffect(() => {
+    savePersistedSimSettings({ params, csvPath, compare, liveMode, preset })
+  }, [params, csvPath, compare, liveMode, preset])
 
   useEffect(() => {
     void getPresets().then(setPresets)
@@ -61,14 +129,11 @@ export function Sidebar({ onResult, onLoading }: Props) {
         setApiOk(!!h.ok)
         if (h.features?.llm) {
           try {
-            const llm = await getLlmStatus()
-            setApiLlmOk(llm.ok)
+            setApiLlmOk((await getLlmStatus()).ok)
           } catch {
             setApiLlmOk(false)
           }
-        } else {
-          setApiLlmOk(false)
-        }
+        } else setApiLlmOk(false)
       })
       .catch(() => {
         setApiOk(false)
@@ -78,12 +143,7 @@ export function Sidebar({ onResult, onLoading }: Props) {
 
   useEffect(() => {
     void getDataStatus(csvPath).then(setDataInfo).catch(() => setDataInfo(null))
-  }, [csvPath])
-
-  useEffect(() => {
-    if (loading) return
-    void getDataStatus(csvPath).then(setDataInfo).catch(() => setDataInfo(null))
-  }, [loading, lastUpdatedAt, csvPath])
+  }, [csvPath, loading])
 
   function applyPreset(name: string) {
     setPreset(name)
@@ -97,6 +157,7 @@ export function Sidebar({ onResult, onLoading }: Props) {
       leverage: p.leverage,
       commission: p.commission,
       compound: p.compound,
+      ...(p.z_mode ? { z_mode: p.z_mode } : {}),
     }))
   }
 
@@ -136,36 +197,8 @@ export function Sidebar({ onResult, onLoading }: Props) {
     return 'Ожидание первого расчёта…'
   })()
 
-  const zThresholdsPanel = (
-    <Panel title={compare ? 'Стратегии A / B' : 'Пороги Z'}>
-      {compare ? (
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-2">
-            <div className="text-[11px] font-medium text-ink-2">A</div>
-            {field('Entry', 'entry_a')}
-            {field('Exit', 'exit_a')}
-            {field('Номинал', 'notional_a', 10_000)}
-          </div>
-          <div className="space-y-2">
-            <div className="text-[11px] font-medium text-ink-2">B</div>
-            {field('Entry', 'entry_b')}
-            {field('Exit', 'exit_b')}
-            {field('Номинал', 'notional_b', 10_000)}
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {field('Entry Z', 'entry')}
-          {field('Exit Z', 'exit_z')}
-          {field('Номинал ₽', 'notional', 10_000)}
-        </div>
-      )}
-    </Panel>
-  )
-
   const zModePanel = (
     <Panel title="Z-score · режим теста">
-      <p className="mb-2 text-[11px] text-ink-3">Применяется ко всем вкладкам (кроме Basis).</p>
       <label className="flex cursor-pointer gap-2 rounded-lg border border-good/30 bg-good/5 px-2 py-2 text-[12px]">
         <input
           type="radio"
@@ -187,17 +220,70 @@ export function Sidebar({ onResult, onLoading }: Props) {
         />
         <span>
           <span className="font-semibold text-ink-1">Global 255д</span>
-          <span className="mt-0.5 block text-[10px] text-ink-3">Legacy APK — Z на хвосте часто ≈0</span>
+          <span className="mt-0.5 block text-[10px] text-ink-3">Legacy APK</span>
         </span>
       </label>
+    </Panel>
+  )
+
+  const protectionPanel = (
+    <Panel title="Защита">
+      <p className="mb-2 text-[11px] text-ink-3">Stop-loss, spread-фильтры, DD halt, slippage</p>
+      {field('Slippage (spread pts)', 'slippage', 0.01)}
+      {field('Max loss spread pts', 'max_loss_spread', 0.05)}
+      {field('Max loss ₽', 'max_loss_rub', 1000)}
+      {field('Min spread %', 'min_spread', 0.01)}
+      {field('Max spread %', 'max_spread', 0.01)}
+      {field('Entry Z buffer', 'entry_z_buffer', 0.05)}
+      {field('Max DD halt ₽', 'max_dd_halt_rub', 1000)}
+      {field('Max DD halt %', 'max_dd_halt_pct', 1)}
+      <label className="mt-2 flex items-center gap-2 text-[12px] text-ink-2">
+        <input
+          type="checkbox"
+          checked={!!params.oos_enabled}
+          onChange={(e) => setParams((s) => ({ ...s, oos_enabled: e.target.checked }))}
+        />
+        OOS train/test в simulate
+      </label>
+      {params.oos_enabled ? field('Train ratio', 'oos_train_ratio', 0.05) : null}
+      <button
+        type="button"
+        className="mt-2 text-[11px] text-ink-3 underline"
+        onClick={() => setParams(defaultSimParams())}
+      >
+        Сбросить защиту
+      </button>
     </Panel>
   )
 
   return (
     <aside className="scrollbar-thin flex h-full min-h-0 w-[320px] shrink-0 flex-col gap-3 overflow-x-hidden overflow-y-auto pb-2 pr-1">
       {zModePanel}
-      {zThresholdsPanel}
-
+      <Panel title={compare ? 'Стратегии A / B' : 'Пороги Z'}>
+        {compare ? (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-2">
+              <div className="text-[11px] font-medium text-ink-2">A</div>
+              {field('Entry', 'entry_a')}
+              {field('Exit', 'exit_a')}
+              {field('Номинал', 'notional_a', 10_000)}
+            </div>
+            <div className="space-y-2">
+              <div className="text-[11px] font-medium text-ink-2">B</div>
+              {field('Entry', 'entry_b')}
+              {field('Exit', 'exit_b')}
+              {field('Номинал', 'notional_b', 10_000)}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {field('Entry Z', 'entry')}
+            {field('Exit Z', 'exit_z')}
+            {field('Номинал ₽', 'notional', 10_000)}
+          </div>
+        )}
+      </Panel>
+      {protectionPanel}
       <Panel title="Live-режим">
         <label className="flex items-center gap-2 text-[12px] text-ink-2">
           <input type="checkbox" checked={liveMode} onChange={(e) => setLiveMode(e.target.checked)} />
@@ -205,17 +291,13 @@ export function Sidebar({ onResult, onLoading }: Props) {
         </label>
         <p className={`mt-2 text-[11px] ${loading || pending ? 'text-warn' : 'text-ink-3'}`}>{statusLine}</p>
         {stale ? (
-          <p className="mt-1 text-[11px] text-warn">На экране старые данные — дождитесь расчёта или кликните вне поля</p>
+          <p className="mt-1 text-[11px] text-warn">На экране старые данные — дождитесь расчёта</p>
         ) : null}
         {apiOk === false ? (
-          <p className="mt-1 text-[11px] text-bad">
-            API не отвечает — закройте старые окна и перезапустите run_tester.bat
-          </p>
+          <p className="mt-1 text-[11px] text-bad">API не отвечает — перезапустите run_tester.bat</p>
         ) : null}
         {apiOk && apiLlmOk === false ? (
-          <p className="mt-1 text-[11px] text-bad">
-            API без ИИ-модуля — закройте все окна «Z-Strategy API» и перезапустите run_tester.bat
-          </p>
+          <p className="mt-1 text-[11px] text-warn">LLM недоступен (чат на вкладке Сделки может не работать)</p>
         ) : null}
         {error ? <p className="mt-1 text-[11px] text-bad">{error}</p> : null}
         {!liveMode ? (
@@ -224,7 +306,6 @@ export function Sidebar({ onResult, onLoading }: Props) {
           </button>
         ) : null}
       </Panel>
-
       <Panel title="Данные MOEX 15м">
         <label className="block text-[12px] font-medium text-ink-3">
           CSV
@@ -235,19 +316,19 @@ export function Sidebar({ onResult, onLoading }: Props) {
             <p className="mt-2 text-[12px] text-good">
               {String(dataInfo.row_count)} баров · {String(dataInfo.first_ts).slice(0, 10)} …{' '}
               {String(dataInfo.last_ts).slice(0, 10)}
-              {dataInfo.age_hours != null ? ` · возраст ${Number(dataInfo.age_hours).toFixed(1)} ч` : ''}
+              {dataInfo.age_hours != null ? ` · ${Number(dataInfo.age_hours).toFixed(1)} ч` : ''}
             </p>
             {dataInfo.is_stale ? (
-              <p className="mt-1 text-[11px] text-warn">
-                Данные старше {String(dataInfo.stale_hours ?? 3)} ч — при старте API и live-расчёте обновятся с MOEX
-              </p>
+              <p className="mt-1 text-[11px] text-warn">Данные устарели — догрузите MOEX</p>
             ) : null}
           </>
         ) : (
           <p className="mt-2 text-[12px] text-bad">Файл не найден</p>
         )}
+        <button type="button" className="primary mt-2 w-full" disabled={moexBusy} onClick={() => void onDownloadMoex()}>
+          {moexBusy ? 'Загрузка…' : 'Скачать MOEX 255д'}
+        </button>
       </Panel>
-
       <Panel title="Пресет">
         <select value={preset} onChange={(e) => applyPreset(e.target.value)} className="w-full">
           {Object.keys(presets).map((k) => (
@@ -257,7 +338,6 @@ export function Sidebar({ onResult, onLoading }: Props) {
           ))}
         </select>
       </Panel>
-
       <Panel title="Риск">
         {field('Плечо', 'leverage', 0.5)}
         {field('Комиссия %', 'commission', 0.01)}
@@ -274,7 +354,6 @@ export function Sidebar({ onResult, onLoading }: Props) {
           Сравнение A / B
         </label>
       </Panel>
-
     </aside>
   )
 }

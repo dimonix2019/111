@@ -49,16 +49,67 @@ export function formatChartTime(time: Time): string {
   return ''
 }
 
-/** Пустое место справа от последней точки (сетка и пороги Entry/Exit не сдвигаются). */
-export const CHART_RIGHT_OFFSET_BARS = 14
-export const CHART_RIGHT_OFFSET_PX = 112
+/** Короткая подпись делений оси времени (без года на внутридневных барах). */
+export function formatChartTickMark(time: Time): string {
+  if (typeof time === 'number') {
+    const d = new Date(time * 1000)
+    return d.toLocaleString('ru-RU', {
+      timeZone: MSK_TZ,
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+  }
+  if (typeof time === 'object' && time !== null && 'year' in time) {
+    const t = time as { year: number; month: number; day: number }
+    return new Date(Date.UTC(t.year, t.month - 1, t.day)).toLocaleDateString('ru-RU', {
+      day: 'numeric',
+      month: 'short',
+    })
+  }
+  return ''
+}
+
+/** Пустое место справа от последней свечи (15–20 баров; линии Entry/Exit на шкале не сдвигаются). */
+export const CHART_RIGHT_OFFSET_BARS = 18
+/** Доп. отступ при ручном pan влево (тачпад / drag). */
+export const CHART_MAX_USER_RIGHT_MARGIN = 64
+
+export type ChartTimeScaleMarginApi = {
+  fitContent: () => void
+  applyOptions: (o: object) => void
+  getVisibleLogicalRange: () => { from: number; to: number } | null
+  setVisibleLogicalRange: (range: { from: number; to: number }) => void
+}
+
+function applyRightOffsetOptions(timeScale: { applyOptions: (o: object) => void }) {
+  timeScale.applyOptions({
+    rightOffset: CHART_RIGHT_OFFSET_BARS,
+    rightOffsetPixels: 0,
+  })
+}
+
+/** Сдвинуть видимый диапазон влево: справа остаётся пустое место под N баров. */
+function extendVisibleRangeRight(timeScale: ChartTimeScaleMarginApi, bars: number = CHART_RIGHT_OFFSET_BARS) {
+  const range = timeScale.getVisibleLogicalRange()
+  if (!range || bars <= 0) return
+  timeScale.setVisibleLogicalRange({
+    from: range.from,
+    to: range.to + bars,
+  })
+}
 
 export function chartTimeScaleOptions() {
   return {
     timeVisible: true,
     secondsVisible: false,
     rightOffset: CHART_RIGHT_OFFSET_BARS,
-    rightOffsetPixels: CHART_RIGHT_OFFSET_PX,
+    rightOffsetPixels: 0,
+    rightBarStaysOnScroll: false,
+    fixLeftEdge: false,
+    fixRightEdge: false,
   }
 }
 
@@ -71,13 +122,26 @@ export function chartRightPriceScaleOptions() {
   }
 }
 
-/** После fitContent сохранить отступ справа. */
-export function applyChartRightMargin(timeScale: { fitContent: () => void; applyOptions: (o: object) => void }) {
+/** После fitContent сместить график влево — справа отступ в барах. */
+export function applyChartRightMargin(timeScale: ChartTimeScaleMarginApi) {
+  applyRightOffsetOptions(timeScale)
   timeScale.fitContent()
-  timeScale.applyOptions({
-    rightOffset: CHART_RIGHT_OFFSET_BARS,
-    rightOffsetPixels: CHART_RIGHT_OFFSET_PX,
-  })
+  extendVisibleRangeRight(timeScale)
+}
+
+/** Прокрутка к последнему бару с тем же отступом справа (live / End). */
+export function scrollChartToEndWithMargin(timeScale: ChartTimeScaleMarginApi, barCount: number) {
+  if (barCount < 1) return
+  applyRightOffsetOptions(timeScale)
+  const range = timeScale.getVisibleLogicalRange()
+  const span =
+    range && range.to > range.from
+      ? range.to - range.from
+      : Math.min(barCount + CHART_RIGHT_OFFSET_BARS, 120)
+  const lastBar = barCount - 1
+  const to = lastBar + CHART_RIGHT_OFFSET_BARS
+  const from = Math.max(0, to - span)
+  timeScale.setVisibleLogicalRange({ from, to })
 }
 
 /** Ось графика: ₽ — целые с разделителем тысяч, float — до 2 знаков без лишних нулей. */

@@ -14,6 +14,16 @@ export type Stats = {
   total_overnight_rub: number
 }
 
+export type TradeOrderLeg = {
+  ticker: string
+  side: string
+  sideRu?: string
+  entry_price: number
+  exit_price: number
+  qty: number
+  pnl_rub: number
+}
+
 export type Trade = {
   no: number
   direction: string
@@ -25,6 +35,10 @@ export type Trade = {
   exit_z: number
   pnl_spread_pts: number
   pnl_rub: number
+  commission_rub?: number
+  overnight_rub?: number
+  exit_reason?: string
+  legs?: TradeOrderLeg[]
 }
 
 export type TradeMarker = {
@@ -95,15 +109,71 @@ export type IdleDurationForecast = {
   display_short?: string
 }
 
+export type IdleEventCorrelation = {
+  window_days: number
+  long_gaps_count: number
+  matches_count: number
+  strength: 'none' | 'weak' | 'moderate'
+  summary: string
+  events: { date: string; kind: string; label: string }[]
+  rows: { days: number; from: string; to: string; tags: string[] }[]
+}
+
 export type IdlePrecursors = {
   risk_score: number
   signs: IdlePrecursorSign[]
   summary: string
   verdict: string
   duration_forecast?: IdleDurationForecast
+  event_correlation?: IdleEventCorrelation
   features: Record<string, number>
   percentiles: Record<string, number>
   idle_current?: IdleGaps['current']
+}
+
+export type RiskMetrics = {
+  worst_trade_rub: number
+  best_trade_rub: number
+  tail_ratio: number | null
+  commission_pct_of_gross: number
+  top10_concentration_pct: number
+  stop_loss_exits: number
+  z_exits: number
+  end_of_data_exits?: number
+  trading_halted: boolean
+  halt_reason: string
+}
+
+export type OosVerdict = {
+  grade: 'good' | 'caution' | 'overfit' | 'weak_data'
+  title: string
+  summary: string
+  signals: string[]
+  actions: string[]
+}
+
+export type OosResult = {
+  train_ratio: number
+  split_bar: number
+  compound_returns?: boolean
+  train: Stats
+  test: Stats
+  train_risk: RiskMetrics
+  test_risk: RiskMetrics
+  verdict?: OosVerdict
+  error?: string
+}
+
+export type StressStats = Pick<
+  Stats,
+  'total_pnl_rub' | 'trade_count' | 'max_drawdown_rub' | 'win_rate_pct' | 'profit_factor' | 'total_commission_rub'
+>
+
+export type StressResult = {
+  commission_multiplier: number
+  slippage_pts: number
+  baseline: StressStats
+  stress: StressStats
 }
 
 export type SimPack = {
@@ -113,12 +183,35 @@ export type SimPack = {
   stats: Stats
   trades: Trade[]
   equity: { time: number; equity_rub: number; drawdown_rub: number }[]
-  zscore: { time: number; z_score: number; spread_percent: number }[]
+  zscore: {
+    time: number
+    z_score: number
+    spread_percent: number
+    tatn_open?: number
+    tatn_high?: number
+    tatn_low?: number
+    tatn_close?: number
+    tatnp_open?: number
+    tatnp_high?: number
+    tatnp_low?: number
+    tatnp_close?: number
+    spread_open?: number
+    spread_high?: number
+    spread_low?: number
+    spread_close?: number
+    tatn_volume?: number
+  }[]
   trade_markers: TradeMarker[]
   unrealized_pnl_rub: number
   idle_gaps: IdleGaps
   idle_precursors?: IdlePrecursors
   market_context: MarketContext
+  latest_quote?: {
+    tatn_close?: number
+    tatnp_close?: number
+    timestamp?: string
+  }
+  risk?: RiskMetrics
 }
 
 export type ZMode = 'rolling30' | 'global'
@@ -161,16 +254,16 @@ export type SimResponse = {
   z_mode?: ZMode
   z_diagnostics?: ZDiagnostics
   z_compare?: ZCompareRow[] | null
+  oos?: OosResult | null
+  stress?: StressResult | null
   packs: SimPack[]
 }
 
 export type SimParams = {
   csv_path?: string
   auto_download?: boolean
-  /** Онлайн 5с / «Обновить MOEX» — догрузка при возрасте баров > ~20 мин */
   moex_live?: boolean
   compare_mode?: boolean
-  /** rolling30 (default) — без look-ahead; global — legacy APK */
   z_mode?: ZMode
   entry?: number
   exit_z?: number
@@ -184,6 +277,17 @@ export type SimParams = {
   leverage?: number
   commission?: number
   compound?: boolean
+  slippage?: number
+  max_loss_spread?: number
+  max_loss_rub?: number
+  min_spread?: number
+  max_spread?: number
+  entry_z_buffer?: number
+  max_dd_halt_rub?: number
+  max_dd_halt_pct?: number
+  oos_enabled?: boolean
+  oos_train_ratio?: number
+  include_stress?: boolean
 }
 
 export type Presets = Record<
@@ -195,6 +299,7 @@ export type Presets = Record<
     leverage: number
     commission: number
     compound: boolean
+    z_mode?: ZMode
   } | null
 >
 

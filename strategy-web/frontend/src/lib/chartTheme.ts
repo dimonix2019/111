@@ -10,8 +10,6 @@ import {
 } from 'lightweight-charts'
 
 import type { Trade, TradeMarker } from '@/types'
-import { buildTradeByNo } from '@/lib/chartTradeTooltip'
-import { legsArrowsLabel } from '@/lib/spreadLegs'
 import { chartPriceFormat, chartTimeScaleOptions, formatChartTickMark, type ChartValueFormat } from '@/lib/format'
 
 /** Палитра TradingView dark (classic). */
@@ -43,7 +41,10 @@ export function chartEntryExitHlines(entry: number, exitZ: number): ChartHLine[]
   ]
 }
 
-export function tradingViewChartOptions(valueFormat: ChartValueFormat = 'float'): DeepPartial<ChartOptions> {
+export function tradingViewChartOptions(
+  valueFormat: ChartValueFormat = 'float',
+  showLeftPriceScale = false,
+): DeepPartial<ChartOptions> {
   const priceFmt = chartPriceFormat(valueFormat)
   return {
     layout: {
@@ -72,10 +73,26 @@ export function tradingViewChartOptions(valueFormat: ChartValueFormat = 'float')
         labelBackgroundColor: TV.crosshairLabel,
       },
     },
+    handleScroll: {
+      mouseWheel: false,
+      pressedMouseMove: true,
+      horzTouchDrag: false,
+      vertTouchDrag: false,
+    },
+    handleScale: {
+      axisPressedMouseMove: { time: true, price: true },
+      mouseWheel: false,
+      pinch: false,
+    },
     rightPriceScale: {
       borderColor: TV.border,
       minimumWidth: 72,
       scaleMargins: { top: 0.1, bottom: 0.1 },
+    },
+    leftPriceScale: {
+      visible: showLeftPriceScale,
+      borderColor: TV.border,
+      minimumWidth: 56,
     },
     timeScale: {
       borderColor: TV.border,
@@ -137,22 +154,18 @@ export function tradingViewPriceLineOptions(hl: ChartHLine) {
 
 export function toTradeSeriesMarkers(
   markers: TradeMarker[] | undefined,
-  trades: Trade[] | undefined,
+  _trades?: Trade[],
 ): SeriesMarker<Time>[] {
   if (!markers?.length) return []
-  const tradeByNo = trades?.length ? buildTradeByNo(trades) : new Map<number, Trade>()
   return markers
     .map((m) => {
       const isEntry = m.event === 'вход'
-      const trade = tradeByNo.get(m.trade_no)
-      const legsHint = trade ? legsArrowsLabel(trade) : ''
       const entryColor = m.direction === 'LONG' ? TV.up : TV.down
       return {
         time: m.time as UTCTimestamp,
         position: isEntry ? (m.direction === 'LONG' ? 'belowBar' : 'aboveBar') : 'inBar',
         color: m.marker_color || (isEntry ? entryColor : TV.textMuted),
         shape: isEntry ? (m.direction === 'LONG' ? 'arrowUp' : 'arrowDown') : 'circle',
-        text: isEntry && legsHint ? `#${m.trade_no} ${legsHint}` : `#${m.trade_no}`,
       } as SeriesMarker<Time>
     })
     .sort((a, b) => (a.time as number) - (b.time as number))

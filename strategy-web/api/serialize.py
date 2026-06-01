@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from api.chart_downsample import CHART_MAX_POINTS, chart_downsample_indices
 from api.moex_time import moex_ts_to_unix
 from zsim import SimResult
 
@@ -31,14 +33,11 @@ def _sanitize(obj: Any) -> Any:
     return obj
 
 
-CHART_MAX_POINTS = 2500
-
-
 def _series_records(df: pd.DataFrame, cols: list[str], time_col: str = "timestamp") -> list[dict]:
     """Unix time series для lightweight-charts (строго возрастающие уникальные time)."""
     if len(df) > CHART_MAX_POINTS:
-        step = max(1, len(df) // CHART_MAX_POINTS)
-        df = df.iloc[::step]
+        idx = chart_downsample_indices(len(df), max_pts=CHART_MAX_POINTS)
+        df = df.iloc[idx]
     times = _ts_unix_series(df[time_col])
     arrays = [df[c].to_numpy() for c in cols]
     by_time: dict[int, dict] = {}
@@ -115,3 +114,52 @@ def pack_to_dict(pack: dict) -> dict:
 
 def sweep_row_to_dict(row) -> dict:
     return _sanitize(row.to_dict())
+
+
+def grid_search_row_to_dict(row: dict) -> dict:
+    oos = row.get("oos") or {}
+    verdict = oos.get("verdict")
+    return _sanitize(
+        {
+            "entry": float(row["entry"]),
+            "exit_z": float(row["exit_z"]),
+            "slippage": float(row.get("slippage_spread_pts", row.get("slippage", 0))),
+            "max_loss_spread": float(row.get("max_loss_spread_pts", row.get("max_loss_spread", 0))),
+            "max_loss_rub": float(row.get("max_loss_rub", 0)),
+            "min_spread": float(row.get("min_spread_pct", row.get("min_spread", 0))),
+            "max_spread": float(row.get("max_spread_pct", row.get("max_spread", 0))),
+            "entry_z_buffer": float(row.get("entry_z_buffer", 0)),
+            "max_dd_halt_rub": float(row.get("max_drawdown_halt_rub", row.get("max_dd_halt_rub", 0))),
+            "max_dd_halt_pct": float(row.get("max_drawdown_halt_pct", row.get("max_dd_halt_pct", 0))),
+            "notional_rub": float(row.get("notional_rub", 100_000)),
+            "leverage": float(row.get("leverage", 7)),
+            "commission_pct_per_side": float(row.get("commission_pct_per_side", 0.04)),
+            "compound_returns": bool(row.get("compound_returns", False)),
+            "verdict_grade": str(row.get("verdict_grade", "")),
+            "test_pnl_rub": float(row.get("test_pnl_rub", 0)),
+            "train_pnl_rub": float(row.get("train_pnl_rub", 0)),
+            "stats": row.get("stats") or {},
+            "oos_verdict": verdict,
+            "oos_test": oos.get("test"),
+        }
+    )
+
+
+def latest_quote_from_csv(csv_path: str) -> dict:
+    """Последняя строка M15 CSV: цены TATN/TATNP и timestamp."""
+    path = Path(csv_path)
+    if not path.is_file():
+        return {}
+    try:
+        df = pd.read_csv(path, usecols=lambda c: c in ("timestamp", "tatn_close", "tatnp_close"))
+    except (ValueError, OSError):
+        return {}
+    if df.empty:
+        return {}
+    row = df.iloc[-1]
+    out: dict = {"timestamp": str(row.get("timestamp", ""))}
+    if "tatn_close" in row.index and pd.notna(row["tatn_close"]):
+        out["tatn_close"] = float(row["tatn_close"])
+    if "tatnp_close" in row.index and pd.notna(row["tatnp_close"]):
+        out["tatnp_close"] = float(row["tatnp_close"])
+    return out

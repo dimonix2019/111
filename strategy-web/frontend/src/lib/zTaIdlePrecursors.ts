@@ -1,4 +1,4 @@
-import type { IdleDurationForecast, IdlePrecursors, IdlePrecursorSign } from '@/types'
+import type { IdleDurationForecast, IdleEventCorrelation, IdlePrecursors, IdlePrecursorSign } from '@/types'
 
 const BARS_PER_DAY = 26
 
@@ -271,6 +271,85 @@ export function idleDurationForecast(
   }
 }
 
+const CORP_EVENTS: { date: string; kind: string; label: string }[] = [
+  { date: '2025-08-18', kind: 'div_announce', label: 'див. 6м2025 — рекомендация СД' },
+  { date: '2025-10-14', kind: 'div_registry', label: 'див. 6м2025 — закрытие реестра / отсечка' },
+  { date: '2025-11-17', kind: 'div_announce', label: 'див. 9м2025 — рекомендация СД' },
+  { date: '2026-01-11', kind: 'div_registry', label: 'див. 9м2025 — закрытие реестра' },
+  { date: '2026-04-28', kind: 'div_announce', label: 'див. 2025 финал — рекомендация СД' },
+  { date: '2026-06-25', kind: 'agm', label: 'ГОСА (план)' },
+  { date: '2026-07-15', kind: 'div_registry', label: 'див. 2025 финал — реестр' },
+]
+
+function parseDay(ts?: string): Date | null {
+  if (!ts) return null
+  const d = new Date(ts.slice(0, 10))
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+function idleEventCorrelation(
+  gaps: { days: number; from?: string; to?: string }[],
+  windowDays = 5,
+): IdleEventCorrelation {
+  const long = gaps.filter((g) => g.days >= 7)
+  const events = CORP_EVENTS
+  if (!long.length) {
+    return {
+      window_days: windowDays,
+      long_gaps_count: 0,
+      matches_count: 0,
+      strength: 'none',
+      summary: 'Длинных пауз ≥7 дн. нет — корреляцию с дивидендами оценить нельзя.',
+      events,
+      rows: [],
+    }
+  }
+  let matches = 0
+  const rows = long
+    .slice()
+    .sort((a, b) => b.days - a.days)
+    .slice(0, 12)
+    .map((g) => {
+      const tags: string[] = []
+      const gf = parseDay(g.from)
+      const gt = parseDay(g.to)
+      if (gf && gt) {
+        for (const ev of events) {
+          const ed = parseDay(ev.date)
+          if (!ed) continue
+          const from = new Date(gf)
+          from.setDate(from.getDate() - windowDays)
+          const to = new Date(gt)
+          to.setDate(to.getDate() + windowDays)
+          if (ed >= from && ed <= to) {
+            if (!tags.includes(ev.kind)) tags.push(ev.kind)
+          }
+        }
+      }
+      if (tags.length > 0) matches++
+      return {
+        days: g.days,
+        from: g.from ?? '',
+        to: g.to ?? '',
+        tags,
+      }
+    })
+  const strength: IdleEventCorrelation['strength'] =
+    matches >= long.length * 0.5 && long.length >= 3 ? 'moderate' : matches >= 2 ? 'weak' : 'none'
+  return {
+    window_days: windowDays,
+    long_gaps_count: long.length,
+    matches_count: matches,
+    strength,
+    summary:
+      matches >= 2
+        ? `Частичное совпадение длинных пауз с дивидендами/СД (${matches}/${long.length}).`
+        : 'Слабая связь с дивидендами/СД; паузы в основном от Z в нейтрали.',
+    events,
+    rows,
+  }
+}
+
 /** Локальный расчёт (если API ещё без idle_precursors). */
 export function computeIdlePrecursorsFromZ(
   zscore: { z_score: number }[],
@@ -278,7 +357,7 @@ export function computeIdlePrecursorsFromZ(
   exitZ: number,
   idleDays = 0,
   inPosition = false,
-  idleGaps: { days: number }[] = [],
+  idleGaps: { days: number; from?: string; to?: string }[] = [],
 ): IdlePrecursors {
   const z = zscore.map((p) => p.z_score)
   const feat = zTaFeatures(z, entry, exitZ)
@@ -302,6 +381,7 @@ export function computeIdlePrecursorsFromZ(
     summary,
     verdict,
     duration_forecast: forecast,
+    event_correlation: idleEventCorrelation(idleGaps),
     features: Object.fromEntries(
       Object.entries(feat).map(([k, v]) => [k, Math.round(v * 10000) / 10000]),
     ),

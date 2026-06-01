@@ -39,6 +39,18 @@ class Bar:
     spread_percent: float
     tatn_close: Optional[float] = None
     tatnp_close: Optional[float] = None
+    tatn_open: Optional[float] = None
+    tatn_high: Optional[float] = None
+    tatn_low: Optional[float] = None
+    tatnp_open: Optional[float] = None
+    tatnp_high: Optional[float] = None
+    tatnp_low: Optional[float] = None
+    spread_open: Optional[float] = None
+    spread_high: Optional[float] = None
+    spread_low: Optional[float] = None
+    spread_close: Optional[float] = None
+    tatn_volume: Optional[float] = None
+    tatnp_volume: Optional[float] = None
 
 
 @dataclass
@@ -1711,6 +1723,12 @@ def load_bars_from_csv(
     tatn = df["tatn_close"] if has_tatn else None
     tatnp = df["tatnp_close"] if has_tatnp else None
 
+    def _opt(col: str, i: int) -> Optional[float]:
+        if col not in df.columns:
+            return None
+        v = df[col].iloc[i]
+        return float(v) if pd.notna(v) else None
+
     bars: List[Bar] = []
     for i, (ts, z, sp) in enumerate(zip(df["timestamp"], zs, spreads)):
         t_close = float(tatn.iloc[i]) if tatn is not None and pd.notna(tatn.iloc[i]) else None
@@ -1722,6 +1740,18 @@ def load_bars_from_csv(
                 spread_percent=float(sp),
                 tatn_close=t_close,
                 tatnp_close=p_close,
+                tatn_open=_opt("tatn_open", i),
+                tatn_high=_opt("tatn_high", i),
+                tatn_low=_opt("tatn_low", i),
+                tatnp_open=_opt("tatnp_open", i),
+                tatnp_high=_opt("tatnp_high", i),
+                tatnp_low=_opt("tatnp_low", i),
+                spread_open=_opt("spread_open", i),
+                spread_high=_opt("spread_high", i),
+                spread_low=_opt("spread_low", i),
+                spread_close=_opt("spread_close", i),
+                tatn_volume=_opt("tatn_volume", i),
+                tatnp_volume=_opt("tatnp_volume", i),
             )
         )
     return bars
