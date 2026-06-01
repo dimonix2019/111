@@ -124,6 +124,47 @@ internal fun MoexScreenTabPortfolio(
                         commissionPercentPerSide = portfolioCommissionPercent
                     )
                 }
+                val launchTestSpreadPair: (StrategySignalType) -> Unit = { signalType ->
+                    scope.launch {
+                        portfolioTestBusy = true
+                        try {
+                            val r = withContext(Dispatchers.IO) {
+                                runPortfolioTestSpreadPairFull(
+                                    context.applicationContext,
+                                    signalType,
+                                )
+                            }
+                            if (r.isSuccess) {
+                                val result = r.getOrThrow()
+                                zStrategyPosition = loadSavedStrategyPosition(context)
+                                if (sandboxSpreadAutoExecute) {
+                                    clearPendingVirtualTradeProposal(context)
+                                    pendingVirtualTrade = null
+                                } else {
+                                    pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
+                                }
+                                signalEvents = loadStrategySignalEvents(context)
+                                sandboxSpreadExecReload += result.sandboxSpreadExecReloadDelta
+                                Toast.makeText(
+                                    context,
+                                    result.toastMessage,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } else {
+                                val err = r.exceptionOrNull()
+                                Toast.makeText(
+                                    context,
+                                    err?.message?.take(400)
+                                        ?: err?.javaClass?.simpleName
+                                        ?: "Ошибка",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        } finally {
+                            portfolioTestBusy = false
+                        }
+                    }
+                }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -168,49 +209,11 @@ internal fun MoexScreenTabPortfolio(
                                 }
                             },
                             portfolioTestBusy = portfolioTestBusy,
-                            onTestSpreadPairClick = {
-                                scope.launch {
-                                    portfolioTestBusy = true
-                                    try {
-                                        val proposal = pendingVirtualTrade
-                                        val pairType = when (proposal?.signalType) {
-                                            StrategySignalType.EnterShort -> StrategySignalType.EnterShort
-                                            else -> StrategySignalType.EnterLong
-                                        }
-                                        val r = withContext(Dispatchers.IO) {
-                                            runPortfolioTestSpreadPairFull(
-                                                context.applicationContext,
-                                                pairType
-                                            )
-                                        }
-                                        if (r.isSuccess) {
-                                            val result = r.getOrThrow()
-                                            zStrategyPosition = loadSavedStrategyPosition(context)
-                                            if (sandboxSpreadAutoExecute) {
-                                                clearPendingVirtualTradeProposal(context)
-                                                pendingVirtualTrade = null
-                                            } else {
-                                                pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                            }
-                                            signalEvents = loadStrategySignalEvents(context)
-                                            sandboxSpreadExecReload += result.sandboxSpreadExecReloadDelta
-                                            Toast.makeText(
-                                                context,
-                                                result.toastMessage,
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        } else {
-                                            val err = r.exceptionOrNull()
-                                            Toast.makeText(
-                                                context,
-                                                err?.message?.take(400) ?: err?.javaClass?.simpleName ?: "Ошибка",
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        }
-                                    } finally {
-                                        portfolioTestBusy = false
-                                    }
-                                }
+                            onTestSpreadPairLongClick = {
+                                launchTestSpreadPair(StrategySignalType.EnterLong)
+                            },
+                            onTestSpreadPairShortClick = {
+                                launchTestSpreadPair(StrategySignalType.EnterShort)
                             },
                             closeAllPortfolioBusy = closeAllPortfolioBusy,
                             onCloseAllTradesClick = { showCloseAllPortfolioDialog = true },

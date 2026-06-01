@@ -98,6 +98,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.33 — Портфель: кнопки «Тестовая пара Long» и «Тестовая пара Short» вместо одной.
 1.7.32 — Z-график: подписи времени слева→направо (dd.MM HH:mm, выравнивание RIGHT); сортировка 15м баров.
 1.7.31 — Альбом fullscreen: 3M/6M/1Y без вылета (окно периода, расчёт графика в фоне, кэш rolling Z).
 1.7.30 — Альбом: кнопки 1D/1W/1M/… только фильтруют Z-график (без refresh MOEX — исправлен вылет на 1M).

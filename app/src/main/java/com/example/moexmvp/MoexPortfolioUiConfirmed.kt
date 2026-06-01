@@ -75,7 +75,8 @@ internal fun ConfirmedPortfolioTabContent(
     portfolioLedgerIncludeAuto: Boolean,
     onPortfolioLedgerIncludeAutoChange: (Boolean) -> Unit,
     portfolioTestBusy: Boolean,
-    onTestSpreadPairClick: () -> Unit,
+    onTestSpreadPairLongClick: () -> Unit,
+    onTestSpreadPairShortClick: () -> Unit,
     closeAllPortfolioBusy: Boolean,
     onCloseAllTradesClick: () -> Unit,
     dailyReconciliation: DailyPortfolioReconciliation? = null,
@@ -173,9 +174,9 @@ internal fun ConfirmedPortfolioTabContent(
             }
             Text(
                 text = if (portfolioLedgerIncludeAuto) {
-                    "Авто: сигнал и «Тестовая пара» сразу открывают сделку на демо (2 заявки), без «Принять»."
+                    "Авто: сигнал и «Тестовая пара Long/Short» сразу открывают сделку на демо (2 заявки), без «Принять»."
                 } else {
-                    "Ручной: при сигнале или «Тестовая пара» — карточка «Принять» / «Отклонить», затем сделка в открытых."
+                    "Ручной: при сигнале или «Тестовая пара Long/Short» — карточка «Принять» / «Отклонить», затем сделка в открытых."
                 },
                 color = Color(0xFFCE93D8),
                 fontSize = 10.sp,
@@ -228,14 +229,28 @@ internal fun ConfirmedPortfolioTabContent(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                OutlinedButton(
-                    onClick = onTestSpreadPairClick,
-                    enabled = !portfolioTestBusy,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB2DFDB))
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Тестовая пара", fontSize = 12.sp)
+                    OutlinedButton(
+                        onClick = onTestSpreadPairLongClick,
+                        enabled = !portfolioTestBusy,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF69F0AE))
+                    ) {
+                        Text("Тестовая пара Long", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onTestSpreadPairShortClick,
+                        enabled = !portfolioTestBusy,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF8A80))
+                    ) {
+                        Text("Тестовая пара Short", fontSize = 11.sp)
+                    }
                 }
                 if (portfolioTestBusy) {
                     Row(
