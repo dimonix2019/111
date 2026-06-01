@@ -26,14 +26,14 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: Portf
                 }
                 if (loaded.isNotEmpty()) {
                     portfolioM15Points = loaded
-                    if (marketsM15Points.isEmpty()) marketsM15Points = loaded
+                    if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
                 }
                 syncSandboxExecutionsEnrichment()
                 return@refreshPortfolioUnlocked
             }
             val points = loaded
             portfolioM15Points = loaded
-            if (marketsM15Points.isEmpty()) marketsM15Points = loaded
+            if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
             val desc =
                 "15 мин (ISS 10m→15m) · $PORTFOLIO_TAB_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
 
@@ -154,26 +154,26 @@ internal suspend fun MoexScreenState.refreshData(
                             state = cached
                             marketsStale = false
                         }
-                        if (marketsM15Points.size < 2) {
+                        if (marketsM15Source().size < 2) {
                             loadM15ForMarkets(PortfolioM15LoadMode.CACHE_ONLY)
                                 .takeIf { it.size >= 2 }?.let { loaded ->
-                                marketsM15Points = loaded
+                                storeMarketsM15(loaded)
                                 if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
                             }
                         }
                         when {
-                            marketsM15Points.size < 2 -> {
+                            marketsM15Source().size < 2 -> {
                                 val loaded = loadM15ForMarkets()
                                 if (loaded.size >= 2) {
-                                    marketsM15Points = loaded
+                                    storeMarketsM15(loaded)
                                     portfolioM15Points = loaded
                                 }
                             }
-                            portfolio15mSeriesTailStale(marketsM15Points) -> {
+                            portfolio15mSeriesTailStale(marketsM15Source()) -> {
                                 launchScope.launch {
                                     val loaded = loadM15ForMarkets()
                                     if (loaded.size >= 2) {
-                                        marketsM15Points = loaded
+                                        storeMarketsM15(loaded)
                                         if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
                                     }
                                 }
@@ -205,23 +205,23 @@ internal suspend fun MoexScreenState.refreshData(
                         if (cached != null) return cached
                         val loaded = loadM15ForMarkets(mode = PortfolioM15LoadMode.INCREMENTAL)
                         loadedM15ForMarkets = loaded
-                        marketsM15Points = loaded
+                        storeMarketsM15(loaded)
                         portfolioM15Points = loaded
                         return loaded
                     }
-                    val m15CachedReady = marketsM15Points.size >= 2 &&
-                        !portfolio15mSeriesTailStale(marketsM15Points)
+                    val m15CachedReady = marketsM15Source().size >= 2 &&
+                        !portfolio15mSeriesTailStale(marketsM15Source())
                     val deferM15Network = preferBackground && m15CachedReady
                     if (deferM15Network) {
                         launchScope.launch {
                             val loaded = loadM15ForMarkets()
                             if (loaded.size >= 2) {
                                 loadedM15ForMarkets = loaded
-                                marketsM15Points = loaded
+                                storeMarketsM15(loaded)
                                 portfolioM15Points = loaded
                             }
                         }
-                    } else if (!fromDiskCache || marketsM15Points.isEmpty()) {
+                    } else if (!fromDiskCache || marketsM15Source().isEmpty()) {
                         runCatching { loadMarketsM15PointsOnce() }
                     }
                     if (thresholdUpdate.recalculated &&

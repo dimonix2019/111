@@ -30,13 +30,13 @@ internal fun MoexScreenTabPortfolio(
             val enrichmentPoints by produceState(
                 initialValue = emptyList<DataPoint>(),
                 portfolioM15Points,
-                marketsM15Points,
+                marketsM15DataEpoch,
                 lastGoodMarkets?.points,
             ) {
                 value = withContext(Dispatchers.Default) {
                     when {
                         portfolioM15Points.isNotEmpty() -> portfolioM15Points
-                        marketsM15Points.isNotEmpty() -> marketsM15Points
+                        marketsM15Source().isNotEmpty() -> marketsM15Source()
                         !lastGoodMarkets?.points.isNullOrEmpty() ->
                             applyZScoresDefault(lastGoodMarkets!!.points)
                         else -> emptyList()

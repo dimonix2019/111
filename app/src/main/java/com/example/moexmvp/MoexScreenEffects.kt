@@ -226,7 +226,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
 
     LaunchedEffect(
         portfolioM15Points,
-        marketsM15Points,
+        marketsM15DataEpoch,
         portfolioLeverage,
         portfolioCommissionPercent,
         sandboxSpreadExecReload,

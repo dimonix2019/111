@@ -90,13 +90,13 @@ internal fun enrichSandboxExecutionsIfNeeded(
 
 internal suspend fun MoexScreenState.resolveEnrichmentPoints(): List<DataPoint> {
     if (portfolioM15Points.isNotEmpty()) return portfolioM15Points
-    if (marketsM15Points.isNotEmpty()) return marketsM15Points
+    if (marketsM15Source().isNotEmpty()) return marketsM15Source()
     val cached = withContext(Dispatchers.IO) {
         loadPortfolio15mPointsForSignalMonitor(context, PortfolioM15LoadMode.CACHE_ONLY)
     }
     if (cached.isNotEmpty()) {
         if (portfolioM15Points.isEmpty()) portfolioM15Points = cached
-        if (marketsM15Points.isEmpty()) marketsM15Points = cached
+        if (marketsM15Source().isEmpty()) storeMarketsM15(cached)
         return cached
     }
     val snapshotPoints = lastGoodMarkets?.points.orEmpty()

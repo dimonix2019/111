@@ -112,6 +112,15 @@ class MoexAppRegressionTest {
     }
 
     @Test
+    fun threeMonths_filteredChartBuild_staysWithinDisplayCap() = runBlocking {
+        val full = syntheticM15Points(calendarDays = 130)
+        val filtered = filterM15PointsForMarketsPeriod(full, Period.ThreeMonths)
+        val (pts, candles) = buildM15ZChartSeriesForUi(filtered)
+        assertTrue(pts.size <= CHART_MAX_DISPLAY_BARS + 1)
+        assertEquals(pts.size, candles.size)
+    }
+
+    @Test
     fun buildZStrategyTapMetrics_oneMonthPoints_doesNotThrow() {
         val full = syntheticM15Points(calendarDays = 35)
         val month = filterM15PointsForMarketsPeriod(full, Period.OneMonth)

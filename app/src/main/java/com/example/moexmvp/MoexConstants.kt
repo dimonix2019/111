@@ -107,6 +107,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.45 — Рынок 3M: 15м вне Compose state; фильтр/график в фоне; без двойной загрузки и refresh MOEX по кнопке периода.
 1.7.44 — Тест страт.: без авто-MOEX при открытии; полный 255д ряд вне Compose state (нет OOM ~30с).
 1.7.43 — Стабильность: Z-график и 255д 15м только на активной вкладке; освобождение памяти при уходе с «Тест страт.»; CHART_MAX 1200.
 1.7.42 — Тест страт.: исправлен вылет (LazyColumn), отдельный ряд 255д, симуляция только на вкладке.

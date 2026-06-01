@@ -47,7 +47,10 @@ internal class MoexScreenState(val context: Context) {
     var state by mutableStateOf<UiState>(UiState.Loading)
     var lastGoodMarkets by mutableStateOf<UiState.Success?>(null)
     var marketsStale by mutableStateOf(false)
+    /** @deprecated Используйте [marketsM15SessionCache] + [storeMarketsM15]; оставлено для миграции читателей. */
     var marketsM15Points by mutableStateOf<List<DataPoint>>(emptyList())
+    var marketsM15SessionCache: List<DataPoint> = emptyList()
+    var marketsM15DataEpoch by mutableStateOf(0)
     var portfolioM15Points by mutableStateOf<List<DataPoint>>(emptyList())
     /** Полный 15м ряд (~255д) для симуляции — не в Compose state (OOM). */
     var strategyTestM15SessionCache: List<DataPoint> = emptyList()

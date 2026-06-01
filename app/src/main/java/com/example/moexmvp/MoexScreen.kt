@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,9 +35,22 @@ internal fun MoexScreen() {
     val onMarketsTab = screen.selectedTab == MainTab.Markets
     val onStrategyTestTab = screen.selectedTab == MainTab.StrategyTest
 
-    val marketsM15SimPoints = remember(screen.marketsM15Points, screen.marketsZChartPeriod, onMarketsTab) {
-        if (!onMarketsTab) return@remember emptyList()
-        filterM15PointsForMarketsPeriod(screen.marketsM15Points, screen.marketsZChartPeriod)
+    val marketsM15SimPoints by produceState(
+        initialValue = emptyList<DataPoint>(),
+        screen.marketsM15DataEpoch,
+        screen.marketsZChartPeriod,
+        onMarketsTab,
+    ) {
+        if (!onMarketsTab) {
+            value = emptyList()
+            return@produceState
+        }
+        value = withContext(Dispatchers.Default) {
+            filterM15PointsForMarketsPeriod(
+                screen.marketsM15Source(),
+                screen.marketsZChartPeriod,
+            )
+        }
     }
     val marketsChartSeries = if (onMarketsTab) {
         rememberM15ZChartSeries(marketsM15SimPoints)

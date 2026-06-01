@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -92,11 +93,12 @@ internal suspend fun MoexScreenState.loadM15SeriesForPortfolio(
 }
 
 internal fun MoexScreenState.marketsM15SpanDays(): Long {
-    if (marketsM15Points.size < 2) return 0L
+    val src = marketsM15Source()
+    if (src.size < 2) return 0L
     val zone = moexZoneId
-    val first = java.time.Instant.ofEpochMilli(marketsM15Points.first().timestampMillis)
+    val first = java.time.Instant.ofEpochMilli(src.first().timestampMillis)
         .atZone(zone).toLocalDate()
-    val last = java.time.Instant.ofEpochMilli(marketsM15Points.last().timestampMillis)
+    val last = java.time.Instant.ofEpochMilli(src.last().timestampMillis)
         .atZone(zone).toLocalDate()
     return ChronoUnit.DAYS.between(first, last) + 1
 }
@@ -109,14 +111,17 @@ internal suspend fun MoexScreenState.ensureMarketsM15ForPeriod(
     val uiPeriod = period.coerceToMarketsUiPeriod()
     if (uiPeriod != marketsZChartPeriod) marketsZChartPeriod = uiPeriod
     val needed = marketsM15LookbackDays(uiPeriod)
-    if (marketsM15SpanDays() + 3 >= needed && marketsM15Points.size >= 2 &&
-        !portfolio15mSeriesTailStale(marketsM15Points)
+    val src = marketsM15Source()
+    if (marketsM15SpanDays() + 3 >= needed && src.size >= 2 &&
+        !portfolio15mSeriesTailStale(src)
     ) {
         return
     }
-    val loaded = loadM15ForMarkets(mode, period)
-    if (loaded.size >= 2) {
-        marketsM15Points = loaded
-        if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
+    refreshMutex.withLock {
+        val loaded = loadM15ForMarkets(mode, period)
+        if (loaded.size >= 2) {
+            storeMarketsM15(loaded)
+            if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
+        }
     }
 }

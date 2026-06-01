@@ -21,7 +21,7 @@ internal suspend fun MoexScreenState.hydrateMarketsFromLocalCache(preferredPerio
                     val ageMs = marketsSnapshotAgeMillis(context, preferredPeriod)
                     marketsStale = ageMs != null && ageMs > MARKETS_SNAPSHOT_TTL_MS
                 }
-                if (marketsM15Points.isEmpty()) {
+                if (marketsM15Source().isEmpty()) {
                     runCatching {
                         loadPortfolio15mPointsForSignalMonitor(
                             context,
@@ -30,7 +30,7 @@ internal suspend fun MoexScreenState.hydrateMarketsFromLocalCache(preferredPerio
                             lookbackDays = marketsM15LookbackDays(Period.OneDay),
                         )
                     }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { pts ->
-                        marketsM15Points = pts
+                        storeMarketsM15(pts)
                         if (portfolioM15Points.isEmpty()) portfolioM15Points = pts
                     }
                 }
