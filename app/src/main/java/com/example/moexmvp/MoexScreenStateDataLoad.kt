@@ -68,7 +68,7 @@ internal suspend fun MoexScreenState.loadM15ForStrategyTest(
             from = from,
             preferredMode = mode,
             onProgress = dataLoadProgressSink(),
-            wipeAllOnFullRefresh = mode == PortfolioM15LoadMode.FULL_REFRESH,
+            wipeAllOnFullRefresh = false,
             retentionDays = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
         )
     }

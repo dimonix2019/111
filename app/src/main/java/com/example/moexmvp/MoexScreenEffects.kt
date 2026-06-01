@@ -57,8 +57,8 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     with(screen) {
         val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
     LaunchedEffect(
-        portfolioM15Points,
-        marketsM15Points,
+        selectedTab,
+        strategyTestM15Points,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
         portfolioLeverage,
@@ -67,16 +67,13 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         dynamicThresholds.entry,
         dynamicThresholds.exit,
         dynamicThresholds.calculatedDate,
-        selectedTab,
     ) {
-        if (selectedTab == MainTab.Markets) {
-            delay(800)
-        }
+        if (selectedTab != MainTab.StrategyTest) return@LaunchedEffect
         strategyTestSimComputing = true
         try {
             val points = m15PointsForStrategyTest()
             strategyTestPortfolioMetrics = withContext(Dispatchers.Default) {
-                if (points.size < 2) return@withContext null
+                if (!points.sufficientForStrategyTestSimulation()) return@withContext null
                 val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
                     .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
                 val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)

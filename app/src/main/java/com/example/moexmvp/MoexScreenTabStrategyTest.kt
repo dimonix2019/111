@@ -59,12 +59,12 @@ internal fun MoexScreenTabStrategyTest(
     strategyTestChartThresholds: DynamicThresholds,
     strategyTestZInitialWindow: Pair<Float, Float>,
 ) {
-    Column(modifier) {
-    with(screen) {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+    Column(modifier.fillMaxSize()) {
+        with(screen) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                     item {
                         StrategyTestTabContent(
                             metrics = strategyTestPortfolioMetrics,
@@ -125,16 +125,9 @@ internal fun MoexScreenTabStrategyTest(
                                 scope.launch {
                                     walkForwardBusy = true
                                     try {
-                                        val till = LocalDate.now(moexZoneId)
-                                        val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
-                                        val pts = withContext(Dispatchers.IO) {
-                                            loadPortfolio15mDataPoints(
-                                                context,
-                                                from,
-                                                till,
-                                                PortfolioM15LoadMode.INCREMENTAL
-                                            )
-                                        }
+                                        val pts = loadM15ForStrategyTest(
+                                            PortfolioM15LoadMode.INCREMENTAL,
+                                        )
                                         val th = if (pts.size >= 80) {
                                             withContext(Dispatchers.Default) {
                                                 calculateWalkForwardRobustThresholds(pts)
@@ -164,7 +157,7 @@ internal fun MoexScreenTabStrategyTest(
                                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
                         )
                     }
-                }
-    }
+            }
+        }
     }
 }

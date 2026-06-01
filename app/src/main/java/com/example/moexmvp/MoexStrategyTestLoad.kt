@@ -1,14 +1,27 @@
 package com.example.moexmvp
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 
-/** 15м ряд для симуляции «Тест страт.» — portfolio, markets или кэш. */
-internal fun MoexScreenState.m15PointsForStrategyTest(): List<DataPoint> = when {
-    portfolioM15Points.size >= 2 -> portfolioM15Points
-    marketsM15Points.size >= 2 -> marketsM15Points
-    else -> emptyList()
+/** Минимальный календарный охват 15м для полной симуляции (~255 дн.). */
+internal const val STRATEGY_TEST_MIN_SPAN_DAYS = 180L
+
+internal fun List<DataPoint>.m15CalendarSpanDays(): Long {
+    if (size < 2) return 0L
+    val zone = moexZoneId
+    val first = Instant.ofEpochMilli(first().timestampMillis).atZone(zone).toLocalDate()
+    val last = Instant.ofEpochMilli(last().timestampMillis).atZone(zone).toLocalDate()
+    return ChronoUnit.DAYS.between(first, last) + 1
 }
+
+internal fun List<DataPoint>.sufficientForStrategyTestSimulation(): Boolean =
+    size >= Z_SCORE_ROLLING_MIN_BARS && m15CalendarSpanDays() >= STRATEGY_TEST_MIN_SPAN_DAYS
+
+/** 15м ряд для симуляции «Тест страт.» */
+internal fun MoexScreenState.m15PointsForStrategyTest(): List<DataPoint> =
+    strategyTestM15Points.takeIf { it.sufficientForStrategyTestSimulation() }
+        ?: strategyTestM15Points.takeIf { it.size >= 2 }
+        ?: emptyList()
 
 /**
  * Подгрузка 15м для симуляции без полного refresh портфеля (не блокирует демо-сделки).
@@ -23,30 +36,27 @@ internal suspend fun MoexScreenState.ensureM15PointsForStrategyTest(
     try {
         fun publish(points: List<DataPoint>) {
             if (points.isEmpty()) return
-            portfolioM15Points = points
-            if (marketsM15Points.isEmpty()) marketsM15Points = points
+            strategyTestM15Points = points
         }
 
-        if (m15PointsForStrategyTest().size >= 2) return true
-
-        val resolved = resolveEnrichmentPoints()
-        if (resolved.size >= 2) {
-            publish(resolved)
-            return true
-        }
-        if (resolved.isNotEmpty()) publish(resolved)
+        if (strategyTestM15Points.sufficientForStrategyTestSimulation()) return true
 
         if (!preferNetwork) {
-            if (m15PointsForStrategyTest().size < 2) {
+            val cached = loadM15ForStrategyTest(PortfolioM15LoadMode.CACHE_ONLY)
+            if (cached.sufficientForStrategyTestSimulation()) {
+                publish(cached)
+                return true
+            }
+            if (strategyTestM15Points.size < 2) {
                 strategyTestError =
                     "Нет 15м данных в кэше. Нажмите «Обновить» для загрузки с MOEX."
             }
-            return m15PointsForStrategyTest().size >= 2
+            return strategyTestM15Points.size >= 2
         }
 
         val loaded = loadM15ForStrategyTest(networkMode)
         publish(loaded)
-        if (m15PointsForStrategyTest().size < 2) {
+        if (!strategyTestM15Points.sufficientForStrategyTestSimulation()) {
             strategyTestError = when (networkMode) {
                 PortfolioM15LoadMode.FULL_REFRESH ->
                     "Нет 15м данных (ISS / сеть). Попробуйте позже."
@@ -54,7 +64,7 @@ internal suspend fun MoexScreenState.ensureM15PointsForStrategyTest(
                     "Нет 15м данных (ISS / сеть). Попробуйте «MOEX заново»."
             }
         }
-        return m15PointsForStrategyTest().size >= 2
+        return strategyTestM15Points.size >= 2
     } finally {
         strategyTestM15Loading = false
     }

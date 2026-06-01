@@ -38,16 +38,11 @@ internal fun MoexScreen() {
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second
 
-    val strategyTestM15Full = remember(screen.portfolioM15Points, screen.marketsM15Points) {
-        when {
-            screen.portfolioM15Points.size >= 2 -> screen.portfolioM15Points
-            screen.marketsM15Points.size >= 2 -> screen.marketsM15Points
-            else -> emptyList()
-        }
-    }
-    val strategyTestM15SimPoints = remember(strategyTestM15Full) {
-        val tail = filterM15PointsForMarketsPeriod(strategyTestM15Full, Period.OneMonth)
-        if (tail.size >= 2) tail else strategyTestM15Full
+    val strategyTestM15SimPoints = remember(screen.strategyTestM15Points) {
+        val full = screen.strategyTestM15Points
+        if (full.size < 2) return@remember emptyList()
+        val tail = filterM15PointsForMarketsPeriod(full, Period.OneMonth)
+        if (tail.size >= 2) tail else full
     }
     val strategyTestChartSeries = rememberM15ZChartSeries(strategyTestM15SimPoints)
     val strategyTestM15ChartPoints = strategyTestChartSeries.first
@@ -161,12 +156,12 @@ internal fun MoexScreen() {
             MainTab.Portfolio -> MoexScreenTabPortfolio(
                 screen = screen,
                 scope = scope,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxSize(),
             )
             MainTab.StrategyTest -> MoexScreenTabStrategyTest(
                 screen = screen,
                 scope = scope,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxSize(),
                 strategyTestTradeItems = strategyTestTradeItems,
                 strategyTestM15ChartPoints = strategyTestM15ChartPoints,
                 strategyTestZScoreCandles = strategyTestZScoreCandles,
@@ -176,7 +171,7 @@ internal fun MoexScreen() {
             MainTab.Markets -> MoexScreenTabMarkets(
                 screen = screen,
                 scope = scope,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxSize(),
                 landscapeZChartFullscreen = landscapeZChartFullscreen,
                 chartSuccess = chartSuccess,
                 staleMarkets = staleMarkets,
