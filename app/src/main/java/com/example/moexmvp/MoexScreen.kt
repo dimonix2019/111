@@ -155,9 +155,12 @@ internal fun MoexScreen() {
             .padding(if (landscapeZChartFullscreen) 0.dp else 12.dp)
     ) {
         if (!landscapeZChartFullscreen) {
-            screen.dataLoadProgress?.takeIf { it.active }?.let { progress ->
+            if (screen.isDataLoadActive) {
                 DataLoadProgressCard(
-                    progress = progress,
+                    progress = screen.dataLoadProgress ?: DataLoadProgress(
+                        phase = DataLoadPhase.CacheRead,
+                        detail = "подготовка…",
+                    ),
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }

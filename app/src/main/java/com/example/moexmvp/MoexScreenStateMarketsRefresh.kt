@@ -14,6 +14,7 @@ internal suspend fun MoexScreenState.refreshMarketsDailyOnly(period: Period) {
         refreshMutex.withLock {
             isRefreshing = true
             try {
+                withDataLoadSession {
                 reportDataLoadProgress(
                     DataLoadProgress(
                         phase = DataLoadPhase.MarketsDaily,
@@ -27,7 +28,7 @@ internal suspend fun MoexScreenState.refreshMarketsDailyOnly(period: Period) {
                         marketsStale = false
                         state = cached
                         realtimeError = null
-                        return@withLock
+                        return@withDataLoadSession
                     }
                 }
                 readMarketsSnapshotForDisplay(context, period)?.let { cached ->
@@ -57,9 +58,9 @@ internal suspend fun MoexScreenState.refreshMarketsDailyOnly(period: Period) {
                     }
                     UiState.Loading -> Unit
                 }
+                }
             } finally {
                 isRefreshing = false
-                reportDataLoadProgress(null)
             }
         }
     }

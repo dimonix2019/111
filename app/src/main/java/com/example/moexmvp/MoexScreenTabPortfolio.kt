@@ -97,6 +97,7 @@ internal fun MoexScreenTabPortfolio(
                             if (portfolioLoading) {
                                 LoadingStateWithProgress(
                                     progress = dataLoadProgress,
+                                    dataLoadSessions = dataLoadSessions,
                                     statusText = "Загрузка 15м портфеля…",
                                 )
                             } else {

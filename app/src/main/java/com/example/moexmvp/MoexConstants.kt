@@ -98,6 +98,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.37 — Прогресс-бар обновляется по ходу загрузки (сессии, фоновая MOEX, анимация дневного ряда).
 1.7.36 — Прогресс загрузки: кэш SQLite (баров) и MOEX ISS (баров + чанк) при долгой подгрузке 15м.
 1.7.35 — Регрессионные тесты (все периоды графика, 1W/1M, кэш, viewport); исправлен тест stop-loss.
 1.7.34 — 1W/1M: Z-график в фоне (без вылета); период «Рынок» — сначала кэш снимка; старт с локальных данных.

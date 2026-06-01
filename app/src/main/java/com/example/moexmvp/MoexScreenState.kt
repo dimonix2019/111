@@ -81,4 +81,6 @@ internal class MoexScreenState(val context: Context) {
     var initialMarketsRefreshDone by mutableStateOf(false)
     /** Прогресс загрузки 15м (кэш / MOEX) и дневного ряда — для прогресс-бара на UI. */
     var dataLoadProgress by mutableStateOf<DataLoadProgress?>(null)
+    /** Счётчик активных загрузок; пока > 0, прогресс-бар не скрывается. */
+    var dataLoadSessions by mutableStateOf(0)
 }

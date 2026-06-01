@@ -44,9 +44,7 @@ internal suspend fun MoexScreenState.ensureM15PointsForStrategyTest(
             return m15PointsForStrategyTest().size >= 2
         }
 
-        val loaded = withContext(Dispatchers.IO) {
-            loadPortfolio15mPointsForSignalMonitor(context, networkMode)
-        }
+        val loaded = loadM15ForMonitor(networkMode)
         publish(loaded)
         if (m15PointsForStrategyTest().size < 2) {
             strategyTestError = when (networkMode) {

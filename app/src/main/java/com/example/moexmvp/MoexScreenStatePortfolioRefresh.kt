@@ -16,12 +16,7 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: Portf
             val till = LocalDate.now(moexZoneId)
             val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
             val m15Mode = m15LoadHint ?: resolvePortfolioM15LoadMode(context)
-            val loaded = loadPortfolio15mSeriesEnsuringRecentTail(
-                context,
-                from,
-                m15Mode,
-                dataLoadProgressSink(),
-            )
+            val loaded = loadM15SeriesForPortfolio(from, m15Mode)
             if (loaded.size < 2) {
                 confirmedPortfolioMetrics = null
                 confirmedPortfolioTableRows = emptyList()
@@ -128,7 +123,6 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: Portf
             }
         } finally {
             portfolioLoading = false
-            reportDataLoadProgress(null)
         }
     }
 
@@ -148,7 +142,7 @@ internal suspend fun MoexScreenState.refreshData(
         val blockUi = showLoading && !hasDisplayCache
 
         suspend fun performRefresh() {
-            try {
+            withDataLoadSession {
                 val progressSink = dataLoadProgressSink()
                 val skipDailyNetwork = lastGoodMarkets != null &&
                     marketsSnapshotFreshEnough(context, selectedPeriod)
@@ -163,25 +157,15 @@ internal suspend fun MoexScreenState.refreshData(
                             marketsStale = false
                         }
                         if (marketsM15Points.size < 2) {
-                            withContext(Dispatchers.IO) {
-                                loadPortfolio15mPointsForSignalMonitor(
-                                    context,
-                                    PortfolioM15LoadMode.CACHE_ONLY,
-                                    progressSink,
-                                )
-                            }.takeIf { it.size >= 2 }?.let { loaded ->
+                            loadM15ForMonitor(PortfolioM15LoadMode.CACHE_ONLY)
+                                .takeIf { it.size >= 2 }?.let { loaded ->
                                 marketsM15Points = loaded
                                 if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
                             }
                         }
                         when {
                             marketsM15Points.size < 2 -> {
-                                val loaded = withContext(Dispatchers.IO) {
-                                    loadPortfolio15mPointsForSignalMonitor(
-                                        context,
-                                        onProgress = progressSink,
-                                    )
-                                }
+                                val loaded = loadM15ForMonitor()
                                 if (loaded.size >= 2) {
                                     marketsM15Points = loaded
                                     portfolioM15Points = loaded
@@ -189,12 +173,7 @@ internal suspend fun MoexScreenState.refreshData(
                             }
                             portfolio15mSeriesTailStale(marketsM15Points) -> {
                                 launchScope.launch {
-                                    val loaded = withContext(Dispatchers.IO) {
-                                        loadPortfolio15mPointsForSignalMonitor(
-                                            context,
-                                            onProgress = progressSink,
-                                        )
-                                    }
+                                    val loaded = loadM15ForMonitor()
                                     if (loaded.size >= 2) {
                                         marketsM15Points = loaded
                                         if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
@@ -242,12 +221,7 @@ internal suspend fun MoexScreenState.refreshData(
                     val deferM15Network = preferBackground && m15CachedReady
                     if (deferM15Network) {
                         launchScope.launch {
-                            val loaded = withContext(Dispatchers.IO) {
-                                loadPortfolio15mPointsForSignalMonitor(
-                                    context,
-                                    onProgress = progressSink,
-                                )
-                            }
+                            val loaded = loadM15ForMonitor()
                             if (loaded.size >= 2) {
                                 loadedM15ForMarkets = loaded
                                 marketsM15Points = loaded
@@ -481,9 +455,7 @@ internal suspend fun MoexScreenState.refreshData(
                 UiState.Loading -> Unit
                     }
                 }
-            } finally {
                 initialMarketsRefreshDone = true
-                reportDataLoadProgress(null)
             }
         }
 

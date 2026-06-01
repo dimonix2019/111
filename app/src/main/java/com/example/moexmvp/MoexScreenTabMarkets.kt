@@ -148,13 +148,15 @@ internal fun MoexScreenTabMarkets(
                                 emptyContent = {
                                     when {
                                         marketsZScoreCandles.isNotEmpty() -> Unit
-                                        isRefreshing || chartSuccess != null -> LoadingStateWithProgress(
+                                        isRefreshing || chartSuccess != null || isDataLoadActive -> LoadingStateWithProgress(
                                             progress = dataLoadProgress,
+                                            dataLoadSessions = dataLoadSessions,
                                             statusText = "Загрузка 15м для графика Z…",
                                         )
                                         else -> when (val st = state) {
                                             is UiState.Loading -> LoadingStateWithProgress(
                                                 progress = dataLoadProgress,
+                                                dataLoadSessions = dataLoadSessions,
                                             )
                                             is UiState.Error -> ErrorState(st.message) {
                                                 scope.launch {
@@ -289,7 +291,7 @@ internal fun MoexScreenTabMarkets(
                             )
                         }
                         val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()
-                        val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null)
+                        val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isDataLoadActive)
                         if (showZCharts) {
                             item {
                                 CandlestickChartCard(
@@ -341,13 +343,17 @@ internal fun MoexScreenTabMarkets(
                             item {
                                 LoadingStateWithProgress(
                                     progress = dataLoadProgress,
+                                    dataLoadSessions = dataLoadSessions,
                                     statusText = "Загрузка 15м данных для графика Z…",
                                 )
                             }
                         } else {
                             when (val st = state) {
                                 is UiState.Loading -> item {
-                                    LoadingStateWithProgress(progress = dataLoadProgress)
+                                    LoadingStateWithProgress(
+                                        progress = dataLoadProgress,
+                                        dataLoadSessions = dataLoadSessions,
+                                    )
                                 }
                                 is UiState.Error -> item {
                                     ErrorState(st.message) {

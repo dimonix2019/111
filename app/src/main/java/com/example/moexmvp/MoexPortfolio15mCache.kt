@@ -4,6 +4,7 @@ import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.yield
 
 /** Размер пакета INSERT в Room (лимит SQLite ~999 bind-переменных на запрос). */
 internal const val PORTFOLIO_M15_ROOM_INSERT_BATCH = 80
@@ -45,6 +46,7 @@ internal suspend fun fetchPortfolio15mSpreadEntitiesChunked(
         part.forEach { byTs[it.tsMillis] = it }
         barsTotal += part.size
         onChunk?.invoke(chunkIndex, chunkTotal, part.size, barsTotal.coerceAtMost(moexTarget))
+        yield()
         chunkStart = chunkEnd.plusDays(1)
     }
     return byTs.values.sortedBy { it.tsMillis }
@@ -79,9 +81,12 @@ internal suspend fun downloadPortfolio15mFullRangeToDao(
         val part = fetchPortfolio15mSpreadEntities(chunkStart, chunkEnd)
         insertPortfolio15mEntitiesBatched(dao, part)
         barsDownloaded += part.size
+        val cacheBars = dao.count()
         onProgress?.invoke(
             DataLoadProgress(
                 phase = DataLoadPhase.MoexDownload,
+                cacheBarsLoaded = cacheBars,
+                cacheBarsTotal = cacheBars.coerceAtLeast(moexTarget),
                 moexBarsLoaded = barsDownloaded.coerceAtMost(moexTarget),
                 moexBarsTotal = moexTarget,
                 moexChunkIndex = chunkIndex,
@@ -89,6 +94,7 @@ internal suspend fun downloadPortfolio15mFullRangeToDao(
                 detail = "полная загрузка MOEX",
             )
         )
+        yield()
         chunkStart = chunkEnd.plusDays(1)
     }
 }

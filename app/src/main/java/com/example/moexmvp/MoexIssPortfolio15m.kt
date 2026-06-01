@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -205,6 +206,7 @@ internal suspend fun loadPortfolio15mDataPoints(
                 },
             )
         )
+        yield()
 
         when (mode) {
             PortfolioM15LoadMode.CACHE_ONLY -> Unit
@@ -242,6 +244,7 @@ internal suspend fun loadPortfolio15mDataPoints(
                                     detail = "догрузка MOEX",
                                 )
                             )
+                            yield()
                         },
                     )
                     insertPortfolio15mEntitiesBatched(dao, fresh)

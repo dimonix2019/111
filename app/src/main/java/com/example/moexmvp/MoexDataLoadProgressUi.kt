@@ -9,7 +9,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -59,9 +66,18 @@ internal fun DataLoadProgressCard(
             )
         }
         if (progress.phase == DataLoadPhase.MarketsDaily) {
+            val pulse by rememberInfiniteTransition(label = "marketsDailyPulse").animateFloat(
+                initialValue = 0.12f,
+                targetValue = 0.92f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 900, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "marketsDailyPulseValue",
+            )
             LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth(),
-                progress = { 0.35f },
+                progress = { pulse },
                 color = Color(0xFF64B5F6),
                 trackColor = Color(0xFF37474F),
             )
@@ -103,16 +119,21 @@ private fun phaseTitle(progress: DataLoadProgress): String = when (progress.phas
 @Composable
 internal fun LoadingStateWithProgress(
     progress: DataLoadProgress?,
+    dataLoadSessions: Int = 0,
     statusText: String = "Загрузка…",
 ) {
+    val showProgressCard = (progress?.active == true) || dataLoadSessions > 0
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (progress != null && progress.active) {
-            DataLoadProgressCard(progress = progress)
+        if (showProgressCard) {
+            DataLoadProgressCard(
+                progress = progress?.takeIf { it.active }
+                    ?: DataLoadProgress(phase = DataLoadPhase.CacheRead, detail = "подготовка…"),
+            )
         } else {
             LoadingState()
         }
