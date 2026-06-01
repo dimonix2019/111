@@ -79,4 +79,6 @@ internal class MoexScreenState(val context: Context) {
     var dailyReconciliation by mutableStateOf<DailyPortfolioReconciliation?>(null)
     var marketsZStrategyTapMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var initialMarketsRefreshDone by mutableStateOf(false)
+    /** Прогресс загрузки 15м (кэш / MOEX) и дневного ряда — для прогресс-бара на UI. */
+    var dataLoadProgress by mutableStateOf<DataLoadProgress?>(null)
 }

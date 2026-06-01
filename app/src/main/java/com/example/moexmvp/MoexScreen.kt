@@ -155,6 +155,12 @@ internal fun MoexScreen() {
             .padding(if (landscapeZChartFullscreen) 0.dp else 12.dp)
     ) {
         if (!landscapeZChartFullscreen) {
+            screen.dataLoadProgress?.takeIf { it.active }?.let { progress ->
+                DataLoadProgressCard(
+                    progress = progress,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
             MainTabSelector(
                 selected = screen.selectedTab,
                 onSelect = { screen.selectedTab = it }

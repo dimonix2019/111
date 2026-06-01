@@ -14,6 +14,13 @@ internal suspend fun MoexScreenState.refreshMarketsDailyOnly(period: Period) {
         refreshMutex.withLock {
             isRefreshing = true
             try {
+                reportDataLoadProgress(
+                    DataLoadProgress(
+                        phase = DataLoadPhase.MarketsDaily,
+                        marketsPeriodLabel = period.label,
+                        detail = "дневной спрэд TATN/TATNP",
+                    )
+                )
                 if (marketsSnapshotFreshEnough(context, period)) {
                     readMarketsSnapshotIfFresh(context, period)?.let { cached ->
                         lastGoodMarkets = cached
@@ -52,6 +59,7 @@ internal suspend fun MoexScreenState.refreshMarketsDailyOnly(period: Period) {
                 }
             } finally {
                 isRefreshing = false
+                reportDataLoadProgress(null)
             }
         }
     }

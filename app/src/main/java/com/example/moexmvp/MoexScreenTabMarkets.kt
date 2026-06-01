@@ -148,9 +148,14 @@ internal fun MoexScreenTabMarkets(
                                 emptyContent = {
                                     when {
                                         marketsZScoreCandles.isNotEmpty() -> Unit
-                                        isRefreshing || chartSuccess != null -> LoadingState()
+                                        isRefreshing || chartSuccess != null -> LoadingStateWithProgress(
+                                            progress = dataLoadProgress,
+                                            statusText = "Загрузка 15м для графика Z…",
+                                        )
                                         else -> when (val st = state) {
-                                            is UiState.Loading -> LoadingState()
+                                            is UiState.Loading -> LoadingStateWithProgress(
+                                                progress = dataLoadProgress,
+                                            )
                                             is UiState.Error -> ErrorState(st.message) {
                                                 scope.launch {
                                                     refreshData(
@@ -334,17 +339,16 @@ internal fun MoexScreenTabMarkets(
                             }
                         } else if (waitingM15) {
                             item {
-                                LoadingState()
-                                Text(
-                                    text = "Загрузка 15м данных для графика Z…",
-                                    color = Color(0xFF9FA8DA),
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(top = 8.dp)
+                                LoadingStateWithProgress(
+                                    progress = dataLoadProgress,
+                                    statusText = "Загрузка 15м данных для графика Z…",
                                 )
                             }
                         } else {
                             when (val st = state) {
-                                is UiState.Loading -> item { LoadingState() }
+                                is UiState.Loading -> item {
+                                    LoadingStateWithProgress(progress = dataLoadProgress)
+                                }
                                 is UiState.Error -> item {
                                     ErrorState(st.message) {
                                         scope.launch { refreshData(showLoading = true, launchScope = scope, selectedPeriod = selectedPeriod) }

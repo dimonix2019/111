@@ -11,23 +11,31 @@ import java.util.Locale
 
     /** Быстрый старт: снимок «Рынка» + 15м из SQLite до сети MOEX. */
 internal suspend fun MoexScreenState.hydrateMarketsFromLocalCache(preferredPeriod: Period = Period.OneDay) {
-        withContext(Dispatchers.IO) {
-            val snapshot = readMarketsSnapshotForDisplay(context, preferredPeriod)
-                ?: Period.entries.firstNotNullOfOrNull { readMarketsSnapshotForDisplay(context, it) }
-            snapshot?.let {
-                lastGoodMarkets = it
-                state = it
-                val ageMs = marketsSnapshotAgeMillis(context, preferredPeriod)
-                marketsStale = ageMs != null && ageMs > MARKETS_SNAPSHOT_TTL_MS
-            }
-            if (marketsM15Points.isEmpty()) {
-                runCatching {
-                    loadPortfolio15mPointsForSignalMonitor(context, PortfolioM15LoadMode.CACHE_ONLY)
-                }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { pts ->
-                    marketsM15Points = pts
-                    if (portfolioM15Points.isEmpty()) portfolioM15Points = pts
+        try {
+            withContext(Dispatchers.IO) {
+                val snapshot = readMarketsSnapshotForDisplay(context, preferredPeriod)
+                    ?: Period.entries.firstNotNullOfOrNull { readMarketsSnapshotForDisplay(context, it) }
+                snapshot?.let {
+                    lastGoodMarkets = it
+                    state = it
+                    val ageMs = marketsSnapshotAgeMillis(context, preferredPeriod)
+                    marketsStale = ageMs != null && ageMs > MARKETS_SNAPSHOT_TTL_MS
+                }
+                if (marketsM15Points.isEmpty()) {
+                    runCatching {
+                        loadPortfolio15mPointsForSignalMonitor(
+                            context,
+                            PortfolioM15LoadMode.CACHE_ONLY,
+                            dataLoadProgressSink(),
+                        )
+                    }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { pts ->
+                        marketsM15Points = pts
+                        if (portfolioM15Points.isEmpty()) portfolioM15Points = pts
+                    }
                 }
             }
+        } finally {
+            reportDataLoadProgress(null)
         }
     }
 

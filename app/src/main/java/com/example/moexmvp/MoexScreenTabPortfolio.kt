@@ -94,7 +94,14 @@ internal fun MoexScreenTabPortfolio(
                             )
                         },
                         emptyContent = {
-                            if (portfolioLoading) LoadingState() else EmptyState()
+                            if (portfolioLoading) {
+                                LoadingStateWithProgress(
+                                    progress = dataLoadProgress,
+                                    statusText = "Загрузка 15м портфеля…",
+                                )
+                            } else {
+                                EmptyState()
+                            }
                         }
                 )
             } else {

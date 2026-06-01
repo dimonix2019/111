@@ -110,11 +110,12 @@ internal suspend fun resolvePortfolioM15LoadMode(context: Context): PortfolioM15
 internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
     context: Context,
     from: LocalDate,
-    preferredMode: PortfolioM15LoadMode
+    preferredMode: PortfolioM15LoadMode,
+    onProgress: DataLoadProgressCallback = null,
 ): List<DataPoint> {
     val till = LocalDate.now(moexZoneId)
     val today = till
-    var points = loadPortfolio15mDataPoints(context, from, till, preferredMode)
+    var points = loadPortfolio15mDataPoints(context, from, till, preferredMode, onProgress)
     if (!portfolio15mSeriesTailStale(points)) return points
 
     val lastDay = points.lastOrNull()?.timestampMillis?.let { portfolioM15LastBarDayFromTs(it) }
@@ -122,15 +123,15 @@ internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
         lastDay != null &&
         lastDay.isBefore(today.minusDays(1))
     ) {
-        points = loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.FULL_REFRESH)
+        points = loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.FULL_REFRESH, onProgress)
         if (!portfolio15mSeriesTailStale(points)) return points
     }
 
     if (preferredMode != PortfolioM15LoadMode.INCREMENTAL) {
-        points = loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.INCREMENTAL)
+        points = loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.INCREMENTAL, onProgress)
         if (!portfolio15mSeriesTailStale(points)) return points
     }
-    return loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.FULL_REFRESH)
+    return loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.FULL_REFRESH, onProgress)
 }
 
 /**
@@ -139,16 +140,17 @@ internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
  */
 internal suspend fun loadPortfolio15mPointsForSignalMonitor(
     context: Context,
-    mode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL
+    mode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL,
+    onProgress: DataLoadProgressCallback = null,
 ): List<DataPoint> {
     val app = context.applicationContext
     val till = LocalDate.now(moexZoneId)
     val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
     return when (mode) {
         PortfolioM15LoadMode.CACHE_ONLY ->
-            loadPortfolio15mDataPoints(app, from, till, mode)
+            loadPortfolio15mDataPoints(app, from, till, mode, onProgress)
         else ->
-            loadPortfolio15mSeriesEnsuringRecentTail(app, from, mode)
+            loadPortfolio15mSeriesEnsuringRecentTail(app, from, mode, onProgress)
     }
 }
 
@@ -163,7 +165,8 @@ internal suspend fun loadPortfolio15mDataPoints(
     context: Context,
     from: LocalDate,
     till: LocalDate,
-    mode: PortfolioM15LoadMode
+    mode: PortfolioM15LoadMode,
+    onProgress: DataLoadProgressCallback = null,
 ): List<DataPoint> = withContext(Dispatchers.IO) {
     withPortfolioM15LoadLock {
         val dao = PortfolioM15Database.get(context).dao()
@@ -173,11 +176,41 @@ internal suspend fun loadPortfolio15mDataPoints(
 
         dao.deleteOlderThan(cutoffMillis)
 
+        val cacheInDb = dao.countSince(cutoffMillis)
+        val moexTargetEstimate = when (mode) {
+            PortfolioM15LoadMode.CACHE_ONLY -> 0
+            PortfolioM15LoadMode.INCREMENTAL -> {
+                val lastTs = dao.maxTsMillis()
+                val mergeFrom = if (lastTs == null) {
+                    from
+                } else {
+                    val lastDay = Instant.ofEpochMilli(lastTs).atZone(zone).toLocalDate()
+                    maxOf(from, lastDay.minusDays(PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS))
+                }
+                estimateM15BarCount(mergeFrom, moexFetchTill)
+            }
+            PortfolioM15LoadMode.FULL_REFRESH ->
+                estimateM15BarCount(from, moexFetchTill)
+        }
+
+        onProgress?.invoke(
+            DataLoadProgress(
+                phase = DataLoadPhase.CacheRead,
+                cacheBarsLoaded = 0,
+                cacheBarsTotal = cacheInDb.coerceAtLeast(1),
+                moexBarsTotal = moexTargetEstimate,
+                detail = when (mode) {
+                    PortfolioM15LoadMode.CACHE_ONLY -> "чтение кэша"
+                    else -> "подготовка"
+                },
+            )
+        )
+
         when (mode) {
             PortfolioM15LoadMode.CACHE_ONLY -> Unit
 
             PortfolioM15LoadMode.FULL_REFRESH -> {
-                downloadPortfolio15mFullRangeToDao(dao, from, moexFetchTill)
+                downloadPortfolio15mFullRangeToDao(dao, from, moexFetchTill, onProgress)
             }
 
             PortfolioM15LoadMode.INCREMENTAL -> {
@@ -190,7 +223,27 @@ internal suspend fun loadPortfolio15mDataPoints(
                     maxOf(from, overlapStart)
                 }
                 if (mergeFrom <= moexFetchTill) {
-                    val fresh = fetchPortfolio15mSpreadEntitiesChunked(mergeFrom, moexFetchTill)
+                    val moexTarget = estimateM15BarCount(mergeFrom, moexFetchTill)
+                    var barsDownloaded = 0
+                    val fresh = fetchPortfolio15mSpreadEntitiesChunked(
+                        mergeFrom,
+                        moexFetchTill,
+                        onChunk = { chunkIndex, chunkTotalCount, barsInChunk, _ ->
+                            barsDownloaded += barsInChunk
+                            onProgress?.invoke(
+                                DataLoadProgress(
+                                    phase = DataLoadPhase.MoexDownload,
+                                    cacheBarsLoaded = cacheInDb,
+                                    cacheBarsTotal = cacheInDb.coerceAtLeast(1),
+                                    moexBarsLoaded = barsDownloaded.coerceAtMost(moexTarget),
+                                    moexBarsTotal = moexTarget,
+                                    moexChunkIndex = chunkIndex,
+                                    moexChunkTotal = chunkTotalCount,
+                                    detail = "догрузка MOEX",
+                                )
+                            )
+                        },
+                    )
                     insertPortfolio15mEntitiesBatched(dao, fresh)
                 }
             }
@@ -199,10 +252,33 @@ internal suspend fun loadPortfolio15mDataPoints(
         val lastTsAfterLoad = dao.maxTsMillis() ?: 0L
         val tailStillStale = System.currentTimeMillis() - lastTsAfterLoad > PORTFOLIO_M15_TAIL_MAX_AGE_MS
         if (mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
-            mergePortfolio15mRecentTailFromMoex(dao)
+            mergePortfolio15mRecentTailFromMoex(dao, onProgress)
         }
+
+        val cacheTotal = dao.countSince(cutoffMillis).coerceAtLeast(1)
+        onProgress?.invoke(
+            DataLoadProgress(
+                phase = DataLoadPhase.CacheRead,
+                cacheBarsLoaded = cacheTotal,
+                cacheBarsTotal = cacheTotal,
+                moexBarsLoaded = if (mode == PortfolioM15LoadMode.CACHE_ONLY) 0 else moexTargetEstimate,
+                moexBarsTotal = moexTargetEstimate,
+                detail = "чтение кэша SQLite",
+            )
+        )
         val rows = dao.getSince(cutoffMillis)
         if (rows.isEmpty()) return@withPortfolioM15LoadLock emptyList()
+
+        onProgress?.invoke(
+            DataLoadProgress(
+                phase = DataLoadPhase.ApplyingZ,
+                cacheBarsLoaded = rows.size,
+                cacheBarsTotal = rows.size.coerceAtLeast(cacheTotal),
+                moexBarsLoaded = moexTargetEstimate.coerceAtLeast(rows.size),
+                moexBarsTotal = moexTargetEstimate.coerceAtLeast(rows.size),
+                detail = "расчёт Z-score",
+            )
+        )
         applyZScoresDefault(rows.map { it.toDataPoint() })
     }
 }

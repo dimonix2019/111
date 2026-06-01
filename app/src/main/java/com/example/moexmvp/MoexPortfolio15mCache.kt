@@ -28,15 +28,23 @@ internal suspend fun <T> withPortfolioM15LoadLock(block: suspend () -> T): T =
 internal suspend fun fetchPortfolio15mSpreadEntitiesChunked(
     from: LocalDate,
     till: LocalDate,
-    chunkDays: Long = PORTFOLIO_M15_FETCH_CHUNK_DAYS
+    chunkDays: Long = PORTFOLIO_M15_FETCH_CHUNK_DAYS,
+    onChunk: (suspend (chunkIndex: Int, chunkTotal: Int, barsInChunk: Int, barsTotal: Int) -> Unit)? = null,
 ): List<PortfolioM15SpreadEntity> {
     if (from.isAfter(till)) return emptyList()
     val byTs = LinkedHashMap<Long, PortfolioM15SpreadEntity>()
+    val chunkTotal = countMoexDateChunks(from, till, chunkDays)
+    val moexTarget = estimateM15BarCount(from, till)
+    var barsTotal = 0
+    var chunkIndex = 0
     var chunkStart = from
     while (!chunkStart.isAfter(till)) {
+        chunkIndex++
         val chunkEnd = minOf(chunkStart.plusDays(chunkDays - 1), till)
         val part = fetchPortfolio15mSpreadEntities(chunkStart, chunkEnd)
         part.forEach { byTs[it.tsMillis] = it }
+        barsTotal += part.size
+        onChunk?.invoke(chunkIndex, chunkTotal, part.size, barsTotal.coerceAtMost(moexTarget))
         chunkStart = chunkEnd.plusDays(1)
     }
     return byTs.values.sortedBy { it.tsMillis }
@@ -56,27 +64,62 @@ internal suspend fun insertPortfolio15mEntitiesBatched(
 internal suspend fun downloadPortfolio15mFullRangeToDao(
     dao: PortfolioM15Dao,
     from: LocalDate,
-    moexFetchTill: LocalDate
+    moexFetchTill: LocalDate,
+    onProgress: DataLoadProgressCallback = null,
 ) {
     dao.deleteAll()
+    val chunkTotal = countMoexDateChunks(from, moexFetchTill)
+    val moexTarget = estimateM15BarCount(from, moexFetchTill)
+    var barsDownloaded = 0
+    var chunkIndex = 0
     var chunkStart = from
     while (!chunkStart.isAfter(moexFetchTill)) {
+        chunkIndex++
         val chunkEnd = minOf(chunkStart.plusDays(PORTFOLIO_M15_FETCH_CHUNK_DAYS - 1), moexFetchTill)
         val part = fetchPortfolio15mSpreadEntities(chunkStart, chunkEnd)
         insertPortfolio15mEntitiesBatched(dao, part)
+        barsDownloaded += part.size
+        onProgress?.invoke(
+            DataLoadProgress(
+                phase = DataLoadPhase.MoexDownload,
+                moexBarsLoaded = barsDownloaded.coerceAtMost(moexTarget),
+                moexBarsTotal = moexTarget,
+                moexChunkIndex = chunkIndex,
+                moexChunkTotal = chunkTotal,
+                detail = "полная загрузка MOEX",
+            )
+        )
         chunkStart = chunkEnd.plusDays(1)
     }
 }
 
 /** Принудительная догрузка хвоста (последние [PORTFOLIO_M15_TAIL_REFETCH_DAYS] дн.) в SQLite. */
-internal suspend fun mergePortfolio15mRecentTailFromMoex(dao: PortfolioM15Dao) {
+internal suspend fun mergePortfolio15mRecentTailFromMoex(
+    dao: PortfolioM15Dao,
+    onProgress: DataLoadProgressCallback = null,
+) {
     val moexTill = portfolioM15MoexFetchTillDate()
     val tailFrom = LocalDate.now(moexZoneId).minusDays(PORTFOLIO_M15_TAIL_REFETCH_DAYS)
     if (tailFrom.isAfter(moexTill)) return
+    val moexTarget = estimateM15BarCount(tailFrom, moexTill)
+    var barsDownloaded = 0
     val tail = fetchPortfolio15mSpreadEntitiesChunked(
         from = tailFrom,
         till = moexTill,
-        chunkDays = 7L
+        chunkDays = 7L,
+        onChunk = { chunkIndex, chunkTotal, barsInChunk, _ ->
+            barsDownloaded += barsInChunk
+            onProgress?.invoke(
+                DataLoadProgress(
+                    phase = DataLoadPhase.MoexDownload,
+                    moexBarsLoaded = barsDownloaded.coerceAtMost(moexTarget),
+                    moexBarsTotal = moexTarget,
+                    moexChunkIndex = chunkIndex,
+                    moexChunkTotal = chunkTotal,
+                    detail = "догрузка хвоста MOEX",
+                )
+            )
+        },
     )
     insertPortfolio15mEntitiesBatched(dao, tail)
 }
