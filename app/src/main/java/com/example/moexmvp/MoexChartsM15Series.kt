@@ -244,9 +244,10 @@ internal suspend fun buildM15ZChartDisplayWithSpreadOhlc(
     simPoints: List<DataPoint>,
 ): Pair<List<DataPoint>, List<CandlePoint>> {
     if (simPoints.isEmpty()) return emptyList<DataPoint>() to emptyList<CandlePoint>()
-    val ohlc = loadSpreadOhlcForM15Range(simPoints)
-    val fullCandles = buildZScoreCandlesFrom15mSpreadOhlc(simPoints, ohlc)
-    return downsampleM15ChartSeries(simPoints, fullCandles)
+    val ordered = ensureAscendingM15Points(simPoints)
+    val ohlc = loadSpreadOhlcForM15Range(ordered)
+    val fullCandles = buildZScoreCandlesFrom15mSpreadOhlc(ordered, ohlc)
+    return downsampleM15ChartSeries(ordered, fullCandles)
 }
 
 internal fun visibleCandleDrawIndexRange(

@@ -14,6 +14,21 @@ internal suspend fun MoexScreenState.refreshMarketsDailyOnly(period: Period) {
         refreshMutex.withLock {
             isRefreshing = true
             try {
+                if (marketsSnapshotFreshEnough(context, period)) {
+                    readMarketsSnapshotIfFresh(context, period)?.let { cached ->
+                        lastGoodMarkets = cached
+                        marketsStale = false
+                        state = cached
+                        realtimeError = null
+                        return@withLock
+                    }
+                }
+                readMarketsSnapshotForDisplay(context, period)?.let { cached ->
+                    lastGoodMarkets = cached
+                    state = cached
+                    val age = marketsSnapshotAgeMillis(context, period)
+                    marketsStale = age != null && age > MARKETS_SNAPSHOT_TTL_MS
+                }
                 when (val next = loadState(context, period)) {
                     is UiState.Success -> {
                         lastGoodMarkets = next

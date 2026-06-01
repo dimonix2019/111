@@ -297,12 +297,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             }
         }
     }
-    LaunchedEffect(selectedPeriod, selectedTab) {
-        if (selectedTab == MainTab.Markets && initialMarketsRefreshDone) {
-            refreshMarketsDailyOnly(selectedPeriod)
-        }
-    }
-
     LaunchedEffect(realtimeEnabled, selectedPeriod) {
         if (!realtimeEnabled) return@LaunchedEffect
         while (true) {

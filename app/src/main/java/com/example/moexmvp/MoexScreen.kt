@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,21 +34,7 @@ internal fun MoexScreen() {
     val marketsM15SimPoints = remember(screen.marketsM15Points, screen.marketsZChartPeriod) {
         filterM15PointsForMarketsPeriod(screen.marketsM15Points, screen.marketsZChartPeriod)
     }
-    val marketsChartSeries by produceState(
-        initialValue = emptyList<DataPoint>() to emptyList<CandlePoint>(),
-        marketsM15SimPoints
-    ) {
-        value = withContext(Dispatchers.Default) {
-            if (marketsM15SimPoints.isEmpty()) {
-                emptyList<DataPoint>() to emptyList<CandlePoint>()
-            } else {
-                val base = buildM15ZChartDisplay(marketsM15SimPoints)
-                runCatching {
-                    buildM15ZChartDisplayWithSpreadOhlc(marketsM15SimPoints)
-                }.getOrNull() ?: base
-            }
-        }
-    }
+    val marketsChartSeries = rememberM15ZChartSeries(marketsM15SimPoints)
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second
 
@@ -59,13 +44,12 @@ internal fun MoexScreen() {
     val portfolioPortraitM15SimPoints = remember(screen.portfolioM15Points) {
         filterM15PointsForMarketsPeriod(screen.portfolioM15Points, Period.OneDay)
     }
-    val (portfolioZChartPoints, portfolioZScoreCandles) = remember(portfolioM15SimPoints) {
-        buildM15ZChartDisplay(portfolioM15SimPoints)
-    }
-    val (portfolioPortraitZChartPoints, portfolioPortraitZScoreCandles) =
-        remember(portfolioPortraitM15SimPoints) {
-            buildM15ZChartDisplay(portfolioPortraitM15SimPoints)
-        }
+    val portfolioChartSeries = rememberM15ZChartSeries(portfolioM15SimPoints)
+    val portfolioZChartPoints = portfolioChartSeries.first
+    val portfolioZScoreCandles = portfolioChartSeries.second
+    val portfolioPortraitChartSeries = rememberM15ZChartSeries(portfolioPortraitM15SimPoints)
+    val portfolioPortraitZChartPoints = portfolioPortraitChartSeries.first
+    val portfolioPortraitZScoreCandles = portfolioPortraitChartSeries.second
     val portfolioLandscapeChartThresholds = remember(
         screen.realTradeEntryThreshold,
         screen.realTradeExitThreshold
@@ -83,21 +67,7 @@ internal fun MoexScreen() {
         val tail = filterM15PointsForMarketsPeriod(strategyTestM15Full, Period.OneMonth)
         if (tail.size >= 2) tail else strategyTestM15Full
     }
-    val strategyTestChartSeries by produceState(
-        initialValue = emptyList<DataPoint>() to emptyList<CandlePoint>(),
-        strategyTestM15SimPoints
-    ) {
-        value = withContext(Dispatchers.Default) {
-            if (strategyTestM15SimPoints.isEmpty()) {
-                emptyList<DataPoint>() to emptyList<CandlePoint>()
-            } else {
-                val base = buildM15ZChartDisplay(strategyTestM15SimPoints)
-                runCatching {
-                    buildM15ZChartDisplayWithSpreadOhlc(strategyTestM15SimPoints)
-                }.getOrNull() ?: base
-            }
-        }
-    }
+    val strategyTestChartSeries = rememberM15ZChartSeries(strategyTestM15SimPoints)
     val strategyTestM15ChartPoints = strategyTestChartSeries.first
     val strategyTestZScoreCandles = strategyTestChartSeries.second
     val strategyTestChartThresholds = remember(

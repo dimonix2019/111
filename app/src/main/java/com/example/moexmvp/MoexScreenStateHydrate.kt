@@ -16,9 +16,7 @@ internal suspend fun MoexScreenState.hydrateMarketsFromLocalCache(preferredPerio
                 ?: Period.entries.firstNotNullOfOrNull { readMarketsSnapshotForDisplay(context, it) }
             snapshot?.let {
                 lastGoodMarkets = it
-                if (state is UiState.Loading) {
-                    state = it
-                }
+                state = it
                 val ageMs = marketsSnapshotAgeMillis(context, preferredPeriod)
                 marketsStale = ageMs != null && ageMs > MARKETS_SNAPSHOT_TTL_MS
             }

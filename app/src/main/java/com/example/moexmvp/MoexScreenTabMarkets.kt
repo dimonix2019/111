@@ -181,10 +181,13 @@ internal fun MoexScreenTabMarkets(
                         item {
                             PeriodSelector(
                                 selected = selectedPeriod,
-                                onSelect = {
-                                    selectedPeriod = it
-                                    marketsZChartPeriod = it
+                                onSelect = { period ->
+                                    selectedPeriod = period
+                                    marketsZChartPeriod = period
                                     previousZScoreForAlert = null
+                                    scope.launch {
+                                        refreshMarketsDailyOnly(period)
+                                    }
                                 }
                             )
                         }
