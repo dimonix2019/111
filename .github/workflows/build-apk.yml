@@ -38,6 +38,9 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --parallel --build-cache
+
       - name: Assemble Debug
         run: ./gradlew :app:assembleDebug --parallel --build-cache -x lint
 

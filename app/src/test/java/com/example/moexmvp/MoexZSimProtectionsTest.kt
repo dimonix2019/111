@@ -50,7 +50,7 @@ class MoexZSimProtectionsTest {
             point(0, z = 0.0, spread = 10.0, date = "2026-05-01 10:00"),
             point(1, z = -0.85, spread = 10.0, date = "2026-05-01 10:15"),
             point(2, z = -0.95, spread = 9.5, date = "2026-05-01 10:30"),
-            point(3, z = -0.60, spread = 10.5, date = "2026-05-01 10:45")
+            point(3, z = -0.75, spread = 10.5, date = "2026-05-01 10:45")
         )
         val thresholds = DynamicThresholds(entry = 0.8, exit = 0.7, calculatedDate = null)
         val hold = buildZStrategyPortfolioMetrics(
