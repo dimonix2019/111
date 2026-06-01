@@ -66,12 +66,7 @@ internal fun MoexScreenTabMarkets(
     val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.marketsZChartPeriod) {
         chartInitialWindowForLastCalendarDays(
             marketsM15ChartPoints,
-            visibleDays = when (screen.marketsZChartPeriod) {
-                Period.OneDay -> 1L
-                Period.OneWeek -> 7L
-                Period.OneMonth -> 30L
-                else -> STRATEGY_TEST_Z_CHART_VISIBLE_DAYS
-            }
+            visibleDays = calendarDaysForMarketsZChartPeriod(screen.marketsZChartPeriod),
         )
     }
     val marketsZReferenceLines = remember(marketsChartThresholds) {

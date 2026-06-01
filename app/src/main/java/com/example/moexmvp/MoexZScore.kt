@@ -26,23 +26,48 @@ internal fun applyZScores(points: List<DataPoint>): List<DataPoint> {
 /** μ/σ rolling-окна на индексе [index] (parity с [applyZScoresRolling] для close бара). */
 internal data class RollingSpreadStats(val mean: Double, val stdDev: Double)
 
-internal fun rollingSpreadStatsAt(
-    points: List<DataPoint>,
+/** Кэш spread/millis для серии — без O(n) аллокаций на каждый бар (3M/6M/1Y в landscape). */
+internal class RollingSpreadStatsCache private constructor(
+    private val spreads: DoubleArray,
+    private val millisList: LongArray,
+    private val lookbackDays: Int,
+    private val minBarsInWindow: Int,
+) {
+    fun at(index: Int): RollingSpreadStats? =
+        rollingSpreadStatsAtArrays(spreads, millisList, index, lookbackDays, minBarsInWindow)
+
+    companion object {
+        fun from(
+            points: List<DataPoint>,
+            lookbackDays: Int = Z_SCORE_ROLLING_LOOKBACK_DAYS,
+            minBarsInWindow: Int = Z_SCORE_ROLLING_MIN_BARS,
+        ): RollingSpreadStatsCache {
+            val n = points.size
+            return RollingSpreadStatsCache(
+                spreads = DoubleArray(n) { points[it].spreadPercent },
+                millisList = LongArray(n) { barMillisAt(points[it]) },
+                lookbackDays = lookbackDays,
+                minBarsInWindow = minBarsInWindow,
+            )
+        }
+    }
+}
+
+private fun rollingSpreadStatsAtArrays(
+    spreads: DoubleArray,
+    millisList: LongArray,
     index: Int,
-    lookbackDays: Int = Z_SCORE_ROLLING_LOOKBACK_DAYS,
-    minBarsInWindow: Int = Z_SCORE_ROLLING_MIN_BARS,
+    lookbackDays: Int,
+    minBarsInWindow: Int,
 ): RollingSpreadStats? {
-    if (points.isEmpty() || index !in points.indices) return null
+    if (spreads.isEmpty() || index !in spreads.indices) return null
     if (lookbackDays <= 0) {
-        val spreads = points.map { it.spreadPercent }
         val mean = spreads.average()
         val variance = spreads.map { (it - mean) * (it - mean) }.average()
         val std = kotlin.math.sqrt(variance).takeIf { it > 0.0 } ?: 1.0
         return RollingSpreadStats(mean, std)
     }
 
-    val spreads = points.map { it.spreadPercent }
-    val millisList = points.map { barMillisAt(it) }
     val minBars = maxOf(minBarsInWindow, 2)
     val barMillis = millisList[index]
     val fromMillis = Instant.ofEpochMilli(barMillis).atZone(moexZoneId)
@@ -73,6 +98,22 @@ internal fun rollingSpreadStatsAt(
     var std = kotlin.math.sqrt(maxOf(variance, 0.0))
     if (std <= 1e-12) std = 1.0
     return RollingSpreadStats(mean, std)
+}
+
+internal fun rollingSpreadStatsAt(
+    points: List<DataPoint>,
+    index: Int,
+    lookbackDays: Int = Z_SCORE_ROLLING_LOOKBACK_DAYS,
+    minBarsInWindow: Int = Z_SCORE_ROLLING_MIN_BARS,
+): RollingSpreadStats? {
+    if (points.isEmpty() || index !in points.indices) return null
+    return rollingSpreadStatsAtArrays(
+        spreads = DoubleArray(points.size) { points[it].spreadPercent },
+        millisList = LongArray(points.size) { barMillisAt(points[it]) },
+        index = index,
+        lookbackDays = lookbackDays,
+        minBarsInWindow = minBarsInWindow,
+    )
 }
 
 internal fun zScoreAtSpread(spread: Double, stats: RollingSpreadStats): Double =

@@ -12,6 +12,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,16 +39,16 @@ internal fun MoexScreen() {
         initialValue = emptyList<DataPoint>() to emptyList<CandlePoint>(),
         marketsM15SimPoints
     ) {
-        if (marketsM15SimPoints.isEmpty()) {
-            value = emptyList<DataPoint>() to emptyList<CandlePoint>()
-            return@produceState
-        }
-        value = buildM15ZChartDisplay(marketsM15SimPoints)
-        runCatching {
-            withContext(Dispatchers.IO) {
-                buildM15ZChartDisplayWithSpreadOhlc(marketsM15SimPoints)
+        value = withContext(Dispatchers.Default) {
+            if (marketsM15SimPoints.isEmpty()) {
+                emptyList<DataPoint>() to emptyList<CandlePoint>()
+            } else {
+                val base = buildM15ZChartDisplay(marketsM15SimPoints)
+                runCatching {
+                    buildM15ZChartDisplayWithSpreadOhlc(marketsM15SimPoints)
+                }.getOrNull() ?: base
             }
-        }.getOrNull()?.let { value = it }
+        }
     }
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second
@@ -86,16 +87,16 @@ internal fun MoexScreen() {
         initialValue = emptyList<DataPoint>() to emptyList<CandlePoint>(),
         strategyTestM15SimPoints
     ) {
-        if (strategyTestM15SimPoints.isEmpty()) {
-            value = emptyList<DataPoint>() to emptyList<CandlePoint>()
-            return@produceState
-        }
-        value = buildM15ZChartDisplay(strategyTestM15SimPoints)
-        runCatching {
-            withContext(Dispatchers.IO) {
-                buildM15ZChartDisplayWithSpreadOhlc(strategyTestM15SimPoints)
+        value = withContext(Dispatchers.Default) {
+            if (strategyTestM15SimPoints.isEmpty()) {
+                emptyList<DataPoint>() to emptyList<CandlePoint>()
+            } else {
+                val base = buildM15ZChartDisplay(strategyTestM15SimPoints)
+                runCatching {
+                    buildM15ZChartDisplayWithSpreadOhlc(strategyTestM15SimPoints)
+                }.getOrNull() ?: base
             }
-        }.getOrNull()?.let { value = it }
+        }
     }
     val strategyTestM15ChartPoints = strategyTestChartSeries.first
     val strategyTestZScoreCandles = strategyTestChartSeries.second
@@ -139,6 +140,7 @@ internal fun MoexScreen() {
         screen.portfolioCommissionPercent,
         screen.marketsZChartPeriod
     ) {
+        delay(250)
         screen.marketsZStrategyTapMetrics = withContext(Dispatchers.Default) {
             val pts = marketsM15SimPoints
             if (pts.size < 2) return@withContext null

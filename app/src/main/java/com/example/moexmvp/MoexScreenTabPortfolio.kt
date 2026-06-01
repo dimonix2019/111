@@ -60,6 +60,12 @@ internal fun MoexScreenTabPortfolio(
     portfolioLandscapeChartThresholds: DynamicThresholds,
     portfolioPortraitZChartPoints: List<DataPoint>,
 ) {
+    val portfolioZInitialWindow = remember(portfolioZChartPoints, screen.marketsZChartPeriod) {
+        chartInitialWindowForLastCalendarDays(
+            portfolioZChartPoints,
+            visibleDays = calendarDaysForMarketsZChartPeriod(screen.marketsZChartPeriod),
+        )
+    }
     Column(modifier) {
         with(screen) {
             if (landscapeZChartFullscreen) {
@@ -71,6 +77,8 @@ internal fun MoexScreenTabPortfolio(
                         },
                         candles = portfolioZScoreCandles,
                         referenceLines = buildZScoreReferenceLines(portfolioLandscapeChartThresholds),
+                        initialWindowWidth = portfolioZInitialWindow.first,
+                        initialWindowStart = portfolioZInitialWindow.second,
                         pointMarkers = buildZScoreSignalMarkersFromEvents(
                             points = portfolioZChartPoints,
                             events = signalEvents

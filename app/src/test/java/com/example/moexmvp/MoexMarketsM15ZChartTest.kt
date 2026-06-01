@@ -222,6 +222,42 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun calendarDaysForMarketsZChartPeriod_mapsThreeMonthsAndYear() {
+        assertEquals(90L, calendarDaysForMarketsZChartPeriod(Period.ThreeMonths))
+        assertEquals(180L, calendarDaysForMarketsZChartPeriod(Period.SixMonths))
+        assertEquals(365L, calendarDaysForMarketsZChartPeriod(Period.OneYear))
+    }
+
+    @Test
+    fun chartInitialWindowForLastCalendarDays_threeMonthsWithinBounds() {
+        val points = (0 until 120).map { day ->
+            val d = java.time.LocalDate.of(2026, 1, 1).plusDays(day.toLong())
+            point("${d} 10:00", z = day * 0.01)
+        }
+        val filtered = filterM15PointsForMarketsPeriod(points, Period.ThreeMonths)
+        val (width, start) = chartInitialWindowForLastCalendarDays(
+            filtered,
+            visibleDays = calendarDaysForMarketsZChartPeriod(Period.ThreeMonths),
+        )
+        assertTrue(width in CHART_ZOOM_MIN_WINDOW..1f)
+        assertTrue(start in 0f..(1f - width + 1e-6f))
+        assertTrue(start + width <= 1.02f)
+    }
+
+    @Test
+    fun buildZScoreCandlesFrom15mSpreadOhlc_largeSeriesCompletes() {
+        val points = (0 until 800).map { i ->
+            val dt = LocalDateTime.of(2026, 1, 2, 10, 0).plusMinutes(i * 15L)
+            point(dt.format(portfolio15mLabelFormatter), z = kotlin.math.sin(i * 0.05) * 0.5)
+        }
+        val ohlc = points.associate { floor15mMillis(it.timestampMillis) to
+            SpreadOhlc(open = 10.0, high = 10.1, low = 9.9, close = 10.05)
+        }
+        val candles = buildZScoreCandlesFrom15mSpreadOhlc(points, ohlc)
+        assertEquals(points.size, candles.size)
+    }
+
+    @Test
     fun filterM15PointsForMarketsPeriod_oneWeek_subsetOfMonth() {
         val points = (0 until 60).map { day ->
             val d = java.time.LocalDate.of(2026, 4, 1).plusDays(day.toLong())

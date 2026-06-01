@@ -251,6 +251,7 @@ internal suspend fun buildZScoreCandlesOhlcAnchoredToM15Series(
     if (spread10.size < Z_SCORE_ROLLING_MIN_BARS) return@withContext base
 
     val spreadsByM15 = build10mSpreadsByM15Index(m15Points, spread10)
+    val statsCache = RollingSpreadStatsCache.from(m15Points)
 
     m15Points.mapIndexed { index, point ->
         val open = if (index == 0) point.zScore else m15Points[index - 1].zScore
@@ -260,7 +261,7 @@ internal suspend fun buildZScoreCandlesOhlcAnchoredToM15Series(
         val range = if (index >= firstEnrichIdx) {
             intrabarZRangeForM15Bar(
                 spreads10mInBar = spreadsByM15.getOrNull(index).orEmpty(),
-                m15Stats = rollingSpreadStatsAt(m15Points, index),
+                m15Stats = statsCache.at(index),
             )
         } else {
             null

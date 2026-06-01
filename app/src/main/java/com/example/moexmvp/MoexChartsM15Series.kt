@@ -127,6 +127,7 @@ internal fun buildZScoreCandlesFrom15mSpreadOhlc(
     spreadOhlcByBucket: Map<Long, SpreadOhlc>,
 ): List<CandlePoint> {
     if (m15Points.isEmpty()) return emptyList()
+    val statsCache = RollingSpreadStatsCache.from(m15Points)
     return m15Points.mapIndexed { index, point ->
         val open = if (index == 0) point.zScore else m15Points[index - 1].zScore
         val close = point.zScore
@@ -134,8 +135,14 @@ internal fun buildZScoreCandlesFrom15mSpreadOhlc(
         val bodyLow = min(open, close)
         val bucket = floor15mMillis(point.timestampMillis)
         val ohlc = spreadOhlcByBucket[bucket]
-        val stats = rollingSpreadStatsAt(m15Points, index)
-        val wickRange = if (ohlc != null && stats != null) {
+        val wickRange = if (ohlc != null) {
+            val stats = statsCache.at(index) ?: return@mapIndexed CandlePoint(
+                label = point.tradeDate,
+                open = open,
+                high = bodyHigh,
+                low = bodyLow,
+                close = close,
+            )
             listOf(
                 zScoreAtSpread(ohlc.open, stats),
                 zScoreAtSpread(ohlc.high, stats),

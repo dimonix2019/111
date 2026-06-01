@@ -139,6 +139,16 @@ internal fun buildZScoreSignalMarkersFromEvents(
         .toList()
 }
 
+/** Календарных дней для начального окна Z-графика по кнопке периода (1D…1Y). */
+internal fun calendarDaysForMarketsZChartPeriod(period: Period): Long = when (period) {
+    Period.OneDay -> 1L
+    Period.OneWeek -> 7L
+    Period.OneMonth -> 30L
+    Period.ThreeMonths -> 90L
+    Period.SixMonths -> 180L
+    Period.OneYear -> 365L
+}
+
 /** Начальное окно графика: виден хвост последних [visibleDays] календарных дней. */
 internal fun chartInitialWindowForLastCalendarDays(
     points: List<DataPoint>,
