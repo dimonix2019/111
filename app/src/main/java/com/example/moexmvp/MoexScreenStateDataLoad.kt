@@ -36,10 +36,10 @@ internal suspend fun <T> MoexScreenState.withDataLoadSession(block: suspend () -
 internal val MoexScreenState.isDataLoadActive: Boolean
     get() = dataLoadSessions > 0 || dataLoadProgress?.active == true
 
-/** 15м для вкладки «Рынок» — только окно выбранного периода (1D…1Y), не весь кэш. */
+/** 15м для вкладки «Рынок» — только окно выбранного периода (1D…3M), не весь кэш. */
 internal suspend fun MoexScreenState.loadM15ForMarkets(
     mode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL,
-    chartPeriod: Period = marketsZChartPeriod,
+    chartPeriod: Period = marketsZChartPeriod.coerceToMarketsUiPeriod(),
 ): List<DataPoint> = withDataLoadSession {
     val lookback = marketsM15LookbackDays(chartPeriod)
     val till = LocalDate.now(moexZoneId)
@@ -106,7 +106,9 @@ internal suspend fun MoexScreenState.ensureMarketsM15ForPeriod(
     period: Period,
     mode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL,
 ) {
-    val needed = marketsM15LookbackDays(period)
+    val uiPeriod = period.coerceToMarketsUiPeriod()
+    if (uiPeriod != marketsZChartPeriod) marketsZChartPeriod = uiPeriod
+    val needed = marketsM15LookbackDays(uiPeriod)
     if (marketsM15SpanDays() + 3 >= needed && marketsM15Points.size >= 2 &&
         !portfolio15mSeriesTailStale(marketsM15Points)
     ) {

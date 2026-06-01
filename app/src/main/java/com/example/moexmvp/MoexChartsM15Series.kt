@@ -212,14 +212,24 @@ internal fun ensureAscendingM15Points(points: List<DataPoint>): List<DataPoint> 
     return points
 }
 
-/** Быстрый ряд для UI: close-свечи на полном ряду → downsample. */
+/** Быстрый ряд для UI: close-свечи → downsample (предварительно урезаем очень длинные ряды). */
 internal fun buildM15ZChartDisplay(
     simPoints: List<DataPoint>,
 ): Pair<List<DataPoint>, List<CandlePoint>> {
     if (simPoints.isEmpty()) return emptyList<DataPoint>() to emptyList<CandlePoint>()
     val ordered = ensureAscendingM15Points(simPoints)
-    val fullCandles = buildZScoreCandlesFromM15Points(ordered)
-    return downsampleM15ChartSeries(ordered, fullCandles)
+    val capped = capPointsBeforeChartBuild(ordered)
+    val fullCandles = buildZScoreCandlesFromM15Points(capped)
+    return downsampleM15ChartSeries(capped, fullCandles)
+}
+
+/** Не строим свечи по 10k+ точкам — сначала прореживаем (Z уже на барах). */
+internal fun capPointsBeforeChartBuild(
+    points: List<DataPoint>,
+    maxBars: Int = CHART_MAX_DISPLAY_BARS * 2,
+): List<DataPoint> {
+    if (points.size <= maxBars) return points
+    return downsampleDataPointsForChart(points, maxBars)
 }
 
 internal suspend fun loadSpreadOhlcForM15Range(
@@ -244,7 +254,7 @@ internal suspend fun buildM15ZChartDisplayWithSpreadOhlc(
     simPoints: List<DataPoint>,
 ): Pair<List<DataPoint>, List<CandlePoint>> {
     if (simPoints.isEmpty()) return emptyList<DataPoint>() to emptyList<CandlePoint>()
-    val ordered = ensureAscendingM15Points(simPoints)
+    val ordered = capPointsBeforeChartBuild(ensureAscendingM15Points(simPoints))
     val ohlc = loadSpreadOhlcForM15Range(ordered)
     val fullCandles = buildZScoreCandlesFrom15mSpreadOhlc(ordered, ohlc)
     return downsampleM15ChartSeries(ordered, fullCandles)

@@ -250,10 +250,13 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
-    fun calendarDaysForMarketsZChartPeriod_mapsThreeMonthsAndYear() {
+    fun calendarDaysForMarketsZChartPeriod_mapsThreeMonths() {
         assertEquals(90L, calendarDaysForMarketsZChartPeriod(Period.ThreeMonths))
-        assertEquals(180L, calendarDaysForMarketsZChartPeriod(Period.SixMonths))
-        assertEquals(365L, calendarDaysForMarketsZChartPeriod(Period.OneYear))
+    }
+
+    @Test
+    fun marketsUiPeriods_excludesSixMonthsAndYear() {
+        assertEquals(listOf("1D", "1W", "1M", "3M"), MARKETS_UI_PERIODS.map { it.label })
     }
 
     @Test

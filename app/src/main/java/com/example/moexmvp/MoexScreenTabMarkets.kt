@@ -124,9 +124,10 @@ internal fun MoexScreenTabMarkets(
                                 modifier = Modifier.fillMaxSize(),
                                 selectedPeriod = marketsZChartPeriod,
                                 onPeriodSelect = { period ->
-                                    marketsZChartPeriod = period
+                                    val p = period.coerceToMarketsUiPeriod()
+                                    marketsZChartPeriod = p
                                     previousZScoreForAlert = null
-                                    scope.launch { ensureMarketsM15ForPeriod(period) }
+                                    scope.launch { ensureMarketsM15ForPeriod(p) }
                                 },
                                 candles = marketsZScoreCandles,
                                 referenceLines = marketsZReferenceLines,
@@ -190,12 +191,13 @@ internal fun MoexScreenTabMarkets(
                             PeriodSelector(
                                 selected = selectedPeriod,
                                 onSelect = { period ->
-                                    selectedPeriod = period
-                                    marketsZChartPeriod = period
+                                    val p = period.coerceToMarketsUiPeriod()
+                                    selectedPeriod = p
+                                    marketsZChartPeriod = p
                                     previousZScoreForAlert = null
                                     scope.launch {
-                                        refreshMarketsDailyOnly(period)
-                                        ensureMarketsM15ForPeriod(period)
+                                        refreshMarketsDailyOnly(p)
+                                        ensureMarketsM15ForPeriod(p)
                                     }
                                 }
                             )

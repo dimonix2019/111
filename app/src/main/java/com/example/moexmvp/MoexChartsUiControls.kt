@@ -64,12 +64,16 @@ import kotlin.math.max
 import kotlin.math.min
 
 @Composable
-internal fun PeriodSelector(selected: Period, onSelect: (Period) -> Unit) {
+internal fun PeriodSelector(
+    selected: Period,
+    onSelect: (Period) -> Unit,
+    periods: List<Period> = MARKETS_UI_PERIODS,
+) {
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Period.entries.forEach { period ->
+        periods.forEach { period ->
             val active = period == selected
             Button(
                 onClick = { onSelect(period) },

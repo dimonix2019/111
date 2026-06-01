@@ -17,7 +17,7 @@ class MoexAppRegressionTest {
     @Test
     fun allChartPeriods_filterBuildChartAndViewportStayValid() {
         val full = syntheticM15Points(calendarDays = 100)
-        Period.entries.forEach { period ->
+        MARKETS_UI_PERIODS.forEach { period ->
             val filtered = filterM15PointsForMarketsPeriod(full, period)
             if (filtered.size < 2) return@forEach
             assertTimestampsAscending(filtered, "period=$period filter")
@@ -38,6 +38,14 @@ class MoexAppRegressionTest {
             viewport.zoomX(1.22f)
             viewport.panX(-0.05f)
         }
+    }
+
+    @Test
+    fun capPointsBeforeChartBuild_reducesVeryLongSeries() {
+        val full = syntheticM15Points(calendarDays = 200)
+        val capped = capPointsBeforeChartBuild(full, maxBars = 100)
+        assertTrue(capped.size <= 101)
+        assertTrue(capped.size >= 90)
     }
 
     @Test
