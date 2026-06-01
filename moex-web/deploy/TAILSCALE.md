@@ -14,13 +14,32 @@ chmod +x deploy/run.sh
 
 ## С телефона / ПК
 
-1. Tailscale на сервере и на устройстве (одна tailnet).
-2. `tailscale ip -4` на сервере → `http://100.x.y.z:8080`
+1. На сервере запущен `./deploy/run.sh` (не закрывать терминал или использовать systemd).
+2. На телефоне Tailscale **включён** (VPN active), тот же аккаунт.
+3. `tailscale ip -4` на сервере → `http://100.x.y.z:8080` (**http**, не https).
 
-HTTPS (опционально):
+### «Не удаётся получить доступ к сайту»
+
+На сервере:
+
+```bash
+cd moex-web && ./deploy/check-access.sh
+curl -s http://127.0.0.1:8080/api/health
+```
+
+| Причина | Решение |
+|--------|---------|
+| `run.sh` не запущен | `cd moex-web && ./deploy/run.sh` |
+| Tailscale выкл на телефоне | Включить VPN в приложении |
+| Неверный URL | Только `100.x.x.x` из `tailscale ip -4`, не IP роутера |
+| ufw | `sudo ufw allow 8080/tcp` |
+| Путаница с strategy-web | MOEX MVP = порт **8080**, не 8501 |
+
+HTTPS (опционально, удобно с телефона):
 
 ```bash
 sudo tailscale serve --bg --https=443 http://127.0.0.1:8080
+# затем: tailscale serve status — откройте https-URL из вывода
 ```
 
 ## Первый запуск

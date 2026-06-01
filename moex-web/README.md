@@ -18,7 +18,11 @@ chmod +x deploy/run.sh
 ./deploy/run.sh
 ```
 
-Браузер: `http://<tailscale-ip>:8080`
+Браузер на телефоне (Tailscale **включён**): `http://<tailscale-ip>:8080`
+
+Получить IP на сервере: `tailscale ip -4`
+
+Если «не удаётся получить доступ»: `./deploy/check-access.sh`
 
 Подробно: [deploy/TAILSCALE.md](deploy/TAILSCALE.md)
 

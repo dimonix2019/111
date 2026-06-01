@@ -21,7 +21,21 @@ pip install -q -r ../strategy-web/requirements.txt 2>/dev/null || true
 
 export PYTHONPATH="${ROOT}:${ROOT}/../strategy-web:${PYTHONPATH:-}"
 
-echo "MOEX MVP Web: http://${HOST}:${PORT}"
-echo "Tailscale: http://<tailscale-ip>:${PORT}"
+echo ""
+echo "=== MOEX MVP Web ==="
+echo "Локально на сервере:  http://127.0.0.1:${PORT}"
+if command -v tailscale >/dev/null 2>&1; then
+  TS_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+  if [[ -n "$TS_IP" ]]; then
+    echo "С телефона (Tailscale ВКЛ):  http://${TS_IP}:${PORT}"
+  else
+    echo "Tailscale: IP не получен — выполните: sudo tailscale up"
+  fi
+else
+  echo "Установите Tailscale на сервере или откройте порт ${PORT} в LAN."
+fi
+echo "Диагностика:  ./deploy/check-access.sh"
+echo ""
+
 cd "$ROOT"
 exec uvicorn server.main:app --host "$HOST" --port "$PORT"
