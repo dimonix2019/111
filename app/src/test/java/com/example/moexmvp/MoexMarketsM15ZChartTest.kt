@@ -222,6 +222,34 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun formatM15ChartXAxisLabel_usesDayMonthTime() {
+        assertEquals("31.05 10:15", formatM15ChartXAxisLabel("2026-05-31 10:15"))
+    }
+
+    @Test
+    fun buildXTicksForM15Candles_labelsFollowChronologicalIndices() {
+        val candles = listOf(
+            CandlePoint("2026-05-30 10:00", 0.0, 0.1, -0.1, 0.05),
+            CandlePoint("2026-05-30 12:00", 0.05, 0.15, 0.0, 0.1),
+            CandlePoint("2026-05-31 10:00", 0.1, 0.2, 0.05, 0.15),
+        )
+        val ticks = buildXTicksForM15Candles(candles, desiredCount = 3)
+        assertTrue(ticks.map { it.index }.zipWithNext().all { (a, b) -> a < b })
+        assertEquals("30.05 10:00", ticks.first().label)
+        assertEquals("31.05 10:00", ticks.last().label)
+    }
+
+    @Test
+    fun ensureAscendingM15Points_sortsDescendingSeries() {
+        val points = listOf(
+            point("2026-05-31 10:00", z = 1.0),
+            point("2026-05-30 10:00", z = 0.5),
+        )
+        val ordered = ensureAscendingM15Points(points)
+        assertEquals(listOf("2026-05-30 10:00", "2026-05-31 10:00"), ordered.map { it.tradeDate })
+    }
+
+    @Test
     fun calendarDaysForMarketsZChartPeriod_mapsThreeMonthsAndYear() {
         assertEquals(90L, calendarDaysForMarketsZChartPeriod(Period.ThreeMonths))
         assertEquals(180L, calendarDaysForMarketsZChartPeriod(Period.SixMonths))

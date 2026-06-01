@@ -462,7 +462,8 @@ internal fun CandlestickChart(
                 isAntiAlias = true
                 color = axisColor.toArgb()
                 textSize = 10.sp.toPx()
-                textAlign = Paint.Align.CENTER
+                // RIGHT + наклон: текст уходит влево от бара, подписи не «меняются местами» (CENTER давал 31.05 левее 30.05).
+                textAlign = Paint.Align.RIGHT
             }
             val labelBaselineY = size.height - CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX
             xTicks.forEach { tick ->

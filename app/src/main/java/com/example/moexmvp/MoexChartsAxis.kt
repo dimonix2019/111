@@ -302,6 +302,17 @@ internal fun buildCandleStats(candles: List<CandlePoint>): ChartStats {
     )
 }
 
+private val m15ChartXAxisLabelFormatter =
+    DateTimeFormatter.ofPattern("dd.MM HH:mm", Locale.forLanguageTag("ru"))
+
+/** Подпись времени под 15м Z-графиком (без года — короче, меньше наложений). */
+internal fun formatM15ChartXAxisLabel(tradeDateLabel: String): String {
+    val trimmed = tradeDateLabel.trim()
+    val dt = runCatching { LocalDateTime.parse(trimmed, portfolio15mLabelFormatter) }.getOrNull()
+        ?: return trimmed.takeLast(11)
+    return dt.format(m15ChartXAxisLabelFormatter)
+}
+
 internal fun buildCandleAxisScale(
     candles: List<CandlePoint>,
     valueHints: List<Double> = emptyList()
@@ -317,7 +328,7 @@ internal fun buildCandleAxisScale(
     val normalizedMax = if (max <= min) min + 1.0 else max
     return AxisScale(
         yTicks = buildYTicks(min, normalizedMax, count = 5),
-        xTicks = buildXTicks(candles.map { it.label })
+        xTicks = buildXTicksForM15Candles(candles),
     )
 }
 
@@ -414,6 +425,21 @@ internal fun buildXTicks(labels: List<String>, desiredCount: Int = 5): List<XAxi
     return uniqueIndices
         .sorted()
         .map { index -> XAxisTick(index = index, label = labels[index]) }
+}
+
+/** Подписи X для 15м свечей: индексы по времени слева→направо, короткий dd.MM HH:mm. */
+internal fun buildXTicksForM15Candles(
+    candles: List<CandlePoint>,
+    desiredCount: Int = 6,
+): List<XAxisTick> {
+    if (candles.isEmpty()) return emptyList()
+    return buildXTicks(candles.map { it.label }, desiredCount)
+        .map { tick ->
+            XAxisTick(
+                index = tick.index,
+                label = formatM15ChartXAxisLabel(candles[tick.index].label),
+            )
+        }
 }
 internal fun formatAxisValue(value: Double): String {
     val precision = when {

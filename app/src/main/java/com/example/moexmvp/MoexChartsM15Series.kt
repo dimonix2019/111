@@ -201,13 +201,25 @@ internal fun downsampleM15ChartSeries(
     return outPoints to outCandles
 }
 
+/** Гарантирует порядок баров слева→направо (старые → новые). */
+internal fun ensureAscendingM15Points(points: List<DataPoint>): List<DataPoint> {
+    if (points.size < 2) return points
+    for (i in 1 until points.size) {
+        if (points[i].timestampMillis < points[i - 1].timestampMillis) {
+            return points.sortedBy { it.timestampMillis }
+        }
+    }
+    return points
+}
+
 /** Быстрый ряд для UI: close-свечи на полном ряду → downsample. */
 internal fun buildM15ZChartDisplay(
     simPoints: List<DataPoint>,
 ): Pair<List<DataPoint>, List<CandlePoint>> {
     if (simPoints.isEmpty()) return emptyList<DataPoint>() to emptyList<CandlePoint>()
-    val fullCandles = buildZScoreCandlesFromM15Points(simPoints)
-    return downsampleM15ChartSeries(simPoints, fullCandles)
+    val ordered = ensureAscendingM15Points(simPoints)
+    val fullCandles = buildZScoreCandlesFromM15Points(ordered)
+    return downsampleM15ChartSeries(ordered, fullCandles)
 }
 
 internal suspend fun loadSpreadOhlcForM15Range(
@@ -256,13 +268,14 @@ internal fun filterM15PointsForMarketsPeriod(
     period: Period
 ): List<DataPoint> {
     if (points.isEmpty()) return emptyList()
-    val latestDate = java.time.Instant.ofEpochMilli(points.last().timestampMillis)
+    val ordered = ensureAscendingM15Points(points)
+    val latestDate = java.time.Instant.ofEpochMilli(ordered.last().timestampMillis)
         .atZone(moexZoneId)
         .toLocalDate()
     val fromMillis = period.from(latestDate)
         .atStartOfDay(moexZoneId)
         .toInstant()
         .toEpochMilli()
-    return points.filter { it.timestampMillis >= fromMillis }
+    return ordered.filter { it.timestampMillis >= fromMillis }
 }
 

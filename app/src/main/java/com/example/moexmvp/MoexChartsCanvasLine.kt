@@ -312,7 +312,7 @@ internal fun LineChart(
                 isAntiAlias = true
                 color = android.graphics.Color.rgb(221, 236, 255)
                 textSize = 10.sp.toPx()
-                textAlign = Paint.Align.CENTER
+                textAlign = Paint.Align.RIGHT
             }
             val labelBaselineY = size.height - CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX
             xTicks.forEach { tick ->
