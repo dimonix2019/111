@@ -63,10 +63,10 @@ internal fun MoexScreenTabMarkets(
     dataSourceLabel: MarketsDataSource,
     todayPnlHint: String?,
 ) {
-    val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.selectedPeriod) {
+    val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.marketsZChartPeriod) {
         chartInitialWindowForLastCalendarDays(
             marketsM15ChartPoints,
-            visibleDays = when (screen.selectedPeriod) {
+            visibleDays = when (screen.marketsZChartPeriod) {
                 Period.OneDay -> 1L
                 Period.OneWeek -> 7L
                 Period.OneMonth -> 30L
@@ -127,9 +127,9 @@ internal fun MoexScreenTabMarkets(
                         if (landscapeZChartFullscreen) {
                             LandscapeZScoreFullscreenPane(
                                 modifier = Modifier.fillMaxSize(),
-                                selectedPeriod = selectedPeriod,
+                                selectedPeriod = marketsZChartPeriod,
                                 onPeriodSelect = {
-                                    selectedPeriod = it
+                                    marketsZChartPeriod = it
                                     previousZScoreForAlert = null
                                 },
                                 candles = marketsZScoreCandles,
@@ -188,6 +188,7 @@ internal fun MoexScreenTabMarkets(
                                 selected = selectedPeriod,
                                 onSelect = {
                                     selectedPeriod = it
+                                    marketsZChartPeriod = it
                                     previousZScoreForAlert = null
                                 }
                             )

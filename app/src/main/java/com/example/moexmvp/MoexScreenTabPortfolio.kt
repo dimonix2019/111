@@ -65,8 +65,10 @@ internal fun MoexScreenTabPortfolio(
             if (landscapeZChartFullscreen) {
                 LandscapeZScoreFullscreenPane(
                     modifier = Modifier.fillMaxSize(),
-                        selectedPeriod = selectedPeriod,
-                        onPeriodSelect = { selectedPeriod = it },
+                        selectedPeriod = marketsZChartPeriod,
+                        onPeriodSelect = {
+                            marketsZChartPeriod = it
+                        },
                         candles = portfolioZScoreCandles,
                         referenceLines = buildZScoreReferenceLines(portfolioLandscapeChartThresholds),
                         pointMarkers = buildZScoreSignalMarkersFromEvents(

@@ -31,8 +31,8 @@ internal fun MoexScreen() {
 
     val chartSuccess = (screen.state as? UiState.Success) ?: screen.lastGoodMarkets
     val staleMarkets = screen.marketsStale || (screen.realtimeError != null && chartSuccess != null)
-    val marketsM15SimPoints = remember(screen.marketsM15Points, screen.selectedPeriod) {
-        filterM15PointsForMarketsPeriod(screen.marketsM15Points, screen.selectedPeriod)
+    val marketsM15SimPoints = remember(screen.marketsM15Points, screen.marketsZChartPeriod) {
+        filterM15PointsForMarketsPeriod(screen.marketsM15Points, screen.marketsZChartPeriod)
     }
     val marketsChartSeries by produceState(
         initialValue = emptyList<DataPoint>() to emptyList<CandlePoint>(),
@@ -52,8 +52,8 @@ internal fun MoexScreen() {
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second
 
-    val portfolioM15SimPoints = remember(screen.portfolioM15Points, screen.selectedPeriod) {
-        filterM15PointsForMarketsPeriod(screen.portfolioM15Points, screen.selectedPeriod)
+    val portfolioM15SimPoints = remember(screen.portfolioM15Points, screen.marketsZChartPeriod) {
+        filterM15PointsForMarketsPeriod(screen.portfolioM15Points, screen.marketsZChartPeriod)
     }
     val portfolioPortraitM15SimPoints = remember(screen.portfolioM15Points) {
         filterM15PointsForMarketsPeriod(screen.portfolioM15Points, Period.OneDay)
@@ -137,7 +137,7 @@ internal fun MoexScreen() {
         marketsChartThresholds.exit,
         screen.portfolioLeverage,
         screen.portfolioCommissionPercent,
-        screen.selectedPeriod
+        screen.marketsZChartPeriod
     ) {
         screen.marketsZStrategyTapMetrics = withContext(Dispatchers.Default) {
             val pts = marketsM15SimPoints
@@ -148,7 +148,7 @@ internal fun MoexScreen() {
                 notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                 leverage = screen.portfolioLeverage,
                 commissionPercentPerSide = screen.portfolioCommissionPercent,
-                periodDescription = "${screen.selectedPeriod.label} · тап Z",
+                periodDescription = "${screen.marketsZChartPeriod.label} · тап Z",
                 compoundReturns = false
             )
         }

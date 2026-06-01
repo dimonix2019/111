@@ -98,6 +98,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.30 — Альбом: кнопки 1D/1W/1M/… только фильтруют Z-график (без refresh MOEX — исправлен вылет на 1M).
 1.7.29 — Landscape Z-график: pan/zoom пальцами и кнопками; pull-to-refresh отключён в fullscreen.
 1.7.28 — Z-свечи: ограничена длина фитилей (10м spread при малой σ больше не даёт гигантские тени).
 1.7.27 — Z-свечи: open = Z предыдущего бара (красные/зелёные тела); подписи времени по оси X не обрезаются.

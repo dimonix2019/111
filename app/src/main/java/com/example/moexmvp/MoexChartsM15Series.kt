@@ -220,12 +220,13 @@ internal suspend fun loadSpreadOhlcForM15Range(
         buildSpreadOhlcBy15mBucket(spread10)
     }
 
-/** 15м Z-свечи с spread OHLC из 10м (фитили внутри слота). */
+/** 15м Z-свечи с spread OHLC из 10м (фитили); MOEX только за хвост [CHART_INTRABAR_OHLC_LOOKBACK_DAYS]. */
 internal suspend fun buildM15ZChartDisplayWithSpreadOhlc(
     simPoints: List<DataPoint>,
 ): Pair<List<DataPoint>, List<CandlePoint>> {
     if (simPoints.isEmpty()) return emptyList<DataPoint>() to emptyList<CandlePoint>()
-    val fullCandles = buildZScoreCandlesOhlcAnchoredToM15Series(simPoints)
+    val ohlc = loadSpreadOhlcForM15Range(simPoints)
+    val fullCandles = buildZScoreCandlesFrom15mSpreadOhlc(simPoints, ohlc)
     return downsampleM15ChartSeries(simPoints, fullCandles)
 }
 

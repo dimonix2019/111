@@ -191,6 +191,17 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun chartInitialWindowForLastCalendarDays_startWithinWindow() {
+        val points = (0 until 100).map { day ->
+            val d = java.time.LocalDate.of(2026, 4, 1).plusDays(day.toLong())
+            point("${d} 10:00", z = day * 0.01)
+        }
+        val (width, start) = chartInitialWindowForLastCalendarDays(points, visibleDays = 30L)
+        assertTrue(width in CHART_ZOOM_MIN_WINDOW..1f)
+        assertTrue(start in 0f..(1f - width + 1e-6f))
+    }
+
+    @Test
     fun chartInitialWindowForLastCalendarDays_showsTailMonth() {
         val points = (0 until 100).map { day ->
             val d = java.time.LocalDate.of(2025, 12, 1).plusDays(day.toLong())

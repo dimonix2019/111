@@ -80,7 +80,8 @@ internal class ChartViewportState(
 
     fun resetWindow(initialWidth: Float, initialStart: Float) {
         windowWidth = initialWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
-        windowStart = initialStart.coerceIn(0f, 1f - windowWidth)
+        val startUpper = (1f - windowWidth).coerceAtLeast(0f)
+        windowStart = initialStart.coerceIn(0f, startUpper)
         yZoom = 1f
         yViewCenter = candleDefaultYViewCenter(dataYMinRef, dataYMaxRef)
     }

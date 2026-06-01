@@ -157,7 +157,8 @@ internal fun chartInitialWindowForLastCalendarDays(
     val maxIndex = points.lastIndex.coerceAtLeast(1)
     val width = ((points.size - firstVisibleIdx).toFloat() / points.size)
         .coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
-    val start = (firstVisibleIdx.toFloat() / maxIndex).coerceIn(0f, 1f - width)
+    val startUpper = (1f - width).coerceAtLeast(0f)
+    val start = (firstVisibleIdx.toFloat() / maxIndex).coerceIn(0f, startUpper)
     return width to start
 }
 
