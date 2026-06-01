@@ -13,10 +13,8 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: Portf
         portfolioLoading = true
         portfolioError = null
         try {
-            val till = LocalDate.now(moexZoneId)
-            val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
             val m15Mode = m15LoadHint ?: resolvePortfolioM15LoadMode(context)
-            val loaded = loadM15SeriesForPortfolio(from, m15Mode)
+            val loaded = loadM15SeriesForPortfolio(m15Mode)
             if (loaded.size < 2) {
                 confirmedPortfolioMetrics = null
                 confirmedPortfolioTableRows = emptyList()
@@ -37,7 +35,7 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: Portf
             portfolioM15Points = loaded
             if (marketsM15Points.isEmpty()) marketsM15Points = loaded
             val desc =
-                "15 мин (ISS 10m→15m) · $PORTFOLIO_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
+                "15 мин (ISS 10m→15m) · $PORTFOLIO_TAB_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
 
             val entryRt = (realTradeEntryThreshold ?: dynamicThresholds.entry)
                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)

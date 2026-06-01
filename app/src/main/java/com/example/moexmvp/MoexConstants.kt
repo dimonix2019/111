@@ -77,8 +77,10 @@ internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
 internal const val DEFAULT_STRATEGY_ENTRY_PULLBACK_Z = 0.07
 internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MIN = 0.05
 internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MAX = 2.0
-/** Calendar days of history for 15m-style portfolio (10m ISS → 15m bars). ~1y; smaller than 365*1m traffic. */
+/** Calendar days of history for 15m cache / «Рынок» / «Тест страт.» (~1y). */
 internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 255L
+/** Вкладка «Портфель»: метрики и сделки — достаточно ~3 мес. (~3k баров вместо ~13k). */
+internal const val PORTFOLIO_TAB_M15_LOOKBACK_DAYS = 90L
 /** Rolling Z: окно μ/σ в календарных днях (MSK), parity с strategy-web. */
 internal const val Z_SCORE_ROLLING_LOOKBACK_DAYS = 30
 internal const val Z_SCORE_ROLLING_MIN_BARS = 48
@@ -98,6 +100,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.38 — Портфель: без графика Z; загрузка 15м за 90 дн. (~3k баров), не 255; кэш без wipe при обновлении.
 1.7.37 — Прогресс-бар обновляется по ходу загрузки (сессии, фоновая MOEX, анимация дневного ряда).
 1.7.36 — Прогресс загрузки: кэш SQLite (баров) и MOEX ISS (баров + чанк) при долгой подгрузке 15м.
 1.7.35 — Регрессионные тесты (все периоды графика, 1W/1M, кэш, viewport); исправлен тест stop-loss.

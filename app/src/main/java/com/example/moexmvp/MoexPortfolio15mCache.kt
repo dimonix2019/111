@@ -69,7 +69,6 @@ internal suspend fun downloadPortfolio15mFullRangeToDao(
     moexFetchTill: LocalDate,
     onProgress: DataLoadProgressCallback = null,
 ) {
-    dao.deleteAll()
     val chunkTotal = countMoexDateChunks(from, moexFetchTill)
     val moexTarget = estimateM15BarCount(from, moexFetchTill)
     var barsDownloaded = 0

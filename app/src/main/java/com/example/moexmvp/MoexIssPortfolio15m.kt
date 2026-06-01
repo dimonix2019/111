@@ -113,10 +113,14 @@ internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
     from: LocalDate,
     preferredMode: PortfolioM15LoadMode,
     onProgress: DataLoadProgressCallback = null,
+    wipeAllOnFullRefresh: Boolean = true,
+    retentionDays: Long = PORTFOLIO_M15_LOOKBACK_DAYS,
 ): List<DataPoint> {
     val till = LocalDate.now(moexZoneId)
     val today = till
-    var points = loadPortfolio15mDataPoints(context, from, till, preferredMode, onProgress)
+    var points = loadPortfolio15mDataPoints(
+        context, from, till, preferredMode, onProgress, wipeAllOnFullRefresh, retentionDays,
+    )
     if (!portfolio15mSeriesTailStale(points)) return points
 
     val lastDay = points.lastOrNull()?.timestampMillis?.let { portfolioM15LastBarDayFromTs(it) }
@@ -124,15 +128,21 @@ internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
         lastDay != null &&
         lastDay.isBefore(today.minusDays(1))
     ) {
-        points = loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.FULL_REFRESH, onProgress)
+        points = loadPortfolio15mDataPoints(
+            context, from, till, PortfolioM15LoadMode.FULL_REFRESH, onProgress, wipeAllOnFullRefresh, retentionDays,
+        )
         if (!portfolio15mSeriesTailStale(points)) return points
     }
 
     if (preferredMode != PortfolioM15LoadMode.INCREMENTAL) {
-        points = loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.INCREMENTAL, onProgress)
+        points = loadPortfolio15mDataPoints(
+            context, from, till, PortfolioM15LoadMode.INCREMENTAL, onProgress, wipeAllOnFullRefresh, retentionDays,
+        )
         if (!portfolio15mSeriesTailStale(points)) return points
     }
-    return loadPortfolio15mDataPoints(context, from, till, PortfolioM15LoadMode.FULL_REFRESH, onProgress)
+    return loadPortfolio15mDataPoints(
+        context, from, till, PortfolioM15LoadMode.FULL_REFRESH, onProgress, wipeAllOnFullRefresh, retentionDays,
+    )
 }
 
 /**
@@ -168,16 +178,19 @@ internal suspend fun loadPortfolio15mDataPoints(
     till: LocalDate,
     mode: PortfolioM15LoadMode,
     onProgress: DataLoadProgressCallback = null,
+    wipeAllOnFullRefresh: Boolean = true,
+    retentionDays: Long = PORTFOLIO_M15_LOOKBACK_DAYS,
 ): List<DataPoint> = withContext(Dispatchers.IO) {
     withPortfolioM15LoadLock {
         val dao = PortfolioM15Database.get(context).dao()
         val zone = moexZoneId
         val moexFetchTill = portfolioM15MoexFetchTillDate()
-        val cutoffMillis = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS).atStartOfDay(zone).toInstant().toEpochMilli()
+        val retentionCutoffMillis = till.minusDays(retentionDays).atStartOfDay(zone).toInstant().toEpochMilli()
+        val queryCutoffMillis = from.atStartOfDay(zone).toInstant().toEpochMilli()
 
-        dao.deleteOlderThan(cutoffMillis)
+        dao.deleteOlderThan(retentionCutoffMillis)
 
-        val cacheInDb = dao.countSince(cutoffMillis)
+        val cacheInDb = dao.countSince(queryCutoffMillis)
         val moexTargetEstimate = when (mode) {
             PortfolioM15LoadMode.CACHE_ONLY -> 0
             PortfolioM15LoadMode.INCREMENTAL -> {
@@ -212,6 +225,9 @@ internal suspend fun loadPortfolio15mDataPoints(
             PortfolioM15LoadMode.CACHE_ONLY -> Unit
 
             PortfolioM15LoadMode.FULL_REFRESH -> {
+                if (wipeAllOnFullRefresh) {
+                    dao.deleteAll()
+                }
                 downloadPortfolio15mFullRangeToDao(dao, from, moexFetchTill, onProgress)
             }
 
@@ -258,7 +274,7 @@ internal suspend fun loadPortfolio15mDataPoints(
             mergePortfolio15mRecentTailFromMoex(dao, onProgress)
         }
 
-        val cacheTotal = dao.countSince(cutoffMillis).coerceAtLeast(1)
+        val cacheTotal = dao.countSince(queryCutoffMillis).coerceAtLeast(1)
         onProgress?.invoke(
             DataLoadProgress(
                 phase = DataLoadPhase.CacheRead,
@@ -269,7 +285,7 @@ internal suspend fun loadPortfolio15mDataPoints(
                 detail = "чтение кэша SQLite",
             )
         )
-        val rows = dao.getSince(cutoffMillis)
+        val rows = dao.getSince(queryCutoffMillis)
         if (rows.isEmpty()) return@withPortfolioM15LoadLock emptyList()
 
         onProgress?.invoke(

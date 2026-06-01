@@ -27,7 +27,7 @@ internal fun MoexScreen() {
     val configuration = LocalConfiguration.current
     val landscapeZChartFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-            (screen.selectedTab == MainTab.Markets || screen.selectedTab == MainTab.Portfolio)
+            screen.selectedTab == MainTab.Markets
 
     val chartSuccess = (screen.state as? UiState.Success) ?: screen.lastGoodMarkets
     val staleMarkets = screen.marketsStale || (screen.realtimeError != null && chartSuccess != null)
@@ -38,24 +38,6 @@ internal fun MoexScreen() {
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second
 
-    val portfolioM15SimPoints = remember(screen.portfolioM15Points, screen.marketsZChartPeriod) {
-        filterM15PointsForMarketsPeriod(screen.portfolioM15Points, screen.marketsZChartPeriod)
-    }
-    val portfolioPortraitM15SimPoints = remember(screen.portfolioM15Points) {
-        filterM15PointsForMarketsPeriod(screen.portfolioM15Points, Period.OneDay)
-    }
-    val portfolioChartSeries = rememberM15ZChartSeries(portfolioM15SimPoints)
-    val portfolioZChartPoints = portfolioChartSeries.first
-    val portfolioZScoreCandles = portfolioChartSeries.second
-    val portfolioPortraitChartSeries = rememberM15ZChartSeries(portfolioPortraitM15SimPoints)
-    val portfolioPortraitZChartPoints = portfolioPortraitChartSeries.first
-    val portfolioPortraitZScoreCandles = portfolioPortraitChartSeries.second
-    val portfolioLandscapeChartThresholds = remember(
-        screen.realTradeEntryThreshold,
-        screen.realTradeExitThreshold
-    ) {
-        portfolioChartZThresholds(screen.realTradeEntryThreshold, screen.realTradeExitThreshold)
-    }
     val strategyTestM15Full = remember(screen.portfolioM15Points, screen.marketsM15Points) {
         when {
             screen.portfolioM15Points.size >= 2 -> screen.portfolioM15Points
@@ -180,12 +162,6 @@ internal fun MoexScreen() {
                 screen = screen,
                 scope = scope,
                 modifier = Modifier.weight(1f),
-                landscapeZChartFullscreen = landscapeZChartFullscreen,
-                portfolioZChartPoints = portfolioZChartPoints,
-                portfolioZScoreCandles = portfolioZScoreCandles,
-                portfolioPortraitZScoreCandles = portfolioPortraitZScoreCandles,
-                portfolioLandscapeChartThresholds = portfolioLandscapeChartThresholds,
-                portfolioPortraitZChartPoints = portfolioPortraitZChartPoints
             )
             MainTab.StrategyTest -> MoexScreenTabStrategyTest(
                 screen = screen,

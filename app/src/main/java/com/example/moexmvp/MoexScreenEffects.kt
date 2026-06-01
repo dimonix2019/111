@@ -235,7 +235,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         portfolioLedgerIncludeAuto
     ) {
         if (selectedTab == MainTab.Portfolio) {
-            refreshPortfolio(null)
+            val mode = when {
+                portfolioM15Points.size >= 2 && !portfolio15mSeriesTailStale(portfolioM15Points) ->
+                    PortfolioM15LoadMode.CACHE_ONLY
+                else -> PortfolioM15LoadMode.INCREMENTAL
+            }
+            refreshPortfolio(mode)
         }
     }
 

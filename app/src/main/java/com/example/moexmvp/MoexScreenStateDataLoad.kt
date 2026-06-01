@@ -44,10 +44,18 @@ internal suspend fun MoexScreenState.loadM15ForMonitor(
 }
 
 internal suspend fun MoexScreenState.loadM15SeriesForPortfolio(
-    from: LocalDate,
     m15Mode: PortfolioM15LoadMode,
 ): List<DataPoint> = withDataLoadSession {
+    val till = LocalDate.now(moexZoneId)
+    val from = till.minusDays(PORTFOLIO_TAB_M15_LOOKBACK_DAYS)
     withContext(Dispatchers.IO) {
-        loadPortfolio15mSeriesEnsuringRecentTail(context, from, m15Mode, dataLoadProgressSink())
+        loadPortfolio15mSeriesEnsuringRecentTail(
+            context = context,
+            from = from,
+            preferredMode = m15Mode,
+            onProgress = dataLoadProgressSink(),
+            wipeAllOnFullRefresh = false,
+            retentionDays = PORTFOLIO_M15_LOOKBACK_DAYS,
+        )
     }
 }
