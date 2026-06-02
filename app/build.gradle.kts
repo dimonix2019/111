@@ -116,3 +116,13 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+/** MOEX ISS backtests are manual/local only — they time out on GitHub Actions and block APK publish. */
+tasks.withType<Test>().configureEach {
+    if (System.getenv("GITHUB_ACTIONS") == "true") {
+        filter {
+            excludeTestsMatching("com.example.moexmvp.MoexTodayBacktestTest")
+            excludeTestsMatching("com.example.moexmvp.MoexZPeakTrailingFullBacktestTest")
+        }
+    }
+}
