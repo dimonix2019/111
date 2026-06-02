@@ -68,11 +68,14 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         dynamicThresholds.calculatedDate,
     ) {
         if (selectedTab != MainTab.StrategyTest) {
-            clearStrategyTestSession()
+            clearStrategyTestVisibleState()
             return@LaunchedEffect
         }
-        val reloadFromDb = !strategyTestM15SessionCache.sufficientForStrategyTestSimulation()
-        refreshStrategyTestTab(preferNetwork = false, reloadFromDb = reloadFromDb)
+        if (strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) {
+            runStrategyTestSimulation(strategyTestM15SessionCache)
+        } else {
+            refreshStrategyTestTab(preferNetwork = false, reloadFromDb = true)
+        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current

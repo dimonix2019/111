@@ -42,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,6 +55,8 @@ import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Симуляция Z на полном 15м ряду (~255 дн.); без графика Z и без трейлинга выхода. */
 @Composable
@@ -86,7 +89,8 @@ internal fun StrategyTestTabContent(
     walkForwardBusy: Boolean,
     dailyReconciliation: DailyPortfolioReconciliation? = null,
     portfolioEntryThreshold: Double? = null,
-    portfolioExitThreshold: Double? = null
+    portfolioExitThreshold: Double? = null,
+    embedTradeRows: Boolean = true,
 ) {
     val exitRuleNote =
         "выход по фиксированному порогу ±${String.format(Locale.US, "%.2f", exitThreshold)}"
@@ -134,12 +138,24 @@ internal fun StrategyTestTabContent(
         )
         if (zScoreCandles.isNotEmpty() && chartThresholds != null) {
             val zReferenceLines = buildZScoreReferenceLines(chartThresholds, desktopStyle = true)
+            val chartMarkers by produceState(
+                initialValue = emptyList<ChartPointMarker>(),
+                m15ChartPoints,
+                tradeItems,
+            ) {
+                value = withContext(Dispatchers.Default) {
+                    buildZScoreMarkersFromStrategyTestTrades(
+                        m15ChartPoints,
+                        filterStrategyTestTradesForChart(m15ChartPoints, tradeItems),
+                    )
+                }
+            }
             CandlestickChartCard(
                 title = "Z-score · 15м (тот же ряд, что симуляция)",
                 candles = zScoreCandles,
                 chartHeightDp = 260,
                 referenceLines = zReferenceLines,
-                pointMarkers = buildZScoreMarkersFromStrategyTestTrades(m15ChartPoints, tradeItems),
+                pointMarkers = chartMarkers,
                 showLegend = true,
                 enableZoomPan = true,
                 markerScale = 1.25f,
@@ -313,7 +329,7 @@ internal fun StrategyTestTabContent(
                         fontSize = 11.sp,
                         maxLines = 3
                     )
-                } else {
+                } else if (embedTradeRows) {
                     tradeItems.forEachIndexed { index, item ->
                         StrategyTestTradeRow(index = index + 1, item = item)
                     }

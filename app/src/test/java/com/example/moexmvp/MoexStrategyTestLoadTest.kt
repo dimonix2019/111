@@ -63,4 +63,50 @@ class MoexStrategyTestLoadTest {
         assertTrue(chart.size <= full.size)
         assertEquals(month.size, chart.size)
     }
+
+    @Test
+    fun filterStrategyTestTradesForChart_keepsTradesInWindow() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val points = listOf(
+            DataPoint(
+                timestampMillis = java.time.LocalDate.of(2026, 5, 1).atTime(10, 0).atZone(zone).toInstant().toEpochMilli(),
+                tradeDate = "2026-05-01 10:00",
+                tatnClose = 100.0,
+                tatnpClose = 90.0,
+                spreadPercent = 10.0,
+                diff = 10.0,
+                zScore = 0.0,
+            ),
+            DataPoint(
+                timestampMillis = java.time.LocalDate.of(2026, 5, 20).atTime(10, 0).atZone(zone).toInstant().toEpochMilli(),
+                tradeDate = "2026-05-20 10:00",
+                tatnClose = 100.0,
+                tatnpClose = 90.0,
+                spreadPercent = 10.0,
+                diff = 10.0,
+                zScore = 0.0,
+            ),
+        )
+        val inside = StrategyTestTradeItem(
+            trade = PortfolioClosedTrade(
+                direction = ZStrategyPosition.Long,
+                entryDate = "2026-05-10 10:00",
+                exitDate = "2026-05-15 10:00",
+                entrySpreadPercent = 10.0,
+                exitSpreadPercent = 10.4,
+                pnlSpreadPoints = 0.4,
+                grossPnlRubApprox = 100.0,
+                pnlRubApprox = 90.0,
+            )
+        )
+        val outside = inside.copy(
+            trade = inside.trade.copy(
+                entryDate = "2025-01-01 10:00",
+                exitDate = "2025-01-02 10:00",
+            )
+        )
+        val filtered = filterStrategyTestTradesForChart(points, listOf(inside, outside))
+        assertEquals(1, filtered.size)
+        assertEquals(inside, filtered.single())
+    }
 }
