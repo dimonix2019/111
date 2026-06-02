@@ -85,7 +85,9 @@ internal fun PortfolioTradeTableCell(
 internal fun PortfolioTradeOrdersGroupedTable(
     groups: List<PortfolioTradeGroupRow>,
     caption: String,
-    exitZColumnTitle: String = "Zвых"
+    exitZColumnTitle: String = "Zвых",
+    onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
+    closingTradeId: String? = null,
 ) {
     if (groups.isEmpty()) return
     val scroll = rememberScrollState()
@@ -142,6 +144,36 @@ internal fun PortfolioTradeOrdersGroupedTable(
                     .background(Color(0xFF242424), RoundedCornerShape(4.dp))
                     .padding(vertical = 2.dp)
             ) {
+                if (group.isOpen && onCloseOpenTrade != null) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${group.tradeId} · ${group.directionLabel} · ${group.entryTimeMsk}",
+                            color = Color(0xFFB3E5FC),
+                            fontSize = 10.sp,
+                            maxLines = 2,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = { onCloseOpenTrade(group.tradeId) },
+                            enabled = closingTradeId != group.tradeId,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFFFFAB91)
+                            )
+                        ) {
+                            Text(
+                                text = if (closingTradeId == group.tradeId) "Закрытие…" else "Закрыть",
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
                 group.orders.forEachIndexed { orderIdx, order ->
                     val isFirstOrder = orderIdx == 0
                     val tickerColor = when (order.legRole) {
@@ -287,7 +319,9 @@ internal fun PortfolioTradesBucketHeader(
 internal fun PortfolioTradesWindowSection(
     openExecutions: List<SandboxSpreadExecUi>,
     closedRows: List<PortfolioConfirmedTradeTableRow>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
+    closingTradeId: String? = null,
 ) {
     val (openBucket, closedBucket) = buildPortfolioTradesBuckets(openExecutions, closedRows)
     Column(
@@ -330,7 +364,9 @@ internal fun PortfolioTradesWindowSection(
                 PortfolioTradeOrdersGroupedTable(
                     groups = openBucket.groups,
                     caption = "Ордера сгруппированы по сделкам (2 строки). PnL открытых — оценка по Δ спрэда 15м.",
-                    exitZColumnTitle = "Z сейч."
+                    exitZColumnTitle = "Z сейч.",
+                    onCloseOpenTrade = onCloseOpenTrade,
+                    closingTradeId = closingTradeId,
                 )
             }
         }

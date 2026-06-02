@@ -79,6 +79,8 @@ internal fun ConfirmedPortfolioTabContent(
     onTestSpreadPairShortClick: () -> Unit,
     closeAllPortfolioBusy: Boolean,
     onCloseAllTradesClick: () -> Unit,
+    onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
+    closingTradeId: String? = null,
     dailyReconciliation: DailyPortfolioReconciliation? = null,
     latestZScore: Double? = null,
     latestSpreadPercent: Double? = null,
@@ -267,7 +269,9 @@ internal fun ConfirmedPortfolioTabContent(
         }
         PortfolioTradesWindowSection(
             openExecutions = sandboxSpreadExecutions,
-            closedRows = confirmedTradeTableRows
+            closedRows = confirmedTradeTableRows,
+            onCloseOpenTrade = onCloseOpenTrade,
+            closingTradeId = closingTradeId,
         )
         Text(
             text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",

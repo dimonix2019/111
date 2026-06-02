@@ -66,6 +66,25 @@ internal fun clearPortfolioExecutionLedger(context: Context) {
     }
 }
 
+internal fun removePortfolioExecutionLedgerEntry(
+    context: Context,
+    barTimestampMillis: Long,
+    signalType: StrategySignalType,
+    source: PortfolioExecSource,
+) {
+    if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return
+    val app = context.applicationContext
+    synchronized(portfolioExecLedgerLock) {
+        val list = loadPortfolioExecutionLedgerUnsafe(app).toMutableList()
+        val removed = list.removeAll {
+            it.barTimestampMillis == barTimestampMillis &&
+                it.signalType == signalType &&
+                it.source == source
+        }
+        if (removed) saveLedgerUnsafe(app, list)
+    }
+}
+
 private fun loadPortfolioExecutionLedgerUnsafe(app: Context): List<PortfolioExecutionLedgerEntry> {
     val raw = app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_JSON, null)
         ?: return emptyList()

@@ -238,6 +238,24 @@ internal object TinkoffSandboxSpreadExecLog {
         )
     }
 
+    /** Удалить одну открытую сделку по ID (после ручного закрытия). */
+    fun removeByTradeId(context: Context, tradeId: String): Boolean {
+        if (tradeId.isBlank()) return false
+        val app = context.applicationContext
+        synchronized(spreadExecLogLock) {
+            val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            migrateLegacyIfNeeded(prefs)
+            val list = loadRecentUnsafe(prefs).toMutableList()
+            val removed = list.removeAll { it.tradeId == tradeId }
+            if (!removed) return false
+            prefs.edit()
+                .putString(KEY_HISTORY_JSON, encodeHistory(list).toString())
+                .remove(KEY_JSON_LEGACY)
+                .commit()
+            return true
+        }
+    }
+
     fun clear(context: Context) {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
