@@ -60,7 +60,7 @@ jobs:
           github.event_name == 'workflow_dispatch'
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk moexmvp-debug.apk
-          printf '{"versionCode":%s,"versionName":"%s","apkUrl":"https://github.com/%s/releases/download/moexmvp-debug-latest/moexmvp-debug.apk"}\n' \
+          printf '{"versionCode":%s,"versionName":"%s","apkUrl":"https://raw.githubusercontent.com/%s/gh-pages/moexmvp-debug.apk"}\n' \
             "${{ steps.meta.outputs.vcode }}" \
             "${{ steps.meta.outputs.version }}" \
             "${{ github.repository }}" > app-update.json
