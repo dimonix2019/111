@@ -112,6 +112,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.52 — Realtime на «Рынке» включён по умолчанию (опрос MOEX каждые 5 с).
 1.7.51 — Рынок (альбом/fullscreen Z): сдвиг графика влево — пустое место справа (TradingView); не прижато к правому краю.
 1.7.50 — Тест страт.: вылет на Z-графике (ширина свечи при ~1200 барах — пустой coerceIn).
 1.7.49 — Тест страт.: SQLite чанками (255д без OOM); без общего прогресс-бара при открытии; не дублировать tab_open; Z in-place.
