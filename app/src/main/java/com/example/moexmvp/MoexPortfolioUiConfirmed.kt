@@ -279,7 +279,7 @@ internal fun ConfirmedPortfolioTabContent(
             maxLines = 3
         )
         PortfolioCollapsibleSection(
-            title = "Плечо, комиссия, пояснения",
+            title = "Плечо и комиссия",
             defaultExpanded = false
         ) {
             PortfolioParamsControls(
@@ -292,13 +292,6 @@ internal fun ConfirmedPortfolioTabContent(
                 onCommissionChange = onCommissionChange,
                 onEntryThresholdChange = {},
                 onExitThresholdChange = {}
-            )
-            Text(
-                text = "Сводка и «Сверка за день» — симуляция Z за последние $PORTFOLIO_COMPARE_LOOKBACK_DAYS дн. (пороги на 15м; Z с полного ряда, если открыт «Тест страт.»). " +
-                    "Таблица сделок — журнал и демо (~$PORTFOLIO_TAB_M15_LOOKBACK_DAYS дн.).",
-                color = Color(0xFF757575),
-                fontSize = 10.sp,
-                lineHeight = 13.sp,
             )
         }
 
