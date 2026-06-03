@@ -56,6 +56,15 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     val configuration = LocalConfiguration.current
     with(screen) {
         val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != MainTab.StrategyTest) {
+            strategyTestWorkGeneration++
+            clearStrategyTestVisibleState()
+            return@LaunchedEffect
+        }
+        scheduleStrategyTestTabWork(reason = "tab_open", preferNetwork = false)
+    }
+
     LaunchedEffect(
         selectedTab,
         strategyTestEntryThreshold,
@@ -63,19 +72,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         portfolioLeverage,
         portfolioCommissionPercent,
         strategyTestCompoundReturns,
-        dynamicThresholds.entry,
-        dynamicThresholds.exit,
-        dynamicThresholds.calculatedDate,
     ) {
-        if (selectedTab != MainTab.StrategyTest) {
-            clearStrategyTestVisibleState()
-            return@LaunchedEffect
-        }
-        if (strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) {
-            runStrategyTestSimulation(strategyTestM15SessionCache)
-        } else {
-            refreshStrategyTestTab(preferNetwork = false, reloadFromDb = true)
-        }
+        if (selectedTab != MainTab.StrategyTest) return@LaunchedEffect
+        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
+        if (strategyTestM15Loading || strategyTestSimComputing) return@LaunchedEffect
+        if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
+        scheduleStrategyTestResimOnly(reason = "params_change")
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current

@@ -94,6 +94,10 @@ internal fun StrategyTestTabContent(
 ) {
     val exitRuleNote =
         "выход по фиксированному порогу ±${String.format(Locale.US, "%.2f", exitThreshold)}"
+    val context = LocalContext.current
+    val diagTail = remember(m15Loading, simulationComputing, m15Error) {
+        MoexDiagnostics.loadLines(context).takeLast(4).joinToString("\n")
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
@@ -338,6 +342,19 @@ internal fun StrategyTestTabContent(
         }
         dailyReconciliation?.let { rec ->
             DailyReconciliationSection(rec)
+        }
+        if (diagTail.isNotBlank()) {
+            Text(
+                text = "Диагностика (последние строки, полный журнал — «О приложении»):\n$diagTail",
+                color = Color(0xFF546E7A),
+                fontSize = 8.sp,
+                lineHeight = 10.sp,
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF121212), RoundedCornerShape(6.dp))
+                    .padding(6.dp)
+            )
         }
     }
 }

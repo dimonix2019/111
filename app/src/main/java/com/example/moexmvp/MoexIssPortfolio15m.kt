@@ -184,6 +184,8 @@ internal suspend fun loadPortfolio15mDataPoints(
     onProgress: DataLoadProgressCallback = null,
     wipeAllOnFullRefresh: Boolean = true,
     retentionDays: Long = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
+    /** true для «Тест страт.» при открытии вкладки — только SQLite, без догрузки хвоста с MOEX. */
+    skipMoexTailMerge: Boolean = false,
 ): List<DataPoint> = withContext(Dispatchers.IO) {
     withPortfolioM15LoadLock {
         val dao = PortfolioM15Database.get(context).dao()
@@ -274,7 +276,7 @@ internal suspend fun loadPortfolio15mDataPoints(
 
         val lastTsAfterLoad = dao.maxTsMillis() ?: 0L
         val tailStillStale = System.currentTimeMillis() - lastTsAfterLoad > PORTFOLIO_M15_TAIL_MAX_AGE_MS
-        if (mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
+        if (!skipMoexTailMerge && mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
             mergePortfolio15mRecentTailFromMoex(dao, onProgress)
         }
 

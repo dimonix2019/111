@@ -64,14 +64,36 @@ internal suspend fun MoexScreenState.loadM15ForStrategyTest(
     val till = LocalDate.now(moexZoneId)
     val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
     withContext(Dispatchers.IO) {
-        loadPortfolio15mSeriesEnsuringRecentTail(
-            context = context,
-            from = from,
-            preferredMode = mode,
-            onProgress = dataLoadProgressSink(),
-            wipeAllOnFullRefresh = false,
-            retentionDays = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
+        MoexDiagnostics.log(context, "st_load", "start mode=$mode from=$from till=$till")
+        val points = when (mode) {
+            PortfolioM15LoadMode.CACHE_ONLY ->
+                loadPortfolio15mDataPoints(
+                    context = context,
+                    from = from,
+                    till = till,
+                    mode = PortfolioM15LoadMode.CACHE_ONLY,
+                    onProgress = dataLoadProgressSink(),
+                    wipeAllOnFullRefresh = false,
+                    retentionDays = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
+                    skipMoexTailMerge = true,
+                )
+            else ->
+                loadPortfolio15mSeriesEnsuringRecentTail(
+                    context = context,
+                    from = from,
+                    preferredMode = mode,
+                    onProgress = dataLoadProgressSink(),
+                    wipeAllOnFullRefresh = false,
+                    retentionDays = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
+                )
+        }
+        MoexDiagnostics.log(
+            context,
+            "st_load",
+            "done mode=$mode points=${points.size} spanDays=${points.m15CalendarSpanDays()}",
         )
+        MoexDiagnostics.logMemory(context, "st_load")
+        points
     }
 }
 

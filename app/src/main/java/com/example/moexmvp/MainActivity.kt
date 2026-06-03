@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installMoexDiagnosticsCrashHandler(applicationContext)
         createPushNotificationChannel(this)
         requestPushPermissionIfNeeded()
         initPushMessaging()
@@ -92,5 +93,13 @@ class MainActivity : ComponentActivity() {
             .addOnFailureListener { error ->
                 Log.e(PUSH_LOG_TAG, "Failed to get FCM token", error)
             }
+    }
+}
+
+private fun installMoexDiagnosticsCrashHandler(appContext: android.content.Context) {
+    val prior = Thread.getDefaultUncaughtExceptionHandler()
+    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+        runCatching { MoexDiagnostics.logUncaught(appContext, thread, throwable) }
+        prior?.uncaughtException(thread, throwable)
     }
 }

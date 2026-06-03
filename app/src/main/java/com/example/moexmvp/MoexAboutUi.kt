@@ -17,6 +17,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +45,7 @@ internal fun AboutTabContent(
     var updateCheckText by remember { mutableStateOf<String?>(null) }
     var updateChecking by remember { mutableStateOf(false) }
     var showBrowserFallback by remember { mutableStateOf(false) }
+    var diagnosticsText by remember { mutableStateOf(MoexDiagnostics.formatForDisplay(context)) }
     val entries = parseAppChangelog()
     val currentNotes = changelogSummaryForBuild()
     Column(
@@ -142,6 +144,67 @@ internal fun AboutTabContent(
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA))
             ) {
                 Text("Открыть Release в браузере")
+            }
+        }
+        Text(
+            text = "Журнал диагностики",
+            color = Color.White,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(top = 16.dp)
+        )
+        Text(
+            text = "Пишется при «Тест страт.», загрузке 15м и вылетах. Скопируйте и отправьте разработчику (logcat: MoexDiagnostics).",
+            color = Color(0xFF9E9E9E),
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Text(
+            text = diagnosticsText,
+            color = Color(0xFFB0BEC5),
+            fontSize = 9.sp,
+            lineHeight = 12.sp,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .fillMaxWidth()
+                .background(Color(0xFF121212), RoundedCornerShape(8.dp))
+                .padding(8.dp)
+        )
+        Row(modifier = Modifier.padding(top = 6.dp)) {
+            OutlinedButton(
+                onClick = {
+                    diagnosticsText = MoexDiagnostics.formatForDisplay(context)
+                    val ok = MoexDiagnostics.copyToClipboard(context)
+                    Toast.makeText(
+                        context,
+                        if (ok) "Журнал скопирован" else "Нечего копировать",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFCC80))
+            ) {
+                Text("Скопировать журнал", fontSize = 10.sp)
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = {
+                    MoexDiagnostics.clear(context)
+                    diagnosticsText = MoexDiagnostics.formatForDisplay(context)
+                },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF90A4AE))
+            ) {
+                Text("Очистить", fontSize = 10.sp)
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = { diagnosticsText = MoexDiagnostics.formatForDisplay(context) },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA))
+            ) {
+                Text("Обновить", fontSize = 10.sp)
             }
         }
         if (currentNotes != null) {

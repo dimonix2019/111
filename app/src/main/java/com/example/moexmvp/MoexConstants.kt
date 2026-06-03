@@ -107,6 +107,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.48 — Тест страт.: открытие только SQLite (без скрытой MOEX); один поток загрузки; журнал диагностики в «О приложении» + logcat MoexDiagnostics.
 1.7.47 — Тест страт.: без сброса 255д кэша при уходе с вкладки; пересчёт без повторной загрузки; lazy-список сделок; маркеры графика в фоне.
 1.7.46 — Портфель: кнопка «Закрыть» у каждой открытой сделки (демо-выход, журнал, перенос в «Закрытые»). CI: без сетевых backtest-тестов (публикация APK).
 1.7.45 — Рынок 3M: 15м вне Compose state; фильтр/график в фоне; без двойной загрузки и refresh MOEX по кнопке периода.

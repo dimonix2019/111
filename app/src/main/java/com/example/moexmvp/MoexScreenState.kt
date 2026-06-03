@@ -83,6 +83,8 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestSimComputing by mutableStateOf(false)
     var strategyTestM15Loading by mutableStateOf(false)
     var strategyTestError by mutableStateOf<String?>(null)
+    /** Отмена устаревших загрузок/симуляций при смене вкладки или новом запросе. */
+    var strategyTestWorkGeneration = 0
     var dailyReconciliation by mutableStateOf<DailyPortfolioReconciliation?>(null)
     var marketsZStrategyTapMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var initialMarketsRefreshDone by mutableStateOf(false)
