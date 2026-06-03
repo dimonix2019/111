@@ -117,10 +117,10 @@ internal fun StrategyTestTabContent(
             maxLines = 2
         )
         Text(
-            text = "Пороги ниже задают только симуляцию на этом экране и не влияют на розовые пороги вкладки «Портфель».",
+            text = "Пороги ниже — только «Тест страт.». Розовые на «Портфеле» — отдельно; при одинаковых ± и фикс. номинале списки закрытых сделок совпадают.",
             color = Color(0xFFF48FB1),
             fontSize = 10.sp,
-            maxLines = 2
+            maxLines = 3
         )
         PortfolioParamsControls(
             leverage = leverage,
@@ -219,6 +219,13 @@ internal fun StrategyTestTabContent(
                         "не совпадают с розовыми на «Портфеле» (±${String.format(Locale.US, "%.2f", portfolioEntryThreshold)} / ±${String.format(Locale.US, "%.2f", portfolioExitThreshold)}). " +
                         "Сделки на вкладках будут различаться.",
                     color = Color(0xFFFFCC80),
+                    fontSize = 10.sp,
+                    maxLines = 4
+                )
+            } else if (!compoundReturns) {
+                Text(
+                    text = "Пороги совпадают с «Портфелем» и режим «Фикс. номинал» — закрытые сделки в списке должны совпасть со сводкой портфеля (после «Обновить» на обеих вкладках).",
+                    color = Color(0xFFA5D6A7),
                     fontSize = 10.sp,
                     maxLines = 4
                 )

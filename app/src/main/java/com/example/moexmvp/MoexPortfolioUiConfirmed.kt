@@ -294,9 +294,11 @@ internal fun ConfirmedPortfolioTabContent(
                 onExitThresholdChange = {}
             )
             Text(
-                text = "Метрики ниже — по парам вход→выход из журнала исполнений на демо (ручной «Принять» или авто, см. переключатель выше).",
+                text = "Сводка и «Сверка за день» — симуляция Z на том же 15м ряду ${PORTFOLIO_M15_LOOKBACK_DAYS} дн., что «Тест страт.» (пересечение порогов на барах). " +
+                    "Таблица сделок — журнал и демо (фактические входы/выходы).",
                 color = Color(0xFF757575),
-                fontSize = 10.sp
+                fontSize = 10.sp,
+                lineHeight = 13.sp,
             )
         }
 

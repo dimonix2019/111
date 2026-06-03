@@ -171,7 +171,7 @@ internal suspend fun MoexScreenState.refreshStrategyTestTab(
                     loadM15ForStrategyTest(networkMode)
                 }
                 if (!isStrategyTestWorkCurrent(workId)) return
-                strategyTestM15SessionCache = loaded
+                syncSharedM15Series(loaded)
                 if (!loaded.sufficientForStrategyTestSimulation()) {
                     strategyTestError = when (networkMode) {
                         PortfolioM15LoadMode.FULL_REFRESH ->
@@ -189,7 +189,7 @@ internal suspend fun MoexScreenState.refreshStrategyTestTab(
                     loadM15ForStrategyTest(PortfolioM15LoadMode.CACHE_ONLY)
                 }
                 if (!isStrategyTestWorkCurrent(workId)) return
-                strategyTestM15SessionCache = cached
+                syncSharedM15Series(cached)
                 when {
                     cached.size < 2 -> strategyTestError =
                         "Нет 15м в кэше. Нажмите «Обновить» для загрузки с MOEX."

@@ -166,6 +166,33 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(
+        realTradeEntryThreshold,
+        realTradeExitThreshold,
+        strategyTestM15SessionCache.size,
+        portfolioM15Points.size,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        dynamicThresholds.calculatedDate,
+        portfolioLoading,
+    ) {
+        if (portfolioLoading) return@LaunchedEffect
+        val entry = realTradeEntryThreshold ?: return@LaunchedEffect
+        val exit = realTradeExitThreshold ?: return@LaunchedEffect
+        val points = preferredM15SeriesForZSimulation()
+        if (points.isEmpty()) return@LaunchedEffect
+        confirmedPortfolioMetrics = withContext(Dispatchers.Default) {
+            buildPortfolioTabSimulationMetrics(
+                points = points,
+                entryThreshold = entry,
+                exitThreshold = exit,
+                dynamicCalculatedDate = dynamicThresholds.calculatedDate,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+            )
+        }
+    }
+
     LaunchedEffect(strategyTestEntryThreshold, strategyTestExitThreshold) {
         val entry = strategyTestEntryThreshold ?: return@LaunchedEffect
         val exit = strategyTestExitThreshold ?: return@LaunchedEffect
