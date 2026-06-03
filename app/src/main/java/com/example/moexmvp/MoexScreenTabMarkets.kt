@@ -78,15 +78,6 @@ internal fun MoexScreenTabMarkets(
                     if (!landscapeZChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
                             ?: chartSuccess?.points?.lastOrNull()
-                        val demoTail = TinkoffSandboxStorage.getAccountId(context)?.takeLast(8).orEmpty()
-                        val sandboxDemoHint = when (sandboxExecState) {
-                            SandboxExecUiState.MissingCredentials ->
-                                "Т‑Инвест песочница: сохраните токен и счёт (вкладка «Песочница»), чтобы слать заявки по «Принять»."
-                            SandboxExecUiState.Ready ->
-                                "Демо-счёт Т‑Инвест · …$demoTail · «Принять» → покупка 1 лота + продажа 1 лота (спрэд TATN/TATNP)."
-                            SandboxExecUiState.Off ->
-                                "Т‑Инвест песочница: сохраните токен и счёт (вкладка «Песочница»)."
-                        }
                         MarketsSummaryStrip(
                             z = last?.zScore,
                             spread = last?.spreadPercent,
@@ -97,7 +88,6 @@ internal fun MoexScreenTabMarkets(
                             lastLoadedAt = chartSuccess?.loadedAt ?: "—",
                             dataSource = dataSourceLabel,
                             stale = staleMarkets,
-                            sandboxDemoHint = sandboxDemoHint,
                             onMoexRefresh = {
                                 scope.launch { refreshData(showLoading = state !is UiState.Success, launchScope = scope, selectedPeriod = selectedPeriod) }
                             }

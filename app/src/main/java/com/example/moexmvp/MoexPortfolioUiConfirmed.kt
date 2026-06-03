@@ -90,7 +90,6 @@ internal fun ConfirmedPortfolioTabContent(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        AppVersionBriefCard(tabHint = "Полный журнал версий — вкладка «О приложении».")
         PortfolioDataRefreshHeader(
             title = "Портфель · демо-счёт",
             portfolioLoading = portfolioLoading,

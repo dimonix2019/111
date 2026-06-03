@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MoexDiagnostics.clear(applicationContext)
         installMoexDiagnosticsCrashHandler(applicationContext)
         createPushNotificationChannel(this)
         requestPushPermissionIfNeeded()

@@ -10,6 +10,9 @@ import java.time.format.DateTimeFormatter
 
 /** Кольцевой журнал для отладки вылетов (logcat + «О приложении»). */
 internal object MoexDiagnostics {
+    /** Временно выключено: не пишем в prefs; UI в «О приложении» скрыт. */
+    const val ENABLED = false
+
     private const val TAG = "MoexDiagnostics"
     private const val PREFS = "moex_diagnostics_log"
     private const val KEY_LINES = "lines_json"
@@ -20,6 +23,7 @@ internal object MoexDiagnostics {
     fun log(context: Context, category: String, message: String) {
         val line = "${Instant.now().atZone(zone).format(timeFmt)} [$category] $message"
         Log.i(TAG, line)
+        if (!ENABLED) return
         appendLine(context.applicationContext, line)
     }
 
@@ -77,7 +81,6 @@ internal object MoexDiagnostics {
             .edit()
             .remove(KEY_LINES)
             .apply()
-        log(context, "diag", "journal cleared")
     }
 
     private fun appendLine(context: Context, line: String) {

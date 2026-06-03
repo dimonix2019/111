@@ -42,7 +42,6 @@ internal fun MarketsSummaryStrip(
     lastLoadedAt: String?,
     dataSource: MarketsDataSource,
     stale: Boolean,
-    sandboxDemoHint: String?,
     onMoexRefresh: () -> Unit
 ) {
     Column(
@@ -52,7 +51,6 @@ internal fun MarketsSummaryStrip(
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        AppVersionBriefCard(tabHint = "Период 1D/1W/… — загрузка дневного ряда MOEX для вкладки «Рынок».")
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -70,14 +68,6 @@ internal fun MarketsSummaryStrip(
                     Text("Обновить MOEX", fontSize = 12.sp)
                 }
             }
-        }
-        if (sandboxDemoHint != null) {
-            Text(
-                text = sandboxDemoHint,
-                color = Color(0xFF81D4FA),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
-            )
         }
         Text(
             text = "Z: ${z?.let { String.format(Locale.US, "%.2f", it) } ?: "—"}   |   Спред: ${spread?.let { String.format(Locale.US, "%.2f%%", it) } ?: "—"}",
