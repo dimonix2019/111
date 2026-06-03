@@ -358,6 +358,12 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun chartCandleBodyWidthPx_manyVisibleCandles_doesNotThrow() {
+        val w = chartCandleBodyWidthPx(plotWidthPx = 400f, visibleCandleCount = 1200f)
+        assertEquals(2f, w, 0.01f)
+    }
+
+    @Test
     fun visibleCandleYRange_allowsViewCenterOutsideData() {
         val (visMin, visMax) = visibleCandleYRange(0.0, 2.0, yZoom = 1f, viewCenter = 5.0)
         assertTrue(visMin > 2.0)

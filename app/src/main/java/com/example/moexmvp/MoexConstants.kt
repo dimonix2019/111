@@ -107,6 +107,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.50 — Тест страт.: вылет на Z-графике (ширина свечи при ~1200 барах — пустой coerceIn).
 1.7.49 — Тест страт.: SQLite чанками (255д без OOM); без общего прогресс-бара при открытии; не дублировать tab_open; Z in-place.
 1.7.48 — Тест страт.: открытие только SQLite (без скрытой MOEX); один поток загрузки; журнал диагностики в «О приложении» + logcat MoexDiagnostics.
 1.7.47 — Тест страт.: без сброса 255д кэша при уходе с вкладки; пересчёт без повторной загрузки; lazy-список сделок; маркеры графика в фоне.

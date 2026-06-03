@@ -81,7 +81,8 @@ internal fun candleDefaultYViewCenter(dataMin: Double, dataMax: Double): Double 
 internal fun chartCandleBodyWidthPx(plotWidthPx: Float, visibleCandleCount: Float): Float {
     val count = visibleCandleCount.coerceAtLeast(1f)
     val slot = plotWidthPx / count
-    return (slot * 0.72f).coerceIn(2f, slot * 0.92f)
+    val upper = maxOf(2f, slot * 0.92f)
+    return (slot * 0.72f).coerceIn(2f, upper)
 }
 
 /** Видимый диапазон Y; viewCenter может быть вне dataMin..dataMax (как zoom фото в галерее). */
