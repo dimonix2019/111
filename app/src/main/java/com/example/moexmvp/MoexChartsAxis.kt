@@ -462,7 +462,22 @@ internal fun buildXTicks(labels: List<String>, desiredCount: Int = 5): List<XAxi
         .map { index -> XAxisTick(index = index, label = labels[index]) }
 }
 
-/** Подписи X для 15м свечей: индексы по времени слева→направо, короткий dd.MM HH:mm. */
+/** Подписи X для 15м рядов (линейный график спреда и т.п.). */
+internal fun buildXTicksForM15Labels(
+    labels: List<String>,
+    desiredCount: Int = 5,
+): List<XAxisTick> {
+    if (labels.isEmpty()) return emptyList()
+    return buildXTicks(labels, desiredCount)
+        .map { tick ->
+            XAxisTick(
+                index = tick.index,
+                label = formatM15ChartXAxisLabel(labels[tick.index]),
+            )
+        }
+}
+
+/** Подписи X для 15м свечей: индексы по времени слева→направо, короткий dd.MM.yy HH:mm. */
 internal fun buildXTicksForM15Candles(
     candles: List<CandlePoint>,
     desiredCount: Int = 6,

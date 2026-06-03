@@ -79,16 +79,20 @@ internal fun ChartCard(
     markerScale: Float = 1f,
     showZoomHint: Boolean = false,
     rightPlotPaddingPx: Float = 16f,
+    m15TimeLabels: Boolean = false,
+    xLabelStyle: ChartXLabelStyle = ChartXLabelStyleTilted,
     /** Доп. строка под выбранной точкой (например PnL симуляции по Z). */
     tradeTapHintFormatter: ((Int) -> String?)? = null
 ) {
-    val axisScale = remember(series, labels, yScale, referenceLines) {
-        buildAxisScale(
+    val axisScale = remember(series, labels, yScale, referenceLines, m15TimeLabels) {
+        val base = buildAxisScale(
             series = series,
             labels = labels,
             yScale = yScale,
             valueHints = referenceLines.map { it.value }
         )
+        if (!m15TimeLabels) base
+        else base.copy(xTicks = buildXTicksForM15Labels(labels))
     }
     val stats = remember(series) { buildChartStats(series) }
     var selectedIndex by remember(series, labels) { mutableStateOf<Int?>(null) }
@@ -140,7 +144,8 @@ internal fun ChartCard(
                     .height(chartHeightDp.dp),
                 enableZoomPan = enableZoomPan,
                 markerScale = markerScale,
-                rightPlotPaddingPx = rightPlotPaddingPx
+                rightPlotPaddingPx = rightPlotPaddingPx,
+                xLabelStyle = xLabelStyle,
             )
             if (rightAxisPercentBase != null && rightAxisPercentBase != 0.0) {
                 Column(

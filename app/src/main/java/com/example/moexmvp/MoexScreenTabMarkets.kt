@@ -297,13 +297,14 @@ internal fun MoexScreenTabMarkets(
                                     enableZoomPan = true,
                                     markerScale = 1.35f,
                                     rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-                                    showZoomHint = true,
+                                    showZoomHint = false,
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
                                     useDesktopStyle = true,
                                     displayMode = ChartDisplayMode.Candles,
                                     showPlotlyToolbar = true,
                                     trackpadGestures = false,
+                                    xLabelStyle = ChartXLabelStyleHorizontal,
                                     tradeTapHintFormatter = { idx ->
                                         formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)
                                     }
@@ -326,7 +327,9 @@ internal fun MoexScreenTabMarkets(
                                     showLegend = false,
                                     enableZoomPan = false,
                                     markerScale = 1f,
-                                    showZoomHint = false
+                                    showZoomHint = false,
+                                    m15TimeLabels = true,
+                                    xLabelStyle = ChartXLabelStyleHorizontal,
                                 )
                             }
                         } else if (waitingM15) {
