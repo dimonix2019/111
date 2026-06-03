@@ -61,7 +61,6 @@ internal fun MoexScreenTabMarkets(
     marketsChartThresholds: DynamicThresholds,
     marketsZStrategyTapMetrics: PortfolioMetrics?,
     dataSourceLabel: MarketsDataSource,
-    todayPnlHint: String?,
 ) {
     val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.marketsZChartPeriod) {
         chartInitialWindowForLastCalendarDays(
@@ -84,7 +83,6 @@ internal fun MoexScreenTabMarkets(
                             position = zStrategyPosition,
                             signalsToday = dailySignalLimit.sentCount,
                             signalsMax = DAILY_SIGNAL_MAX_PER_DAY,
-                            todayPnlSpreadHint = todayPnlHint,
                             lastLoadedAt = chartSuccess?.loadedAt ?: "—",
                             dataSource = dataSourceLabel,
                             stale = staleMarkets,

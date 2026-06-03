@@ -38,7 +38,6 @@ internal fun MarketsSummaryStrip(
     position: ZStrategyPosition,
     signalsToday: Int,
     signalsMax: Int,
-    todayPnlSpreadHint: String?,
     lastLoadedAt: String?,
     dataSource: MarketsDataSource,
     stale: Boolean,
@@ -88,13 +87,6 @@ internal fun MarketsSummaryStrip(
             color = Color(0xFFFFCC80),
             fontSize = 12.sp
         )
-        if (todayPnlSpreadHint != null) {
-            Text(
-                text = "Оценка PnL сегодня (журнал): $todayPnlSpreadHint",
-                color = Color(0xFFCE93D8),
-                fontSize = 12.sp
-            )
-        }
         if (stale) {
             Text(
                 text = "Показан последний успешный снимок — текущее обновление с MOEX не удалось.",

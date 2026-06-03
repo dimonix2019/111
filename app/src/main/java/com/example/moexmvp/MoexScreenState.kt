@@ -59,7 +59,6 @@ internal class MoexScreenState(val context: Context) {
     var portfolioPresets by mutableStateOf(loadPortfolioPresets(context))
     var robustCandidate by mutableStateOf<DynamicThresholds?>(null)
     var walkForwardBusy by mutableStateOf(false)
-    var todayPnlHint by mutableStateOf<String?>(null)
     var pendingVirtualTrade by mutableStateOf<PendingVirtualTradeProposal?>(null)
     var sandboxExecState by mutableStateOf(SandboxExecUiState.Off)
     var sandboxTokenInput by mutableStateOf("")

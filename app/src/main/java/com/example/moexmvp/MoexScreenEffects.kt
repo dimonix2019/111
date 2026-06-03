@@ -174,15 +174,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
-    LaunchedEffect(chartSuccess?.points, signalEvents) {
-        val pts = chartSuccess?.points
-        if (pts != null && pts.isNotEmpty()) {
-            val est = estimateTodaySpreadPnlFromEvents(signalEvents, pts)
-            todayPnlHint = est?.let { String.format(Locale.US, "%.2f п.п. спрэда", it) }
-        } else {
-            todayPnlHint = null
-        }
-    }
     val signalJournalFingerprint = signalEvents.size to signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
 
     LaunchedEffect(

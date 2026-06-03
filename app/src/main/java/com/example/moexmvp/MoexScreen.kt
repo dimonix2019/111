@@ -209,7 +209,6 @@ internal fun MoexScreen() {
                 marketsChartThresholds = marketsChartThresholds,
                 marketsZStrategyTapMetrics = screen.marketsZStrategyTapMetrics,
                 dataSourceLabel = dataSourceLabel,
-                todayPnlHint = screen.todayPnlHint
             )
         }
     }
