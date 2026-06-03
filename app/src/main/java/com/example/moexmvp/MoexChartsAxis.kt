@@ -304,15 +304,49 @@ internal fun buildCandleStats(candles: List<CandlePoint>): ChartStats {
 }
 
 private val m15ChartXAxisLabelFormatter =
-    DateTimeFormatter.ofPattern("dd.MM HH:mm", Locale.forLanguageTag("ru"))
+    DateTimeFormatter.ofPattern("dd.MM.yy HH:mm", Locale.forLanguageTag("ru"))
 
-/** Подпись времени под 15м Z-графиком (без года — короче, меньше наложений). */
+/** Подпись времени под 15м Z-графиком: dd.MM.yy HH:mm (год «26», без секунд). */
 internal fun formatM15ChartXAxisLabel(tradeDateLabel: String): String {
     val trimmed = tradeDateLabel.trim()
     val dt = runCatching { LocalDateTime.parse(trimmed, portfolio15mLabelFormatter) }.getOrNull()
-        ?: return trimmed.takeLast(11)
+        ?: runCatching { LocalDateTime.parse(trimmed, updatedAtFormatter) }.getOrNull()
+        ?: return trimmed
+            .removeSuffix(":00")
+            .let { s -> if (s.length >= 16) s.substring(2, 16) else s.takeLast(14) }
     return dt.format(m15ChartXAxisLabelFormatter)
 }
+
+/** Время последней загрузки MOEX в сводке «Рынок» (без секунд). */
+internal fun formatMarketsLoadedAtShort(raw: String?): String {
+    if (raw.isNullOrBlank() || raw == "—") return "—"
+    val trimmed = raw.trim()
+    val dt = runCatching { LocalDateTime.parse(trimmed, updatedAtFormatter) }.getOrNull()
+        ?: runCatching { LocalDateTime.parse(trimmed, portfolio15mLabelFormatter) }.getOrNull()
+        ?: return trimmed.removeSuffix(":00").takeLast(14)
+    return dt.format(m15ChartXAxisLabelFormatter)
+}
+
+internal data class ChartXLabelStyle(
+    val rotationDeg: Float,
+    val bottomPaddingPx: Float,
+    val baselineFromBottomPx: Float,
+    val horizontal: Boolean,
+)
+
+internal val ChartXLabelStyleTilted = ChartXLabelStyle(
+    rotationDeg = CHART_X_LABEL_ROTATION_DEG,
+    bottomPaddingPx = CHART_BOTTOM_PADDING_PX,
+    baselineFromBottomPx = CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX,
+    horizontal = false,
+)
+
+internal val ChartXLabelStyleHorizontal = ChartXLabelStyle(
+    rotationDeg = 0f,
+    bottomPaddingPx = 36f,
+    baselineFromBottomPx = 12f,
+    horizontal = true,
+)
 
 internal fun buildCandleAxisScale(
     candles: List<CandlePoint>,

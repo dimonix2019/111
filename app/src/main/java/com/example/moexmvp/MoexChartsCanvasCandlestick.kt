@@ -80,6 +80,7 @@ internal fun CandlestickChart(
     displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
     useDesktopStyle: Boolean = false,
     trackpadGestures: Boolean = true,
+    xLabelStyle: ChartXLabelStyle = ChartXLabelStyleTilted,
 ) {
     if (candles.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -115,7 +116,7 @@ internal fun CandlestickChart(
         val range = (visMax - visMin).takeIf { it > 0.0 } ?: 1.0
         val leftPadding = 16f
         val topPadding = 12f
-        val bottomPadding = CHART_BOTTOM_PADDING_PX
+        val bottomPadding = xLabelStyle.bottomPaddingPx
         val maxIndex = candles.lastIndex.coerceAtLeast(0)
 
         var windowStart by remember(candles) { mutableFloatStateOf(0f) }
@@ -463,19 +464,22 @@ internal fun CandlestickChart(
             val labelPaint = Paint().apply {
                 isAntiAlias = true
                 color = axisColor.toArgb()
-                textSize = 10.sp.toPx()
-                // RIGHT + наклон: текст уходит влево от бара, подписи не «меняются местами» (CENTER давал 31.05 левее 30.05).
-                textAlign = Paint.Align.RIGHT
+                textSize = (if (xLabelStyle.horizontal) 9f else 10f).sp.toPx()
+                textAlign = if (xLabelStyle.horizontal) Paint.Align.CENTER else Paint.Align.RIGHT
             }
-            val labelBaselineY = size.height - CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX
+            val labelBaselineY = size.height - xLabelStyle.baselineFromBottomPx
             xTicks.forEach { tick ->
                 val frac = fracForIndex(tick.index)
                 if (frac < wStart - 0.02f || frac > wStart + wWidth + 0.02f) return@forEach
                 val x = xForIndexDraw(tick.index)
-                drawContext.canvas.nativeCanvas.save()
-                drawContext.canvas.nativeCanvas.rotate(CHART_X_LABEL_ROTATION_DEG, x, labelBaselineY)
-                drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
-                drawContext.canvas.nativeCanvas.restore()
+                if (xLabelStyle.rotationDeg == 0f) {
+                    drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
+                } else {
+                    drawContext.canvas.nativeCanvas.save()
+                    drawContext.canvas.nativeCanvas.rotate(xLabelStyle.rotationDeg, x, labelBaselineY)
+                    drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
+                    drawContext.canvas.nativeCanvas.restore()
+                }
             }
         }
         }

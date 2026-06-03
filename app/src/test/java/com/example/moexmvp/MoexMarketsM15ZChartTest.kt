@@ -223,7 +223,12 @@ class MoexMarketsM15ZChartTest {
 
     @Test
     fun formatM15ChartXAxisLabel_usesDayMonthTime() {
-        assertEquals("31.05 10:15", formatM15ChartXAxisLabel("2026-05-31 10:15"))
+        assertEquals("31.05.26 10:15", formatM15ChartXAxisLabel("2026-05-31 10:15"))
+    }
+
+    @Test
+    fun formatMarketsLoadedAtShort_stripsSeconds() {
+        assertEquals("13.05.26 12:00", formatMarketsLoadedAtShort("2026-05-13 12:00:00"))
     }
 
     @Test
@@ -235,8 +240,8 @@ class MoexMarketsM15ZChartTest {
         )
         val ticks = buildXTicksForM15Candles(candles, desiredCount = 3)
         assertTrue(ticks.map { it.index }.zipWithNext().all { (a, b) -> a < b })
-        assertEquals("30.05 10:00", ticks.first().label)
-        assertEquals("31.05 10:00", ticks.last().label)
+        assertEquals("30.05.26 10:00", ticks.first().label)
+        assertEquals("31.05.26 10:00", ticks.last().label)
     }
 
     @Test

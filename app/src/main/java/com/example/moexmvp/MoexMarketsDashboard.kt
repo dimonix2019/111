@@ -70,7 +70,11 @@ internal fun MarketsSummaryStrip(
             }
         }
         Text(
-            text = "Z: ${z?.let { String.format(Locale.US, "%.2f", it) } ?: "—"}   |   Спред: ${spread?.let { String.format(Locale.US, "%.2f%%", it) } ?: "—"}",
+            text = buildString {
+                append("Z: ${z?.let { String.format(Locale.US, "%.2f", it) } ?: "—"}")
+                append("  |  Спред: ${spread?.let { String.format(Locale.US, "%.2f%%", it) } ?: "—"}")
+                append("  |  ${dataSource.summaryLabelRu} ${formatMarketsLoadedAtShort(lastLoadedAt)}")
+            },
             color = Color(0xFFE0E0E0),
             fontSize = 13.sp
         )
@@ -91,11 +95,6 @@ internal fun MarketsSummaryStrip(
                 fontSize = 12.sp
             )
         }
-        Text(
-            text = "Данные: ${dataSource.labelRu} · $lastLoadedAt",
-            color = Color(0xFF9E9E9E),
-            fontSize = 11.sp
-        )
         if (stale) {
             Text(
                 text = "Показан последний успешный снимок — текущее обновление с MOEX не удалось.",

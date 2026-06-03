@@ -217,6 +217,7 @@ internal fun CandlestickChartCard(
     initialWindowStart: Float = 0f,
     tradeTapHintFormatter: ((Int) -> String?)? = null,
     landscapeMinimal: Boolean = false,
+    xLabelStyle: ChartXLabelStyle = ChartXLabelStyleTilted,
     useDesktopStyle: Boolean = false,
     displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
     showPlotlyToolbar: Boolean = false,
@@ -306,7 +307,7 @@ internal fun CandlestickChartCard(
                             if (landscapeMinimal) Modifier.fillMaxHeight()
                             else Modifier.height(chartHeightDp.dp)
                         )
-                        .width(54.dp),
+                        .width(if (landscapeMinimal) 42.dp else 54.dp),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     displayYTicks
@@ -352,6 +353,7 @@ internal fun CandlestickChartCard(
                     displayMode = displayMode,
                     useDesktopStyle = useDesktopStyle,
                     trackpadGestures = trackpadGestures,
+                    xLabelStyle = xLabelStyle,
                 )
             }
             if (enableZoomPan && useViewport && (showPlotlyToolbar || landscapeMinimal)) {
