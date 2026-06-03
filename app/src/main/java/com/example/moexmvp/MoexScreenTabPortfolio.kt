@@ -233,7 +233,7 @@ internal fun MoexScreenTabPortfolio(
                         LoadingStateWithProgress(
                             progress = dataLoadProgress,
                             dataLoadSessions = dataLoadSessions,
-                            statusText = "Загрузка 15м для портфеля (~$PORTFOLIO_M15_LOOKBACK_DAYS дн.)…",
+                            statusText = "Загрузка 15м для портфеля (~$PORTFOLIO_TAB_M15_LOOKBACK_DAYS дн.)…",
                         )
                     }
                 }

@@ -294,8 +294,8 @@ internal fun ConfirmedPortfolioTabContent(
                 onExitThresholdChange = {}
             )
             Text(
-                text = "Сводка и «Сверка за день» — симуляция Z на том же 15м ряду ${PORTFOLIO_M15_LOOKBACK_DAYS} дн., что «Тест страт.» (пересечение порогов на барах). " +
-                    "Таблица сделок — журнал и демо (фактические входы/выходы).",
+                text = "Сводка и «Сверка за день» — симуляция Z за последние $PORTFOLIO_COMPARE_LOOKBACK_DAYS дн. (пороги на 15м; Z с полного ряда, если открыт «Тест страт.»). " +
+                    "Таблица сделок — журнал и демо (~$PORTFOLIO_TAB_M15_LOOKBACK_DAYS дн.).",
                 color = Color(0xFF757575),
                 fontSize = 10.sp,
                 lineHeight = 13.sp,

@@ -179,11 +179,9 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         if (portfolioLoading) return@LaunchedEffect
         val entry = realTradeEntryThreshold ?: return@LaunchedEffect
         val exit = realTradeExitThreshold ?: return@LaunchedEffect
-        val points = preferredM15SeriesForZSimulation()
-        if (points.isEmpty()) return@LaunchedEffect
+        if (m15SeriesForZSimulation().isEmpty()) return@LaunchedEffect
         confirmedPortfolioMetrics = withContext(Dispatchers.Default) {
-            buildPortfolioTabSimulationMetrics(
-                points = points,
+            buildPortfolioTabSimulationMetricsForDisplay(
                 entryThreshold = entry,
                 exitThreshold = exit,
                 dynamicCalculatedDate = dynamicThresholds.calculatedDate,
@@ -213,11 +211,17 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         dynamicThresholds.exit
     ) {
         dailyReconciliation = withContext(Dispatchers.Default) {
+            val confirmedForCompare = confirmedPortfolioMetrics?.let {
+                filterPortfolioMetricsToRecentDays(it, PORTFOLIO_COMPARE_LOOKBACK_DAYS)
+            }
+            val simulationForCompare = strategyTestPortfolioMetrics?.let {
+                filterPortfolioMetricsToRecentDays(it, PORTFOLIO_COMPARE_LOOKBACK_DAYS)
+            }
             buildDailyPortfolioReconciliation(
                 day = LocalDate.now(ZoneId.of("Europe/Moscow")),
                 journalEvents = signalEvents,
-                confirmed = confirmedPortfolioMetrics,
-                simulation = strategyTestPortfolioMetrics,
+                confirmed = confirmedForCompare,
+                simulation = simulationForCompare,
                 simEntryThreshold = strategyTestEntryThreshold ?: dynamicThresholds.entry,
                 simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit,
                 simExitMode = ZStrategyExitMode.FixedThreshold,

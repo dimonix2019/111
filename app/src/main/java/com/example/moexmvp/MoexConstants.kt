@@ -84,8 +84,8 @@ internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MIN = 0.05
 internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MAX = 2.0
 /** Calendar days of history for 15m cache / «Рынок» / «Тест страт.» (~1y). */
 internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 255L
-/** Вкладка «Портфель»: метрики и сделки — достаточно ~3 мес. (~3k баров вместо ~13k). */
-internal const val PORTFOLIO_TAB_M15_LOOKBACK_DAYS = 90L
+/** Вкладка «Портфель»: загрузка 15м для таблицы/журнала (~последний месяц торговли). */
+internal const val PORTFOLIO_TAB_M15_LOOKBACK_DAYS = 30L
 /** Сколько дней 15м хранить в SQLite (макс. из вкладок; «Тест страт.» 255, «Рынок» до 3M). */
 internal val PORTFOLIO_M15_CACHE_RETENTION_DAYS: Long
     get() = maxOf(
@@ -112,9 +112,9 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.60 — Портфель: загрузка и сверка ~30 дн.; симуляция Z за месяц (полный ряд — из «Тест страт.» при открытии).
 1.7.59 — Портфель и «Тест страт.»: общий 15м ряд 255д и одна симуляция Z; при тех же порогах — совпадение сделок.
 1.7.58 — Рынок: убрана оценка «PnL сегодня» в сводке.
 1.7.57 — Обновление: скачивание APK с зеркала gh-pages, если Release отдаёт 404.
 1.7.56 — Диалог обновления: убран длинный текст про установку с GitHub / Play Store.
-1.7.55 — Рынок: убраны подсказки Interval 5s и «1 палец — сдвиг»; Z и Spread 15м — горизонтальные даты dd.MM.yy HH:mm.
 """
