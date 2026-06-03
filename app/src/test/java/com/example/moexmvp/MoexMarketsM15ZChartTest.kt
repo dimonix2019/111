@@ -198,7 +198,7 @@ class MoexMarketsM15ZChartTest {
         }
         val (width, start) = chartInitialWindowForLastCalendarDays(points, visibleDays = 30L)
         assertTrue(width in CHART_ZOOM_MIN_WINDOW..1f)
-        assertTrue(start in 0f..(1f - width + 1e-6f))
+        assertTrue(start in 0f..(chartWindowStartMax(width) + 1e-6f))
     }
 
     @Test
@@ -210,7 +210,7 @@ class MoexMarketsM15ZChartTest {
         val (width, start) = chartInitialWindowForLastCalendarDays(points, visibleDays = 30L)
         assertTrue(width < 1f)
         assertTrue(start > 0f)
-        assertTrue(start + width <= 1.02f)
+        assertTrue(start + width <= chartWindowStartMax(width) + width + 0.02f)
     }
 
     @Test
@@ -271,8 +271,7 @@ class MoexMarketsM15ZChartTest {
             visibleDays = calendarDaysForMarketsZChartPeriod(Period.ThreeMonths),
         )
         assertTrue(width in CHART_ZOOM_MIN_WINDOW..1f)
-        assertTrue(start in 0f..(1f - width + 1e-6f))
-        assertTrue(start + width <= 1.02f)
+        assertTrue(start in 0f..(chartWindowStartMax(width) + 1e-6f))
     }
 
     @Test

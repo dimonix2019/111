@@ -58,6 +58,11 @@ internal const val PORTFOLIO_Z_THRESHOLD_STEP = 0.05
 internal const val CHART_RIGHT_PLOT_PADDING_FRACTION = 0.10f
 /** Минимальная доля ряда по X при pinch-zoom. */
 internal const val CHART_ZOOM_MIN_WINDOW = 0.06f
+/** Сдвиг шкалы X вправо: пустое место справа от последней свечи (TradingView-style). */
+internal const val CHART_X_OVERSCROLL_RIGHT_MAX = 0.5f
+internal const val CHART_X_OVERSCROLL_LEFT_MAX = 0.08f
+/** При открытии: доля окна X — отступ последней свечи от правого края области графика. */
+internal const val CHART_INITIAL_RIGHT_MARGIN_IN_WINDOW = 0.18f
 /** Максимальный вертикальный zoom по оси Z (1 = весь диапазон данных). */
 internal const val CHART_Y_ZOOM_MAX = 24f
 /** Макс. 15м баров на графике (downsample при большем ряду — защита от вылетов/ANR). */
@@ -107,6 +112,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.51 — Рынок (альбом/fullscreen Z): сдвиг графика влево — пустое место справа (TradingView); не прижато к правому краю.
 1.7.50 — Тест страт.: вылет на Z-графике (ширина свечи при ~1200 барах — пустой coerceIn).
 1.7.49 — Тест страт.: SQLite чанками (255д без OOM); без общего прогресс-бара при открытии; не дублировать tab_open; Z in-place.
 1.7.48 — Тест страт.: открытие только SQLite (без скрытой MOEX); один поток загрузки; журнал диагностики в «О приложении» + logcat MoexDiagnostics.

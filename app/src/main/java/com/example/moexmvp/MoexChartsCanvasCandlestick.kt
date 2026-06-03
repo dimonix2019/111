@@ -124,7 +124,7 @@ internal fun CandlestickChart(
             if (viewport != null) return@LaunchedEffect
             if (enableZoomPan) {
                 windowWidth = initialWindowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
-                windowStart = initialWindowStart.coerceIn(0f, 1f - windowWidth)
+                windowStart = coerceChartWindowStart(initialWindowStart, windowWidth)
             } else {
                 windowStart = 0f
                 windowWidth = 1f
@@ -200,8 +200,10 @@ internal fun CandlestickChart(
                                 val centroidRel =
                                     ((centroid.x - leftPadding) / chartWidthPx).coerceIn(0f, 1f)
                                 val dataFracUnderCentroid = windowStart + centroidRel * windowWidth
-                                var newStart = dataFracUnderCentroid - centroidRel * newW
-                                newStart = newStart.coerceIn(0f, 1f - newW)
+                                val newStart = coerceChartWindowStart(
+                                    dataFracUnderCentroid - centroidRel * newW,
+                                    newW,
+                                )
                                 windowWidth = newW
                                 windowStart = newStart
                                 if (onYViewChange != null) {
@@ -220,7 +222,7 @@ internal fun CandlestickChart(
                             } else if (pan.x != 0f || pan.y != 0f) {
                                 if (pan.x != 0f) {
                                     val panFrac = -pan.x / chartWidthPx * windowWidth
-                                    windowStart = (windowStart + panFrac).coerceIn(0f, 1f - windowWidth)
+                                    windowStart = coerceChartWindowStart(windowStart + panFrac, windowWidth)
                                 }
                                 if (pan.y != 0f && onYViewChange != null) {
                                     val fullSpan = (baseMax - baseMin).coerceAtLeast(1e-9)

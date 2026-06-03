@@ -131,13 +131,15 @@ internal fun LineChart(
                             val centroidRel =
                                 ((centroid.x - leftPadding) / chartWidthPx).coerceIn(0f, 1f)
                             val dataFracUnderCentroid = windowStart + centroidRel * windowWidth
-                            var newStart = dataFracUnderCentroid - centroidRel * newW
-                            newStart = newStart.coerceIn(0f, 1f - newW)
+                            val newStart = coerceChartWindowStart(
+                                dataFracUnderCentroid - centroidRel * newW,
+                                newW,
+                            )
                             windowWidth = newW
                             windowStart = newStart
                         } else if (pan.x != 0f) {
                             val panFrac = -pan.x / chartWidthPx * windowWidth
-                            windowStart = (windowStart + panFrac).coerceIn(0f, 1f - windowWidth)
+                            windowStart = coerceChartWindowStart(windowStart + panFrac, windowWidth)
                         }
                     }
                 }
