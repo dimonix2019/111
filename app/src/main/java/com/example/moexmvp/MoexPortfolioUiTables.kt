@@ -319,11 +319,13 @@ internal fun PortfolioTradesBucketHeader(
 internal fun PortfolioTradesWindowSection(
     openExecutions: List<SandboxSpreadExecUi>,
     closedRows: List<PortfolioConfirmedTradeTableRow>,
+    lookbackDays: Long,
     modifier: Modifier = Modifier,
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
 ) {
-    val (openBucket, closedBucket) = buildPortfolioTradesBuckets(openExecutions, closedRows)
+    val depthLabel = portfolioLookbackPeriodLabel(lookbackDays)
+    val (openBucket, closedBucket) = buildPortfolioTradesBuckets(openExecutions, closedRows, lookbackDays)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -332,7 +334,7 @@ internal fun PortfolioTradesWindowSection(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "Сделки за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня (МСК)",
+            text = "Сделки · $depthLabel (МСК)",
             color = Color(0xFFE0E0E0),
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium
@@ -340,8 +342,7 @@ internal fun PortfolioTradesWindowSection(
         Text(
             text = "Открытые — исполнение на демо; закрытые — журнал вход/выход + демо (не симуляция «Тест страт.»). " +
                 "ID сигн. / бар / «Получен» — вход из журнала сигналов (сверка с авто-заявками). " +
-                "Если сигнал в журнале есть, а сделки нет — проверьте «Исполнять на демо» и реестр входа (авто). " +
-                "Окно: ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. (МСК).",
+                "Если сигнал в журнале есть, а сделки нет — проверьте «Исполнять на демо» и реестр входа (авто).",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
             maxLines = 3
@@ -356,7 +357,7 @@ internal fun PortfolioTradesWindowSection(
             PortfolioTradesBucketHeader(openBucket)
             if (openBucket.groups.isEmpty()) {
                 Text(
-                    text = "Нет открытых сделок за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня.",
+                    text = "Нет открытых сделок за $depthLabel.",
                     color = Color(0xFF9E9E9E),
                     fontSize = 11.sp
                 )
@@ -380,7 +381,7 @@ internal fun PortfolioTradesWindowSection(
             PortfolioTradesBucketHeader(closedBucket)
             if (closedBucket.groups.isEmpty()) {
                 Text(
-                    text = "Нет закрытых сделок за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня.",
+                    text = "Нет закрытых сделок за $depthLabel.",
                     color = Color(0xFF9E9E9E),
                     fontSize = 11.sp
                 )

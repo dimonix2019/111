@@ -32,6 +32,8 @@ internal const val PREF_REAL_TRADE_Z_EXIT = "real_trade_z_exit"
 /** Пороги |Z| только для симуляции «Тест страт.». */
 internal const val PREF_STRATEGY_TEST_Z_ENTRY = "strategy_test_z_entry"
 internal const val PREF_STRATEGY_TEST_Z_EXIT = "strategy_test_z_exit"
+/** Глубина портфеля: 1 / 3 / 7 / 30 календарных дней (МСК). */
+internal const val PREF_PORTFOLIO_LOOKBACK_DAYS = "portfolio_lookback_days"
 internal const val PREF_STRATEGY_TEST_EXIT_MODE = "strategy_test_exit_mode"
 internal const val PREF_STRATEGY_TEST_Z_PEAK_TRAIL = "strategy_test_z_peak_trail"
 /** @deprecated миграция в [PREF_REAL_TRADE_Z_ENTRY] при первом запуске. */
@@ -84,13 +86,11 @@ internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MIN = 0.05
 internal const val STRATEGY_TEST_Z_PEAK_TRAIL_MAX = 2.0
 /** Calendar days of history for 15m cache / «Рынок» / «Тест страт.» (~1y). */
 internal const val PORTFOLIO_M15_LOOKBACK_DAYS = 255L
-/** Вкладка «Портфель»: загрузка 15м для таблицы/журнала (~последний месяц торговли). */
-internal const val PORTFOLIO_TAB_M15_LOOKBACK_DAYS = 30L
 /** Сколько дней 15м хранить в SQLite (макс. из вкладок; «Тест страт.» 255, «Рынок» до 3M). */
 internal val PORTFOLIO_M15_CACHE_RETENTION_DAYS: Long
     get() = maxOf(
         PORTFOLIO_M15_LOOKBACK_DAYS,
-        PORTFOLIO_TAB_M15_LOOKBACK_DAYS,
+        DEFAULT_PORTFOLIO_LOOKBACK_DAYS,
         MARKETS_M15_MAX_LOOKBACK_DAYS,
     )
 /** Rolling Z: окно μ/σ в календарных днях (MSK), parity с strategy-web. */
@@ -112,9 +112,9 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.62 — Портфель: кнопки глубины 1 день / 3 дня / неделя / месяц.
 1.7.61 — Портфель: убран поясняющий текст про симуляцию и сверку.
 1.7.60 — Портфель: загрузка и сверка ~30 дн.; симуляция Z за месяц (полный ряд — из «Тест страт.» при открытии).
 1.7.59 — Портфель и «Тест страт.»: общий 15м ряд 255д и одна симуляция Z; при тех же порогах — совпадение сделок.
 1.7.58 — Рынок: убрана оценка «PnL сегодня» в сводке.
-1.7.57 — Обновление: скачивание APK с зеркала gh-pages, если Release отдаёт 404.
 """

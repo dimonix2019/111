@@ -6,22 +6,21 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /** Глубина списка сделок на вкладке «Портфель» (календарные дни, МСК). */
-internal const val PORTFOLIO_TRADES_WINDOW_DAYS = 3L
-
-private val portfolioTableMskParseFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-
 internal fun portfolioTradesWindowStartMillis(
+    lookbackDays: Long,
     zone: ZoneId = ZoneId.of("Europe/Moscow"),
-    nowMillis: Long = System.currentTimeMillis()
+    nowMillis: Long = System.currentTimeMillis(),
 ): Long =
     Instant.ofEpochMilli(nowMillis)
         .atZone(zone)
         .toLocalDate()
-        .minusDays(PORTFOLIO_TRADES_WINDOW_DAYS)
+        .minusDays((normalizePortfolioLookbackDays(lookbackDays) - 1).coerceAtLeast(0))
         .atStartOfDay(zone)
         .toInstant()
         .toEpochMilli()
+
+private val portfolioTableMskParseFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
 internal fun parsePortfolioExecutionTableMsk(label: String): Long? {
     if (label.isBlank() || label == "—") return null
@@ -35,13 +34,15 @@ internal fun parsePortfolioExecutionTableMsk(label: String): Long? {
 
 internal fun filterSandboxExecutionsInWindow(
     executions: List<SandboxSpreadExecUi>,
-    windowStartMillis: Long = portfolioTradesWindowStartMillis()
+    lookbackDays: Long,
+    windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
 ): List<SandboxSpreadExecUi> =
     executions.filter { it.executedAtMillis >= windowStartMillis }
 
 internal fun filterClosedTradeRowsInWindow(
     rows: List<PortfolioConfirmedTradeTableRow>,
-    windowStartMillis: Long = portfolioTradesWindowStartMillis()
+    lookbackDays: Long,
+    windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
 ): List<PortfolioConfirmedTradeTableRow> =
     rows.filter { row ->
         val exitMs = parsePortfolioExecutionTableMsk(row.exitTimeMsk) ?: return@filter false
@@ -65,7 +66,8 @@ internal fun parseSimTradeExitMillis(label: String): Long? {
 
 internal fun filterSimClosedTradesInWindow(
     trades: List<PortfolioClosedTrade>,
-    windowStartMillis: Long = portfolioTradesWindowStartMillis()
+    lookbackDays: Long,
+    windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
 ): List<PortfolioClosedTrade> =
     trades.filter { t ->
         val exitMs = parseSimTradeExitMillis(t.exitDate) ?: return@filter false
@@ -86,10 +88,11 @@ internal data class PortfolioTradesBucketUi(
 internal fun buildPortfolioTradesBuckets(
     openExecutions: List<SandboxSpreadExecUi>,
     closedRows: List<PortfolioConfirmedTradeTableRow>,
-    windowStartMillis: Long = portfolioTradesWindowStartMillis()
+    lookbackDays: Long,
+    windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
 ): Pair<PortfolioTradesBucketUi, PortfolioTradesBucketUi> {
-    val openFiltered = filterSandboxExecutionsInWindow(openExecutions, windowStartMillis)
-    val closedFiltered = filterClosedTradeRowsInWindow(closedRows, windowStartMillis)
+    val openFiltered = filterSandboxExecutionsInWindow(openExecutions, lookbackDays, windowStartMillis)
+    val closedFiltered = filterClosedTradeRowsInWindow(closedRows, lookbackDays, windowStartMillis)
     val openGroups = openFiltered.asReversed().map { it.toTradeGroup() }
     val closedGroups = closedFiltered.map { it.toTradeGroup() }
     return PortfolioTradesBucketUi(

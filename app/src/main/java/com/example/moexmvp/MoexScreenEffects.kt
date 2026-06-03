@@ -166,11 +166,18 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(portfolioLookbackDays) {
+        withContext(Dispatchers.IO) {
+            savePortfolioLookbackDays(context, portfolioLookbackDays)
+        }
+    }
+
     LaunchedEffect(
         realTradeEntryThreshold,
         realTradeExitThreshold,
         strategyTestM15SessionCache.size,
         portfolioM15Points.size,
+        portfolioLookbackDays,
         portfolioLeverage,
         portfolioCommissionPercent,
         dynamicThresholds.calculatedDate,
@@ -205,6 +212,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         signalJournalFingerprint,
         confirmedPortfolioMetrics,
         strategyTestPortfolioMetrics,
+        portfolioLookbackDays,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
         dynamicThresholds.entry,
@@ -212,10 +220,10 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     ) {
         dailyReconciliation = withContext(Dispatchers.Default) {
             val confirmedForCompare = confirmedPortfolioMetrics?.let {
-                filterPortfolioMetricsToRecentDays(it, PORTFOLIO_COMPARE_LOOKBACK_DAYS)
+                filterPortfolioMetricsToRecentDays(it, portfolioLookbackDays)
             }
             val simulationForCompare = strategyTestPortfolioMetrics?.let {
-                filterPortfolioMetricsToRecentDays(it, PORTFOLIO_COMPARE_LOOKBACK_DAYS)
+                filterPortfolioMetricsToRecentDays(it, portfolioLookbackDays)
             }
             buildDailyPortfolioReconciliation(
                 day = LocalDate.now(ZoneId.of("Europe/Moscow")),
@@ -232,6 +240,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
 
     LaunchedEffect(
         selectedTab,
+        portfolioLookbackDays,
         dynamicThresholds.entry,
         dynamicThresholds.exit,
         portfolioLeverage,

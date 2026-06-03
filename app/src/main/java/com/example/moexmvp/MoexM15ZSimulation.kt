@@ -7,13 +7,10 @@ import java.time.ZoneId
 
 /**
  * Сверка «Портфель» ↔ «Тест страт.»: полный 15м ряд (до 255д в кэше теста) для корректного Z,
- * на портфеле показываем только последние [PORTFOLIO_COMPARE_LOOKBACK_DAYS] (≈ месяц).
+ * на портфеле показываем только последние N календарных дней (выбор на вкладке).
  */
 
 internal val portfolioCompareZone: ZoneId = ZoneId.of("Europe/Moscow")
-
-/** Окно сверки с «Тест страт.» (календарные дни, МСК). */
-internal const val PORTFOLIO_COMPARE_LOOKBACK_DAYS = 30L
 
 internal fun List<DataPoint>.sufficientForZSimulation(): Boolean =
     size >= Z_SCORE_ROLLING_MIN_BARS + 2
@@ -43,9 +40,10 @@ internal fun tradeLabelOnOrAfterCutoff(label: String, cutoff: LocalDate): Boolea
 
 internal fun filterPortfolioMetricsToRecentDays(
     metrics: PortfolioMetrics,
-    lookbackDays: Long = PORTFOLIO_COMPARE_LOOKBACK_DAYS,
+    lookbackDays: Long,
 ): PortfolioMetrics {
-    val cutoff = LocalDate.now(portfolioCompareZone).minusDays(lookbackDays - 1)
+    val days = normalizePortfolioLookbackDays(lookbackDays)
+    val cutoff = LocalDate.now(portfolioCompareZone).minusDays(days - 1)
     val closed = metrics.closedTrades.filter {
         tradeLabelOnOrAfterCutoff(it.exitDate, cutoff) ||
             tradeLabelOnOrAfterCutoff(it.entryDate, cutoff)
@@ -63,7 +61,7 @@ internal fun filterPortfolioMetricsToRecentDays(
     val profitFactor = if (grossLoss < 0) grossWin / abs(grossLoss) else null
     return metrics.copy(
         periodDescription = metrics.periodDescription +
-            " · окно ${lookbackDays}д (МСК)",
+            " · окно ${days}д (МСК)",
         closedTrades = closed,
         openPosition = open,
         cumulativeRealizedSpread = realizedSpread,
@@ -130,7 +128,7 @@ internal fun MoexScreenState.buildPortfolioTabSimulationMetricsForDisplay(
         leverage = leverage,
         commissionPercentPerSide = commissionPercentPerSide,
     ) ?: return null
-    return filterPortfolioMetricsToRecentDays(raw, PORTFOLIO_COMPARE_LOOKBACK_DAYS)
+    return filterPortfolioMetricsToRecentDays(raw, portfolioLookbackDays)
 }
 
 internal fun portfolioThresholdsMatchStrategyTest(

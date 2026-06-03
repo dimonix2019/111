@@ -177,6 +177,10 @@ internal fun MoexScreenTabPortfolio(
                         sandboxSpreadExecutions = displayOpenExecutions,
                         portfolioLoading = portfolioLoading,
                         portfolioError = portfolioError,
+                        lookbackDays = portfolioLookbackDays,
+                        onLookbackDaysChange = { days ->
+                            portfolioLookbackDays = normalizePortfolioLookbackDays(days)
+                        },
                         onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
                         onMoex15mFullReload = {
                             scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) }
@@ -233,7 +237,7 @@ internal fun MoexScreenTabPortfolio(
                         LoadingStateWithProgress(
                             progress = dataLoadProgress,
                             dataLoadSessions = dataLoadSessions,
-                            statusText = "Загрузка 15м для портфеля (~$PORTFOLIO_TAB_M15_LOOKBACK_DAYS дн.)…",
+                            statusText = "Загрузка 15м для портфеля (${portfolioLookbackPeriodLabel(portfolioLookbackDays)})…",
                         )
                     }
                 }

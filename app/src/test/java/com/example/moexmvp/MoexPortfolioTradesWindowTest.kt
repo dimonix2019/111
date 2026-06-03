@@ -14,7 +14,7 @@ class MoexPortfolioTradesWindowTest {
         val windowStart = ZonedDateTime.of(2026, 5, 13, 12, 0, 0, 0, zone).toInstant().toEpochMilli()
         val old = sandboxExec(executedAt = windowStart - 1)
         val fresh = sandboxExec(executedAt = windowStart + 60_000)
-        val filtered = filterSandboxExecutionsInWindow(listOf(old, fresh), windowStart)
+        val filtered = filterSandboxExecutionsInWindow(listOf(old, fresh), lookbackDays = 3L, windowStartMillis = windowStart)
         assertEquals(1, filtered.size)
         assertEquals(fresh.tradeId, filtered.single().tradeId)
     }
@@ -42,7 +42,7 @@ class MoexPortfolioTradesWindowTest {
         )
         val zone = ZoneId.of("Europe/Moscow")
         val windowStart = ZonedDateTime.of(2026, 5, 13, 0, 0, 0, 0, zone).toInstant().toEpochMilli()
-        val (open, closed) = buildPortfolioTradesBuckets(emptyList(), listOf(row), windowStart)
+        val (open, closed) = buildPortfolioTradesBuckets(emptyList(), listOf(row), lookbackDays = 3L, windowStartMillis = windowStart)
         assertEquals(0, open.tradeCount)
         assertEquals(1, closed.tradeCount)
         assertEquals(1000.0, closed.totalPnlRub, 0.01)

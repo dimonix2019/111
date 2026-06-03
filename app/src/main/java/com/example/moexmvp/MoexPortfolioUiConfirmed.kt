@@ -64,6 +64,8 @@ internal fun ConfirmedPortfolioTabContent(
     portfolioError: String?,
     onRefresh: () -> Unit,
     onMoex15mFullReload: (() -> Unit)? = null,
+    lookbackDays: Long,
+    onLookbackDaysChange: (Long) -> Unit,
     leverage: Double,
     commissionPercentPerSide: Double,
     onLeverageChange: (Double) -> Unit,
@@ -96,6 +98,18 @@ internal fun ConfirmedPortfolioTabContent(
             onRefresh = onRefresh,
             onMoex15mFullReload = onMoex15mFullReload
         )
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Глубина",
+                color = Color(0xFF9E9E9E),
+                fontSize = 11.sp,
+            )
+            PortfolioDepthSelector(
+                selectedDays = lookbackDays,
+                onSelect = onLookbackDaysChange,
+                enabled = !portfolioLoading,
+            )
+        }
         if (latestZScore != null || latestSpreadPercent != null) {
             Text(
                 text = buildString {
@@ -269,6 +283,7 @@ internal fun ConfirmedPortfolioTabContent(
         PortfolioTradesWindowSection(
             openExecutions = sandboxSpreadExecutions,
             closedRows = confirmedTradeTableRows,
+            lookbackDays = lookbackDays,
             onCloseOpenTrade = onCloseOpenTrade,
             closingTradeId = closingTradeId,
         )
@@ -305,7 +320,11 @@ internal fun ConfirmedPortfolioTabContent(
                 }
             }
         } else if (!portfolioLoading && metrics == null) {
-            val (openBucket, _) = buildPortfolioTradesBuckets(sandboxSpreadExecutions, confirmedTradeTableRows)
+            val (openBucket, _) = buildPortfolioTradesBuckets(
+                sandboxSpreadExecutions,
+                confirmedTradeTableRows,
+                lookbackDays,
+            )
             val hasOpenMtm = openBucket.groups.any { !it.netPnlRubApprox.isNaN() }
             if (hasOpenMtm) {
                 Text(
