@@ -97,9 +97,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
         )
         strategyTestError = e.message?.take(200) ?: e.javaClass.simpleName
     } finally {
-        if (isStrategyTestWorkCurrent(workId)) {
-            strategyTestSimComputing = false
-        }
+        strategyTestSimComputing = false
     }
 }
 
@@ -107,6 +105,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
 internal suspend fun MoexScreenState.scheduleStrategyTestResimOnly(reason: String) {
     if (!isOnStrategyTestTab()) return
     if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return
+    if (strategyTestM15Loading) return
     val workId = ++strategyTestWorkGeneration
     MoexDiagnostics.log(context, "strategy_test", "resim id=$workId reason=$reason")
     refreshMutex.withLock {
@@ -125,6 +124,10 @@ internal suspend fun MoexScreenState.scheduleStrategyTestTabWork(
     networkMode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL,
 ) {
     if (!isOnStrategyTestTab()) return
+    if (reason.startsWith("tab_open") && strategyTestM15Loading) {
+        MoexDiagnostics.log(context, "strategy_test", "skip $reason — load in progress")
+        return
+    }
     val workId = ++strategyTestWorkGeneration
     MoexDiagnostics.log(
         context,
@@ -148,7 +151,6 @@ internal suspend fun MoexScreenState.scheduleStrategyTestTabWork(
 
 /**
  * Загрузка 15м + симуляция. Полный ряд (~255д) только в [strategyTestM15SessionCache], не в mutableStateOf.
- * @param preferNetwork только по кнопке «Обновить» / «MOEX заново» — не при открытии вкладки.
  */
 internal suspend fun MoexScreenState.refreshStrategyTestTab(
     preferNetwork: Boolean = false,
@@ -163,9 +165,11 @@ internal suspend fun MoexScreenState.refreshStrategyTestTab(
         val points: List<DataPoint> = when {
             !reloadFromDb && strategyTestM15SessionCache.sufficientForStrategyTestSimulation() ->
                 strategyTestM15SessionCache
-            preferNetwork -> withContext(Dispatchers.IO) {
-                loadM15ForStrategyTest(networkMode)
-            }.also { loaded ->
+
+            preferNetwork -> {
+                val loaded = withContext(Dispatchers.IO) {
+                    loadM15ForStrategyTest(networkMode)
+                }
                 if (!isStrategyTestWorkCurrent(workId)) return
                 strategyTestM15SessionCache = loaded
                 if (!loaded.sufficientForStrategyTestSimulation()) {
@@ -176,11 +180,14 @@ internal suspend fun MoexScreenState.refreshStrategyTestTab(
                             "Нет 15м данных (ISS / сеть). Попробуйте «MOEX заново»."
                     }
                 }
+                loaded
             }
-            else -> withContext(Dispatchers.IO) {
+
+            else -> {
                 MoexDiagnostics.log(context, "st_load", "cache_only_no_moex workId=$workId")
-                loadM15ForStrategyTest(PortfolioM15LoadMode.CACHE_ONLY)
-            }.also { cached ->
+                val cached = withContext(Dispatchers.IO) {
+                    loadM15ForStrategyTest(PortfolioM15LoadMode.CACHE_ONLY)
+                }
                 if (!isStrategyTestWorkCurrent(workId)) return
                 strategyTestM15SessionCache = cached
                 when {
@@ -190,6 +197,7 @@ internal suspend fun MoexScreenState.refreshStrategyTestTab(
                         "В кэше ~${cached.m15CalendarSpanDays()} дн. (нужно ≥$STRATEGY_TEST_MIN_SPAN_DAYS). " +
                             "Нажмите «Обновить»."
                 }
+                cached
             }
         }
         if (!isStrategyTestWorkCurrent(workId) || points.size < 2) return
@@ -198,17 +206,20 @@ internal suspend fun MoexScreenState.refreshStrategyTestTab(
         MoexDiagnostics.log(context, "st_load", "OOM workId=$workId")
         clearStrategyTestSession()
         strategyTestError = "Не хватает памяти при загрузке 15м. Перезапустите приложение."
+    } catch (e: Exception) {
+        MoexDiagnostics.log(
+            context,
+            "st_load",
+            "fail workId=$workId ${e.javaClass.simpleName}: ${e.message?.take(120)}",
+        )
+        strategyTestError = e.message?.take(200) ?: e.javaClass.simpleName
     } finally {
-        if (isStrategyTestWorkCurrent(workId)) {
+        if (workId == strategyTestWorkGeneration || !isOnStrategyTestTab()) {
             strategyTestM15Loading = false
         }
     }
 }
 
-/**
- * Подгрузка 15м для симуляции без полного refresh портфеля.
- * @return true если после вызова есть ≥2 точки
- */
 internal suspend fun MoexScreenState.ensureM15PointsForStrategyTest(
     preferNetwork: Boolean = false,
     networkMode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL,

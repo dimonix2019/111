@@ -109,4 +109,27 @@ class MoexStrategyTestLoadTest {
         assertEquals(1, filtered.size)
         assertEquals(inside, filtered.single())
     }
+
+    @Test
+    fun applyZScoresDefaultInPlace_mutatesWithoutSecondList() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val points = ArrayList(
+            (0 until 60).map { i ->
+                val date = java.time.LocalDate.of(2026, 1, 1).plusDays(i.toLong())
+                DataPoint(
+                    timestampMillis = date.atTime(10, 0).atZone(zone).toInstant().toEpochMilli(),
+                    tradeDate = date.toString(),
+                    tatnClose = 100.0,
+                    tatnpClose = 90.0,
+                    spreadPercent = 10.0 + i * 0.01,
+                    diff = 10.0,
+                    zScore = 0.0,
+                )
+            }
+        )
+        applyZScoresDefaultInPlace(points)
+        val reference = applyZScoresDefault(points.map { it.copy(zScore = 0.0) })
+        assertEquals(reference.size, points.size)
+        assertEquals(reference.last().zScore, points.last().zScore, 1e-9)
+    }
 }

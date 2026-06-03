@@ -62,6 +62,10 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             clearStrategyTestVisibleState()
             return@LaunchedEffect
         }
+        if (strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) {
+            scheduleStrategyTestTabWork(reason = "tab_open_cache", preferNetwork = false)
+            return@LaunchedEffect
+        }
         scheduleStrategyTestTabWork(reason = "tab_open", preferNetwork = false)
     }
 
