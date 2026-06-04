@@ -18,8 +18,10 @@ import { BasisCarryTab } from '@/components/basis/BasisCarryTab'
 import { ProtectionGridPanel } from '@/components/optimize/ProtectionGridPanel'
 import { CompareTab } from '@/components/overview/CompareTab'
 import { useSweepHeatmap } from '@/hooks/useSweepHeatmap'
+import { useMobileWebMode } from '@/lib/mobileWebMode'
 
 type Tab = 'market' | 'overview' | 'charts' | 'trades' | 'optimize' | 'basis' | 'compare'
+type MobileTab = 'market' | 'trades'
 
 const EMPTY_LIVE: MarketLiveControls = {
   liveMode: true,
@@ -193,6 +195,8 @@ function Optimize({
 }
 
 export default function App() {
+  const mobileWeb = useMobileWebMode()
+  const [mobileTab, setMobileTab] = useState<MobileTab>('market')
   const [tab, setTab] = useState<Tab>('market')
   const [marketPeriod, setMarketPeriod] = useState<MarketPeriod>('1M')
   const [simLoading, setSimLoading] = useState(false)
@@ -226,40 +230,58 @@ export default function App() {
   ]
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden p-4 md:p-5">
-      <header className="mb-4 flex shrink-0 items-center justify-between gap-4">
+    <div
+      className={`flex h-dvh flex-col overflow-hidden ${mobileWeb ? 'mobile-web p-2 safe-area-pad' : 'p-4 md:p-5'}`}
+    >
+      <header className={`mb-3 flex shrink-0 items-center justify-between gap-3 ${mobileWeb ? 'mb-2' : 'mb-4 gap-4'}`}>
         <div>
-          <div className="text-[12px] font-semibold tracking-[0.28em] text-ink-3">Z-STRATEGY</div>
-          <h1 className="text-xl font-bold text-ink-1">TATN / TATNP · Backtester</h1>
-          <p className="text-[12px] text-ink-3">Vite + React · Python API</p>
+          {mobileWeb ? (
+            <>
+              <div className="text-[11px] font-semibold tracking-[0.22em] text-ink-3">МОБИЛЬНЫЙ · Z-SCORE</div>
+              <h1 className="text-lg font-bold text-ink-1">TATN / TATNP · 15м</h1>
+            </>
+          ) : (
+            <>
+              <div className="text-[12px] font-semibold tracking-[0.28em] text-ink-3">Z-STRATEGY</div>
+              <h1 className="text-xl font-bold text-ink-1">TATN / TATNP · Backtester</h1>
+              <p className="text-[12px] text-ink-3">Vite + React · Python API</p>
+            </>
+          )}
         </div>
         {result ? (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {simLoading ? <span className="surface-chip text-[11px] text-warn">Обновление…</span> : null}
-            {tab === 'market' && live.online5s ? (
+            {!mobileWeb && tab === 'market' && live.online5s ? (
               <span className="surface-chip text-[11px] text-good">live 5с</span>
             ) : null}
             {pack ? (
-              <div className="surface-chip text-ink-2">
-                Entry {pack.entry} · Exit {pack.exit_z} · {pack.stats.trade_count} сделок
+              <div className={`surface-chip text-ink-2 ${mobileWeb ? 'text-[11px]' : ''}`}>
+                {mobileWeb ? (
+                  <>Z ±{pack.entry.toFixed(2)} · {pack.stats.trade_count} сд.</>
+                ) : (
+                  <>Entry {pack.entry} · Exit {pack.exit_z} · {pack.stats.trade_count} сделок</>
+                )}
               </div>
             ) : null}
-            <div className="surface-chip text-ink-3">
-              {result.hq.bar_count} баров · {result.hq.first_ts.slice(0, 10)} … {result.hq.last_ts.slice(0, 10)}
-            </div>
+            {!mobileWeb ? (
+              <div className="surface-chip text-ink-3">
+                {result.hq.bar_count} баров · {result.hq.first_ts.slice(0, 10)} … {result.hq.last_ts.slice(0, 10)}
+              </div>
+            ) : null}
           </div>
         ) : simLoading ? (
           <span className="text-[12px] text-ink-3">Загрузка данных…</span>
         ) : null}
       </header>
 
-      <div className="flex min-h-0 flex-1 gap-4">
+      <div className={`flex min-h-0 flex-1 ${mobileWeb ? 'flex-col gap-2' : 'flex-row gap-4'}`}>
         <Sidebar
+          mobileCompact={mobileWeb}
           onResult={setResult}
           onLoading={setSimLoading}
           onLiveControls={onLiveControls}
           onSimContext={setSimContext}
-          marketPollActive={tab === 'market'}
+          marketPollActive={mobileWeb ? mobileTab === 'market' : tab === 'market'}
           paramsPatch={paramsPatch}
           paramsPatchTick={paramsPatchTick}
         />
@@ -267,10 +289,49 @@ export default function App() {
           {!pack || !result ? (
             <Panel>
               <p className="text-ink-2">Live-режим считает автоматически. Подождите первый расчёт…</p>
-              <p className="mt-2 text-[11px] text-ink-3">
-                Rolling 30д (по умолчанию): ~280 сделок · Global 255д / пресет «Как Android»: ~140 сделок при 0.8/0.7.
-              </p>
+              {!mobileWeb ? (
+                <p className="mt-2 text-[11px] text-ink-3">
+                  Rolling 30д (по умолчанию): ~280 сделок · Global 255д / пресет «Как Android»: ~140 сделок при 0.8/0.7.
+                </p>
+              ) : null}
             </Panel>
+          ) : mobileWeb ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="mobile-tab-bar segmented-track mb-2 shrink-0 border-b border-panel-border-soft/50 bg-[rgba(4,13,25,0.94)] py-1.5">
+                <button
+                  type="button"
+                  className={`tab-btn mobile-tab-btn ${mobileTab === 'market' ? 'active' : ''}`}
+                  onClick={() => setMobileTab('market')}
+                >
+                  Рынок
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn mobile-tab-btn ${mobileTab === 'trades' ? 'active' : ''}`}
+                  onClick={() => setMobileTab('trades')}
+                >
+                  Сделки
+                </button>
+              </div>
+              {mobileTab === 'market' ? (
+                <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
+                  <div className="market-period-bar sticky top-0 z-[110] mb-2 shrink-0 border-b border-panel-border-soft/60 bg-[rgba(4,13,25,0.98)] px-0 py-2 shadow-[0_4px_12px_rgba(0,0,0,0.35)] backdrop-blur-sm">
+                    <PeriodSelector selected={marketPeriod} onSelect={setMarketPeriod} />
+                  </div>
+                  <MarketTab
+                    pack={pack}
+                    result={result}
+                    live={live}
+                    period={marketPeriod}
+                    dataStale={result.data_meta?.is_stale}
+                    dataAgeHours={result.data_meta?.age_hours ?? null}
+                    mobileMinimal
+                  />
+                </div>
+              ) : (
+                <TradesTable pack={pack} csvPath={result.path} mobileListOnly />
+              )}
+            </div>
           ) : (
             <>
               <div className="segmented-track mb-3 shrink-0 border-b border-panel-border-soft/50 bg-[rgba(4,13,25,0.94)] py-2">

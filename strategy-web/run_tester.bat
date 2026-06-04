@@ -4,7 +4,9 @@ cd /d "%~dp0"
 
 set "API_PORT=8765"
 set "UI_PORT=5174"
+set "UI_HOST=0.0.0.0"
 set "UI_URL=http://127.0.0.1:%UI_PORT%/"
+set "UI_MOBILE=%UI_URL%m"
 set "API_HEALTH=http://127.0.0.1:%API_PORT%/api/health"
 
 if not exist .venv\Scripts\python.exe (
@@ -37,7 +39,7 @@ timeout /t 1 /nobreak >nul
 echo [INFO] Starting API :%API_PORT% and Vite :%UI_PORT% ...
 start "Z-Strategy API" cmd /k "cd /d "%~dp0" && call .venv\Scripts\python -m uvicorn api.server:app --host 127.0.0.1 --port %API_PORT% --reload"
 timeout /t 2 /nobreak >nul
-start "Z-Strategy UI" cmd /k "cd /d "%~dp0" && npm run dev --prefix frontend -- --port %UI_PORT% --host 127.0.0.1"
+start "Z-Strategy UI" cmd /k "cd /d "%~dp0" && npm run dev --prefix frontend -- --port %UI_PORT% --host %UI_HOST%"
 
 echo [INFO] Waiting for API (up to 30 sec)...
 set /a API_RETRIES=0
@@ -78,9 +80,13 @@ echo [OK] Opening browser: %UI_URL%
 start "" "%UI_URL%"
 
 :done
-echo [OK] UI:  %UI_URL%
-echo [OK] API: %API_HEALTH%
+echo [OK] UI (local):   %UI_URL%
+echo [OK] UI (mobile):  %UI_MOBILE%
+echo [OK] API:          %API_HEALTH%
+echo.
+powershell -NoProfile -Command "$ip = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -like '*Tailscale*' -and $_.IPAddress -notlike '169.254*' } | Select-Object -First 1 -ExpandProperty IPAddress); if ($ip) { Write-Host '[OK] Tailscale:' ('http://{0}:{1}/m' -f $ip, %UI_PORT%) } else { Write-Host '[INFO] Tailscale IP not found — use IP ПК в сети Tailscale: http://<IP>:%UI_PORT%/m' }"
 echo.
 echo If live-mode hangs: API window must have NO red WinError 10013.
+echo Windows Firewall: allow inbound TCP %UI_PORT% if phone cannot connect.
 echo Legacy Streamlit: streamlit run app_streamlit.py
 pause

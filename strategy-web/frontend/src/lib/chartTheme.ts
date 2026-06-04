@@ -41,10 +41,19 @@ export function chartEntryExitHlines(entry: number, exitZ: number): ChartHLine[]
   ]
 }
 
+function touchFriendlyChart(): boolean {
+  if (typeof window === 'undefined') return false
+  return (
+    window.matchMedia('(pointer: coarse)').matches ||
+    window.matchMedia('(max-width: 768px)').matches
+  )
+}
+
 export function tradingViewChartOptions(
   valueFormat: ChartValueFormat = 'float',
   showLeftPriceScale = false,
 ): DeepPartial<ChartOptions> {
+  const touch = touchFriendlyChart()
   const priceFmt = chartPriceFormat(valueFormat)
   return {
     layout: {
@@ -76,13 +85,13 @@ export function tradingViewChartOptions(
     handleScroll: {
       mouseWheel: false,
       pressedMouseMove: true,
-      horzTouchDrag: false,
+      horzTouchDrag: touch,
       vertTouchDrag: false,
     },
     handleScale: {
       axisPressedMouseMove: { time: true, price: true },
       mouseWheel: false,
-      pinch: false,
+      pinch: touch,
     },
     rightPriceScale: {
       borderColor: TV.border,
@@ -155,17 +164,24 @@ export function tradingViewPriceLineOptions(hl: ChartHLine) {
 export function toTradeSeriesMarkers(
   markers: TradeMarker[] | undefined,
   _trades?: Trade[],
+  selected?: TradeMarker | null,
 ): SeriesMarker<Time>[] {
   if (!markers?.length) return []
   return markers
     .map((m) => {
       const isEntry = m.event === 'вход'
       const entryColor = m.direction === 'LONG' ? TV.up : TV.down
+      const isSelected =
+        !!selected &&
+        m.trade_no === selected.trade_no &&
+        m.event === selected.event &&
+        m.time === selected.time
       return {
         time: m.time as UTCTimestamp,
         position: isEntry ? (m.direction === 'LONG' ? 'belowBar' : 'aboveBar') : 'inBar',
-        color: m.marker_color || (isEntry ? entryColor : TV.textMuted),
-        shape: isEntry ? (m.direction === 'LONG' ? 'arrowUp' : 'arrowDown') : 'circle',
+        color: isSelected ? '#FACC15' : (m.marker_color || (isEntry ? entryColor : TV.textMuted)),
+        shape: isEntry ? (m.direction === 'LONG' ? 'arrowUp' : 'arrowDown') : isSelected ? 'square' : 'circle',
+        size: isSelected ? 2.2 : 1,
       } as SeriesMarker<Time>
     })
     .sort((a, b) => (a.time as number) - (b.time as number))

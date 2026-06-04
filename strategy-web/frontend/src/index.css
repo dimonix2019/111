@@ -278,6 +278,196 @@ button.primary:disabled {
   cursor: not-allowed;
 }
 
+/* Мобильный веб (/m, ?mobile=1) — Tailscale bookmark */
+.mobile-web {
+  max-width: 100vw;
+}
+
+.mobile-web.safe-area-pad {
+  padding-left: max(0.5rem, env(safe-area-inset-left));
+  padding-right: max(0.5rem, env(safe-area-inset-right));
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+/* PWA: «На экран Домой» / standalone — без полос браузера */
+@media (display-mode: standalone) {
+  .mobile-web.safe-area-pad {
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+}
+
+.mobile-web .market-tab-charts .chart-panel {
+  width: 100%;
+  max-width: 100%;
+}
+
+.mobile-web .market-context-panel--stack {
+  width: 100%;
+  max-width: 100%;
+}
+
+.mobile-web .market-period-btn,
+.mobile-web .market-action-btn {
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.mobile-web .mobile-tab-bar {
+  display: flex;
+  gap: 6px;
+}
+
+.mobile-web .mobile-tab-btn {
+  flex: 1;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mobile-web .market-mobile-summary {
+  border-radius: 12px;
+  border: 1px solid var(--stroke-soft);
+}
+
+.mobile-web .mobile-last-trade-field {
+  white-space: nowrap;
+}
+
+.mobile-web .mobile-last-trade-card {
+  flex-shrink: 0;
+}
+
+/* Мобильная таблица сделок — плотные колонки */
+.mobile-web .trades-table-mobile {
+  overflow-x: auto;
+}
+
+.mobile-web .trades-table-mobile__grid {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 100% !important;
+}
+
+.mobile-web .trades-mobile-cell {
+  padding: 3px 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.mobile-web .trades-table-mobile__grid th:nth-child(1),
+.mobile-web .trades-table-mobile__grid td:nth-child(1) {
+  width: 7%;
+}
+
+.mobile-web .trades-table-mobile__grid th:nth-child(2),
+.mobile-web .trades-table-mobile__grid td:nth-child(2) {
+  width: 7%;
+}
+
+.mobile-web .trades-table-mobile__grid th:nth-child(3),
+.mobile-web .trades-table-mobile__grid td:nth-child(3) {
+  width: 24%;
+}
+
+.mobile-web .trades-table-mobile__grid th:nth-child(4),
+.mobile-web .trades-table-mobile__grid td:nth-child(4) {
+  width: 24%;
+}
+
+.mobile-web .trades-table-mobile__grid th:nth-child(5),
+.mobile-web .trades-table-mobile__grid td:nth-child(5) {
+  width: 11%;
+}
+
+.mobile-web .trades-table-mobile__grid th:nth-child(6),
+.mobile-web .trades-table-mobile__grid td:nth-child(6) {
+  width: 11%;
+}
+
+.mobile-web .trades-table-mobile__grid th:nth-child(7),
+.mobile-web .trades-table-mobile__grid td:nth-child(7) {
+  width: 16%;
+}
+
+.mobile-web .market-period-bar {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-web .chart-panel__body,
+.mobile-web .chart-canvas-host {
+  touch-action: none;
+}
+
+.mobile-web .sidebar-compact input[type='number'] {
+  width: 100%;
+}
+
+.mobile-settings-bar {
+  flex-shrink: 0;
+  border-radius: 12px;
+  border: 1px solid var(--stroke-soft);
+  background: rgba(8, 16, 28, 0.92);
+}
+
+.mobile-settings-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 12px;
+  font-size: 12px;
+  user-select: none;
+}
+
+.mobile-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.mobile-settings-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.mobile-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 72px;
+}
+
+.mobile-settings-label {
+  font-size: 10px;
+  color: var(--ink-3);
+}
+
+.mobile-settings-field input {
+  width: 72px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.mobile-settings-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  min-height: 44px;
+}
+
+.mobile-settings-btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
 .chart-panel {
   position: relative;
   z-index: 0;
@@ -360,11 +550,14 @@ body.chart-fullscreen-active {
 }
 
 .chart-panel__body {
-  flex: 1;
-  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.chart-panel--fullscreen .chart-panel__body {
+  flex: 1;
+  min-height: 0;
 }
 
 .chart-keyboard-root:focus {
@@ -377,17 +570,23 @@ body.chart-fullscreen-active {
 }
 
 .chart-panel__body .chart-canvas-host {
-  flex: 1;
-  min-height: 0;
   width: 100%;
   display: flex;
   flex-direction: column;
 }
 
-.chart-panel__body .chart-canvas-slot {
+.chart-panel--fullscreen .chart-panel__body .chart-canvas-host {
   flex: 1;
   min-height: 0;
+}
+
+.chart-panel__body .chart-canvas-slot {
   width: 100%;
+}
+
+.chart-panel--fullscreen .chart-panel__body .chart-canvas-slot {
+  flex: 1;
+  min-height: 0;
 }
 
 .chart-hint {

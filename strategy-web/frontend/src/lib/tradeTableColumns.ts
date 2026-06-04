@@ -114,4 +114,75 @@ export function columnsForTrades(trades: Trade[]): TradeColumn[] {
   return [...BASE_COLUMNS.slice(0, idx + 1), EXIT_REASON_COLUMN, ...BASE_COLUMNS.slice(idx + 1)]
 }
 
+/** Мобильная таблица: без секунд; compact — dd.mm HH:mm (без года). */
+export function formatTradeDateTimeMobile(s: string, compact = false): string {
+  const d = new Date(s.replace(' ', 'T'))
+  if (!Number.isNaN(d.getTime())) {
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const hh = String(d.getHours()).padStart(2, '0')
+    const min = String(d.getMinutes()).padStart(2, '0')
+    if (compact) return `${dd}.${mm} ${hh}:${min}`
+    const yy = String(d.getFullYear()).slice(-2)
+    return `${dd}.${mm}.${yy} ${hh}:${min}`
+  }
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/)
+  if (m) {
+    if (compact) return `${m[3]}.${m[2]} ${m[4]}:${m[5]}`
+    return `${m[3]}.${m[2]}.${m[1]!.slice(-2)} ${m[4]}:${m[5]}`
+  }
+  return s.replace(/\d{4}/, (y) => y.slice(-2)).replace(/:\d{2}$/, '')
+}
+
+/** Мобильный /m — одна строка на сделку, без ног TATN/TATNP. */
+const MOBILE_TRADE_COLUMNS: TradeColumn[] = [
+  { key: 'no', label: '№', align: 'right', tradeLevel: true },
+  {
+    key: 'direction',
+    label: 'L/S',
+    filterKind: 'select',
+    tradeLevel: true,
+    render: (t) => (t.direction === 'LONG' ? 'L' : 'S'),
+  },
+  {
+    key: 'entry_time',
+    label: 'Вх',
+    tradeLevel: true,
+    render: (t) => formatTradeDateTimeMobile(t.entry_time, true),
+  },
+  {
+    key: 'exit_time',
+    label: 'Вых',
+    tradeLevel: true,
+    render: (t) => formatTradeDateTimeMobile(t.exit_time, true),
+  },
+  {
+    key: 'entry_z',
+    label: 'Zв',
+    align: 'right',
+    tradeLevel: true,
+    render: (t) => t.entry_z.toFixed(2),
+  },
+  {
+    key: 'exit_z',
+    label: 'Zы',
+    align: 'right',
+    tradeLevel: true,
+    render: (t) => t.exit_z.toFixed(2),
+  },
+  {
+    key: 'pnl_rub',
+    label: 'PnL',
+    align: 'right',
+    tradeLevel: true,
+    render: (t) => fmtRub(t.pnl_rub),
+  },
+]
+
+export function columnsForMobileTradesList(trades: Trade[]): TradeColumn[] {
+  const showExitReason = trades.some((t) => t.exit_reason && t.exit_reason !== 'z_exit')
+  if (!showExitReason) return MOBILE_TRADE_COLUMNS
+  return [...MOBILE_TRADE_COLUMNS, EXIT_REASON_COLUMN]
+}
+
 export type { TradeColumn }

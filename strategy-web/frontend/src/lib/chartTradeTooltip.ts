@@ -23,6 +23,8 @@ export type ChartTradeTooltipView = {
   /** Координаты viewport (position: fixed). */
   left: number
   top: number
+  /** Центр жёлтого отрезка entry→exit (viewport), для позиции карточки на мобильном. */
+  segmentCenter?: { left: number; top: number }
   accumulatedPnlRub: number
   /** Просадка ₽ на момент маркера (≤ 0). */
   drawdownRub: number
@@ -219,6 +221,28 @@ function crosshairTimeSec(
   return null
 }
 
+function parseTradeTimeSec(s: string): number | null {
+  const ms = new Date(s.replace(' ', 'T')).getTime()
+  return Number.isFinite(ms) ? Math.round(ms / 1000) : null
+}
+
+/** Середина отрезка сделки на экране (как жёлтая линия entry→exit). */
+export function tradeSegmentViewportCenter(
+  chart: IChartApi,
+  series: ISeriesApi<'Line'> | ISeriesApi<'Candlestick'>,
+  trade: Trade,
+): { left: number; top: number } | undefined {
+  const t0 = parseTradeTimeSec(trade.entry_time)
+  const t1 = parseTradeTimeSec(trade.exit_time)
+  if (t0 == null || t1 == null) return undefined
+  const x0 = chart.timeScale().timeToCoordinate(t0 as Time)
+  const x1 = chart.timeScale().timeToCoordinate(t1 as Time)
+  const y0 = series.priceToCoordinate(trade.entry_z)
+  const y1 = series.priceToCoordinate(trade.exit_z)
+  if (x0 == null || x1 == null || y0 == null || y1 == null) return undefined
+  return chartLocalToViewport(chart, { x: (x0 + x1) / 2, y: (y0 + y1) / 2 })
+}
+
 function buildTooltipViewFromMarker(
   chart: IChartApi,
   series: ISeriesApi<'Line'> | ISeriesApi<'Candlestick'>,
@@ -232,6 +256,7 @@ function buildTooltipViewFromMarker(
   const pos = markerScreenPosition(chart, series, marker, tradeByNo)
   const local = pos ?? fallbackLocal ?? { x: 0, y: 0 }
   const viewport = chartLocalToViewport(chart, local)
+  const segmentCenter = tradeSegmentViewportCenter(chart, series, trade)
   const isEntry = marker.event === 'вход'
   const eq = getEquity?.()
   return {
@@ -239,6 +264,7 @@ function buildTooltipViewFromMarker(
     marker,
     left: viewport.left,
     top: viewport.top,
+    segmentCenter,
     accumulatedPnlRub: accumulatedPnlForMarker(accumulatedByNo, marker.trade_no, isEntry),
     drawdownRub: eq?.length ? lookupDrawdownAtTime(eq, marker.time) : 0,
   }

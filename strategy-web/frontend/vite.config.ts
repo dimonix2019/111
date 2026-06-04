@@ -10,7 +10,9 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: false,
-    host: '127.0.0.1',
+    /** 0.0.0.0 — доступ с Tailscale / LAN (не только localhost) */
+    host: true,
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8765',

@@ -30,6 +30,8 @@ type Props = {
   onUserInteract?: () => void
   /** Если задан — высоту графика считает родитель (Ohlc + volume). */
   onHeightChange?: (height: number) => void
+  /** Подсказка pan/zoom (скрыть в мобильном /m). */
+  showKeyboardHint?: boolean
   children: (layout: ChartPanelLayout) => ReactNode
 }
 
@@ -54,6 +56,12 @@ function readContainerSize(
     if (panel?.clientWidth) width = panel.clientWidth
   }
   if (height <= 0 && bodyEl?.clientHeight) height = bodyEl.clientHeight
+
+  // После выхода из fullscreen body/slot могут ещё отдавать высоту окна — не раздуваем график.
+  if (!fullscreen && height > 0) {
+    const cap = el?.parentElement?.clientHeight
+    if (cap != null && cap > 0) height = Math.min(height, cap)
+  }
 
   if (width <= 0 && fullscreen) width = Math.max(320, window.innerWidth - 32)
   if (height <= 0 && fullscreen) height = Math.max(240, window.innerHeight - 160)
@@ -81,6 +89,7 @@ export function ChartPanel({
   barCount = 0,
   onUserInteract,
   onHeightChange,
+  showKeyboardHint = true,
   children,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -187,7 +196,9 @@ export function ChartPanel({
     if (!chart) return
     const body = keyboardRootRef.current
     const { width, height } = readContainerSize(chart, containerRef?.current, body, fullscreen)
-    const effectiveHeight = fullscreen ? Math.max(height, measuredHeight) : height || panelHeight
+    const effectiveHeight = fullscreen
+      ? Math.max(height, measuredHeight)
+      : panelHeight
 
     if (fullscreen && (width <= 0 || effectiveHeight <= 0) && retryRef.current < 16) {
       retryRef.current += 1
@@ -297,7 +308,7 @@ export function ChartPanel({
           {children({ panelHeight, fullscreen })}
         </div>
       )}
-      {!empty ? (
+      {!empty && showKeyboardHint ? (
         <p className="chart-hint px-3 pb-2 text-[10px] text-ink-3">
           Клавиатура: ← → — 1 бар; Ctrl+←/→ — быстрый pan; Ctrl+↑/↓ или Ctrl+/− — zoom; Home/End — в начало/конец;
           Alt+R — сброс. Тачпад/мышь: двухпальцевый скролл — pan; Ctrl+скролл (pinch) — zoom; скролл над правой

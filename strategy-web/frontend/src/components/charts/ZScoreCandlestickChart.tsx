@@ -4,6 +4,7 @@ import {
   CandlestickSeries,
   createChart,
   createSeriesMarkers,
+  LineSeries,
   type IChartApi,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
@@ -42,6 +43,8 @@ type Props = {
   liveMode?: boolean
   /** Кривая drawdown внизу (только вкладка Рынок). */
   showDrawdownOverlay?: boolean
+  /** Мобильный /m — без подсказки клавиатуры под графиком. */
+  hideKeyboardHint?: boolean
 }
 
 export function ZScoreCandlestickChart({
@@ -54,6 +57,7 @@ export function ZScoreCandlestickChart({
   equity,
   liveMode = false,
   showDrawdownOverlay = false,
+  hideKeyboardHint = false,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const keyboardRootRef = useRef<HTMLDivElement>(null)
@@ -61,6 +65,7 @@ export function ZScoreCandlestickChart({
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const ddSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
+  const highlightSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const fittedRef = useRef(false)
   const prevLenRef = useRef(0)
   const prevLastKeyRef = useRef<string | null>(null)
@@ -119,9 +124,19 @@ export function ZScoreCandlestickChart({
       }
     }
 
+    const highlightSeries = chart.addSeries(LineSeries, {
+      color: '#FACC15',
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    })
+    highlightSeries.setData([])
+
     chartRef.current = chart
     seriesRef.current = series
     ddSeriesRef.current = ddSeries
+    highlightSeriesRef.current = highlightSeries
     fittedRef.current = false
     prevLenRef.current = 0
     prevLastKeyRef.current = null
@@ -149,6 +164,7 @@ export function ZScoreCandlestickChart({
       chartRef.current = null
       seriesRef.current = null
       ddSeriesRef.current = null
+      highlightSeriesRef.current = null
     }
   }, [hlinesKey, candles.length, showDrawdownOverlay])
 
@@ -174,10 +190,32 @@ export function ZScoreCandlestickChart({
   useEffect(() => {
     const series = seriesRef.current
     if (!series) return
-    const markerData = toTradeSeriesMarkers(markers, trades)
+    const markerData = toTradeSeriesMarkers(markers, trades, tooltip?.marker ?? null)
     markersPluginRef.current?.detach()
     markersPluginRef.current = markerData.length ? createSeriesMarkers(series, markerData) : null
-  }, [markersKey, markers, trades, hlinesKey])
+  }, [markersKey, markers, trades, hlinesKey, tooltip?.marker])
+
+  useEffect(() => {
+    const hi = highlightSeriesRef.current
+    if (!hi) return
+    if (!tooltip?.trade) {
+      hi.setData([])
+      return
+    }
+    const t = tooltip.trade
+    const parseSec = (s: string): number | null => {
+      const ms = new Date(s.replace(' ', 'T')).getTime()
+      return Number.isFinite(ms) ? Math.round(ms / 1000) : null
+    }
+    // В маркере уже есть time (sec), но для подсветки всей сделки берём entry/exit из самой сделки.
+    const aTime = (parseSec(t.entry_time) ?? tooltip.marker.time) as UTCTimestamp
+    const bTime = (parseSec(t.exit_time) ?? tooltip.marker.time) as UTCTimestamp
+    const data = [
+      { time: aTime, value: t.entry_z },
+      { time: bTime, value: t.exit_z },
+    ].sort((a, b) => (a.time as number) - (b.time as number))
+    hi.setData(data)
+  }, [tooltip?.trade, tooltip?.marker])
 
   useEffect(() => {
     const chart = chartRef.current
@@ -201,6 +239,7 @@ export function ZScoreCandlestickChart({
       onUserInteract={() => {
         userInteractedRef.current = true
       }}
+      showKeyboardHint={!hideKeyboardHint}
     >
       {({ fullscreen }) => (
         <div
@@ -211,7 +250,11 @@ export function ZScoreCandlestickChart({
               : { height, minHeight: height }
           }
         >
-          <div ref={ref} className="chart-canvas-slot w-full" style={fullscreen ? { flex: 1, minHeight: 0 } : undefined} />
+          <div
+            ref={ref}
+            className="chart-canvas-slot w-full"
+            style={fullscreen ? { flex: 1, minHeight: 0 } : { height, minHeight: height }}
+          />
           <ChartTradeTooltip view={tooltip} />
         </div>
       )}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { SimPack, Trade } from '@/types'
 import { spreadDirectionHint, spreadLegs } from '@/lib/spreadLegs'
-import { columnsForTrades, type TradeColumn } from '@/lib/tradeTableColumns'
+import { columnsForMobileTradesList, columnsForTrades, type TradeColumn } from '@/lib/tradeTableColumns'
 import { TradeDistributionPanel } from '@/components/trades/TradeDistributionPanel'
 import { TradePivotPanel } from '@/components/trades/TradePivotPanel'
 import { ExitScenarioPanel } from '@/components/trades/ExitScenarioPanel'
@@ -237,16 +237,40 @@ function PairTradeRows({ trade, columns }: { trade: Trade; columns: TradeColumn[
   )
 }
 
-export function TradesTable({ pack, csvPath }: { pack: SimPack; csvPath: string }) {
-  const columns = useMemo(() => columnsForTrades(pack.trades), [pack.trades])
+function SimpleTradeRow({ trade, columns }: { trade: Trade; columns: TradeColumn[] }) {
+  return (
+    <tr className="table-row border-t border-surface-border-soft/60">
+      {columns.map((col) => (
+        <td key={col.key} className={`trades-mobile-cell ${tradeLevelCellClass(col, trade)}`}>
+          {col.render ? col.render(trade) : isTradeKey(col.key) ? String(trade[col.key] ?? '') : null}
+        </td>
+      ))}
+    </tr>
+  )
+}
+
+export function TradesTable({
+  pack,
+  csvPath,
+  mobileListOnly = false,
+}: {
+  pack: SimPack
+  csvPath: string
+  /** Мобильный /m: только таблица сделок */
+  mobileListOnly?: boolean
+}) {
+  const columns = useMemo(
+    () => (mobileListOnly ? columnsForMobileTradesList(pack.trades) : columnsForTrades(pack.trades)),
+    [pack.trades, mobileListOnly],
+  )
   const [sortKey, setSortKey] = useState<SortKey>('no')
-  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [filters, setFilters] = useState<Partial<Record<SortKey, string>>>(() => initialFilters(columns))
 
   useEffect(() => {
     setFilters(initialFilters(columns))
     setSortKey('no')
-    setSortDir('asc')
+    setSortDir('desc')
   }, [pack.trades, columns])
 
   const presets = useMemo(() => {
@@ -267,7 +291,7 @@ export function TradesTable({ pack, csvPath }: { pack: SimPack; csvPath: string 
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
       setSortKey(key)
-      setSortDir('asc')
+      setSortDir(key === 'no' ? 'desc' : 'asc')
     }
   }
 
@@ -285,21 +309,35 @@ export function TradesTable({ pack, csvPath }: { pack: SimPack; csvPath: string 
   })
 
   return (
-    <div className="space-y-4">
-      <TradeDistributionPanel trades={filtered} totalCount={pack.trades.length} />
-      <ExitScenarioPanel pack={pack} trades={filtered} totalCount={pack.trades.length} />
-      <TradePivotPanel trades={filtered} totalCount={pack.trades.length} />
-      <StrategyChatPanel pack={pack} filteredTrades={filtered} csvPath={csvPath} />
-      <div className="space-y-2">
-        <div className="surface-inner px-3 py-2 text-[11px] leading-relaxed text-ink-3">
-          Каждая сделка — <span className="text-ink-2">одна спред-пара</span>: две строки (TATN и TATNP) открываются и
-          закрываются <span className="text-ink-2">одновременно</span>. LONG спред = покупка TATN + продажа TATNP;
-          SHORT = наоборот.
-        </div>
+    <div className={mobileListOnly ? 'flex min-h-0 flex-1 flex-col gap-2' : 'space-y-4'}>
+      {!mobileListOnly ? (
+        <>
+          <TradeDistributionPanel trades={filtered} totalCount={pack.trades.length} />
+          <ExitScenarioPanel pack={pack} trades={filtered} totalCount={pack.trades.length} />
+          <TradePivotPanel trades={filtered} totalCount={pack.trades.length} />
+          <StrategyChatPanel pack={pack} filteredTrades={filtered} csvPath={csvPath} />
+        </>
+      ) : null}
+      <div className={`space-y-2 ${mobileListOnly ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
+        {!mobileListOnly ? (
+          <div className="surface-inner px-3 py-2 text-[11px] leading-relaxed text-ink-3">
+            Каждая сделка — <span className="text-ink-2">одна спред-пара</span>: две строки (TATN и TATNP) открываются и
+            закрываются <span className="text-ink-2">одновременно</span>. LONG спред = покупка TATN + продажа TATNP;
+            SHORT = наоборот.
+          </div>
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-ink-3">
           <span>
-            Показано <b className="text-ink-2">{filtered.length}</b> пар ({filtered.length * 2} ног) из{' '}
-            {pack.trades.length}
+            {mobileListOnly ? (
+              <>
+                Показано <b className="text-ink-2">{filtered.length}</b> из {pack.trades.length} сделок
+              </>
+            ) : (
+              <>
+                Показано <b className="text-ink-2">{filtered.length}</b> пар ({filtered.length * 2} ног) из{' '}
+                {pack.trades.length}
+              </>
+            )}
           </span>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -316,8 +354,14 @@ export function TradesTable({ pack, csvPath }: { pack: SimPack; csvPath: string 
             ) : null}
           </div>
         </div>
-        <div className="scrollbar-thin max-h-[560px] overflow-auto rounded-xl border border-panel-border-soft">
-          <table className="w-full min-w-[1100px] text-left text-[12px] text-ink-2">
+        <div
+          className={`scrollbar-thin overflow-auto rounded-xl border border-panel-border-soft ${
+            mobileListOnly ? 'trades-table-mobile min-h-0 flex-1' : 'max-h-[560px]'
+          }`}
+        >
+          <table
+            className={`w-full text-left text-ink-2 ${mobileListOnly ? 'trades-table-mobile__grid text-[10px]' : 'min-w-[1100px] text-[12px]'}`}
+          >
             <thead className="sticky top-0 z-10 bg-[rgba(8,16,28,0.98)]">
               <tr>
                 {columns.map((col) => {
@@ -328,15 +372,20 @@ export function TradesTable({ pack, csvPath }: { pack: SimPack; csvPath: string 
                   const sortable = col.key !== 'leg_ticker' && col.key !== 'leg_action'
 
                   return (
-                    <th key={col.key} className="border-b border-panel-border-soft px-2 py-1.5 align-top">
+                    <th
+                      key={col.key}
+                      className={`border-b border-panel-border-soft align-top ${
+                        mobileListOnly ? 'trades-mobile-cell' : 'px-2 py-1.5'
+                      }`}
+                    >
                       {sortable ? (
                         <button
                           type="button"
-                          className={`flex w-full items-center gap-1 font-medium hover:text-ink-1 ${col.align === 'right' ? 'justify-end' : ''} ${active ? 'text-ink-1' : 'text-ink-3'}`}
+                          className={`flex w-full items-center font-medium hover:text-ink-1 ${mobileListOnly ? 'gap-0.5' : 'gap-1'} ${col.align === 'right' ? 'justify-end' : ''} ${active ? 'text-ink-1' : 'text-ink-3'}`}
                           onClick={() => toggleSort(col.key)}
                         >
                           {col.label}
-                          <span className="text-[10px] opacity-70">
+                          <span className={`opacity-70 ${mobileListOnly ? 'text-[8px]' : 'text-[10px]'}`}>
                             {active ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}
                           </span>
                         </button>
@@ -345,7 +394,9 @@ export function TradesTable({ pack, csvPath }: { pack: SimPack; csvPath: string 
                           {col.label}
                         </span>
                       )}
-                      {col.key !== 'leg_ticker' && col.key !== 'leg_action' ? (
+                      {!mobileListOnly &&
+                      col.key !== 'leg_ticker' &&
+                      col.key !== 'leg_action' ? (
                         useSelect ? (
                           <select
                             value={value}
@@ -382,9 +433,9 @@ export function TradesTable({ pack, csvPath }: { pack: SimPack; csvPath: string 
                             </datalist>
                           </>
                         )
-                      ) : (
+                      ) : !mobileListOnly ? (
                         <div className="mt-1 text-[10px] text-ink-3">{col.key === 'leg_ticker' ? 'TATN · TATNP' : '↔ пара'}</div>
-                      )}
+                      ) : null}
                     </th>
                   )
                 })}
@@ -398,15 +449,23 @@ export function TradesTable({ pack, csvPath }: { pack: SimPack; csvPath: string 
                   </td>
                 </tr>
               ) : (
-                filtered.map((t) => <PairTradeRows key={t.no} trade={t} columns={columns} />)
+                filtered.map((t) =>
+                  mobileListOnly ? (
+                    <SimpleTradeRow key={t.no} trade={t} columns={columns} />
+                  ) : (
+                    <PairTradeRows key={t.no} trade={t} columns={columns} />
+                  ),
+                )
               )}
             </tbody>
           </table>
         </div>
-        <p className="text-[10px] text-ink-3">
-          Фильтры предзаполнены из данных · числа: <code className="text-ink-2">&gt;1000</code>,{' '}
-          <code className="text-ink-2">&lt;=0</code> или выбор из списка
-        </p>
+        {!mobileListOnly ? (
+          <p className="text-[10px] text-ink-3">
+            Фильтры предзаполнены из данных · числа: <code className="text-ink-2">&gt;1000</code>,{' '}
+            <code className="text-ink-2">&lt;=0</code> или выбор из списка
+          </p>
+        ) : null}
       </div>
     </div>
   )

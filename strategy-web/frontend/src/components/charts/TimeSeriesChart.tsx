@@ -216,7 +216,11 @@ export function TimeSeriesChart({
               : { height, minHeight: height }
           }
         >
-          <div ref={ref} className="chart-canvas-slot w-full" style={fullscreen ? { flex: 1, minHeight: 0 } : undefined} />
+          <div
+            ref={ref}
+            className="chart-canvas-slot w-full"
+            style={fullscreen ? { flex: 1, minHeight: 0 } : { height, minHeight: height }}
+          />
           <ChartTradeTooltip view={tooltip} />
         </div>
       )}
