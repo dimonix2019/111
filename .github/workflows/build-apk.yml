@@ -39,7 +39,9 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Assemble Debug
-        run: ./gradlew :app:assembleDebug --parallel --build-cache -x lint
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --parallel --build-cache -x lint
 
       - name: Extract version from Gradle
         id: meta
