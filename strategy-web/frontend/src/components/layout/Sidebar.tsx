@@ -11,6 +11,7 @@ import {
   savePersistedSimSettings,
 } from '@/lib/simSettingsStorage'
 import { Panel } from '@/components/ui/Panel'
+import { MobileSettingsBar } from '@/components/layout/MobileSettingsBar'
 
 type Props = {
   onResult: (r: SimResponse) => void
@@ -20,6 +21,9 @@ type Props = {
   marketPollActive?: boolean
   paramsPatch?: Partial<SimParams> | null
   paramsPatchTick?: number
+  className?: string
+  /** /m — узкая панель, только Rolling 30д */
+  mobileCompact?: boolean
 }
 
 function parseNum(raw: string): number | null {
@@ -35,6 +39,8 @@ export function Sidebar({
   marketPollActive = false,
   paramsPatch,
   paramsPatchTick = 0,
+  className,
+  mobileCompact = false,
 }: Props) {
   const saved = loadPersistedSimSettings()
   const [csvPath, setCsvPath] = useState(saved.csvPath)
@@ -117,6 +123,12 @@ export function Sidebar({
     setParams((s) => ({ ...s, ...paramsPatch }))
     setPreset('Свои')
   }, [paramsPatch, paramsPatchTick])
+
+  useEffect(() => {
+    if (!mobileCompact) return
+    setParams((s) => (s.z_mode === 'rolling30' ? s : { ...s, z_mode: 'rolling30' }))
+    setCompare(false)
+  }, [mobileCompact])
 
   useEffect(() => {
     savePersistedSimSettings({ params, csvPath, compare, liveMode, preset })
@@ -226,6 +238,16 @@ export function Sidebar({
     </Panel>
   )
 
+  const pyramidPanel = (
+    <Panel title="Пирамидинг">
+      <p className="mb-2 text-[11px] text-ink-3">
+        Одна добавка номинала за сделку при углублении |Z| (как в APK). 0 ₽ — выключено.
+      </p>
+      {field('Добавка номинала ₽', 'pyramid_add_notional', 10_000)}
+      {field('Порог |Z| (depth)', 'pyramid_z_depth', 0.1)}
+    </Panel>
+  )
+
   const protectionPanel = (
     <Panel title="Защита">
       <p className="mb-2 text-[11px] text-ink-3">Stop-loss, spread-фильтры, DD halt, slippage</p>
@@ -256,8 +278,23 @@ export function Sidebar({
     </Panel>
   )
 
-  return (
-    <aside className="scrollbar-thin flex h-full min-h-0 w-[320px] shrink-0 flex-col gap-3 overflow-x-hidden overflow-y-auto pb-2 pr-1">
+  return mobileCompact ? (
+    <MobileSettingsBar
+      params={params}
+      liveMode={liveMode}
+      loading={loading}
+      moexBusy={moexBusy}
+      dataAgeHours={dataInfo?.age_hours != null ? Number(dataInfo.age_hours) : null}
+      dataStale={!!dataInfo?.is_stale}
+      onParamChange={(key, value) => setParams((s) => ({ ...s, [key]: value }))}
+      onLiveModeChange={setLiveMode}
+      onRefreshMoex={() => void onDownloadMoex()}
+      onRunNow={runNow}
+    />
+  ) : (
+    <aside
+      className={`scrollbar-thin flex h-full min-h-0 w-[320px] shrink-0 flex-col gap-3 overflow-x-hidden overflow-y-auto pb-2 pr-1${className ? ` ${className}` : ''}`}
+    >
       {zModePanel}
       <Panel title={compare ? 'Стратегии A / B' : 'Пороги Z'}>
         {compare ? (
@@ -283,6 +320,7 @@ export function Sidebar({
           </div>
         )}
       </Panel>
+      {pyramidPanel}
       {protectionPanel}
       <Panel title="Live-режим">
         <label className="flex items-center gap-2 text-[12px] text-ink-2">

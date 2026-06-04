@@ -877,11 +877,20 @@ def run_z_strategy_sim(
     entry_z_buffer: float = 0.0,
     max_drawdown_halt_rub: float = 0.0,
     max_drawdown_halt_pct: float = 0.0,
+    underwater_exit_hours: float = 0.0,
+    pyramid_add_notional_rub: float = 0.0,
+    pyramid_z_depth: float = 1.0,
 ) -> SimResult:
     """
     Векторизованная симуляция стратегии.
     Использует NumPy для быстрого поиска сигналов (входа/выхода),
     но сохраняет итеративный цикл только для учета PnL сделок и капитализации.
+
+    underwater_exit_hours: на первом баре с удержанием >= N ч, если net PnL < 0 — выход (сценарий A).
+    0 — правило выключено (текущий тест / baseline).
+
+    pyramid_add_notional_rub: добавка собственного номинала при углублении |Z| (0 = выкл.).
+    pyramid_z_depth: long — Z <= -depth; short — Z >= +depth; одна добавка за круг (parity с Android).
     """
     if len(bars) < 2:
         return SimResult(
@@ -909,8 +918,14 @@ def run_z_strategy_sim(
     peak_equity = 0.0
     trading_halted = False
     halt_reason = ""
+    underwater_checked = False
+    pyramid_added = False
     slip = max(0.0, slippage_spread_pts)
     use_max_spread = max_spread_pct > 0.0
+    uw_hours = max(0.0, float(underwater_exit_hours))
+    pyramid_add = max(0.0, float(pyramid_add_notional_rub))
+    pyramid_depth = max(0.0, float(pyramid_z_depth))
+    use_pyramid = pyramid_add > 0.0
 
     def refresh_fees(nom: float) -> tuple[float, float, float]:
         eff = nom * leverage
@@ -975,7 +990,7 @@ def run_z_strategy_sim(
 
     def close_long(bar: Bar, exit_reason: str = "z_exit") -> None:
         nonlocal position, realized_rub, entry_commission, total_commission, total_overnight
-        nonlocal entry_tatn_close, entry_tatnp_close
+        nonlocal entry_tatn_close, entry_tatnp_close, underwater_checked, pyramid_added
         exit_sp = _exit_spread(bar.spread_percent, Position.LONG, slip)
         pnl_pts = exit_sp - entry_spread
         gross = spread_pnl_to_rub(pnl_pts, eff_notional)
@@ -1014,10 +1029,12 @@ def run_z_strategy_sim(
         position = Position.FLAT
         entry_tatn_close = None
         entry_tatnp_close = None
+        underwater_checked = False
+        pyramid_added = False
 
     def close_short(bar: Bar, exit_reason: str = "z_exit") -> None:
         nonlocal position, realized_rub, entry_commission, total_commission, total_overnight
-        nonlocal entry_tatn_close, entry_tatnp_close
+        nonlocal entry_tatn_close, entry_tatnp_close, underwater_checked, pyramid_added
         exit_sp = _exit_spread(bar.spread_percent, Position.SHORT, slip)
         pnl_pts = entry_spread - exit_sp
         gross = spread_pnl_to_rub(pnl_pts, eff_notional)
@@ -1056,11 +1073,15 @@ def run_z_strategy_sim(
         position = Position.FLAT
         entry_tatn_close = None
         entry_tatnp_close = None
+        underwater_checked = False
+        pyramid_added = False
 
     def enter_long(bar: Bar) -> None:
         nonlocal position, entry_spread, entry_z, entry_time, entry_commission, realized_rub, total_commission
-        nonlocal entry_tatn_close, entry_tatnp_close
+        nonlocal entry_tatn_close, entry_tatnp_close, underwater_checked, pyramid_added
         apply_sizing_from_realized()
+        underwater_checked = False
+        pyramid_added = False
         position = Position.LONG
         entry_spread = _entry_spread(bar.spread_percent, Position.LONG, slip)
         entry_z = bar.z_score
@@ -1073,8 +1094,10 @@ def run_z_strategy_sim(
 
     def enter_short(bar: Bar) -> None:
         nonlocal position, entry_spread, entry_z, entry_time, entry_commission, realized_rub, total_commission
-        nonlocal entry_tatn_close, entry_tatnp_close
+        nonlocal entry_tatn_close, entry_tatnp_close, underwater_checked, pyramid_added
         apply_sizing_from_realized()
+        underwater_checked = False
+        pyramid_added = False
         position = Position.SHORT
         entry_spread = _entry_spread(bar.spread_percent, Position.SHORT, slip)
         entry_z = bar.z_score
@@ -1094,21 +1117,66 @@ def run_z_strategy_sim(
             mtm_pts = entry_spread - bar.spread_percent
         return spread_pnl_to_rub(mtm_pts, eff_notional)
 
+    def _net_if_close_now(bar: Bar) -> float:
+        """Net PnL сделки, если закрыть на этом баре (как при close_long/short)."""
+        gross = mtm_rub(bar)
+        ovn = overnight_per_day * overnight_days(entry_time, bar.timestamp)
+        return gross - entry_commission - comm_per_side - ovn
+
+    def _add_pyramid_leg(bar: Bar) -> None:
+        nonlocal entry_spread, position_notional, eff_notional, comm_per_side, overnight_per_day
+        nonlocal entry_commission, realized_rub, total_commission, pyramid_added
+        add_n = pyramid_add
+        entry_spread = (entry_spread * position_notional + bar.spread_percent * add_n) / (
+            position_notional + add_n
+        )
+        position_notional += add_n
+        eff_notional, comm_per_side, overnight_per_day = refresh_fees(position_notional)
+        add_comm = add_n * leverage * (commission_pct_per_side / 100.0)
+        entry_commission += add_comm
+        total_commission += add_comm
+        realized_rub -= add_comm
+        pyramid_added = True
+
     for i in range(1, len(bars)):
         prev, cur = bars[i - 1], bars[i]
         sig = ""
 
         if position == Position.LONG:
+            if use_pyramid and not pyramid_added and cur.z_score <= -pyramid_depth:
+                _add_pyramid_leg(cur)
+                sig = "pyramid_long"
             if _stop_loss_hit(cur):
                 close_long(cur, "stop_loss")
                 sig = "stop_loss_long"
+            elif (
+                uw_hours > 0
+                and not underwater_checked
+                and _hold_hours(entry_time, cur.timestamp) >= uw_hours - 1e-6
+            ):
+                underwater_checked = True
+                if _net_if_close_now(cur) < 0:
+                    close_long(cur, "underwater_cap")
+                    sig = "underwater_long"
             elif prev.z_score < -exit_z and cur.z_score >= -exit_z:
                 close_long(cur, "z_exit")
                 sig = "exit_long"
         elif position == Position.SHORT:
+            if use_pyramid and not pyramid_added and cur.z_score >= pyramid_depth:
+                _add_pyramid_leg(cur)
+                sig = "pyramid_short"
             if _stop_loss_hit(cur):
                 close_short(cur, "stop_loss")
                 sig = "stop_loss_short"
+            elif (
+                uw_hours > 0
+                and not underwater_checked
+                and _hold_hours(entry_time, cur.timestamp) >= uw_hours - 1e-6
+            ):
+                underwater_checked = True
+                if _net_if_close_now(cur) < 0:
+                    close_short(cur, "underwater_cap")
+                    sig = "underwater_short"
             elif prev.z_score > exit_z and cur.z_score <= exit_z:
                 close_short(cur, "z_exit")
                 sig = "exit_short"

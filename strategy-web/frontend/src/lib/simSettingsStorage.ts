@@ -30,6 +30,8 @@ export function defaultSimParams(): SimParams {
     max_dd_halt_pct: 0,
     oos_enabled: false,
     oos_train_ratio: 0.7,
+    pyramid_add_notional: 0,
+    pyramid_z_depth: 1.0,
   }
 }
 
@@ -91,6 +93,8 @@ function mergeParams(raw: unknown): SimParams {
     max_dd_halt_pct: finiteNum(s.max_dd_halt_pct, d.max_dd_halt_pct!),
     oos_enabled: finiteBool(s.oos_enabled, !!d.oos_enabled),
     oos_train_ratio: finiteNum(s.oos_train_ratio, d.oos_train_ratio!),
+    pyramid_add_notional: finiteNum(s.pyramid_add_notional, d.pyramid_add_notional!),
+    pyramid_z_depth: finiteNum(s.pyramid_z_depth, d.pyramid_z_depth!),
   }
 }
 

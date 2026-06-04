@@ -287,6 +287,8 @@ export type SimParams = {
   max_dd_halt_pct?: number
   oos_enabled?: boolean
   oos_train_ratio?: number
+  pyramid_add_notional?: number
+  pyramid_z_depth?: number
   include_stress?: boolean
 }
 

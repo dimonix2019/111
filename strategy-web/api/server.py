@@ -141,6 +141,8 @@ class SimParams(BaseModel):
     oos_enabled: bool = False
     oos_train_ratio: float = 0.7
     include_stress: bool = False
+    pyramid_add_notional: float = 0.0
+    pyramid_z_depth: float = 1.0
 
 
 class GridSearchParams(BaseModel):
@@ -209,6 +211,8 @@ def _protection_kw(params: SimParams) -> dict:
         "entry_z_buffer": params.entry_z_buffer,
         "max_drawdown_halt_rub": params.max_dd_halt_rub,
         "max_drawdown_halt_pct": params.max_dd_halt_pct,
+        "pyramid_add_notional_rub": params.pyramid_add_notional,
+        "pyramid_z_depth": params.pyramid_z_depth,
     }
 
 
@@ -259,7 +263,7 @@ def _run_packs(bars, params: SimParams) -> tuple[list[dict], dict, dict]:
 def health():
     return {
         "ok": True,
-        "api_build": 5,
+        "api_build": 6,
         "lookback_days": LOOKBACK_DAYS,
         "stale_hours": STALE_HOURS,
         "live_stale_hours": LIVE_STALE_HOURS,

@@ -90,6 +90,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (keep short; dates are illustrative). */
 internal const val APP_CHANGELOG = """
+1.7.63 — График Z-score 15м только на вкладке «Рынок» (сразу под периодом); с «Портфеля» убран; альбом — полноэкранный Z на «Рынке».
 1.7.07 — Обновления: восстановлены push/AlarmManager проверки; кнопка «Проверить обновления» на «О приложении» с пояснением, если GitHub старее телефона.
 1.7.06 — Z-score: rolling 30д (μ/σ по скользящему окну МСК, min 48 баров) вместо global — parity с strategy-web; сигналы, портфель 15м, рынок, тест страт.
 1.7.02 — Обновления приложения: push-уведомление + фоновая проверка (AlarmManager, сервис сигналов).
