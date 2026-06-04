@@ -186,6 +186,33 @@ internal fun MoexScreenTabMarkets(
                                 }
                             )
                         }
+                        if (chartSuccess != null) {
+                            val c = chartSuccess
+                            item {
+                                CandlestickChartCard(
+                                    title = "Z-score спрэда · 15м свечи",
+                                    candles = marketsZScoreCandles,
+                                    chartHeightDp = 240,
+                                    referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
+                                    pointMarkers = buildZScoreSignalMarkersFromEvents(
+                                        points = marketsM15ChartPoints,
+                                        events = signalEvents
+                                    ),
+                                    showLegend = false,
+                                    enableZoomPan = true,
+                                    markerScale = 1.35f,
+                                    rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
+                                    showZoomHint = true,
+                                    tradeTapHintFormatter = { idx ->
+                                        formatZStrategyTradeTapHint(
+                                            idx,
+                                            marketsM15ChartPoints,
+                                            marketsZStrategyTapMetrics
+                                        )
+                                    }
+                                )
+                            }
+                        }
                         item {
                             Text(
                                 text = String.format(

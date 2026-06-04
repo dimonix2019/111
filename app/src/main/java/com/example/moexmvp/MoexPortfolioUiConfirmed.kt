@@ -129,6 +129,11 @@ internal fun ConfirmedPortfolioTabContent(
                 color = Color(0xFFE0E0E0),
                 fontSize = 13.sp
             )
+            Text(
+                text = "Свечной график Z-score · 15м — вкладка «Рынок»",
+                color = Color(0xFF9E9E9E),
+                fontSize = 11.sp
+            )
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
