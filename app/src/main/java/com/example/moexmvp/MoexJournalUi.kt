@@ -215,12 +215,13 @@ internal fun JournalTabContent(
                 items = filtered,
                 key = { index, ev -> "sig_${index}_${ev.timestampMillis}_${ev.signalType.name}" }
             ) { _, ev ->
-                val view = remember(ev, pushNotifications, entryThreshold, exitThreshold) {
+                val view = remember(ev, events, pushNotifications, entryThreshold, exitThreshold) {
                     buildStrategySignalJournalPushView(
                         event = ev,
                         pushLog = pushNotifications,
                         entryThreshold = entryThreshold,
                         exitThreshold = exitThreshold,
+                        allJournalEvents = events,
                     )
                 }
                 JournalSignalOrPushCard(
@@ -250,7 +251,12 @@ internal fun JournalTabContent(
                 val signalId = entry.virtualTapBarTimestampMillis?.let { barTs ->
                     entry.virtualTapSignalType?.let { typeName ->
                         runCatching { StrategySignalType.valueOf(typeName) }.getOrNull()?.let { type ->
-                            strategySignalDisplayId(barTs, type)
+                            strategySignalDisplay(
+                                barTimestampMillis = barTs,
+                                signalType = type,
+                                receivedAtMillis = entry.wallTimestampMillis,
+                                journalEvents = events,
+                            ).signalId
                         }
                     }
                 } ?: "—"

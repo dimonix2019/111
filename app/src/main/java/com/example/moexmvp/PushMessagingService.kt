@@ -67,8 +67,8 @@ internal data class StrategySignalEvent(
 internal fun spreadLegPushCorrelationTag(barTimestampMillis: Long, signalType: StrategySignalType): String =
     "spreadLeg|${barTimestampMillis}|${signalType.name}"
 
-/** Короткий ID сигнала для таблицы сделок (тип + ts бара 15м). */
-internal fun strategySignalDisplayId(barTimestampMillis: Long, signalType: StrategySignalType): String {
+/** Устаревший ID (до еженедельной нумерации): тип + ts бара 15м. */
+internal fun legacyStrategySignalDisplayId(barTimestampMillis: Long, signalType: StrategySignalType): String {
     val code = when (signalType) {
         StrategySignalType.EnterLong -> "EL"
         StrategySignalType.EnterShort -> "ES"
@@ -79,28 +79,52 @@ internal fun strategySignalDisplayId(barTimestampMillis: Long, signalType: Strat
 }
 
 internal data class StrategySignalDisplay(
+    /** Полный ID: «3 long 2026-06-01 14:30». */
     val signalId: String,
+    /** Короткий ID сделки: «3 long». */
+    val tradeDisplayId: String,
     val barTimeMsk: String,
     val receivedTimeMsk: String
 )
 
-internal fun strategySignalDisplay(event: StrategySignalEvent): StrategySignalDisplay =
-    StrategySignalDisplay(
-        signalId = strategySignalDisplayId(event.timestampMillis, event.signalType),
+internal fun strategySignalDisplay(
+    event: StrategySignalEvent,
+    journalEvents: List<StrategySignalEvent> = listOf(event),
+): StrategySignalDisplay {
+    val index = buildWeeklySignalNumberIndex(journalEvents)
+    val weeklyLabel = weeklyStrategySignalLabel(index, event)
+    val weeklyTradeId = if (event.signalType == StrategySignalType.EnterLong ||
+        event.signalType == StrategySignalType.EnterShort
+    ) {
+        weeklyTradeDisplayId(index, event.timestampMillis, event.signalType)
+    } else {
+        null
+    }
+    val legacyId = legacyStrategySignalDisplayId(event.timestampMillis, event.signalType)
+    return StrategySignalDisplay(
+        signalId = weeklyLabel ?: legacyId,
+        tradeDisplayId = weeklyTradeId ?: legacyId,
         barTimeMsk = formatPortfolioExecutionTableMsk(event.timestampMillis),
         receivedTimeMsk = formatMessageReceivedAtMsk(event.receivedAtMillis)
     )
+}
 
 internal fun strategySignalDisplay(
     barTimestampMillis: Long,
     signalType: StrategySignalType,
-    receivedAtMillis: Long = barTimestampMillis
-): StrategySignalDisplay =
-    StrategySignalDisplay(
-        signalId = strategySignalDisplayId(barTimestampMillis, signalType),
-        barTimeMsk = formatPortfolioExecutionTableMsk(barTimestampMillis),
-        receivedTimeMsk = formatMessageReceivedAtMsk(receivedAtMillis)
+    receivedAtMillis: Long = barTimestampMillis,
+    journalEvents: List<StrategySignalEvent> = emptyList(),
+): StrategySignalDisplay {
+    val ev = journalEvents.lastOrNull {
+        it.timestampMillis == barTimestampMillis && it.signalType == signalType
+    } ?: StrategySignalEvent(
+        timestampMillis = barTimestampMillis,
+        signalType = signalType,
+        zScore = 0.0,
+        receivedAtMillis = receivedAtMillis,
     )
+    return strategySignalDisplay(ev, journalEvents.ifEmpty { listOf(ev) })
+}
 
 /** Поля для таблицы сделок: ID сигнала входа, бар 15м, время записи в журнал. */
 internal fun entrySignalDisplayFields(
@@ -113,11 +137,29 @@ internal fun entrySignalDisplayFields(
         it.timestampMillis == barTimestampMillis && it.signalType == signalType
     }
     val d = if (ev != null) {
-        strategySignalDisplay(ev)
+        strategySignalDisplay(ev, journalEvents)
     } else {
-        strategySignalDisplay(barTimestampMillis, signalType, fallbackReceivedAtMillis)
+        strategySignalDisplay(barTimestampMillis, signalType, fallbackReceivedAtMillis, journalEvents)
     }
     return Triple(d.signalId, d.barTimeMsk, d.receivedTimeMsk)
+}
+
+/** Короткий ID сделки для таблицы портфеля: «3 long». */
+internal fun entryTradeDisplayId(
+    journalEvents: List<StrategySignalEvent>,
+    barTimestampMillis: Long,
+    signalType: StrategySignalType,
+    fallbackReceivedAtMillis: Long = barTimestampMillis,
+): String {
+    val ev = journalEvents.lastOrNull {
+        it.timestampMillis == barTimestampMillis && it.signalType == signalType
+    }
+    val d = if (ev != null) {
+        strategySignalDisplay(ev, journalEvents)
+    } else {
+        strategySignalDisplay(barTimestampMillis, signalType, fallbackReceivedAtMillis, journalEvents)
+    }
+    return d.tradeDisplayId
 }
 
 /** Заголовок push для сигнала Z (как в шторке). */
@@ -198,8 +240,9 @@ internal fun buildStrategySignalJournalPushView(
     pushLog: List<PushNotificationLogEntry>,
     entryThreshold: Double,
     exitThreshold: Double,
+    allJournalEvents: List<StrategySignalEvent> = listOf(event),
 ): StrategySignalJournalPushView {
-    val sig = strategySignalDisplay(event)
+    val sig = strategySignalDisplay(event, allJournalEvents)
     val push = findPushLogForStrategySignal(event, pushLog)
     val title = push?.title ?: strategySignalPushTitle(event.signalType)
     val rawBody = push?.body ?: strategySignalPushBody(

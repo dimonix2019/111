@@ -112,6 +112,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.68 — Сигналы и сделки: еженедельная нумерация (с 1), формат «N long/short дата время».
 1.7.67 — Авто-режим портфеля: Exit Long/Short закрывает демо-сделку (заявки + снятие с открытых).
 1.7.66 — Журнал «Сигналы»: как в push — сообщение, «Получено», Push ID и ID сигнала.
 1.7.65 — Слияние веток: плашка прогресса MOEX, график Z 15м (фитили), портфель; единый APK.

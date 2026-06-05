@@ -48,7 +48,8 @@ internal data class SandboxSpreadExecUi(
     val overnightRubApprox: Double = Double.NaN,
     val entrySignalId: String = "—",
     val entrySignalBarTimeMsk: String = "—",
-    val entrySignalReceivedMsk: String = "—"
+    val entrySignalReceivedMsk: String = "—",
+    val tradeDisplayId: String = tradeId,
 ) {
     fun toTradeGroup(): PortfolioTradeGroupRow {
         val orderRows = if (legs.size >= 2) {
@@ -84,6 +85,7 @@ internal data class SandboxSpreadExecUi(
         }
         return PortfolioTradeGroupRow(
             tradeId = tradeId,
+            tradeDisplayId = tradeDisplayId,
             directionLabel = directionLabel,
             entryTimeMsk = entryTimeMsk,
             exitTimeMsk = "—",
@@ -223,10 +225,17 @@ internal object TinkoffSandboxSpreadExecLog {
                 signalType = exec.signalType,
                 fallbackReceivedAtMillis = exec.executedAtMillis
             )
+            val displayId = entryTradeDisplayId(
+                journalEvents = journalEvents,
+                barTimestampMillis = exec.barTimestampMillis,
+                signalType = exec.signalType,
+                fallbackReceivedAtMillis = exec.executedAtMillis,
+            )
             exec.copy(
                 entrySignalId = sigId,
                 entrySignalBarTimeMsk = sigBar,
-                entrySignalReceivedMsk = sigRecv
+                entrySignalReceivedMsk = sigRecv,
+                tradeDisplayId = displayId,
             )
         }
         return enrichOpenSandboxExecutions(

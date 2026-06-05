@@ -153,7 +153,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${group.tradeId} · ${group.directionLabel} · ${group.entryTimeMsk}",
+                            text = "${group.tradeDisplayId} · ${group.entryTimeMsk}",
                             color = Color(0xFFB3E5FC),
                             fontSize = 10.sp,
                             maxLines = 2,
@@ -183,7 +183,10 @@ internal fun PortfolioTradeOrdersGroupedTable(
                     }
                     Row(Modifier.padding(horizontal = 2.dp, vertical = 1.dp)) {
                         if (isFirstOrder) {
-                            PortfolioTradeTableCell(group.tradeId, Modifier.widthIn(min = 52.dp).width(52.dp))
+                            PortfolioTradeTableCell(
+                                group.tradeDisplayId,
+                                Modifier.widthIn(min = 52.dp).width(52.dp)
+                            )
                             PortfolioTradeTableCell(
                                 group.entrySignalId,
                                 Modifier.widthIn(min = 72.dp).width(72.dp),

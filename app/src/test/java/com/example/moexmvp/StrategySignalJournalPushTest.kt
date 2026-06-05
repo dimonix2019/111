@@ -19,7 +19,11 @@ class StrategySignalJournalPushTest {
 
     @Test
     fun buildStrategySignalJournalPushView_usesPushLogWhenMatched() {
-        val barTs = 1_715_934_300_000L
+        val barTs = java.time.LocalDate.of(2026, 6, 1)
+            .atTime(10, 15)
+            .atZone(java.time.ZoneId.of("Europe/Moscow"))
+            .toInstant()
+            .toEpochMilli()
         val received = barTs + 5_000L
         val event = StrategySignalEvent(
             timestampMillis = barTs,
@@ -44,8 +48,9 @@ class StrategySignalJournalPushTest {
             pushLog = listOf(push),
             entryThreshold = 0.8,
             exitThreshold = 0.7,
+            allJournalEvents = listOf(event),
         )
-        assertEquals("EL-$barTs", view.signalId)
+        assertEquals("1 long 2026-06-01 10:15", view.signalId)
         assertEquals("42001", view.pushIdText)
         assertEquals("Вход: LONG TATN / SHORT TATNP", view.title)
         assertTrue(view.messageBody.contains("текущий Z=-1.10"))

@@ -122,8 +122,15 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
             signalType = open.signalType,
             fallbackReceivedAtMillis = open.executedAtMillis
         )
+        val tradeDisplayId = entryTradeDisplayId(
+            journalEvents = allJournalEvents,
+            barTimestampMillis = open.barTimestampMillis,
+            signalType = open.signalType,
+            fallbackReceivedAtMillis = open.executedAtMillis,
+        )
         closedRows += PortfolioConfirmedTradeTableRow(
             tradeId = "T-O%03d".format(Locale.US, tradeSeq),
+            tradeDisplayId = tradeDisplayId,
             directionLabel = if (direction == ZStrategyPosition.Short) "short" else "long",
             entryTimeMsk = formatPortfolioExecutionTableMsk(open.executedAtMillis),
             exitTimeMsk = formatPortfolioExecutionTableMsk(exitPoint.timestampMillis),
