@@ -112,6 +112,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.83 — Рынок: график Z-score на TradingView (lightweight-charts, как strategy-web /m).
 1.7.82 — Таблицы сделок: дата и время на двух строках, столбцы уже.
 1.7.81 — Рынок: убран дублирующий график Z-свечей (остался desktop-вариант как в landscape).
 1.7.80 — Spread (Рынок): правая ось 0%% = спред на 07:30 МСК (открытие торгового дня).

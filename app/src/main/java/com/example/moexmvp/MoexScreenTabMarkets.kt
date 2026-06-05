@@ -159,6 +159,7 @@ internal fun MoexScreenTabMarkets(
                                     previousZScoreForAlert = null
                                 },
                                 candles = marketsZScoreCandles,
+                                displayPoints = marketsM15ChartPoints,
                                 referenceLines = marketsZReferenceLines,
                                 pointMarkers = zChartPointMarkers,
                                 initialWindowWidth = marketsZInitialWindow.first,
@@ -320,27 +321,15 @@ internal fun MoexScreenTabMarkets(
                         val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isDataLoadActive)
                         if (showZCharts) {
                             item {
-                                CandlestickChartCard(
-                                    title = "Z-score · 15м (ISS 10м→15м, как «Тест страт.»)",
+                                TradingViewZScoreChartCard(
+                                    title = "Z-score · 15м (TradingView)",
                                     candles = marketsZScoreCandles,
+                                    displayPoints = marketsM15ChartPoints,
                                     chartHeightDp = 320,
                                     referenceLines = marketsZReferenceLines,
                                     pointMarkers = zChartPointMarkers,
-                                    showLegend = true,
-                                    enableZoomPan = true,
-                                    markerScale = 1.35f,
-                                    rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-                                    showZoomHint = false,
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
-                                    useDesktopStyle = true,
-                                    displayMode = ChartDisplayMode.Candles,
-                                    showPlotlyToolbar = true,
-                                    trackpadGestures = false,
-                                    xLabelStyle = ChartXLabelStyleHorizontal,
-                                    tradeTapHintFormatter = { idx ->
-                                        formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)
-                                    }
                                 )
                             }
                             item {

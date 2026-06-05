@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; background: #131722; overflow: hidden; }
+    #chart { width: 100%; height: 100%; }
+  </style>
+  <script src="lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <div id="chart"></div>
+  <script>
+    const TV = {
+      bg: '#131722',
+      grid: '#2a2e39',
+      text: '#d1d4dc',
+      border: '#2a2e39',
+      crosshair: '#758696',
+      crosshairLabel: '#2962FF',
+      up: '#089981',
+      down: '#f23645',
+    };
+    const MSK = 'Europe/Moscow';
+    const RIGHT_OFFSET_BARS = 18;
+
+    let chart = null;
+    let series = null;
+    let markersPlugin = null;
+    let priceLines = [];
+    let fitted = false;
+    let lastPayloadKey = '';
+
+    function formatTick(time) {
+      if (typeof time !== 'number') return '';
+      return new Date(time * 1000).toLocaleString('ru-RU', {
+        timeZone: MSK,
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    }
+
+    function ensureChart() {
+      if (chart) return;
+      const el = document.getElementById('chart');
+      chart = LightweightCharts.createChart(el, {
+        width: Math.max(el.clientWidth, 100),
+        height: Math.max(el.clientHeight, 200),
+        layout: {
+          background: { type: LightweightCharts.ColorType.Solid, color: TV.bg },
+          textColor: TV.text,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif',
+          fontSize: 12,
+          attributionLogo: false,
+        },
+        grid: {
+          vertLines: { color: TV.grid },
+          horzLines: { color: TV.grid },
+        },
+        crosshair: {
+          mode: LightweightCharts.CrosshairMode.Normal,
+          vertLine: {
+            color: TV.crosshair,
+            width: 1,
+            style: LightweightCharts.LineStyle.LargeDashed,
+            labelBackgroundColor: TV.crosshairLabel,
+          },
+          horzLine: {
+            color: TV.crosshair,
+            width: 1,
+            style: LightweightCharts.LineStyle.LargeDashed,
+            labelBackgroundColor: TV.crosshairLabel,
+          },
+        },
+        handleScroll: {
+          mouseWheel: false,
+          pressedMouseMove: true,
+          horzTouchDrag: true,
+          vertTouchDrag: false,
+        },
+        handleScale: {
+          axisPressedMouseMove: { time: true, price: true },
+          mouseWheel: false,
+          pinch: true,
+        },
+        rightPriceScale: {
+          borderColor: TV.border,
+          minimumWidth: 72,
+          scaleMargins: { top: 0.1, bottom: 0.1 },
+        },
+        timeScale: {
+          borderColor: TV.border,
+          timeVisible: true,
+          secondsVisible: false,
+          rightOffset: RIGHT_OFFSET_BARS,
+          tickMarkFormatter: formatTick,
+        },
+        localization: {
+          locale: 'ru-RU',
+          timeFormatter: formatTick,
+        },
+      });
+
+      series = chart.addSeries(LightweightCharts.CandlestickSeries, {
+        upColor: TV.up,
+        downColor: TV.down,
+        borderUpColor: TV.up,
+        borderDownColor: TV.down,
+        borderVisible: true,
+        wickUpColor: TV.up,
+        wickDownColor: TV.down,
+        wickVisible: true,
+        lastValueVisible: true,
+        priceLineVisible: true,
+        priceLineWidth: 1,
+      });
+
+      const ro = new ResizeObserver(() => {
+        const w = el.clientWidth;
+        const h = el.clientHeight;
+        if (w > 0 && h > 0) chart.resize(w, h);
+      });
+      ro.observe(el);
+    }
+
+    function applyInitialWindow(n, startFrac, widthFrac) {
+      if (!chart || n < 2) return;
+      const startIdx = Math.floor((startFrac || 0) * (n - 1));
+      const visibleBars = Math.max(2, Math.ceil((widthFrac || 1) * n));
+      const from = Math.max(0, startIdx);
+      const to = Math.min(n - 1, from + visibleBars - 1);
+      chart.timeScale().setVisibleLogicalRange({ from, to });
+    }
+
+    function applyRightMargin() {
+      if (!chart) return;
+      chart.timeScale().applyOptions({ rightOffset: RIGHT_OFFSET_BARS });
+    }
+
+    window.updateMoexChart = function (payload) {
+      try {
+        const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        const candles = data.candles || [];
+        const key = JSON.stringify({
+          n: candles.length,
+          last: candles.length ? candles[candles.length - 1].time : 0,
+          h: (data.hlines || []).length,
+          m: (data.markers || []).length,
+        });
+        if (!candles.length) return;
+
+        ensureChart();
+
+        if (markersPlugin) {
+          markersPlugin.detach();
+          markersPlugin = null;
+        }
+
+        series.setData(candles);
+
+        for (const pl of priceLines) series.removePriceLine(pl);
+        priceLines = [];
+        for (const hl of data.hlines || []) {
+          priceLines.push(series.createPriceLine({
+            price: hl.value,
+            color: hl.color,
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: hl.title || '',
+          }));
+        }
+
+        const markerData = (data.markers || []).map((m) => ({
+          time: m.time,
+          position: m.position,
+          color: m.color,
+          shape: m.shape,
+          text: m.text || '',
+          size: m.size || 1,
+        }));
+        if (markerData.length) {
+          markersPlugin = LightweightCharts.createSeriesMarkers(series, markerData);
+        }
+
+        if (!fitted || key !== lastPayloadKey) {
+          if (data.window && data.window.width < 0.999) {
+            applyInitialWindow(candles.length, data.window.start, data.window.width);
+          } else {
+            chart.timeScale().fitContent();
+          }
+          applyRightMargin();
+          fitted = true;
+        }
+        lastPayloadKey = key;
+      } catch (e) {
+        console.error('updateMoexChart', e);
+      }
+    };
+  </script>
+</body>
+</html>

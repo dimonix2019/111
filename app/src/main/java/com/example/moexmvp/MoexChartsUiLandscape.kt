@@ -68,6 +68,7 @@ internal fun LandscapeZScoreFullscreenPane(
     selectedPeriod: Period,
     onPeriodSelect: (Period) -> Unit,
     candles: List<CandlePoint>,
+    displayPoints: List<DataPoint>,
     referenceLines: List<ChartReferenceLine>,
     pointMarkers: List<ChartPointMarker>,
     modifier: Modifier = Modifier,
@@ -99,26 +100,17 @@ internal fun LandscapeZScoreFullscreenPane(
                 ?.coerceIn(80, 720)
                 ?: 320
             if (candles.isNotEmpty()) {
-                CandlestickChartCard(
+                TradingViewZScoreChartCard(
                     title = "",
                     candles = candles,
+                    displayPoints = displayPoints,
                     chartHeightDp = chartH,
                     referenceLines = referenceLines,
                     pointMarkers = pointMarkers,
-                    showLegend = false,
-                    enableZoomPan = true,
-                    markerScale = 1.4f,
-                    rightPlotPaddingFraction = 0.04f,
-                    showZoomHint = false,
                     landscapeMinimal = true,
-                    xLabelStyle = ChartXLabelStyleHorizontal,
                     initialWindowWidth = initialWindowWidth,
                     initialWindowStart = initialWindowStart,
-                    tradeTapHintFormatter = tradeTapHintFormatter,
-                    useDesktopStyle = useDesktopStyle,
-                    displayMode = displayMode,
-                    showPlotlyToolbar = showPlotlyToolbar,
-                    trackpadGestures = trackpadGestures,
+                    modifier = Modifier.fillMaxSize(),
                 )
             } else {
                 emptyContent()
