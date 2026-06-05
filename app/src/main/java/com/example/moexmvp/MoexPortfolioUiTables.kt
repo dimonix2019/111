@@ -71,6 +71,15 @@ internal fun compactPortfolioTableDateLabel(text: String): String {
     return Regex("""20(\d{2}-\d{2}-\d{2}(?: \d{2}:\d{2})?)""").replace(text) { it.groupValues[1] }
 }
 
+/** Дата и время на двух строках — столбец уже: «26-06-01\n10:15», «1 long 26-06-01\n10:15». */
+internal fun compactPortfolioTableDateTimeTwoLines(text: String): String {
+    if (text == "—") return text
+    val compact = compactPortfolioTableDateLabel(text)
+    val time = Regex("""\d{2}:\d{2}$""").find(compact)?.value ?: return compact
+    val datePart = compact.removeSuffix(time).trimEnd()
+    return if (datePart.isEmpty()) time else "$datePart\n$time"
+}
+
 private data class PortfolioTradeGroupColumn(
     val title: String,
     val widthDp: Int,
@@ -131,11 +140,11 @@ internal fun PortfolioTradeOrdersGroupedTable(
     ) {
         val groupCols = listOf(
             PortfolioTradeGroupColumn("ID", 40),
-            PortfolioTradeGroupColumn("Сигн.", 56),
-            PortfolioTradeGroupColumn("Бар", 62),
-            PortfolioTradeGroupColumn("Получ.", 58),
-            PortfolioTradeGroupColumn("Вход", 62),
-            PortfolioTradeGroupColumn("Выход", 62),
+            PortfolioTradeGroupColumn("Сигн.", 46),
+            PortfolioTradeGroupColumn("Бар", 44),
+            PortfolioTradeGroupColumn("Получ.", 44),
+            PortfolioTradeGroupColumn("Вход", 44),
+            PortfolioTradeGroupColumn("Выход", 44),
             PortfolioTradeGroupColumn("Подтв.", 40),
             PortfolioTradeGroupColumn("Zвх", 30),
             PortfolioTradeGroupColumn(exitZColumnTitle, 30),
@@ -177,10 +186,11 @@ internal fun PortfolioTradeOrdersGroupedTable(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${group.tradeDisplayId} · ${compactPortfolioTableDateLabel(group.entryTimeMsk)}",
+                            text = "${group.tradeDisplayId} · ${compactPortfolioTableDateTimeTwoLines(group.entryTimeMsk)}",
                             color = Color(0xFFB3E5FC),
                             fontSize = 10.sp,
-                            maxLines = 2,
+                            maxLines = 3,
+                            lineHeight = 12.sp,
                             modifier = Modifier.weight(1f)
                         )
                         OutlinedButton(
@@ -209,11 +219,11 @@ internal fun PortfolioTradeOrdersGroupedTable(
                         if (isFirstOrder) {
                             val cells = listOf(
                                 group.tradeDisplayId to Color(0xFFE0E0E0),
-                                compactPortfolioTableDateLabel(group.entrySignalId) to Color(0xFFCE93D8),
-                                compactPortfolioTableDateLabel(group.entrySignalBarTimeMsk) to Color(0xFFCE93D8),
-                                compactPortfolioTableDateLabel(group.entrySignalReceivedMsk) to Color(0xFF81D4FA),
-                                compactPortfolioTableDateLabel(group.entryTimeMsk) to Color(0xFFE0E0E0),
-                                compactPortfolioTableDateLabel(group.exitTimeMsk) to Color(0xFFE0E0E0),
+                                compactPortfolioTableDateTimeTwoLines(group.entrySignalId) to Color(0xFFCE93D8),
+                                compactPortfolioTableDateTimeTwoLines(group.entrySignalBarTimeMsk) to Color(0xFFCE93D8),
+                                compactPortfolioTableDateTimeTwoLines(group.entrySignalReceivedMsk) to Color(0xFF81D4FA),
+                                compactPortfolioTableDateTimeTwoLines(group.entryTimeMsk) to Color(0xFFE0E0E0),
+                                compactPortfolioTableDateTimeTwoLines(group.exitTimeMsk) to Color(0xFFE0E0E0),
                                 group.confirmLabel to Color(0xFFE0E0E0),
                                 formatPortfolioTableZ(group.entryZ) to Color(0xFFE0E0E0),
                                 formatPortfolioTableZ(group.exitZ) to Color(0xFFE0E0E0),
