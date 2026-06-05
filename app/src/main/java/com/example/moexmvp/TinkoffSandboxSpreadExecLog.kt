@@ -122,8 +122,10 @@ internal object TinkoffSandboxSpreadExecLog {
         source: PortfolioExecSource,
         legs: List<SandboxLegOrderResult>,
         fromTestButton: Boolean = false
-    ) {
-        if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return
+    ): SandboxSpreadExecUi? {
+        if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) {
+            return null
+        }
         val legUi = legs.map { leg ->
             SandboxSpreadOrderLegUi(
                 ticker = leg.ticker,
@@ -132,7 +134,7 @@ internal object TinkoffSandboxSpreadExecLog {
             )
         }
         if (legUi.isEmpty()) {
-            recordTemplate(
+            return recordTemplate(
                 context,
                 signalType,
                 zScore,
@@ -142,9 +144,8 @@ internal object TinkoffSandboxSpreadExecLog {
                 source,
                 fromTestButton
             )
-            return
         }
-        appendExecution(
+        return appendExecution(
             context,
             buildEntry(
                 context,
@@ -169,9 +170,11 @@ internal object TinkoffSandboxSpreadExecLog {
         entrySpreadPercent: Double,
         source: PortfolioExecSource,
         fromTestButton: Boolean = false
-    ) {
-        if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return
-        appendExecution(
+    ): SandboxSpreadExecUi? {
+        if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) {
+            return null
+        }
+        return appendExecution(
             context,
             buildEntry(
                 context,
@@ -324,7 +327,7 @@ internal object TinkoffSandboxSpreadExecLog {
         )
     }
 
-    private fun appendExecution(context: Context, entry: SandboxSpreadExecUi) {
+    private fun appendExecution(context: Context, entry: SandboxSpreadExecUi): SandboxSpreadExecUi {
         val app = context.applicationContext
         synchronized(spreadExecLogLock) {
             val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -336,16 +339,22 @@ internal object TinkoffSandboxSpreadExecLog {
                     it.source == entry.source &&
                     it.confirmLabel == entry.confirmLabel
             }
-            if (dupIndex >= 0) {
-                list[dupIndex] = entry.copy(tradeId = list[dupIndex].tradeId)
+            val stored = if (dupIndex >= 0) {
+                entry.copy(tradeId = list[dupIndex].tradeId)
             } else {
-                list += entry
+                entry
+            }
+            if (dupIndex >= 0) {
+                list[dupIndex] = stored
+            } else {
+                list += stored
             }
             val trimmed = list.takeLast(MAX_HISTORY)
             prefs.edit()
                 .putString(KEY_HISTORY_JSON, encodeHistory(trimmed).toString())
                 .remove(KEY_JSON_LEGACY)
                 .commit()
+            return stored
         }
     }
 

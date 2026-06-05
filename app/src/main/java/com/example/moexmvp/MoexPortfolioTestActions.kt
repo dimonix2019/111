@@ -157,7 +157,7 @@ internal suspend fun executeTestSandboxSpreadPair(
             else -> ZStrategyPosition.Flat
         }
         saveStrategyPosition(app, position)
-        TinkoffSandboxSpreadExecLog.recordFromLegs(
+        val execution = TinkoffSandboxSpreadExecLog.recordFromLegs(
             app,
             signalType,
             z,
@@ -168,13 +168,17 @@ internal suspend fun executeTestSandboxSpreadPair(
             legs = legs,
             fromTestButton = fromTestButton
         )
-        notifySandboxSpreadLegExecutionResults(
-            app,
-            legs,
-            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
-            spreadLegPushCorrelationTag(barTs, signalType)
-        )
+        if (execution != null) {
+            val lastLeg = legs.lastOrNull()
+            notifySandboxTradeOpened(
+                context = app,
+                execution = execution,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
+                portfolioTotalRub = lastLeg?.portfolioTotalRub,
+                portfolioCashRub = lastLeg?.portfolioCashRub,
+            )
+        }
     }
 }
 

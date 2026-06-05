@@ -70,7 +70,7 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             signalType = signalType,
             source = PortfolioExecSource.AUTO
         )
-        TinkoffSandboxSpreadExecLog.recordFromLegs(
+        val execution = TinkoffSandboxSpreadExecLog.recordFromLegs(
             app,
             signalType,
             zScore,
@@ -81,13 +81,17 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             legs = legs,
             fromTestButton = fromTestButton
         )
-        notifySandboxSpreadLegExecutionResults(
-            app,
-            legs,
-            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage,
-            spreadLegPushCorrelationTag(barTimestampMillis, signalType)
-        )
+        execution?.let { opened ->
+            val lastLeg = legs.lastOrNull()
+            notifySandboxTradeOpened(
+                context = app,
+                execution = opened,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = leverage,
+                portfolioTotalRub = lastLeg?.portfolioTotalRub,
+                portfolioCashRub = lastLeg?.portfolioCashRub,
+            )
+        }
         true
     } catch (e: Exception) {
         notifySandboxAutoEntrySkipped(

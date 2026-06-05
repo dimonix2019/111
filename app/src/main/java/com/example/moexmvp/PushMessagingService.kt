@@ -370,6 +370,142 @@ internal fun showPushNotification(
     return true
 }
 
+internal fun sandboxTradeOpenedPushCorrelationTag(
+    barTimestampMillis: Long,
+    signalType: StrategySignalType,
+): String = "tradeOpened|${barTimestampMillis}|${signalType.name}"
+
+/** Текст push «Сделка открыта» — все поля сделки и номер сигнала. */
+internal fun buildSandboxTradeOpenedNotificationBody(
+    execution: SandboxSpreadExecUi,
+    journalEvents: List<StrategySignalEvent>,
+    notionalRub: Double,
+    leverage: Double,
+    portfolioTotalRub: String? = null,
+    portfolioCashRub: String? = null,
+    openedAtMillis: Long = System.currentTimeMillis(),
+): String {
+    val sig = strategySignalDisplay(
+        barTimestampMillis = execution.barTimestampMillis,
+        signalType = execution.signalType,
+        receivedAtMillis = execution.executedAtMillis,
+        journalEvents = journalEvents,
+    )
+    val tradeId = entryTradeDisplayId(
+        journalEvents = journalEvents,
+        barTimestampMillis = execution.barTimestampMillis,
+        signalType = execution.signalType,
+        fallbackReceivedAtMillis = execution.executedAtMillis,
+    )
+    return buildString {
+        append(formatMessageReceivedLine(openedAtMillis))
+        append('\n')
+        append("Сигнал: ")
+        append(compactPortfolioTableDateLabel(sig.signalId))
+        append('\n')
+        append("Сделка: ")
+        append(tradeId)
+        append('\n')
+        append("ID: ")
+        append(execution.tradeId)
+        append('\n')
+        append("Направление: ")
+        append(execution.directionLabel)
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "Z вход: %.2f · спрэд вход: %.2f%%",
+                execution.zScore,
+                execution.entrySpreadPercent,
+            )
+        )
+        append('\n')
+        append("Бар сигнала: ")
+        append(compactPortfolioTableDateLabel(execution.entrySignalBarTimeMsk))
+        append('\n')
+        append("Получен: ")
+        append(compactPortfolioTableDateLabel(execution.entrySignalReceivedMsk))
+        append('\n')
+        append("Вход: ")
+        append(compactPortfolioTableDateLabel(execution.entryTimeMsk))
+        append('\n')
+        append("Подтв.: ")
+        append(execution.confirmLabel)
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "Номинал: %.0f ₽ · плечо ×%.1f · объём: %s",
+                notionalRub,
+                leverage,
+                execution.volumeText,
+            )
+        )
+        execution.legs.forEachIndexed { index, leg ->
+            append('\n')
+            append("Нога ")
+            append(index + 1)
+            append(": ")
+            append(leg.ticker)
+            append(" · ")
+            append(leg.sideRu)
+            if (leg.orderBrief.isNotBlank() && leg.orderBrief != "—") {
+                append(" · ")
+                append(leg.orderBrief)
+            }
+        }
+        portfolioTotalRub?.let {
+            append('\n')
+            append("Баланс портфеля: ")
+            append(it)
+        }
+        portfolioCashRub?.let {
+            append('\n')
+            append("Деньги (₽): ")
+            append(it)
+        }
+    }
+}
+
+/** Одно уведомление после открытия спрэд-сделки на демо (вместо push по ногам на входе). */
+internal fun notifySandboxTradeOpened(
+    context: Context,
+    execution: SandboxSpreadExecUi,
+    notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+    leverage: Double,
+    portfolioTotalRub: String? = null,
+    portfolioCashRub: String? = null,
+) {
+    val app = context.applicationContext
+    val journal = loadStrategySignalEvents(app)
+    val tradeId = entryTradeDisplayId(
+        journalEvents = journal,
+        barTimestampMillis = execution.barTimestampMillis,
+        signalType = execution.signalType,
+        fallbackReceivedAtMillis = execution.executedAtMillis,
+    )
+    val body = buildSandboxTradeOpenedNotificationBody(
+        execution = execution,
+        journalEvents = journal,
+        notionalRub = notionalRub,
+        leverage = leverage,
+        portfolioTotalRub = portfolioTotalRub,
+        portfolioCashRub = portfolioCashRub,
+    )
+    showPushNotification(
+        context = app,
+        title = "Сделка открыта · $tradeId",
+        body = body,
+        virtualTradeTap = null,
+        skipDuplicateCheck = true,
+        correlationTag = sandboxTradeOpenedPushCorrelationTag(
+            execution.barTimestampMillis,
+            execution.signalType,
+        ),
+    )
+}
+
 /** Отдельное уведомление по каждой ноге спрэда после PostSandboxOrder (тест песочницы). */
 internal fun notifySandboxSpreadLegExecutionResults(
     context: Context,
