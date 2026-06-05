@@ -165,6 +165,16 @@ internal fun StrategyTestTabContent(
                 displayMode = ChartDisplayMode.Candles,
                 showPlotlyToolbar = true,
             )
+            metrics?.let { m ->
+                if (m.equityCurveRub.isNotEmpty() && m.drawdownCurveRub.isNotEmpty()) {
+                    StrategyTestEquityDrawdownChartCard(
+                        labels = m.equityCurveLabels,
+                        equityRub = m.equityCurveRub,
+                        drawdownRub = m.drawdownCurveRub,
+                        chartHeightDp = 220,
+                    )
+                }
+            }
         }
         Row(
             modifier = Modifier
@@ -275,7 +285,7 @@ internal fun StrategyTestTabContent(
             metrics?.let { m ->
                 PortfolioCollapsibleSection(
                     title = "Детальные показатели симуляции",
-                    subtitle = "таблица · Equity и просадка",
+                    subtitle = "таблица метрик",
                     defaultExpanded = false
                 ) {
                     Text(
@@ -284,14 +294,6 @@ internal fun StrategyTestTabContent(
                         fontSize = 10.sp
                     )
                     PortfolioMetricGrid(m, showHeroDuplicate = false)
-                    if (m.equityCurveRub.isNotEmpty() && m.drawdownCurveRub.isNotEmpty()) {
-                        StrategyTestEquityDrawdownChartCard(
-                            labels = m.equityCurveLabels,
-                            equityRub = m.equityCurveRub,
-                            drawdownRub = m.drawdownCurveRub,
-                            chartHeightDp = 280
-                        )
-                    }
                 }
                 Text(
                     text = "Сделки симуляции (${tradeItems.size}) · ${m.periodDescription}",
