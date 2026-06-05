@@ -65,6 +65,17 @@ internal fun formatPortfolioTableRub(value: Double): String =
 internal fun formatPortfolioTableCostRub(value: Double): String =
     if (value.isNaN()) "—" else formatRubSigned(-kotlin.math.abs(value))
 
+/** В таблице портфеля: «2026-06-01 10:15» → «26-06-01 10:15». */
+internal fun compactPortfolioTableDateLabel(text: String): String {
+    if (text == "—") return text
+    return Regex("""20(\d{2}-\d{2}-\d{2}(?: \d{2}:\d{2})?)""").replace(text) { it.groupValues[1] }
+}
+
+private data class PortfolioTradeGroupColumn(
+    val title: String,
+    val widthDp: Int,
+)
+
 @Composable
 internal fun PortfolioTradeTableCell(
     text: String,
@@ -74,11 +85,22 @@ internal fun PortfolioTradeTableCell(
     Text(
         text = text,
         color = color,
-        fontSize = 9.sp,
-        maxLines = 4,
-        lineHeight = 11.sp,
-        modifier = modifier.padding(horizontal = 3.dp, vertical = 2.dp)
+        fontSize = 8.sp,
+        maxLines = 3,
+        lineHeight = 10.sp,
+        modifier = modifier.padding(horizontal = 1.dp, vertical = 1.dp)
     )
+}
+
+@Composable
+private fun PortfolioTradeGroupSpacerCells(widths: List<Int>) {
+    widths.forEach { w ->
+        PortfolioTradeTableCell(
+            "·",
+            Modifier.widthIn(min = w.dp).width(w.dp),
+            Color(0xFF424242)
+        )
+    }
 }
 
 @Composable
@@ -105,34 +127,34 @@ internal fun PortfolioTradeOrdersGroupedTable(
             .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
             .padding(vertical = 6.dp)
     ) {
-        Row(Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
-            val heads = listOf(
-                "ID сделки" to 52.dp,
-                "ID сигн." to 72.dp,
-                "Бар сигн." to 100.dp,
-                "Получен" to 96.dp,
-                "Вход" to 100.dp,
-                "Выход" to 100.dp,
-                "Объём" to 48.dp,
-                "Подтв." to 52.dp,
-                "Zвх" to 36.dp,
-                exitZColumnTitle to 36.dp,
-                "Push" to 88.dp,
-                "PnL L" to 52.dp,
-                "PnL S" to 52.dp,
-                "Чистый" to 58.dp,
-                "Комис." to 52.dp,
-                "Оверн." to 52.dp,
-                "№" to 24.dp,
-                "Нога" to 36.dp,
-                "Тикер" to 40.dp,
-                "Сторона" to 72.dp,
-                "Заявка" to 120.dp
-            )
-            heads.forEach { (title, w) ->
+        val groupCols = listOf(
+            PortfolioTradeGroupColumn("ID", 40),
+            PortfolioTradeGroupColumn("Сигн.", 56),
+            PortfolioTradeGroupColumn("Бар", 62),
+            PortfolioTradeGroupColumn("Получ.", 58),
+            PortfolioTradeGroupColumn("Вход", 62),
+            PortfolioTradeGroupColumn("Выход", 62),
+            PortfolioTradeGroupColumn("Подтв.", 40),
+            PortfolioTradeGroupColumn("Zвх", 30),
+            PortfolioTradeGroupColumn(exitZColumnTitle, 30),
+            PortfolioTradeGroupColumn("PnL L", 44),
+            PortfolioTradeGroupColumn("PnL S", 44),
+            PortfolioTradeGroupColumn("Чист.", 48),
+            PortfolioTradeGroupColumn("Ком.", 42),
+            PortfolioTradeGroupColumn("Овн.", 42),
+        )
+        val orderCols = listOf(
+            PortfolioTradeGroupColumn("№", 18),
+            PortfolioTradeGroupColumn("Нога", 28),
+            PortfolioTradeGroupColumn("Тик.", 32),
+            PortfolioTradeGroupColumn("Стор.", 50),
+        )
+        val groupWidths = groupCols.map { it.widthDp }
+        Row(Modifier.padding(horizontal = 1.dp, vertical = 1.dp)) {
+            (groupCols + orderCols).forEach { col ->
                 PortfolioTradeTableCell(
-                    text = title,
-                    modifier = Modifier.widthIn(min = w).width(w),
+                    text = col.title,
+                    modifier = Modifier.widthIn(min = col.widthDp.dp).width(col.widthDp.dp),
                     color = Color(0xFF90A4AE)
                 )
             }
@@ -153,7 +175,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${group.tradeDisplayId} · ${group.entryTimeMsk}",
+                            text = "${group.tradeDisplayId} · ${compactPortfolioTableDateLabel(group.entryTimeMsk)}",
                             color = Color(0xFFB3E5FC),
                             fontSize = 10.sp,
                             maxLines = 2,
@@ -181,90 +203,59 @@ internal fun PortfolioTradeOrdersGroupedTable(
                         "Short" -> Color(0xFFFFAB91)
                         else -> Color(0xFFE0E0E0)
                     }
-                    Row(Modifier.padding(horizontal = 2.dp, vertical = 1.dp)) {
+                    Row(Modifier.padding(horizontal = 1.dp, vertical = 1.dp)) {
                         if (isFirstOrder) {
-                            PortfolioTradeTableCell(
-                                group.tradeDisplayId,
-                                Modifier.widthIn(min = 52.dp).width(52.dp)
+                            val cells = listOf(
+                                group.tradeDisplayId to Color(0xFFE0E0E0),
+                                compactPortfolioTableDateLabel(group.entrySignalId) to Color(0xFFCE93D8),
+                                compactPortfolioTableDateLabel(group.entrySignalBarTimeMsk) to Color(0xFFCE93D8),
+                                compactPortfolioTableDateLabel(group.entrySignalReceivedMsk) to Color(0xFF81D4FA),
+                                compactPortfolioTableDateLabel(group.entryTimeMsk) to Color(0xFFE0E0E0),
+                                compactPortfolioTableDateLabel(group.exitTimeMsk) to Color(0xFFE0E0E0),
+                                group.confirmLabel to Color(0xFFE0E0E0),
+                                formatPortfolioTableZ(group.entryZ) to Color(0xFFE0E0E0),
+                                formatPortfolioTableZ(group.exitZ) to Color(0xFFE0E0E0),
+                                formatPortfolioTableRub(group.legLongPnlSplitRubApprox) to
+                                    if (group.legLongPnlSplitRubApprox.isNaN()) Color(0xFF757575)
+                                    else rubDeltaColor(group.legLongPnlSplitRubApprox),
+                                formatPortfolioTableRub(group.legShortPnlSplitRubApprox) to
+                                    if (group.legShortPnlSplitRubApprox.isNaN()) Color(0xFF757575)
+                                    else rubDeltaColor(group.legShortPnlSplitRubApprox),
+                                formatPortfolioTableRub(group.netPnlRubApprox) to
+                                    if (group.netPnlRubApprox.isNaN()) Color(0xFF757575)
+                                    else rubDeltaColor(group.netPnlRubApprox),
+                                formatPortfolioTableCostRub(group.commissionRubApprox) to Color(0xFFFFAB91),
+                                formatPortfolioTableCostRub(group.overnightRubApprox) to Color(0xFFFFAB91),
                             )
-                            PortfolioTradeTableCell(
-                                group.entrySignalId,
-                                Modifier.widthIn(min = 72.dp).width(72.dp),
-                                Color(0xFFCE93D8)
-                            )
-                            PortfolioTradeTableCell(
-                                group.entrySignalBarTimeMsk,
-                                Modifier.widthIn(min = 100.dp).width(100.dp),
-                                Color(0xFFCE93D8)
-                            )
-                            PortfolioTradeTableCell(
-                                group.entrySignalReceivedMsk,
-                                Modifier.widthIn(min = 96.dp).width(96.dp),
-                                Color(0xFF81D4FA)
-                            )
-                            PortfolioTradeTableCell(group.entryTimeMsk, Modifier.widthIn(min = 100.dp).width(100.dp))
-                            PortfolioTradeTableCell(group.exitTimeMsk, Modifier.widthIn(min = 100.dp).width(100.dp))
-                            PortfolioTradeTableCell(group.volumeText, Modifier.widthIn(min = 48.dp).width(48.dp))
-                            PortfolioTradeTableCell(group.confirmLabel, Modifier.widthIn(min = 52.dp).width(52.dp))
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableZ(group.entryZ),
-                                Modifier.widthIn(min = 36.dp).width(36.dp)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableZ(group.exitZ),
-                                Modifier.widthIn(min = 36.dp).width(36.dp)
-                            )
-                            PortfolioTradeTableCell(
-                                group.notificationIdsText,
-                                Modifier.widthIn(min = 88.dp).width(88.dp),
-                                Color(0xFFB3E5FC)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableRub(group.legLongPnlSplitRubApprox),
-                                Modifier.widthIn(min = 52.dp).width(52.dp),
-                                if (group.legLongPnlSplitRubApprox.isNaN()) Color(0xFF757575)
-                                else rubDeltaColor(group.legLongPnlSplitRubApprox)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableRub(group.legShortPnlSplitRubApprox),
-                                Modifier.widthIn(min = 52.dp).width(52.dp),
-                                if (group.legShortPnlSplitRubApprox.isNaN()) Color(0xFF757575)
-                                else rubDeltaColor(group.legShortPnlSplitRubApprox)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableRub(group.netPnlRubApprox),
-                                Modifier.widthIn(min = 58.dp).width(58.dp),
-                                if (group.netPnlRubApprox.isNaN()) Color(0xFF757575)
-                                else rubDeltaColor(group.netPnlRubApprox)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableCostRub(group.commissionRubApprox),
-                                Modifier.widthIn(min = 52.dp).width(52.dp),
-                                Color(0xFFFFAB91)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableCostRub(group.overnightRubApprox),
-                                Modifier.widthIn(min = 52.dp).width(52.dp),
-                                Color(0xFFFFAB91)
-                            )
-                        } else {
-                            listOf(52, 72, 100, 96, 100, 100, 48, 52, 36, 36, 88, 52, 52, 58, 52, 52).forEach { w ->
+                            cells.forEachIndexed { index, (text, color) ->
+                                val w = groupWidths[index]
                                 PortfolioTradeTableCell(
-                                    "·",
+                                    text,
                                     Modifier.widthIn(min = w.dp).width(w.dp),
-                                    Color(0xFF424242)
+                                    color
                                 )
                             }
+                        } else {
+                            PortfolioTradeGroupSpacerCells(groupWidths)
                         }
-                        PortfolioTradeTableCell(
-                            "${order.orderIndex}",
-                            Modifier.widthIn(min = 24.dp).width(24.dp),
-                            Color(0xFFCE93D8)
-                        )
-                        PortfolioTradeTableCell(order.legRole, Modifier.widthIn(min = 36.dp).width(36.dp))
-                        PortfolioTradeTableCell(order.ticker, Modifier.widthIn(min = 40.dp).width(40.dp), tickerColor)
-                        PortfolioTradeTableCell(order.sideRu, Modifier.widthIn(min = 72.dp).width(72.dp))
-                        PortfolioTradeTableCell(order.orderBrief, Modifier.widthIn(min = 120.dp).width(120.dp))
+                        orderCols.forEachIndexed { index, col ->
+                            val text = when (index) {
+                                0 -> "${order.orderIndex}"
+                                1 -> order.legRole
+                                2 -> order.ticker
+                                else -> order.sideRu
+                            }
+                            val color = when (index) {
+                                0 -> Color(0xFFCE93D8)
+                                2 -> tickerColor
+                                else -> Color(0xFFE0E0E0)
+                            }
+                            PortfolioTradeTableCell(
+                                text,
+                                Modifier.widthIn(min = col.widthDp.dp).width(col.widthDp.dp),
+                                color
+                            )
+                        }
                     }
                 }
             }
