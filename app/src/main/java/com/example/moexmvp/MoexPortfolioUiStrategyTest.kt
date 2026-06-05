@@ -173,35 +173,16 @@ internal fun StrategyTestTabContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Режим симуляции",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = if (compoundReturns) {
-                        "Капитализация: перед каждой новой сделкой размер позиции пересчитывается от текущего капитала (старт + накопленный PnL в ₽)."
-                    } else {
-                        "Фиксированный номинал: каждая сделка как при первоначальных 100 тыс. ₽ (классическая симуляция)."
-                    },
-                    color = Color(0xFF757575),
-                    fontSize = 9.sp,
-                    maxLines = 3
-                )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = if (compoundReturns) "Капитализация" else "Фикс.",
-                    color = Color(0xFF9FA8DA),
-                    fontSize = 10.sp
-                )
-                Switch(
-                    checked = compoundReturns,
-                    onCheckedChange = onCompoundReturnsChange
-                )
-            }
+            Text(
+                text = "Капитализация",
+                color = Color(0xFFE0E0E0),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Switch(
+                checked = compoundReturns,
+                onCheckedChange = onCompoundReturnsChange
+            )
         }
         Text(
             text = "Сделки ниже — все закрытые круги симуляции на 15м ряду за ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. " +
