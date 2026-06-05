@@ -395,6 +395,19 @@ internal suspend fun MoexScreenState.refreshData(
                                         saveDailySignalLimit(context, dailySignalLimit)
                                     }
                                 }
+                                launchScope.launch(Dispatchers.IO) {
+                                    val ran = runSandboxAutoExitIfNeeded(
+                                        context.applicationContext,
+                                        StrategySignalType.ExitLong,
+                                        latestZScore,
+                                        latestTimestampMillis,
+                                    )
+                                    if (ran) {
+                                        withContext(Dispatchers.Main) {
+                                            sandboxSpreadExecReload++
+                                        }
+                                    }
+                                }
                             }
 
                             ZStrategySignal.ExitShort -> {
@@ -422,6 +435,19 @@ internal suspend fun MoexScreenState.refreshData(
                                     if (sent) {
                                         dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                         saveDailySignalLimit(context, dailySignalLimit)
+                                    }
+                                }
+                                launchScope.launch(Dispatchers.IO) {
+                                    val ran = runSandboxAutoExitIfNeeded(
+                                        context.applicationContext,
+                                        StrategySignalType.ExitShort,
+                                        latestZScore,
+                                        latestTimestampMillis,
+                                    )
+                                    if (ran) {
+                                        withContext(Dispatchers.Main) {
+                                            sandboxSpreadExecReload++
+                                        }
                                     }
                                 }
                             }

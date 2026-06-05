@@ -220,6 +220,12 @@ class SignalForegroundService : Service() {
                         dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                     }
                 }
+                runSandboxAutoExitIfNeeded(
+                    applicationContext,
+                    StrategySignalType.ExitLong,
+                    latestZScore,
+                    latestTimestampMillis,
+                )
             }
 
             ZStrategySignal.ExitShort -> {
@@ -246,6 +252,12 @@ class SignalForegroundService : Service() {
                         dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                     }
                 }
+                runSandboxAutoExitIfNeeded(
+                    applicationContext,
+                    StrategySignalType.ExitShort,
+                    latestZScore,
+                    latestTimestampMillis,
+                )
             }
 
             ZStrategySignal.None -> Unit
