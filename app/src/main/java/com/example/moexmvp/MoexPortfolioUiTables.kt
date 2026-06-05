@@ -134,7 +134,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
             PortfolioTradeGroupColumn("Получ.", 58),
             PortfolioTradeGroupColumn("Вход", 62),
             PortfolioTradeGroupColumn("Выход", 62),
-            PortfolioTradeGroupColumn("Подтв.", 40),
+            PortfolioTradeGroupColumn("Тип", 22),
             PortfolioTradeGroupColumn("Zвх", 30),
             PortfolioTradeGroupColumn(exitZColumnTitle, 30),
             PortfolioTradeGroupColumn("PnL L", 44),
@@ -166,6 +166,12 @@ internal fun PortfolioTradeOrdersGroupedTable(
                     .background(Color(0xFF242424), RoundedCornerShape(4.dp))
                     .padding(vertical = 2.dp)
             ) {
+                val tradeTypeLetter = portfolioTradeSourceTypeLetter(group.confirmLabel)
+                val tradeTypeColor = when (tradeTypeLetter) {
+                    "А" -> Color(0xFF81C784)
+                    "Р" -> Color(0xFFFFAB91)
+                    else -> Color(0xFFBDBDBD)
+                }
                 if (group.isOpen && onCloseOpenTrade != null) {
                     Row(
                         Modifier
@@ -175,7 +181,8 @@ internal fun PortfolioTradeOrdersGroupedTable(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${group.tradeDisplayId} · ${compactPortfolioTableDateLabel(group.entryTimeMsk)}",
+                            text = "${group.tradeDisplayId} · $tradeTypeLetter · " +
+                                compactPortfolioTableDateLabel(group.entryTimeMsk),
                             color = Color(0xFFB3E5FC),
                             fontSize = 10.sp,
                             maxLines = 2,
@@ -195,6 +202,14 @@ internal fun PortfolioTradeOrdersGroupedTable(
                             )
                         }
                     }
+                } else {
+                    Text(
+                        text = "${group.tradeDisplayId} · $tradeTypeLetter",
+                        color = Color(0xFFB3E5FC),
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                    )
                 }
                 group.orders.forEachIndexed { orderIdx, order ->
                     val isFirstOrder = orderIdx == 0
@@ -212,7 +227,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
                                 compactPortfolioTableDateLabel(group.entrySignalReceivedMsk) to Color(0xFF81D4FA),
                                 compactPortfolioTableDateLabel(group.entryTimeMsk) to Color(0xFFE0E0E0),
                                 compactPortfolioTableDateLabel(group.exitTimeMsk) to Color(0xFFE0E0E0),
-                                group.confirmLabel to Color(0xFFE0E0E0),
+                                tradeTypeLetter to tradeTypeColor,
                                 formatPortfolioTableZ(group.entryZ) to Color(0xFFE0E0E0),
                                 formatPortfolioTableZ(group.exitZ) to Color(0xFFE0E0E0),
                                 formatPortfolioTableRub(group.legLongPnlSplitRubApprox) to

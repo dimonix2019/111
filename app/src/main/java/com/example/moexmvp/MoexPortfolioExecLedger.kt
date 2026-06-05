@@ -17,6 +17,13 @@ internal enum class PortfolioExecSource {
 internal fun isPortfolioTestTradeConfirmLabel(confirmLabel: String): Boolean =
     confirmLabel.contains("· тест")
 
+/** Однобуквенный тип сделки для таблицы портфеля: Р — ручная, А — авто. */
+internal fun portfolioTradeSourceTypeLetter(confirmLabel: String): String = when {
+    confirmLabel.startsWith("авто") -> "А"
+    confirmLabel.startsWith("ручное") -> "Р"
+    else -> "—"
+}
+
 /**
  * Журнал фактических входов спрэда на песочнице (ручной «Принять» или авто‑заявки).
  * Портфель отображает сделки по журналу сигналов только если вход есть в этом списке (с фильтром по режиму).

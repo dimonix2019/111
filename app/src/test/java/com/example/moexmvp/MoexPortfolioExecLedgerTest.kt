@@ -125,4 +125,12 @@ class MoexPortfolioExecLedgerTest {
         val autoMode = filterConfirmedTableRowsByPortfolioMode(rows, portfolioLedgerIncludeAuto = true)
         assertEquals(setOf("ручное · тест", "авто"), autoMode.map { it.confirmLabel }.toSet())
     }
+
+    @Test
+    fun portfolioTradeSourceTypeLetter_mapsConfirmLabelToSingleLetter() {
+        assertEquals("Р", portfolioTradeSourceTypeLetter("ручное"))
+        assertEquals("Р", portfolioTradeSourceTypeLetter("ручное · тест"))
+        assertEquals("А", portfolioTradeSourceTypeLetter("авто"))
+        assertEquals("—", portfolioTradeSourceTypeLetter(""))
+    }
 }
