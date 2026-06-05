@@ -88,7 +88,7 @@
         layout: {
           background: { type: LightweightCharts.ColorType.Solid, color: TV.bg },
           textColor: TV.text,
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif',
+          fontFamily: 'Roboto, "Noto Sans", sans-serif',
           fontSize: 12,
           attributionLogo: false,
         },
@@ -245,6 +245,22 @@
       }
       lastPayloadKey = key;
     }
+
+    /** atob() alone breaks UTF-8 (кириллица «А» → «Ð» на canvas). */
+    function parseUtf8Base64Json(b64) {
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+    }
+
+    window.updateMoexChartFromBase64 = function (b64) {
+      try {
+        window.updateMoexChart(parseUtf8Base64Json(b64));
+      } catch (e) {
+        showError('base64 decode: ' + e.message);
+      }
+    };
 
     window.updateMoexChart = function (payload) {
       try {

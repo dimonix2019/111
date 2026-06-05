@@ -133,7 +133,8 @@ internal fun tradingViewMarkerFromChartMarker(
         ChartMarkerShape.Diamond -> "circle"
         ChartMarkerShape.Circle -> "circle"
     }
-    val text = marker.badgeText?.takeIf { it.isNotBlank() } ?: marker.label
+    val raw = marker.badgeText?.takeIf { it.isNotBlank() } ?: marker.label
+    val text = tradingViewMarkerDisplayText(raw)
     return TradingViewMarker(
         time = barTimeSec,
         position = position,
@@ -146,6 +147,14 @@ internal fun tradingViewMarkerFromChartMarker(
 
 internal fun composeColorToHex(color: Color): String =
     String.format("#%06X", 0xFFFFFF and color.toArgb())
+
+/** Подпись маркера на canvas: латиница (А→A, Р→R) — читаемо в WebView. */
+internal fun tradingViewMarkerDisplayText(text: String): String =
+    text
+        .replace('А', 'A')
+        .replace('а', 'a')
+        .replace('Р', 'R')
+        .replace('р', 'r')
 
 internal fun loadTradingViewChartHtml(context: Context): String {
     val template = context.assets.open("tradingview/z_chart.html").bufferedReader().use { it.readText() }
@@ -161,7 +170,7 @@ internal fun loadTradingViewChartHtml(context: Context): String {
 private fun pushTradingViewPayload(webView: WebView, payloadJson: String) {
     val b64 = Base64.encodeToString(payloadJson.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
     webView.evaluateJavascript(
-        "window.updateMoexChart(JSON.parse(atob('$b64')))",
+        "window.updateMoexChartFromBase64('$b64')",
         null,
     )
 }

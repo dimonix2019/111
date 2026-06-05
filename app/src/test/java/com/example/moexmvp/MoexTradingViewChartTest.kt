@@ -56,6 +56,12 @@ class MoexTradingViewChartTest {
     }
 
     @Test
+    fun tradingViewMarkerDisplayText_transliteratesCyrillicTypeLetters() {
+        assertEquals("1A", tradingViewMarkerDisplayText("1А"))
+        assertEquals("2R", tradingViewMarkerDisplayText("2Р"))
+    }
+
+    @Test
     fun tradingViewMarkerFromChartMarker_mapsShortEntry() {
         val m = tradingViewMarkerFromChartMarker(
             ChartPointMarker(
@@ -70,6 +76,6 @@ class MoexTradingViewChartTest {
         )
         assertEquals("aboveBar", m.position)
         assertEquals("arrowDown", m.shape)
-        assertEquals("2Р", m.text)
+        assertEquals("2R", m.text)
     }
 }
