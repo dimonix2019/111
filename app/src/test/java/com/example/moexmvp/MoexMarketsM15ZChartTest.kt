@@ -401,6 +401,62 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun buildZScoreMarkersFromPortfolioTrades_showsTradeNumberAndTypeLetter() {
+        val points = listOf(
+            point("2026-05-19 10:00", z = 1.0),
+            point("2026-05-19 10:15", z = 0.5),
+        )
+        val autoOpen = SandboxSpreadExecUi(
+            tradeId = "D-A",
+            signalType = StrategySignalType.EnterLong,
+            zScore = 1.0,
+            barTimestampMillis = points[0].timestampMillis,
+            executedAtMillis = points[0].timestampMillis,
+            entrySpreadPercent = 10.0,
+            source = PortfolioExecSource.AUTO,
+            directionLabel = "long",
+            entryTimeMsk = "2026-05-19 10:00",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "L",
+            shortLegSideRu = "S",
+            volumeText = "1+1",
+            confirmLabel = "авто",
+            correlationTag = "t",
+            notificationIdsText = "—",
+            legs = emptyList(),
+            tradeDisplayId = "1 long",
+        )
+        val manualClosed = PortfolioConfirmedTradeTableRow(
+            tradeId = "T-M",
+            tradeDisplayId = "2 short",
+            directionLabel = "short",
+            entryTimeMsk = "2026-05-19 10:00",
+            exitTimeMsk = "2026-05-19 10:15",
+            longLegTicker = "TATNP",
+            shortLegTicker = "TATN",
+            longLegSideRu = "L",
+            shortLegSideRu = "S",
+            volumeText = "1+1",
+            confirmLabel = "ручное",
+            entryZ = 1.0,
+            exitZ = 0.5,
+            notificationIdsText = "—",
+            legLongPnlSplitRubApprox = 0.0,
+            legShortPnlSplitRubApprox = 0.0,
+            grossPnlRubApprox = 0.0,
+            netPnlRubApprox = 0.0,
+        )
+        val markers = buildZScoreMarkersFromPortfolioTrades(
+            points = points,
+            openExecutions = listOf(autoOpen),
+            closedRows = listOf(manualClosed),
+        )
+        assertEquals(setOf("1А", "2Р"), markers.mapNotNull { it.badgeText }.toSet())
+        assertEquals(3, markers.size)
+    }
+
+    @Test
     fun strategyMetricsAndZCandlesShareSameM15InputCloses() {
         val points = listOf(
             point("2026-05-19 10:00", z = 0.0, spread = 10.0),

@@ -133,4 +133,10 @@ class MoexPortfolioExecLedgerTest {
         assertEquals("А", portfolioTradeSourceTypeLetter("авто"))
         assertEquals("—", portfolioTradeSourceTypeLetter(""))
     }
+
+    @Test
+    fun portfolioTradeChartBadgeText_combinesNumberAndType() {
+        assertEquals("3А", portfolioTradeChartBadgeText("3 long", "авто"))
+        assertEquals("2Р", portfolioTradeChartBadgeText("2 short", "ручное"))
+    }
 }

@@ -26,6 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -73,6 +75,35 @@ internal fun MoexScreenTabMarkets(
     }
     Column(modifier) {
     with(screen) {
+        val zChartPointMarkers by produceState(
+            initialValue = emptyList<ChartPointMarker>(),
+            marketsM15ChartPoints,
+            signalEvents,
+            sandboxSpreadExecReload,
+            portfolioLedgerIncludeAuto,
+            portfolioLeverage,
+            portfolioCommissionPercent,
+        ) {
+            if (marketsM15ChartPoints.size < 2) {
+                value = buildZScoreSignalMarkersFromEvents(marketsM15ChartPoints, signalEvents)
+                return@produceState
+            }
+            val (opens, closed) = withContext(Dispatchers.IO) {
+                loadPortfolioTradesForZChart(
+                    context = context.applicationContext,
+                    points = marketsM15ChartPoints,
+                    leverage = portfolioLeverage,
+                    commissionPercentPerSide = portfolioCommissionPercent,
+                    portfolioLedgerIncludeAuto = portfolioLedgerIncludeAuto,
+                )
+            }
+            value = zScoreChartMarkersWithPortfolioTrades(
+                points = marketsM15ChartPoints,
+                signalEvents = signalEvents,
+                openExecutions = opens,
+                closedRows = closed,
+            )
+        }
                 Column(Modifier.fillMaxSize()) {
                     if (!landscapeZChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
@@ -119,10 +150,7 @@ internal fun MoexScreenTabMarkets(
                                 },
                                 candles = marketsZScoreCandles,
                                 referenceLines = marketsZReferenceLines,
-                                pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                    points = marketsM15ChartPoints,
-                                    events = signalEvents
-                                ),
+                                pointMarkers = zChartPointMarkers,
                                 initialWindowWidth = marketsZInitialWindow.first,
                                 initialWindowStart = marketsZInitialWindow.second,
                                 useDesktopStyle = true,
@@ -194,10 +222,7 @@ internal fun MoexScreenTabMarkets(
                                     candles = marketsZScoreCandles,
                                     chartHeightDp = 240,
                                     referenceLines = buildZScoreReferenceLines(marketsChartThresholds),
-                                    pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                        points = marketsM15ChartPoints,
-                                        events = signalEvents
-                                    ),
+                                    pointMarkers = zChartPointMarkers,
                                     showLegend = false,
                                     enableZoomPan = true,
                                     markerScale = 1.35f,
@@ -314,10 +339,7 @@ internal fun MoexScreenTabMarkets(
                                     candles = marketsZScoreCandles,
                                     chartHeightDp = 320,
                                     referenceLines = marketsZReferenceLines,
-                                    pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                        points = marketsM15ChartPoints,
-                                        events = signalEvents
-                                    ),
+                                    pointMarkers = zChartPointMarkers,
                                     showLegend = true,
                                     enableZoomPan = true,
                                     markerScale = 1.35f,

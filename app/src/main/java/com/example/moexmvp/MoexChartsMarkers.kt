@@ -233,4 +233,91 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
     return markers
 }
 
+private fun portfolioTradeEnterMarkerStyle(directionLabel: String): Pair<ChartMarkerShape, Color> =
+    when (directionLabel.lowercase(Locale.US)) {
+        "short" -> ChartMarkerShape.TriangleDown to Color(0xFFFF8A80)
+        else -> ChartMarkerShape.TriangleUp to Color(0xFF69F0AE)
+    }
+
+/** Маркеры сделок портфеля (демо): номер + тип (А/Р) у входа и выхода. */
+internal fun buildZScoreMarkersFromPortfolioTrades(
+    points: List<DataPoint>,
+    openExecutions: List<SandboxSpreadExecUi>,
+    closedRows: List<PortfolioConfirmedTradeTableRow>,
+): List<ChartPointMarker> {
+    if (points.isEmpty()) return emptyList()
+    val markers = mutableListOf<ChartPointMarker>()
+    fun addEntry(
+        entryLabel: String,
+        entryZ: Double,
+        tradeDisplayId: String,
+        confirmLabel: String,
+        directionLabel: String,
+    ) {
+        val idx = indexForTradeDateLabel(points, entryLabel) ?: return
+        val (shape, color) = portfolioTradeEnterMarkerStyle(directionLabel)
+        val badge = portfolioTradeChartBadgeText(tradeDisplayId, confirmLabel)
+        markers += ChartPointMarker(
+            index = idx,
+            value = if (entryZ.isNaN()) points[idx].zScore else entryZ,
+            color = color,
+            label = "Вх $badge",
+            shape = shape,
+            badgeText = badge,
+        )
+    }
+    fun addExit(
+        exitLabel: String,
+        exitZ: Double,
+        tradeDisplayId: String,
+        confirmLabel: String,
+    ) {
+        if (exitLabel.isBlank() || exitLabel == "—") return
+        val idx = indexForTradeDateLabel(points, exitLabel) ?: return
+        val badge = portfolioTradeChartBadgeText(tradeDisplayId, confirmLabel)
+        markers += ChartPointMarker(
+            index = idx,
+            value = if (exitZ.isNaN()) points[idx].zScore else exitZ,
+            color = Color(0xFFFFCC80),
+            label = "Вых $badge",
+            shape = ChartMarkerShape.Diamond,
+            badgeText = badge,
+        )
+    }
+    openExecutions.forEach { exec ->
+        addEntry(
+            entryLabel = exec.entryTimeMsk,
+            entryZ = exec.zScore,
+            tradeDisplayId = exec.tradeDisplayId,
+            confirmLabel = exec.confirmLabel,
+            directionLabel = exec.directionLabel,
+        )
+    }
+    closedRows.forEach { row ->
+        addEntry(
+            entryLabel = row.entryTimeMsk,
+            entryZ = row.entryZ,
+            tradeDisplayId = row.tradeDisplayId,
+            confirmLabel = row.confirmLabel,
+            directionLabel = row.directionLabel,
+        )
+        addExit(
+            exitLabel = row.exitTimeMsk,
+            exitZ = row.exitZ,
+            tradeDisplayId = row.tradeDisplayId,
+            confirmLabel = row.confirmLabel,
+        )
+    }
+    return markers
+}
+
+internal fun zScoreChartMarkersWithPortfolioTrades(
+    points: List<DataPoint>,
+    signalEvents: List<StrategySignalEvent>,
+    openExecutions: List<SandboxSpreadExecUi>,
+    closedRows: List<PortfolioConfirmedTradeTableRow>,
+): List<ChartPointMarker> =
+    buildZScoreSignalMarkersFromEvents(points, signalEvents) +
+        buildZScoreMarkersFromPortfolioTrades(points, openExecutions, closedRows)
+
 /** Равномерный прореживание ряда для отрисовки (симуляция — на полном ряду). */

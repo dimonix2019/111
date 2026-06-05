@@ -17,11 +17,18 @@ internal enum class PortfolioExecSource {
 internal fun isPortfolioTestTradeConfirmLabel(confirmLabel: String): Boolean =
     confirmLabel.contains("· тест")
 
-/** Однобуквенный тип сделки для таблицы портфеля: Р — ручная, А — авто. */
+/** Однобуквенный тип сделки: Р — ручная, А — авто (подпись на графике Z). */
 internal fun portfolioTradeSourceTypeLetter(confirmLabel: String): String = when {
     confirmLabel.startsWith("авто") -> "А"
     confirmLabel.startsWith("ручное") -> "Р"
     else -> "—"
+}
+
+/** Подпись у маркера на графике: «3А», «2Р». */
+internal fun portfolioTradeChartBadgeText(tradeDisplayId: String, confirmLabel: String): String {
+    val num = tradeDisplayId.trim().substringBefore(' ').ifBlank { tradeDisplayId }
+    val type = portfolioTradeSourceTypeLetter(confirmLabel)
+    return if (type == "—") num else "$num$type"
 }
 
 /**
