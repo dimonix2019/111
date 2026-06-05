@@ -172,7 +172,6 @@ internal fun MoexScreenTabPortfolio(
             ) {
                 item {
                     ConfirmedPortfolioTabContent(
-                        metrics = confirmedPortfolioMetrics,
                         confirmedTradeTableRows = confirmedPortfolioTableRows,
                         sandboxSpreadExecutions = displayOpenExecutions,
                         portfolioLoading = portfolioLoading,
@@ -226,7 +225,6 @@ internal fun MoexScreenTabPortfolio(
                         onCloseAllTradesClick = { showCloseAllPortfolioDialog = true },
                         onCloseOpenTrade = { tradeId -> pendingCloseTradeId = tradeId },
                         closingTradeId = closingTradeId,
-                        dailyReconciliation = dailyReconciliation,
                         latestZScore = portfolioM15Points.lastOrNull()?.zScore,
                         latestSpreadPercent = portfolioM15Points.lastOrNull()?.spreadPercent,
                         latestBarLabel = portfolioM15Points.lastOrNull()?.tradeDate,

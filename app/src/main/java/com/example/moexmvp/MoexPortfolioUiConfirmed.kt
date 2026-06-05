@@ -57,7 +57,6 @@ import kotlin.math.max
 
 @Composable
 internal fun ConfirmedPortfolioTabContent(
-    metrics: PortfolioMetrics?,
     confirmedTradeTableRows: List<PortfolioConfirmedTradeTableRow>,
     sandboxSpreadExecutions: List<SandboxSpreadExecUi>,
     portfolioLoading: Boolean,
@@ -83,7 +82,6 @@ internal fun ConfirmedPortfolioTabContent(
     onCloseAllTradesClick: () -> Unit,
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
-    dailyReconciliation: DailyPortfolioReconciliation? = null,
     latestZScore: Double? = null,
     latestSpreadPercent: Double? = null,
     latestBarLabel: String? = null,
@@ -293,7 +291,7 @@ internal fun ConfirmedPortfolioTabContent(
             closingTradeId = closingTradeId,
         )
         Text(
-            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",
+            text = "${"%.0f".format(Locale.US, DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
             maxLines = 3
@@ -324,49 +322,6 @@ internal fun ConfirmedPortfolioTabContent(
                     Text("Повторить", fontSize = 11.sp)
                 }
             }
-        } else if (!portfolioLoading && metrics == null) {
-            val (openBucket, _) = buildPortfolioTradesBuckets(
-                sandboxSpreadExecutions,
-                confirmedTradeTableRows,
-                lookbackDays,
-            )
-            val hasOpenMtm = openBucket.groups.any { !it.netPnlRubApprox.isNaN() }
-            if (hasOpenMtm) {
-                Text(
-                    text = "Сводка по журналу недоступна (мало 15м данных). Нереализованный PnL открытых: ${formatRubSigned(openBucket.totalPnlRub)}",
-                    color = Color(0xFFBDBDBD),
-                    fontSize = 11.sp,
-                    maxLines = 4
-                )
-            } else {
-                Text("Нет сделок по данным портфеля (или нет 15м данных).", color = Color(0xFFBDBDBD), fontSize = 11.sp)
-            }
-        } else {
-            metrics?.let { m ->
-                PortfolioCompactHeroInline(m)
-                PortfolioCollapsibleSection(
-                    title = "Все показатели (сводка и сетка)",
-                    subtitle = "${formatRubSigned(m.totalPnlRubApprox)} · просадка ${formatRubSigned(-m.maxDrawdownRubApprox)}",
-                    defaultExpanded = false
-                ) {
-                    Text(
-                        text = "Итого = реализованный PnL + нереализованная нога (если позиция ещё открыта по журналу).",
-                        color = Color(0xFF616161),
-                        fontSize = 9.sp,
-                        maxLines = 3
-                    )
-                    PortfolioHeroMetricsRow(metrics = m)
-                    Text(
-                        text = m.periodDescription,
-                        color = Color(0xFF757575),
-                        fontSize = 10.sp
-                    )
-                    PortfolioMetricGrid(m, showHeroDuplicate = false)
-                }
-            }
-        }
-        dailyReconciliation?.let { rec ->
-            DailyReconciliationSection(rec)
         }
     }
 }
