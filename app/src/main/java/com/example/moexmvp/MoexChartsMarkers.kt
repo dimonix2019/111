@@ -375,4 +375,12 @@ internal fun zScoreChartMarkersWithPortfolioTrades(
     buildZScoreSignalMarkersFromEvents(points, signalEvents) +
         buildZScoreMarkersFromPortfolioTrades(points, openExecutions, closedRows)
 
+/** Маркеры только по сделкам портфеля (без Enter LONG / Exit SHORT). */
+internal fun zScoreChartMarkersFromPortfolioTrades(
+    points: List<DataPoint>,
+    openExecutions: List<SandboxSpreadExecUi>,
+    closedRows: List<PortfolioConfirmedTradeTableRow>,
+): List<ChartPointMarker> =
+    buildZScoreMarkersFromPortfolioTrades(points, openExecutions, closedRows)
+
 /** Равномерный прореживание ряда для отрисовки (симуляция — на полном ряду). */

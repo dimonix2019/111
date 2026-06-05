@@ -77,17 +77,16 @@ internal fun MoexScreenTabMarkets(
     Column(modifier) {
     with(screen) {
         val markerSourcePoints = marketsM15SourcePoints.ifEmpty { marketsM15ChartPoints }
-        val zChartPointMarkers by produceState(
-            initialValue = emptyList<ChartPointMarker>(),
+        val zChartOverlay by produceState(
+            initialValue = ZChartPortfolioOverlay(emptyList(), emptyList()),
             markerSourcePoints,
             marketsM15ChartPoints,
-            signalEvents,
             sandboxSpreadExecReload,
             portfolioLeverage,
             portfolioCommissionPercent,
         ) {
             if (markerSourcePoints.size < 2) {
-                value = buildZScoreSignalMarkersFromEvents(marketsM15ChartPoints, signalEvents)
+                value = ZChartPortfolioOverlay(emptyList(), emptyList())
                 return@produceState
             }
             val (opens, closed) = withContext(Dispatchers.IO) {
@@ -98,19 +97,27 @@ internal fun MoexScreenTabMarkets(
                     commissionPercentPerSide = portfolioCommissionPercent,
                 )
             }
-            val sourceMarkers = zScoreChartMarkersWithPortfolioTrades(
+            val sourceMarkers = zScoreChartMarkersFromPortfolioTrades(
                 points = markerSourcePoints,
-                signalEvents = signalEvents,
                 openExecutions = opens,
                 closedRows = closed,
             )
+            val segmentPoints = marketsM15ChartPoints.ifEmpty { markerSourcePoints }
+            val tradeSegments = buildTradingViewTradeSegments(
+                opens = opens,
+                closed = closed,
+                displayPoints = segmentPoints,
+            )
             value = if (marketsM15ChartPoints.size < 2) {
-                sourceMarkers
+                ZChartPortfolioOverlay(sourceMarkers, tradeSegments)
             } else {
-                remapChartMarkersToDisplaySeries(
-                    sourcePoints = markerSourcePoints,
-                    displayPoints = marketsM15ChartPoints,
-                    markers = sourceMarkers,
+                ZChartPortfolioOverlay(
+                    markers = remapChartMarkersToDisplaySeries(
+                        sourcePoints = markerSourcePoints,
+                        displayPoints = marketsM15ChartPoints,
+                        markers = sourceMarkers,
+                    ),
+                    tradeSegments = tradeSegments,
                 )
             }
         }
@@ -161,7 +168,8 @@ internal fun MoexScreenTabMarkets(
                                 candles = marketsZScoreCandles,
                                 displayPoints = marketsM15ChartPoints,
                                 referenceLines = marketsZReferenceLines,
-                                pointMarkers = zChartPointMarkers,
+                                pointMarkers = zChartOverlay.markers,
+                                tradeSegments = zChartOverlay.tradeSegments,
                                 initialWindowWidth = marketsZInitialWindow.first,
                                 initialWindowStart = marketsZInitialWindow.second,
                                 useDesktopStyle = true,
@@ -327,7 +335,8 @@ internal fun MoexScreenTabMarkets(
                                     displayPoints = marketsM15ChartPoints,
                                     chartHeightDp = 320,
                                     referenceLines = marketsZReferenceLines,
-                                    pointMarkers = zChartPointMarkers,
+                                    pointMarkers = zChartOverlay.markers,
+                                    tradeSegments = zChartOverlay.tradeSegments,
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
                                 )

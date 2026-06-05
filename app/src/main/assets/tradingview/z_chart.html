@@ -34,17 +34,29 @@
       crosshairLabel: '#2962FF',
       up: '#089981',
       down: '#f23645',
+      selected: '#FACC15',
     };
     const MSK = 'Europe/Moscow';
     const RIGHT_OFFSET_BARS = 18;
+    const BAR_15M_SEC = 15 * 60;
+    const MARKER_NEAR_SEC = BAR_15M_SEC / 2;
+    const MARKER_HIT_RADIUS_PX = 48;
+    const MARKER_HIT_RADIUS_X_PX = 44;
+    const MARKER_ENTRY_HIT_RADIUS_X_PX = 56;
 
     let chart = null;
     let series = null;
+    let highlightSeries = null;
     let markersPlugin = null;
     let priceLines = [];
     let fitted = false;
     let lastPayloadKey = '';
     let pendingPayload = null;
+    let lastMarkers = [];
+    let lastTrades = [];
+    let selectedTradeId = null;
+    let selectedMarkerKey = null;
+    let clickBound = false;
 
     function showError(msg) {
       const el = document.getElementById('err');
@@ -70,6 +82,173 @@
       const w = Math.max(el.clientWidth, el.offsetWidth, window.innerWidth || 0, 100);
       const h = Math.max(el.clientHeight, el.offsetHeight, window.innerHeight || 0, 200);
       return { w, h };
+    }
+
+    function markerPersistKey(m) {
+      const id = m.tradeId || m.text || '';
+      return `${id}:${m.isEntry ? 'e' : 'x'}:${m.time}`;
+    }
+
+    function tradeById(id) {
+      return lastTrades.find((t) => t.id === id) || null;
+    }
+
+    function markerChartPrice(m) {
+      const trade = tradeById(m.tradeId || m.text);
+      if (!trade) return 0;
+      return m.isEntry ? trade.entryZ : (trade.exitZ ?? trade.entryZ);
+    }
+
+    function markerScreenPosition(m) {
+      if (!chart || !series) return null;
+      const x = chart.timeScale().timeToCoordinate(m.time);
+      if (x == null) return null;
+      const price = markerChartPrice(m);
+      let y = series.priceToCoordinate(price);
+      if (y == null) return null;
+      const yOffset = m.isEntry ? (m.position === 'belowBar' ? 18 : -18) : 0;
+      return { x, y: y + yOffset };
+    }
+
+    function findNearestMarkerAtPoint(point, timeSec) {
+      if (!lastMarkers.length) return null;
+      let bestPixel = null;
+      let bestTime = null;
+
+      for (const m of lastMarkers) {
+        const pos = markerScreenPosition(m);
+        const x = pos?.x ?? chart.timeScale().timeToCoordinate(m.time);
+        if (x == null) continue;
+
+        const dx = Math.abs(point.x - x);
+        const hitRadiusXPx = m.isEntry ? MARKER_ENTRY_HIT_RADIUS_X_PX : MARKER_HIT_RADIUS_X_PX;
+        let pixelHit = false;
+        let pixelScore = Number.POSITIVE_INFINITY;
+
+        if (pos) {
+          const dy = Math.abs(point.y - pos.y);
+          const dist = Math.hypot(dx, dy);
+          pixelHit = dist <= MARKER_HIT_RADIUS_PX || dx <= hitRadiusXPx;
+          pixelScore = dx * 1.5 + dy;
+        } else {
+          pixelHit = dx <= hitRadiusXPx;
+          pixelScore = dx;
+        }
+
+        if (pixelHit && (!bestPixel || pixelScore < bestPixel.score)) {
+          bestPixel = { marker: m, score: pixelScore };
+        }
+
+        if (timeSec != null) {
+          const delta = Math.abs(m.time - timeSec);
+          if (delta <= MARKER_NEAR_SEC && (!bestTime || delta < bestTime.score)) {
+            bestTime = { marker: m, score: delta };
+          }
+        }
+      }
+
+      if (bestPixel && bestTime) {
+        return bestPixel.score <= bestTime.score * 4 ? bestPixel.marker : bestTime.marker;
+      }
+      return bestPixel?.marker ?? bestTime?.marker ?? null;
+    }
+
+    function crosshairTimeSec(param) {
+      if (param.point) {
+        const fromX = chart.timeScale().coordinateToTime(param.point.x);
+        if (typeof fromX === 'number' && Number.isFinite(fromX)) return fromX;
+      }
+      const t = param.time;
+      if (typeof t === 'number' && Number.isFinite(t)) return t;
+      if (!param.point) return null;
+      const fromX = chart.timeScale().coordinateToTime(param.point.x);
+      if (typeof fromX === 'number' && Number.isFinite(fromX)) return fromX;
+      return null;
+    }
+
+    function buildMarkerRenderData(markers, selectedKey) {
+      return markers.map((m) => {
+        const key = markerPersistKey(m);
+        const isSelected =
+          !!selectedKey &&
+          (key === selectedKey ||
+            (!!m.tradeId && m.tradeId === selectedTradeId));
+        return {
+          time: m.time,
+          position: m.position,
+          color: isSelected ? TV.selected : m.color,
+          shape: isSelected && !m.isEntry ? 'square' : m.shape,
+          text: m.text || '',
+          size: isSelected ? 2.2 : (m.size || 1),
+        };
+      });
+    }
+
+    function updateHighlightLine() {
+      if (!highlightSeries) return;
+      if (!selectedTradeId) {
+        highlightSeries.setData([]);
+        return;
+      }
+      const trade = tradeById(selectedTradeId);
+      if (!trade) {
+        highlightSeries.setData([]);
+        return;
+      }
+      const exitTime = trade.exitTime ?? trade.entryTime;
+      const exitZ = trade.exitZ ?? trade.entryZ;
+      const data = [
+        { time: trade.entryTime, value: trade.entryZ },
+        { time: exitTime, value: exitZ },
+      ].sort((a, b) => a.time - b.time);
+      highlightSeries.setData(data);
+    }
+
+    function applyMarkerSelection(marker) {
+      if (!marker) {
+        selectedTradeId = null;
+        selectedMarkerKey = null;
+      } else {
+        selectedTradeId = marker.tradeId || marker.text || null;
+        selectedMarkerKey = markerPersistKey(marker);
+      }
+      updateHighlightLine();
+      refreshMarkers();
+    }
+
+    function refreshMarkers() {
+      if (!series) return;
+      if (markersPlugin) {
+        try { markersPlugin.detach(); } catch (e) {}
+        markersPlugin = null;
+      }
+      const markerData = buildMarkerRenderData(lastMarkers, selectedMarkerKey);
+      if (markerData.length && LightweightCharts.createSeriesMarkers) {
+        try {
+          markersPlugin = LightweightCharts.createSeriesMarkers(series, markerData);
+        } catch (e) {
+          console.error('markers', e);
+        }
+      }
+    }
+
+    function onChartClick(param) {
+      if (!param.point || param.point.x < 0 || param.point.y < 0) {
+        applyMarkerSelection(null);
+        return;
+      }
+      const timeSec = crosshairTimeSec(param);
+      const marker = findNearestMarkerAtPoint(param.point, timeSec);
+      if (!marker) {
+        applyMarkerSelection(null);
+        return;
+      }
+      const tradeId = marker.tradeId || marker.text;
+      if (!tradeById(tradeId)) {
+        applyMarkerSelection(null);
+        return;
+      }
+      applyMarkerSelection(marker);
     }
 
     function ensureChart() {
@@ -154,6 +333,20 @@
         priceLineWidth: 1,
       });
 
+      highlightSeries = chart.addSeries(LightweightCharts.LineSeries, {
+        color: TV.selected,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      highlightSeries.setData([]);
+
+      if (!clickBound) {
+        chart.subscribeClick(onChartClick);
+        clickBound = true;
+      }
+
       const ro = new ResizeObserver(() => {
         const { w: rw, h: rh } = chartSize();
         if (rw > 0 && rh > 0) chart.resize(rw, rh);
@@ -196,9 +389,29 @@
       pendingPayload = null;
       document.getElementById('err').style.display = 'none';
 
-      if (markersPlugin) {
-        try { markersPlugin.detach(); } catch (e) {}
-        markersPlugin = null;
+      const prevTradeId = selectedTradeId;
+      lastMarkers = (data.markers || []).map((m) => ({
+        time: m.time,
+        position: m.position,
+        color: m.color,
+        shape: m.shape,
+        text: m.text || '',
+        size: m.size || 1,
+        tradeId: m.tradeId || m.text || '',
+        isEntry: !!m.isEntry,
+      }));
+      lastTrades = (data.trades || []).map((t) => ({
+        id: t.id,
+        entryTime: t.entryTime,
+        entryZ: t.entryZ,
+        exitTime: t.exitTime === null || t.exitTime === undefined ? null : t.exitTime,
+        exitZ: t.exitZ === null || t.exitZ === undefined ? null : t.exitZ,
+        open: !!t.open,
+      }));
+
+      if (prevTradeId && !tradeById(prevTradeId)) {
+        selectedTradeId = null;
+        selectedMarkerKey = null;
       }
 
       series.setData(candles);
@@ -216,21 +429,8 @@
         }));
       }
 
-      const markerData = (data.markers || []).map((m) => ({
-        time: m.time,
-        position: m.position,
-        color: m.color,
-        shape: m.shape,
-        text: m.text || '',
-        size: m.size || 1,
-      }));
-      if (markerData.length && LightweightCharts.createSeriesMarkers) {
-        try {
-          markersPlugin = LightweightCharts.createSeriesMarkers(series, markerData);
-        } catch (e) {
-          console.error('markers', e);
-        }
-      }
+      refreshMarkers();
+      updateHighlightLine();
 
       if (!fitted || key !== lastPayloadKey) {
         if (data.window && data.window.width < 0.999) {

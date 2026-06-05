@@ -112,6 +112,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.86 — График Z: номера сделок вместо Enter/Exit; линия вход→выход при выборе (как desktop).
 1.7.85 — График Z: fix подписи маркеров (UTF-8, 1A вместо «Ð»).
 1.7.84 — Рынок: fix TradingView WebView (inline JS, base64 payload, resize).
 1.7.83 — Рынок: график Z-score на TradingView (lightweight-charts, как strategy-web /m).

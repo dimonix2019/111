@@ -41,12 +41,90 @@ import java.time.LocalDateTime
 private const val TRADINGVIEW_ASSET_BASE = "file:///android_asset/tradingview/"
 private const val LW_CHARTS_INJECT_MARKER = "<!-- INJECT_LIGHTWEIGHT_CHARTS -->"
 
+internal data class TradingViewTradeSegment(
+    val id: String,
+    val entryTimeSec: Long,
+    val exitTimeSec: Long?,
+    val entryZ: Double,
+    val exitZ: Double?,
+    val isOpen: Boolean,
+)
+
+internal data class ZChartPortfolioOverlay(
+    val markers: List<ChartPointMarker>,
+    val tradeSegments: List<TradingViewTradeSegment>,
+)
+
+internal fun portfolioTableTimeToUnixSec(timeMsk: String): Long? {
+    val trimmed = timeMsk.trim()
+    if (trimmed.isBlank() || trimmed == "—") return null
+    parsePortfolioExecutionTableMsk(trimmed)?.let { return it / 1000L }
+    return runCatching { m15CandleLabelToUnixSec(trimmed) }.getOrNull()
+}
+
+internal fun buildTradingViewTradeSegments(
+    opens: List<SandboxSpreadExecUi>,
+    closed: List<PortfolioConfirmedTradeTableRow>,
+    displayPoints: List<DataPoint>,
+): List<TradingViewTradeSegment> {
+    val last = displayPoints.lastOrNull()
+    val lastTimeSec = last?.let { it.timestampMillis / 1000L }
+    val lastZ = last?.zScore
+    val segments = mutableListOf<TradingViewTradeSegment>()
+    for (row in closed) {
+        val id = tradingViewMarkerDisplayText(
+            portfolioTradeChartBadgeText(row.tradeDisplayId, row.confirmLabel)
+        )
+        val entryTime = portfolioTableTimeToUnixSec(row.entryTimeMsk) ?: continue
+        val exitTime = portfolioTableTimeToUnixSec(row.exitTimeMsk)
+        val exitZ = if (row.exitZ.isNaN()) null else row.exitZ
+        segments += TradingViewTradeSegment(
+            id = id,
+            entryTimeSec = entryTime,
+            exitTimeSec = exitTime,
+            entryZ = row.entryZ,
+            exitZ = exitZ,
+            isOpen = false,
+        )
+    }
+    for (exec in opens) {
+        if (exec.signalType != StrategySignalType.EnterLong &&
+            exec.signalType != StrategySignalType.EnterShort
+        ) {
+            continue
+        }
+        val id = tradingViewMarkerDisplayText(
+            portfolioTradeChartBadgeText(exec.tradeDisplayId, exec.confirmLabel)
+        )
+        val entryLabel = portfolioChartEntryTimeLabel(
+            entryTimeMsk = exec.entryTimeMsk,
+            entrySignalBarTimeMsk = exec.entrySignalBarTimeMsk,
+            barTimestampMillis = exec.barTimestampMillis,
+        )
+        val entryTime = portfolioTableTimeToUnixSec(entryLabel) ?: (exec.barTimestampMillis / 1000L)
+        val exitZ = when {
+            exec.exitZDisplay.isNaN() -> lastZ
+            else -> exec.exitZDisplay
+        }
+        segments += TradingViewTradeSegment(
+            id = id,
+            entryTimeSec = entryTime,
+            exitTimeSec = lastTimeSec,
+            entryZ = exec.zScore,
+            exitZ = exitZ,
+            isOpen = true,
+        )
+    }
+    return segments
+}
+
 /** JSON для WebView lightweight-charts (parity strategy-web /m). */
 internal fun buildTradingViewChartPayloadJson(
     candles: List<CandlePoint>,
     displayPoints: List<DataPoint>,
     referenceLines: List<ChartReferenceLine>,
     pointMarkers: List<ChartPointMarker>,
+    tradeSegments: List<TradingViewTradeSegment> = emptyList(),
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
 ): String {
@@ -74,7 +152,7 @@ internal fun buildTradingViewChartPayloadJson(
         )
     }
     val markers = JSONArray()
-    for (m in pointMarkers) {
+    for (m in pointMarkers.filter { !it.badgeText.isNullOrBlank() }) {
         val barTimeSec = displayPoints.getOrNull(m.index)?.let { it.timestampMillis / 1000L }
             ?: candles.getOrNull(m.index)?.let { m15CandleLabelToUnixSec(it.label) }
             ?: continue
@@ -87,12 +165,27 @@ internal fun buildTradingViewChartPayloadJson(
                 .put("shape", tv.shape)
                 .put("text", tv.text)
                 .put("size", tv.size)
+                .put("tradeId", tv.text)
+                .put("isEntry", m.label.startsWith("Вх", ignoreCase = true))
+        )
+    }
+    val trades = JSONArray()
+    for (t in tradeSegments) {
+        trades.put(
+            JSONObject()
+                .put("id", t.id)
+                .put("entryTime", t.entryTimeSec)
+                .put("entryZ", t.entryZ)
+                .put("open", t.isOpen)
+                .put("exitTime", t.exitTimeSec ?: JSONObject.NULL)
+                .put("exitZ", t.exitZ ?: JSONObject.NULL)
         )
     }
     return JSONObject()
         .put("candles", candleArr)
         .put("hlines", hlines)
         .put("markers", markers)
+        .put("trades", trades)
         .put(
             "window",
             JSONObject()
@@ -133,8 +226,8 @@ internal fun tradingViewMarkerFromChartMarker(
         ChartMarkerShape.Diamond -> "circle"
         ChartMarkerShape.Circle -> "circle"
     }
-    val raw = marker.badgeText?.takeIf { it.isNotBlank() } ?: marker.label
-    val text = tradingViewMarkerDisplayText(raw)
+    val badge = marker.badgeText?.takeIf { it.isNotBlank() } ?: ""
+    val text = tradingViewMarkerDisplayText(badge)
     return TradingViewMarker(
         time = barTimeSec,
         position = position,
@@ -249,6 +342,7 @@ internal fun TradingViewZScoreChartCard(
     chartHeightDp: Int,
     referenceLines: List<ChartReferenceLine>,
     pointMarkers: List<ChartPointMarker>,
+    tradeSegments: List<TradingViewTradeSegment> = emptyList(),
     modifier: Modifier = Modifier,
     landscapeMinimal: Boolean = false,
     initialWindowWidth: Float = 1f,
@@ -260,6 +354,7 @@ internal fun TradingViewZScoreChartCard(
         displayPoints,
         referenceLines,
         pointMarkers,
+        tradeSegments,
         initialWindowWidth,
         initialWindowStart,
     ) {
@@ -268,6 +363,7 @@ internal fun TradingViewZScoreChartCard(
             displayPoints = displayPoints,
             referenceLines = referenceLines,
             pointMarkers = pointMarkers,
+            tradeSegments = tradeSegments,
             initialWindowWidth = initialWindowWidth,
             initialWindowStart = initialWindowStart,
         )
