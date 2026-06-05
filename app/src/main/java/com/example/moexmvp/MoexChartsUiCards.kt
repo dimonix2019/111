@@ -213,6 +213,7 @@ internal fun CandlestickChartCard(
     referenceLines: List<ChartReferenceLine> = emptyList(),
     pointMarkers: List<ChartPointMarker> = emptyList(),
     showLegend: Boolean = true,
+    showMinMax: Boolean = true,
     enableZoomPan: Boolean = false,
     markerScale: Float = 1f,
     showZoomHint: Boolean = false,
@@ -407,11 +408,13 @@ internal fun CandlestickChartCard(
                     )
                 }
             }
-            Text(
-                text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
-                fontSize = 12.sp,
-                color = Color(0xFFD7E3F4)
-            )
+            if (showMinMax) {
+                Text(
+                    text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
+                    fontSize = 12.sp,
+                    color = Color(0xFFD7E3F4)
+                )
+            }
         }
     }
 }

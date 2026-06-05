@@ -154,11 +154,12 @@ internal fun StrategyTestTabContent(
                 chartHeightDp = 260,
                 referenceLines = zReferenceLines,
                 pointMarkers = chartMarkers,
-                showLegend = true,
+                showLegend = false,
+                showMinMax = false,
                 enableZoomPan = true,
                 markerScale = 1.25f,
                 rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-                showZoomHint = true,
+                showZoomHint = false,
                 initialWindowWidth = zInitialWindow.first,
                 initialWindowStart = zInitialWindow.second,
                 useDesktopStyle = true,
@@ -171,7 +172,7 @@ internal fun StrategyTestTabContent(
                         labels = m.equityCurveLabels,
                         equityRub = m.equityCurveRub,
                         drawdownRub = m.drawdownCurveRub,
-                        chartHeightDp = 220,
+                        chartHeightDp = 280,
                     )
                 }
             }
