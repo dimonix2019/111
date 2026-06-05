@@ -160,6 +160,12 @@ internal fun ledgerEntryPairsForPortfolioReplay(
  * Вход Enter* — только если был реальный вход на демо (см. [ledgerEntryPairsForPortfolioReplay]).
  * Выход — только если в том же отфильтрованном потоке был соответствующий вход (иначе replay не закроет сделку).
  */
+/** Все записи реестра входов (ручные + авто) — для маркеров сделок на Z-графике. */
+internal fun ledgerEntryPairsAll(
+    ledger: List<PortfolioExecutionLedgerEntry>,
+): Set<Pair<StrategySignalType, Long>> =
+    ledger.map { Pair(it.signalType, it.barTimestampMillis) }.toSet()
+
 internal fun journalEventsForExecutionPortfolioTab(
     allEvents: List<StrategySignalEvent>,
     ledger: List<PortfolioExecutionLedgerEntry>,
@@ -173,6 +179,53 @@ internal fun journalEventsForExecutionPortfolioTab(
     val out = mutableListOf<StrategySignalEvent>()
     var position = ZStrategyPosition.Flat
 
+    for (ev in sorted) {
+        when (ev.signalType) {
+            StrategySignalType.EnterLong -> {
+                if (position == ZStrategyPosition.Flat &&
+                    (allowAllJournalEnters ||
+                        ledgerEntryMatchesSignalBar(ledgerPairs, ev.signalType, ev.timestampMillis))
+                ) {
+                    out += ev
+                    position = ZStrategyPosition.Long
+                }
+            }
+            StrategySignalType.EnterShort -> {
+                if (position == ZStrategyPosition.Flat &&
+                    (allowAllJournalEnters ||
+                        ledgerEntryMatchesSignalBar(ledgerPairs, ev.signalType, ev.timestampMillis))
+                ) {
+                    out += ev
+                    position = ZStrategyPosition.Short
+                }
+            }
+            StrategySignalType.ExitLong -> {
+                if (position == ZStrategyPosition.Long) {
+                    out += ev
+                    position = ZStrategyPosition.Flat
+                }
+            }
+            StrategySignalType.ExitShort -> {
+                if (position == ZStrategyPosition.Short) {
+                    out += ev
+                    position = ZStrategyPosition.Flat
+                }
+            }
+        }
+    }
+    return out
+}
+
+/** Журнал для Z-графика: все сделки с записью в реестре (ручные и авто). */
+internal fun journalEventsForChartTrades(
+    allEvents: List<StrategySignalEvent>,
+    ledger: List<PortfolioExecutionLedgerEntry>,
+): List<StrategySignalEvent> {
+    val ledgerPairs = ledgerEntryPairsAll(ledger)
+    val allowAllJournalEnters = ledger.isEmpty()
+    val sorted = allEvents.sortedBy { it.timestampMillis }
+    val out = mutableListOf<StrategySignalEvent>()
+    var position = ZStrategyPosition.Flat
     for (ev in sorted) {
         when (ev.signalType) {
             StrategySignalType.EnterLong -> {

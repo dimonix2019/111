@@ -457,6 +457,67 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun indexForChartTradeLabel_snapsToDownsampledBar() {
+        val full = listOf(
+            point("2026-05-19 10:00", z = 0.0),
+            point("2026-05-19 10:15", z = 0.1),
+            point("2026-05-19 10:30", z = 0.2),
+            point("2026-05-19 10:45", z = 0.3),
+            point("2026-05-19 11:00", z = 0.4),
+            point("2026-05-19 11:15", z = 0.5),
+            point("2026-05-19 11:30", z = 0.6),
+            point("2026-05-19 11:45", z = 0.7),
+        )
+        val (display, _) = downsampleM15ChartSeries(full, buildZScoreCandlesFromM15Points(full), maxBars = 2)
+        val entryLabel = full[0].tradeDate
+        assertEquals(null, indexForTradeDateLabel(display, entryLabel))
+        assertNotNull(indexForChartTradeLabel(display, entryLabel))
+    }
+
+    @Test
+    fun remapChartMarkersToDisplaySeries_preservesBadgeAfterDownsample() {
+        val full = listOf(
+            point("2026-05-19 10:00", z = 1.0),
+            point("2026-05-19 10:15", z = 0.8),
+            point("2026-05-19 10:30", z = 0.5),
+            point("2026-05-19 10:45", z = 0.2),
+        )
+        val (display, _) = downsampleM15ChartSeries(full, buildZScoreCandlesFromM15Points(full), maxBars = 2)
+        val sourceMarkers = buildZScoreMarkersFromPortfolioTrades(
+            points = full,
+            openExecutions = listOf(
+                SandboxSpreadExecUi(
+                    tradeId = "D-2",
+                    signalType = StrategySignalType.EnterLong,
+                    zScore = 0.8,
+                    barTimestampMillis = full[1].timestampMillis,
+                    executedAtMillis = full[1].timestampMillis,
+                    entrySpreadPercent = 10.0,
+                    source = PortfolioExecSource.AUTO,
+                    directionLabel = "long",
+                    entryTimeMsk = "2026-05-19 10:15",
+                    longLegTicker = "TATN",
+                    shortLegTicker = "TATNP",
+                    longLegSideRu = "L",
+                    shortLegSideRu = "S",
+                    volumeText = "1+1",
+                    confirmLabel = "авто",
+                    correlationTag = "t",
+                    notificationIdsText = "—",
+                    legs = emptyList(),
+                    tradeDisplayId = "2 long",
+                    entrySignalBarTimeMsk = "2026-05-19 10:15",
+                )
+            ),
+            closedRows = emptyList(),
+        )
+        val remapped = remapChartMarkersToDisplaySeries(full, display, sourceMarkers)
+        assertEquals(1, remapped.size)
+        assertEquals("2А", remapped.single().badgeText)
+        assertTrue(remapped.single().index in display.indices)
+    }
+
+    @Test
     fun strategyMetricsAndZCandlesShareSameM15InputCloses() {
         val points = listOf(
             point("2026-05-19 10:00", z = 0.0, spread = 10.0),

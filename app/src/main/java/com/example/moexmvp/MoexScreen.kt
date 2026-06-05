@@ -204,6 +204,7 @@ internal fun MoexScreen() {
                 landscapeZChartFullscreen = landscapeZChartFullscreen,
                 chartSuccess = chartSuccess,
                 staleMarkets = staleMarkets,
+                marketsM15SourcePoints = marketsM15SimPoints,
                 marketsM15ChartPoints = marketsM15ChartPoints,
                 marketsZScoreCandles = marketsZScoreCandles,
                 marketsChartThresholds = marketsChartThresholds,

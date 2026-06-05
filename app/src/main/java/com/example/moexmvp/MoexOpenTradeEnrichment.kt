@@ -159,7 +159,6 @@ internal suspend fun loadPortfolioTradesForZChart(
     points: List<DataPoint>,
     leverage: Double,
     commissionPercentPerSide: Double,
-    portfolioLedgerIncludeAuto: Boolean,
 ): Pair<List<SandboxSpreadExecUi>, List<PortfolioConfirmedTradeTableRow>> {
     if (points.size < 2) return emptyList<SandboxSpreadExecUi>() to emptyList()
     return withContext(Dispatchers.IO) {
@@ -168,16 +167,12 @@ internal suspend fun loadPortfolioTradesForZChart(
             fromTimestampMillis = points.first().timestampMillis,
         )
         val ledger = loadPortfolioExecutionLedger(context)
-        val filteredEvents = journalEventsForExecutionPortfolioTab(
-            allEvents = eventsAll,
-            ledger = ledger,
-            portfolioLedgerIncludeAuto = portfolioLedgerIncludeAuto,
-        )
+        val chartEvents = journalEventsForChartTrades(eventsAll, ledger)
         val pushLog = loadPushNotificationLog(context)
         val executed = withContext(Dispatchers.Default) {
             buildExecutedPortfolioWithTable(
                 points = points,
-                events = filteredEvents,
+                events = chartEvents,
                 ledger = ledger,
                 pushLog = pushLog,
                 notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
@@ -197,19 +192,14 @@ internal suspend fun loadPortfolioTradesForZChart(
                 notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                 leverage = leverage,
                 commissionPercentPerSide = commissionPercentPerSide,
-                portfolioLedgerIncludeAuto = portfolioLedgerIncludeAuto,
+                portfolioLedgerIncludeAuto = true,
+                includeAllLedgerEntries = true,
             )
         }
-        val closed = filterConfirmedTableRowsByPortfolioMode(
-            mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens),
-            portfolioLedgerIncludeAuto,
-        )
+        val closed = mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens)
         val opens = TinkoffSandboxSpreadExecLog.enrichForDisplay(
             context = context,
-            executions = filterSandboxExecutionsByPortfolioMode(
-                opensAfterJournalClose,
-                portfolioLedgerIncludeAuto,
-            ),
+            executions = opensAfterJournalClose,
             points = points,
             notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
             leverage = leverage,

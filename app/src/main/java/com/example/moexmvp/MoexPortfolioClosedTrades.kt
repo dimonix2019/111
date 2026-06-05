@@ -16,12 +16,17 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
     notionalRub: Double,
     leverage: Double,
     commissionPercentPerSide: Double,
-    portfolioLedgerIncludeAuto: Boolean
+    portfolioLedgerIncludeAuto: Boolean,
+    includeAllLedgerEntries: Boolean = false,
 ): Pair<List<PortfolioConfirmedTradeTableRow>, List<SandboxSpreadExecUi>> {
     if (openExecutions.isEmpty() || points.size < 2 || allJournalEvents.isEmpty()) {
         return emptyList<PortfolioConfirmedTradeTableRow>() to openExecutions
     }
-    val allowedPairs = ledgerEntryPairsForPortfolioReplay(ledger, portfolioLedgerIncludeAuto)
+    val allowedPairs = if (includeAllLedgerEntries) {
+        ledgerEntryPairsAll(ledger)
+    } else {
+        ledgerEntryPairsForPortfolioReplay(ledger, portfolioLedgerIncludeAuto)
+    }
     val allowAllOpens = ledger.isEmpty()
     if (!allowAllOpens && allowedPairs.isEmpty()) {
         return emptyList<PortfolioConfirmedTradeTableRow>() to openExecutions

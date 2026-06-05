@@ -58,6 +58,7 @@ internal fun MoexScreenTabMarkets(
     landscapeZChartFullscreen: Boolean,
     chartSuccess: UiState.Success?,
     staleMarkets: Boolean,
+    marketsM15SourcePoints: List<DataPoint>,
     marketsM15ChartPoints: List<DataPoint>,
     marketsZScoreCandles: List<CandlePoint>,
     marketsChartThresholds: DynamicThresholds,
@@ -75,34 +76,43 @@ internal fun MoexScreenTabMarkets(
     }
     Column(modifier) {
     with(screen) {
+        val markerSourcePoints = marketsM15SourcePoints.ifEmpty { marketsM15ChartPoints }
         val zChartPointMarkers by produceState(
             initialValue = emptyList<ChartPointMarker>(),
+            markerSourcePoints,
             marketsM15ChartPoints,
             signalEvents,
             sandboxSpreadExecReload,
-            portfolioLedgerIncludeAuto,
             portfolioLeverage,
             portfolioCommissionPercent,
         ) {
-            if (marketsM15ChartPoints.size < 2) {
+            if (markerSourcePoints.size < 2) {
                 value = buildZScoreSignalMarkersFromEvents(marketsM15ChartPoints, signalEvents)
                 return@produceState
             }
             val (opens, closed) = withContext(Dispatchers.IO) {
                 loadPortfolioTradesForZChart(
                     context = context.applicationContext,
-                    points = marketsM15ChartPoints,
+                    points = markerSourcePoints,
                     leverage = portfolioLeverage,
                     commissionPercentPerSide = portfolioCommissionPercent,
-                    portfolioLedgerIncludeAuto = portfolioLedgerIncludeAuto,
                 )
             }
-            value = zScoreChartMarkersWithPortfolioTrades(
-                points = marketsM15ChartPoints,
+            val sourceMarkers = zScoreChartMarkersWithPortfolioTrades(
+                points = markerSourcePoints,
                 signalEvents = signalEvents,
                 openExecutions = opens,
                 closedRows = closed,
             )
+            value = if (marketsM15ChartPoints.size < 2) {
+                sourceMarkers
+            } else {
+                remapChartMarkersToDisplaySeries(
+                    sourcePoints = markerSourcePoints,
+                    displayPoints = marketsM15ChartPoints,
+                    markers = sourceMarkers,
+                )
+            }
         }
                 Column(Modifier.fillMaxSize()) {
                     if (!landscapeZChartFullscreen) {

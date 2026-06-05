@@ -437,15 +437,19 @@ internal fun CandlestickChart(
             yForValue = ::yForValue
         )
 
-        pointMarkers.forEach { marker ->
-            if (marker.index < 0 || marker.index > maxIndex) return@forEach
+        val badgeStackByMarker = pointMarkers.mapIndexedNotNull { listIdx, marker ->
+            marker.badgeText?.let { listIdx to marker }
+        }.groupBy({ it.second.index }, { it.first })
+        pointMarkers.forEachIndexed { listIdx, marker ->
+            if (marker.index < 0 || marker.index > maxIndex) return@forEachIndexed
             val frac = fracForIndex(marker.index)
-            if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEach
+            if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEachIndexed
             val x = xForIndexDraw(marker.index)
             val y = yForValue(marker.value)
             val markerCenter = Offset(x, y)
             marker.badgeText?.let { badge ->
-                drawMarkerBadge(markerCenter, badge, markerScale)
+                val stackIdx = badgeStackByMarker[marker.index]?.indexOf(listIdx) ?: 0
+                drawMarkerBadge(markerCenter, badge, markerScale, stackIdx)
             }
         }
 
@@ -489,11 +493,12 @@ internal fun CandlestickChart(
 private fun DrawScope.drawMarkerBadge(
     markerCenter: Offset,
     text: String,
-    scale: Float
+    scale: Float,
+    stackIndex: Int = 0,
 ) {
     val textSizePx = (11f * scale).coerceIn(9f, 15f)
     val x = markerCenter.x + 11f * scale
-    val y = markerCenter.y - 12f * scale
+    val y = markerCenter.y - 12f * scale - stackIndex * 11f * scale
     val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = textSizePx
         textAlign = Paint.Align.LEFT
