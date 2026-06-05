@@ -1,7 +1,13 @@
 package com.example.moexmvp
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.graphics.Color as AndroidColor
+import android.os.Build
+import android.util.Base64
+import android.view.ViewGroup
+import android.webkit.JavascriptInterface
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -23,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,6 +37,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDateTime
+
+private const val TRADINGVIEW_ASSET_BASE = "file:///android_asset/tradingview/"
+private const val LW_CHARTS_INJECT_MARKER = "<!-- INJECT_LIGHTWEIGHT_CHARTS -->"
 
 /** JSON для WebView lightweight-charts (parity strategy-web /m). */
 internal fun buildTradingViewChartPayloadJson(
@@ -41,8 +51,10 @@ internal fun buildTradingViewChartPayloadJson(
     initialWindowStart: Float = 0f,
 ): String {
     val candleArr = JSONArray()
+    val seenTimes = linkedSetOf<Long>()
     for (c in candles) {
         val timeSec = m15CandleLabelToUnixSec(c.label)
+        if (!seenTimes.add(timeSec)) continue
         candleArr.put(
             JSONObject()
                 .put("time", timeSec)
@@ -135,38 +147,87 @@ internal fun tradingViewMarkerFromChartMarker(
 internal fun composeColorToHex(color: Color): String =
     String.format("#%06X", 0xFFFFFF and color.toArgb())
 
+internal fun loadTradingViewChartHtml(context: Context): String {
+    val template = context.assets.open("tradingview/z_chart.html").bufferedReader().use { it.readText() }
+    val js = context.assets.open("tradingview/lightweight-charts.standalone.production.js")
+        .bufferedReader()
+        .use { it.readText() }
+    return template.replace(
+        LW_CHARTS_INJECT_MARKER,
+        "<script>\n$js\n</script>",
+    )
+}
+
+private fun pushTradingViewPayload(webView: WebView, payloadJson: String) {
+    val b64 = Base64.encodeToString(payloadJson.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+    webView.evaluateJavascript(
+        "window.updateMoexChart(JSON.parse(atob('$b64')))",
+        null,
+    )
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal fun TradingViewZScoreChart(
     payloadJson: String,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val html = remember { loadTradingViewChartHtml(context.applicationContext) }
     var pageReady by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    fun deliverPayload() {
+        val view = webViewRef ?: return
+        if (!pageReady) return
+        pushTradingViewPayload(view, payloadJson)
+    }
 
     AndroidView(
-        factory = { context ->
-            WebView(context).apply {
+        factory = { ctx ->
+            WebView(ctx).apply {
                 webViewRef = this
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                )
                 setBackgroundColor(AndroidColor.parseColor("#131722"))
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.allowFileAccess = true
+                settings.allowContentAccess = true
+                settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                    @Suppress("DEPRECATION")
+                    settings.allowFileAccessFromFileURLs = true
+                    @Suppress("DEPRECATION")
+                    settings.allowUniversalAccessFromFileURLs = true
+                }
+                addJavascriptInterface(
+                    object {
+                        @JavascriptInterface
+                        fun onReady() {
+                            post { pageReady = true }
+                        }
+                    },
+                    "MoexChartBridge",
+                )
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
-                        pageReady = true
+                        view?.evaluateJavascript("window.moexChartPageReady && window.moexChartPageReady()", null)
                     }
                 }
-                loadUrl("file:///android_asset/tradingview/z_chart.html")
+                loadDataWithBaseURL(TRADINGVIEW_ASSET_BASE, html, "text/html", "UTF-8", null)
             }
+        },
+        update = { webView ->
+            webViewRef = webView
+            deliverPayload()
         },
         modifier = modifier,
     )
 
     LaunchedEffect(pageReady, payloadJson) {
-        if (pageReady) {
-            webViewRef?.evaluateJavascript("window.updateMoexChart($payloadJson)", null)
-        }
+        deliverPayload()
     }
 }
 
