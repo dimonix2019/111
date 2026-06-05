@@ -30,12 +30,28 @@ internal suspend fun closePortfolioOpenTrade(
     require(entrySignal == StrategySignalType.EnterLong || entrySignal == StrategySignalType.EnterShort) {
         "Неподдерживаемый тип входа: $entrySignal"
     }
-    executeSandboxSpreadExitIfConfigured(context, entrySignal)
+    val exitSignal = when (entrySignal) {
+        StrategySignalType.EnterLong -> StrategySignalType.ExitLong
+        StrategySignalType.EnterShort -> StrategySignalType.ExitShort
+        else -> error("unreachable")
+    }
+    val legs = executeSandboxSpreadExitIfConfigured(context, entrySignal)
+    val (exitTs, exitZ) = resolveExitBarForPortfolioClose(context, execution, null, null)
     finalizePortfolioOpenTradeClose(
         context = context,
         execution = execution,
         recordExitInJournal = true,
+        exitZScore = exitZ,
+        exitTimestampMillis = exitTs,
     ).getOrThrow()
+    notifySandboxTradeClosedAfterClose(
+        context = context,
+        execution = execution,
+        exitSignalType = exitSignal,
+        exitBarTimestampMillis = exitTs,
+        exitZScore = exitZ,
+        exitLegs = legs,
+    )
     "Сделка ${execution.tradeId} закрыта"
 }
 
@@ -98,15 +114,59 @@ internal suspend fun finalizePortfolioOpenTradeClose(
 private suspend fun executeSandboxSpreadExitIfConfigured(
     context: Context,
     entrySignal: StrategySignalType,
-) {
+): List<SandboxLegOrderResult> {
     val tok = TinkoffSandboxStorage.getToken(context)
     val acc = TinkoffSandboxStorage.getAccountId(context)
     if (TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context) &&
         !tok.isNullOrBlank() &&
         !acc.isNullOrBlank()
     ) {
-        tinkoffSandboxExecuteSpreadExitDetailed(tok, acc, entrySignal)
+        return tinkoffSandboxExecuteSpreadExitDetailed(tok, acc, entrySignal)
     }
+    return emptyList()
+}
+
+internal suspend fun notifySandboxTradeClosedAfterClose(
+    context: Context,
+    execution: SandboxSpreadExecUi,
+    exitSignalType: StrategySignalType,
+    exitBarTimestampMillis: Long,
+    exitZScore: Double,
+    exitLegs: List<SandboxLegOrderResult> = emptyList(),
+    notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+    leverage: Double = TinkoffSandboxStorage.getSandboxNotifyLeverage(context),
+    commissionPercentPerSide: Double = 0.04,
+) {
+    val app = context.applicationContext
+    val exitSpread = resolveSpreadPercentAtBar(app, exitBarTimestampMillis, execution.entrySpreadPercent)
+    val entryDate = portfolioDateLabelFromMskTableTime(execution.entryTimeMsk)
+    val exitDate = portfolioDateLabelFromMskTableTime(
+        formatPortfolioExecutionTableMsk(exitBarTimestampMillis)
+    )
+    val pnl = computeSandboxClosedTradePnl(
+        execution = execution,
+        exitSpreadPercent = exitSpread,
+        entryDateLabel = entryDate,
+        exitDateLabel = exitDate,
+        notionalRub = notionalRub,
+        leverage = leverage,
+        commissionPercentPerSide = commissionPercentPerSide,
+    )
+    val accountTotalPnlRub = SandboxAccountPnlLedger.addClosedTradeNetPnlRub(app, pnl.netRub)
+    val lastLeg = exitLegs.lastOrNull()
+    notifySandboxTradeClosed(
+        context = app,
+        execution = execution,
+        exitSignalType = exitSignalType,
+        exitBarTimestampMillis = exitBarTimestampMillis,
+        exitZScore = exitZScore,
+        tradePnl = pnl,
+        accountTotalPnlRub = accountTotalPnlRub,
+        portfolioTotalRub = lastLeg?.portfolioTotalRub,
+        portfolioCashRub = lastLeg?.portfolioCashRub,
+        notionalRub = notionalRub,
+        leverage = leverage,
+    )
 }
 
 private suspend fun resolveExitBarForPortfolioClose(

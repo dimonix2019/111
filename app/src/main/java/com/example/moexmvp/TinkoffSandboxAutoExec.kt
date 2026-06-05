@@ -158,12 +158,15 @@ internal suspend fun runSandboxAutoExitIfNeeded(
             exitZScore = zScore,
             exitTimestampMillis = barTimestampMillis,
         ).getOrThrow()
-        notifySandboxSpreadLegExecutionResults(
-            app,
-            legs,
-            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage,
-            spreadLegPushCorrelationTag(barTimestampMillis, exitSignalType)
+        notifySandboxTradeClosedAfterClose(
+            context = app,
+            execution = openTrade,
+            exitSignalType = exitSignalType,
+            exitBarTimestampMillis = barTimestampMillis,
+            exitZScore = zScore,
+            exitLegs = legs,
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = leverage,
         )
         true
     } catch (e: Exception) {

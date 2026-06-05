@@ -269,11 +269,13 @@ internal object TinkoffSandboxSpreadExecLog {
     }
 
     fun clear(context: Context) {
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val app = context.applicationContext
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .remove(KEY_HISTORY_JSON)
             .remove(KEY_JSON_LEGACY)
             .apply()
+        SandboxAccountPnlLedger.clear(app)
     }
 
     private fun buildEntry(

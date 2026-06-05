@@ -468,6 +468,156 @@ internal fun buildSandboxTradeOpenedNotificationBody(
     }
 }
 
+internal fun sandboxTradeClosedPushCorrelationTag(
+    barTimestampMillis: Long,
+    signalType: StrategySignalType,
+): String = "tradeClosed|${barTimestampMillis}|${signalType.name}"
+
+/** Текст push «Сделка закрыта» — сигнал выхода, PnL сделки и общий PnL счёта. */
+internal fun buildSandboxTradeClosedNotificationBody(
+    execution: SandboxSpreadExecUi,
+    exitSignalType: StrategySignalType,
+    exitBarTimestampMillis: Long,
+    exitZScore: Double,
+    tradePnl: SandboxClosedTradePnl,
+    accountTotalPnlRub: Double,
+    journalEvents: List<StrategySignalEvent>,
+    notionalRub: Double,
+    leverage: Double,
+    portfolioTotalRub: String? = null,
+    portfolioCashRub: String? = null,
+    closedAtMillis: Long = System.currentTimeMillis(),
+): String {
+    val entryTradeId = entryTradeDisplayId(
+        journalEvents = journalEvents,
+        barTimestampMillis = execution.barTimestampMillis,
+        signalType = execution.signalType,
+        fallbackReceivedAtMillis = execution.executedAtMillis,
+    )
+    val exitSig = strategySignalDisplay(
+        barTimestampMillis = exitBarTimestampMillis,
+        signalType = exitSignalType,
+        receivedAtMillis = exitBarTimestampMillis,
+        journalEvents = journalEvents,
+    )
+    val exitTimeMsk = formatPortfolioExecutionTableMsk(exitBarTimestampMillis)
+    return buildString {
+        append(formatMessageReceivedLine(closedAtMillis))
+        append('\n')
+        append("Сигнал выхода: ")
+        append(compactPortfolioTableDateLabel(exitSig.signalId))
+        append('\n')
+        append("Сделка: ")
+        append(entryTradeId)
+        append('\n')
+        append("ID: ")
+        append(execution.tradeId)
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "Z вход: %.2f · Z выход: %.2f",
+                execution.zScore,
+                exitZScore,
+            )
+        )
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "Спрэд вход: %.2f%% · выход: %.2f%%",
+                execution.entrySpreadPercent,
+                tradePnl.exitSpreadPercent,
+            )
+        )
+        append('\n')
+        append("Вход: ")
+        append(compactPortfolioTableDateLabel(execution.entryTimeMsk))
+        append(" · Выход: ")
+        append(compactPortfolioTableDateLabel(exitTimeMsk))
+        append('\n')
+        append("PnL сделки: ")
+        append(formatRubSigned(tradePnl.netRub))
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "  валовый %s · комис. %s · оверн. %s",
+                formatRubSigned(tradePnl.grossRub),
+                formatRubSigned(-kotlin.math.abs(tradePnl.commissionRub)),
+                formatRubSigned(-kotlin.math.abs(tradePnl.overnightRub)),
+            )
+        )
+        append('\n')
+        append("Общий PnL счёта: ")
+        append(formatRubSigned(accountTotalPnlRub))
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "Номинал: %.0f ₽ · плечо ×%.1f",
+                notionalRub,
+                leverage,
+            )
+        )
+        portfolioTotalRub?.let {
+            append('\n')
+            append("Баланс счёта: ")
+            append(it)
+        }
+        portfolioCashRub?.let {
+            append('\n')
+            append("Деньги (₽): ")
+            append(it)
+        }
+    }
+}
+
+/** Одно уведомление после закрытия спрэд-сделки на демо. */
+internal fun notifySandboxTradeClosed(
+    context: Context,
+    execution: SandboxSpreadExecUi,
+    exitSignalType: StrategySignalType,
+    exitBarTimestampMillis: Long,
+    exitZScore: Double,
+    tradePnl: SandboxClosedTradePnl,
+    accountTotalPnlRub: Double,
+    notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+    leverage: Double,
+    portfolioTotalRub: String? = null,
+    portfolioCashRub: String? = null,
+) {
+    val app = context.applicationContext
+    val journal = loadStrategySignalEvents(app)
+    val entryTradeId = entryTradeDisplayId(
+        journalEvents = journal,
+        barTimestampMillis = execution.barTimestampMillis,
+        signalType = execution.signalType,
+        fallbackReceivedAtMillis = execution.executedAtMillis,
+    )
+    val body = buildSandboxTradeClosedNotificationBody(
+        execution = execution,
+        exitSignalType = exitSignalType,
+        exitBarTimestampMillis = exitBarTimestampMillis,
+        exitZScore = exitZScore,
+        tradePnl = tradePnl,
+        accountTotalPnlRub = accountTotalPnlRub,
+        journalEvents = journal,
+        notionalRub = notionalRub,
+        leverage = leverage,
+        portfolioTotalRub = portfolioTotalRub,
+        portfolioCashRub = portfolioCashRub,
+    )
+    showPushNotification(
+        context = app,
+        title = "Сделка закрыта · $entryTradeId · ${formatRubSigned(tradePnl.netRub)}",
+        body = body,
+        virtualTradeTap = null,
+        skipDuplicateCheck = true,
+        correlationTag = sandboxTradeClosedPushCorrelationTag(exitBarTimestampMillis, exitSignalType),
+    )
+}
+
 /** Одно уведомление после открытия спрэд-сделки на демо (вместо push по ногам на входе). */
 internal fun notifySandboxTradeOpened(
     context: Context,
@@ -816,6 +966,7 @@ internal fun clearStrategySignalJournalAndLocalStrategyState(context: Context) {
     clearSandboxAutoSpreadDedup(app)
     clearPortfolioExecutionLedger(app)
     TinkoffSandboxSpreadExecLog.clear(app)
+    SandboxAccountPnlLedger.clear(app)
 }
 
 internal fun showDynamicZThresholdsPushNotification(
