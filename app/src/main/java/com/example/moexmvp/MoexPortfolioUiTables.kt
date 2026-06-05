@@ -318,8 +318,14 @@ internal fun PortfolioTradesWindowSection(
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
 ) {
+    var tradesAutoOnlyFilter by remember { mutableStateOf(false) }
     val depthLabel = portfolioLookbackPeriodLabel(lookbackDays)
-    val (openBucket, closedBucket) = buildPortfolioTradesBuckets(openExecutions, closedRows, lookbackDays)
+    val (openBucket, closedBucket) = buildPortfolioTradesBuckets(
+        openExecutions = openExecutions,
+        closedRows = closedRows,
+        lookbackDays = lookbackDays,
+        tradesAutoOnlyFilter = tradesAutoOnlyFilter,
+    )
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -333,14 +339,18 @@ internal fun PortfolioTradesWindowSection(
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium
         )
-        Text(
-            text = "Открытые — исполнение на демо; закрытые — журнал вход/выход + демо (не симуляция «Тест страт.»). " +
-                "ID сигн. / бар / «Получен» — вход из журнала сигналов (сверка с авто-заявками). " +
-                "Если сигнал в журнале есть, а сделки нет — проверьте «Исполнять на демо» и реестр входа (авто).",
-            color = Color(0xFF9E9E9E),
-            fontSize = 10.sp,
-            maxLines = 3
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PortfolioTradesSourceFilterChip(
+                label = "Всё",
+                selected = !tradesAutoOnlyFilter,
+                onClick = { tradesAutoOnlyFilter = false },
+            )
+            PortfolioTradesSourceFilterChip(
+                label = "только Авто",
+                selected = tradesAutoOnlyFilter,
+                onClick = { tradesAutoOnlyFilter = true },
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -386,5 +396,23 @@ internal fun PortfolioTradesWindowSection(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun PortfolioTradesSourceFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) Color(0xFF1565C0) else Color(0xFF424242),
+            contentColor = Color.White,
+        ),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(label, fontSize = 11.sp)
     }
 }

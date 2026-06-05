@@ -85,14 +85,36 @@ internal data class PortfolioTradesBucketUi(
     val isOpenTrades: Boolean
 )
 
+/** Фильтр таблиц сделок: скрыть ручные, оставить авто (и тестовые). */
+internal fun filterSandboxExecutionsForTradesTable(
+    executions: List<SandboxSpreadExecUi>,
+    autoOnly: Boolean,
+): List<SandboxSpreadExecUi> =
+    if (!autoOnly) executions
+    else filterSandboxExecutionsByPortfolioMode(executions, portfolioLedgerIncludeAuto = true)
+
+internal fun filterConfirmedTableRowsForTradesTable(
+    rows: List<PortfolioConfirmedTradeTableRow>,
+    autoOnly: Boolean,
+): List<PortfolioConfirmedTradeTableRow> =
+    if (!autoOnly) rows
+    else filterConfirmedTableRowsByPortfolioMode(rows, portfolioLedgerIncludeAuto = true)
+
 internal fun buildPortfolioTradesBuckets(
     openExecutions: List<SandboxSpreadExecUi>,
     closedRows: List<PortfolioConfirmedTradeTableRow>,
     lookbackDays: Long,
     windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
+    tradesAutoOnlyFilter: Boolean = false,
 ): Pair<PortfolioTradesBucketUi, PortfolioTradesBucketUi> {
-    val openFiltered = filterSandboxExecutionsInWindow(openExecutions, lookbackDays, windowStartMillis)
-    val closedFiltered = filterClosedTradeRowsInWindow(closedRows, lookbackDays, windowStartMillis)
+    val openFiltered = filterSandboxExecutionsForTradesTable(
+        filterSandboxExecutionsInWindow(openExecutions, lookbackDays, windowStartMillis),
+        autoOnly = tradesAutoOnlyFilter,
+    )
+    val closedFiltered = filterConfirmedTableRowsForTradesTable(
+        filterClosedTradeRowsInWindow(closedRows, lookbackDays, windowStartMillis),
+        autoOnly = tradesAutoOnlyFilter,
+    )
     val openGroups = openFiltered.asReversed().map { it.toTradeGroup() }
     val closedGroups = closedFiltered.map { it.toTradeGroup() }
     return PortfolioTradesBucketUi(
