@@ -90,6 +90,51 @@ internal fun appendFormingPortfolio15mBar(
 internal fun portfolioM15MoexFetchTillDate(): LocalDate =
     LocalDate.now(moexZoneId).plusDays(1)
 
+/** Начало текущего 15м слота (МСК), как в [appendFormingPortfolio15mBar]. */
+internal fun currentM15BucketStartMillis(
+    now: Instant = Instant.now(),
+    zone: ZoneId = moexZoneId,
+): Long {
+    val zdt = now.atZone(zone)
+    val bucket = zdt.withMinute((zdt.minute / 15) * 15).withSecond(0).withNano(0)
+    return bucket.toInstant().toEpochMilli()
+}
+
+/**
+ * 15м ряд для кнопок «Тестовая пара»: всегда догружаем хвост MOEX (включая формирующийся бар),
+ * без ожидания [PORTFOLIO_M15_TAIL_MAX_AGE_MS].
+ */
+internal suspend fun loadPortfolio15mPointsForTestEntry(
+    context: Context,
+    lookbackDays: Long = marketsM15LookbackDays(Period.OneDay),
+): List<DataPoint> = withContext(Dispatchers.IO) {
+    withPortfolioM15LoadLock {
+        val app = context.applicationContext
+        val dao = PortfolioM15Database.get(app).dao()
+        mergePortfolio15mRecentTailFromMoex(dao)
+        val till = LocalDate.now(moexZoneId)
+        val from = till.minusDays(lookbackDays)
+        val queryCutoffMillis = from.atStartOfDay(moexZoneId).toInstant().toEpochMilli()
+        val rows = dao.getSince(queryCutoffMillis)
+        if (rows.isEmpty()) return@withPortfolioM15LoadLock emptyList()
+        val points = applyZScoresDefault(rows.map { it.toDataPoint() })
+        val bucketStart = currentM15BucketStartMillis()
+        val lastTs = points.last().timestampMillis
+        if (lastTs >= bucketStart) return@withPortfolioM15LoadLock points
+        val today = till
+        val refreshFrom = today.minusDays(2)
+        val fresh = fetchPortfolio15mSpreadEntities(refreshFrom, portfolioM15MoexFetchTillDate())
+        if (fresh.isNotEmpty()) {
+            insertPortfolio15mEntitiesBatched(dao, fresh)
+            val refreshed = dao.getSince(queryCutoffMillis)
+            if (refreshed.isNotEmpty()) {
+                return@withPortfolioM15LoadLock applyZScoresDefault(refreshed.map { it.toDataPoint() })
+            }
+        }
+        points
+    }
+}
+
 internal fun portfolio15mSeriesTailStale(points: List<DataPoint>): Boolean {
     val lastTs = points.lastOrNull()?.timestampMillis ?: return true
     return System.currentTimeMillis() - lastTs > PORTFOLIO_M15_TAIL_MAX_AGE_MS

@@ -20,7 +20,7 @@ internal suspend fun runPortfolioTestEntrySignalFull(
     runCatching {
         require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
         val app = context.applicationContext
-        val market = loadCurrentPortfolioMarketSnapshot(app, forceNetworkRefresh = true)
+        val market = loadCurrentPortfolioMarketSnapshot(app, forTestEntry = true)
         val barTs = market.timestampMillis
         val z = market.zScore
         val dir = if (signalType == StrategySignalType.EnterShort) "SHORT" else "LONG"
@@ -107,7 +107,11 @@ internal suspend fun executeTestSandboxSpreadPair(
             SandboxExecUiState.Ready -> Unit
             SandboxExecUiState.Off -> Unit
         }
-        val market = loadCurrentPortfolioMarketSnapshot(app, forceNetworkRefresh = fromTestButton)
+        val market = loadCurrentPortfolioMarketSnapshot(
+            app,
+            forceNetworkRefresh = fromTestButton,
+            forTestEntry = fromTestButton,
+        )
         val barTs = if (fromTestButton) {
             market.timestampMillis
         } else {
@@ -193,7 +197,7 @@ internal suspend fun runPortfolioTestSpreadPairFull(
     runCatching {
         require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
         val app = context.applicationContext
-        val market = loadCurrentPortfolioMarketSnapshot(app, forceNetworkRefresh = true)
+        val market = loadCurrentPortfolioMarketSnapshot(app, forTestEntry = true)
         val barTs = market.timestampMillis
         val z = market.zScore
         val dir = if (signalType == StrategySignalType.EnterShort) "SHORT" else "LONG"
