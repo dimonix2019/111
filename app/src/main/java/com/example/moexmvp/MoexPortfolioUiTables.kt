@@ -113,13 +113,15 @@ internal fun PortfolioTradeOrdersGroupedTable(
 ) {
     if (groups.isEmpty()) return
     val scroll = rememberScrollState()
-    Text(
-        text = caption,
-        color = Color(0xFF757575),
-        fontSize = 9.sp,
-        modifier = Modifier.padding(bottom = 4.dp),
-        maxLines = 4
-    )
+    if (caption.isNotBlank()) {
+        Text(
+            text = caption,
+            color = Color(0xFF757575),
+            fontSize = 9.sp,
+            modifier = Modifier.padding(bottom = 4.dp),
+            maxLines = 4
+        )
+    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -368,7 +370,7 @@ internal fun PortfolioTradesWindowSection(
             } else {
                 PortfolioTradeOrdersGroupedTable(
                     groups = openBucket.groups,
-                    caption = "Ордера сгруппированы по сделкам (2 строки). PnL открытых — оценка по Δ спрэда 15м.",
+                    caption = "",
                     exitZColumnTitle = "Z сейч.",
                     onCloseOpenTrade = onCloseOpenTrade,
                     closingTradeId = closingTradeId,
@@ -392,7 +394,7 @@ internal fun PortfolioTradesWindowSection(
             } else {
                 PortfolioTradeOrdersGroupedTable(
                     groups = closedBucket.groups,
-                    caption = "Закрытые сделки: реализованный PnL по паре вход→выход (журнал + демо)."
+                    caption = "",
                 )
             }
         }

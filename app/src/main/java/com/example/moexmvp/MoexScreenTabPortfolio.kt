@@ -225,9 +225,6 @@ internal fun MoexScreenTabPortfolio(
                         onCloseAllTradesClick = { showCloseAllPortfolioDialog = true },
                         onCloseOpenTrade = { tradeId -> pendingCloseTradeId = tradeId },
                         closingTradeId = closingTradeId,
-                        latestZScore = portfolioM15Points.lastOrNull()?.zScore,
-                        latestSpreadPercent = portfolioM15Points.lastOrNull()?.spreadPercent,
-                        latestBarLabel = portfolioM15Points.lastOrNull()?.tradeDate,
                     )
                 }
                 if (portfolioLoading) {

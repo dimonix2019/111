@@ -82,9 +82,6 @@ internal fun ConfirmedPortfolioTabContent(
     onCloseAllTradesClick: () -> Unit,
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
-    latestZScore: Double? = null,
-    latestSpreadPercent: Double? = null,
-    latestBarLabel: String? = null,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -106,31 +103,6 @@ internal fun ConfirmedPortfolioTabContent(
                 selectedDays = lookbackDays,
                 onSelect = onLookbackDaysChange,
                 enabled = !portfolioLoading,
-            )
-        }
-        if (latestZScore != null || latestSpreadPercent != null) {
-            Text(
-                text = buildString {
-                    append("Z-score: ")
-                    append(
-                        latestZScore?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
-                    )
-                    append("   |   Спред: ")
-                    append(
-                        latestSpreadPercent?.let { String.format(Locale.US, "%.2f%%", it) } ?: "—"
-                    )
-                    if (!latestBarLabel.isNullOrBlank()) {
-                        append("   |   бар ")
-                        append(latestBarLabel)
-                    }
-                },
-                color = Color(0xFFE0E0E0),
-                fontSize = 13.sp
-            )
-            Text(
-                text = "Свечной график Z-score · 15м — вкладка «Рынок»",
-                color = Color(0xFF9E9E9E),
-                fontSize = 11.sp
             )
         }
         Row(
@@ -289,12 +261,6 @@ internal fun ConfirmedPortfolioTabContent(
             lookbackDays = lookbackDays,
             onCloseOpenTrade = onCloseOpenTrade,
             closingTradeId = closingTradeId,
-        )
-        Text(
-            text = "${"%.0f".format(Locale.US, DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",
-            color = Color(0xFF9E9E9E),
-            fontSize = 10.sp,
-            maxLines = 3
         )
         PortfolioCollapsibleSection(
             title = "Плечо и комиссия",
