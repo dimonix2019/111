@@ -120,6 +120,116 @@ internal fun entrySignalDisplayFields(
     return Triple(d.signalId, d.barTimeMsk, d.receivedTimeMsk)
 }
 
+/** Заголовок push для сигнала Z (как в шторке). */
+internal fun strategySignalPushTitle(signalType: StrategySignalType): String = when (signalType) {
+    StrategySignalType.EnterLong -> "Вход: LONG TATN / SHORT TATNP"
+    StrategySignalType.EnterShort -> "Вход: LONG TATNP / SHORT TATN"
+    StrategySignalType.ExitLong -> "Выход: закрыть LONG TATN / SHORT TATNP"
+    StrategySignalType.ExitShort -> "Выход: закрыть LONG TATNP / SHORT TATN"
+}
+
+/** Тело push без строки «Получено: …» (она показывается отдельно). */
+internal fun strategySignalPushBody(
+    signalType: StrategySignalType,
+    zScore: Double,
+    entryThreshold: Double,
+    exitThreshold: Double,
+): String = when (signalType) {
+    StrategySignalType.EnterLong -> String.format(
+        Locale.US,
+        "Z <= -%.1f (текущий Z=%.2f)",
+        entryThreshold,
+        zScore
+    )
+    StrategySignalType.EnterShort -> String.format(
+        Locale.US,
+        "Z >= +%.1f (текущий Z=%.2f)",
+        entryThreshold,
+        zScore
+    )
+    StrategySignalType.ExitLong -> String.format(
+        Locale.US,
+        "Z >= -%.1f (текущий Z=%.2f)",
+        exitThreshold,
+        zScore
+    )
+    StrategySignalType.ExitShort -> String.format(
+        Locale.US,
+        "Z <= +%.1f (текущий Z=%.2f)",
+        exitThreshold,
+        zScore
+    )
+}
+
+internal fun strategySignalPushBodyForDisplay(body: String): String =
+    body.lineSequence()
+        .filterNot { messageBodyHasReceivedTimeLine(it) }
+        .joinToString("\n")
+        .trim()
+
+/** Связка записи журнала сигналов с локальным логом push. */
+internal fun findPushLogForStrategySignal(
+    event: StrategySignalEvent,
+    pushLog: List<PushNotificationLogEntry>,
+): PushNotificationLogEntry? {
+    pushLog.asReversed().firstOrNull { entry ->
+        entry.virtualTapBarTimestampMillis == event.timestampMillis &&
+            entry.virtualTapSignalType == event.signalType.name
+    }?.let { return it }
+    val title = strategySignalPushTitle(event.signalType)
+    return pushLog.asReversed().firstOrNull { entry ->
+        entry.title == title &&
+            kotlin.math.abs(entry.wallTimestampMillis - event.receivedAtMillis) <= 120_000L
+    }
+}
+
+internal data class StrategySignalJournalPushView(
+    val receivedAtMillis: Long,
+    val signalId: String,
+    val pushIdText: String,
+    val title: String,
+    val messageBody: String,
+    val pushStatusText: String?,
+    val pushPosted: Boolean?,
+)
+
+internal fun buildStrategySignalJournalPushView(
+    event: StrategySignalEvent,
+    pushLog: List<PushNotificationLogEntry>,
+    entryThreshold: Double,
+    exitThreshold: Double,
+): StrategySignalJournalPushView {
+    val sig = strategySignalDisplay(event)
+    val push = findPushLogForStrategySignal(event, pushLog)
+    val title = push?.title ?: strategySignalPushTitle(event.signalType)
+    val rawBody = push?.body ?: strategySignalPushBody(
+        event.signalType,
+        event.zScore,
+        entryThreshold,
+        exitThreshold,
+    )
+    val messageBody = strategySignalPushBodyForDisplay(rawBody)
+    val (statusText, posted) = when {
+        push == null -> "Push не отправлен" to false
+        push.posted -> "Показано в шторке" to true
+        push.skipReason == PushNotificationLogSkipReason.DUPLICATE_WITHIN_WINDOW ->
+            "Пропущено (дубликат)" to false
+        push.skipReason == PushNotificationLogSkipReason.POST_NOTIFICATIONS_DENIED ->
+            "Пропущено (нет разрешения)" to false
+        push.skipReason != null -> "Пропущено (${push.skipReason})" to false
+        else -> "Не показано" to false
+    }
+    return StrategySignalJournalPushView(
+        receivedAtMillis = event.receivedAtMillis,
+        signalId = sig.signalId,
+        pushIdText = push?.let { formatPushNotificationIdDisplay(it) } ?: "—",
+        title = title,
+        messageBody = messageBody,
+        pushStatusText = statusText,
+        pushPosted = posted,
+    )
+}
+
 internal fun createPushNotificationChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val channel = NotificationChannel(

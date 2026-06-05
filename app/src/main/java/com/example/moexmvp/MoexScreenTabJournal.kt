@@ -58,6 +58,10 @@ internal fun MoexScreenTabJournal(
                 JournalTabContent(
                     events = signalEvents,
                     pushNotifications = pushNotificationLog,
+                    entryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                    exitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
+                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                     modifier = modifier.fillMaxWidth(),
                     onClearHistoryRequest = {
                         clearStrategySignalJournalAndLocalStrategyState(context)
