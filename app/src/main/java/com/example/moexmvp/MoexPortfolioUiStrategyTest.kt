@@ -160,6 +160,8 @@ internal fun StrategyTestTabContent(
                 markerScale = 1.25f,
                 rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
                 showZoomHint = false,
+                compactLayout = true,
+                trackpadGestures = false,
                 initialWindowWidth = zInitialWindow.first,
                 initialWindowStart = zInitialWindow.second,
                 useDesktopStyle = true,

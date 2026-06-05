@@ -228,6 +228,8 @@ internal fun CandlestickChartCard(
     displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
     showPlotlyToolbar: Boolean = false,
     trackpadGestures: Boolean = true,
+    /** Меньше отступов между заголовком и графиком (без легенды / Min-Max / подсказки жестов). */
+    compactLayout: Boolean = false,
 ) {
     val axisScale = remember(candles, referenceLines) {
         buildCandleAxisScale(candles, valueHints = referenceLines.map { it.value })
@@ -282,12 +284,18 @@ internal fun CandlestickChartCard(
             .then(if (landscapeMinimal) Modifier.fillMaxHeight() else Modifier)
             .background(cardBg, RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp))
             .padding(if (landscapeMinimal) 2.dp else 10.dp),
-        verticalArrangement = Arrangement.spacedBy(if (landscapeMinimal) 2.dp else 8.dp)
+        verticalArrangement = Arrangement.spacedBy(
+            when {
+                landscapeMinimal -> 2.dp
+                compactLayout -> 4.dp
+                else -> 8.dp
+            }
+        )
     ) {
         if (!landscapeMinimal && title.isNotBlank()) {
             Text(title, fontWeight = FontWeight.Bold, color = Color(0xFFE5E7EB))
         }
-        if (showZoomHint && enableZoomPan && !landscapeMinimal) {
+        if (showZoomHint && enableZoomPan && !landscapeMinimal && !compactLayout) {
             Text(
                 text = if (useDesktopStyle) CHART_TRACKPAD_HINT else
                     "Масштаб: pinch — свечи и пороги по X и Y · сдвиг · двойной тап: сброс",

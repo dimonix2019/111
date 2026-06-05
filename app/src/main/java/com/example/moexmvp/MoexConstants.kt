@@ -112,6 +112,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.89 — Тест страт.: убрана подсказка «1 палец…» под графиком Z-score.
 1.7.88 — Тест страт.: убраны легенда и Min/Max под Z-score; Equity выше.
 1.7.87 — Тест страт.: график Equity и просадка сразу под Z-score.
 1.7.86 — График Z: номера сделок вместо Enter/Exit; линия вход→выход при выборе (как desktop).
