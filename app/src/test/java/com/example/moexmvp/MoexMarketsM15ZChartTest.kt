@@ -518,6 +518,52 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun spreadPercentAtTradingDayOpen_uses0730Bar() {
+        val points = listOf(
+            point("2026-05-19 07:00", z = 0.0, spread = 4.70),
+            point("2026-05-19 07:15", z = 0.0, spread = 4.74),
+            point("2026-05-19 07:30", z = 0.0, spread = 4.78),
+            point("2026-05-19 10:00", z = 0.0, spread = 5.00),
+        )
+        assertEquals(
+            4.78,
+            spreadPercentAtTradingDayOpen(points, java.time.LocalDate.of(2026, 5, 19))!!,
+            1e-9
+        )
+        assertEquals(4.78, spreadPercentBaseForChartRightAxis(points)!!, 1e-9)
+    }
+
+    @Test
+    fun spreadPercentAtTradingDayOpen_fallsBackToFirstBarWhenNo0730() {
+        val points = listOf(
+            point("2026-05-19 10:00", z = 0.0, spread = 5.00),
+            point("2026-05-19 10:15", z = 0.0, spread = 5.10),
+        )
+        assertEquals(
+            5.00,
+            spreadPercentAtTradingDayOpen(points, java.time.LocalDate.of(2026, 5, 19))!!,
+            1e-9
+        )
+    }
+
+    @Test
+    fun spreadPercentBaseForChartRightAxis_usesLastCalendarDay() {
+        val points = listOf(
+            point("2026-05-18 07:30", z = 0.0, spread = 4.50),
+            point("2026-05-18 18:00", z = 0.0, spread = 5.00),
+            point("2026-05-19 07:30", z = 0.0, spread = 4.80),
+            point("2026-05-19 12:00", z = 0.0, spread = 5.20),
+        )
+        assertEquals(4.80, spreadPercentBaseForChartRightAxis(points)!!, 1e-9)
+    }
+
+    @Test
+    fun formatPercentDeltaFromBase_zeroAtTradingDayOpen() {
+        assertEquals("0.00%", formatPercentDeltaFromBase(4.78, 4.78))
+        assertEquals("+4.60%", formatPercentDeltaFromBase(5.00, 4.78))
+    }
+
+    @Test
     fun strategyMetricsAndZCandlesShareSameM15InputCloses() {
         val points = listOf(
             point("2026-05-19 10:00", z = 0.0, spread = 10.0),

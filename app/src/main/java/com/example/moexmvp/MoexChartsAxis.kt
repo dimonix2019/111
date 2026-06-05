@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
@@ -506,4 +507,43 @@ internal fun formatPercentDeltaFromBase(value: Double, base: Double): String {
     val deltaPercent = ((value / base) - 1.0) * 100.0
     val sign = if (deltaPercent > 0) "+" else ""
     return sign + String.format(Locale.US, "%.2f%%", deltaPercent)
+}
+
+/** Время открытия торгового дня (МСК) — совпадает с [DYNAMIC_Z_RECALC_HOUR]/[DYNAMIC_Z_RECALC_MINUTE]. */
+internal fun tradingDayOpenTimeMsk(): LocalTime =
+    LocalTime.of(DYNAMIC_Z_RECALC_HOUR, DYNAMIC_Z_RECALC_MINUTE)
+
+internal fun m15LabelCalendarDate(label: String): LocalDate? =
+    runCatching { LocalDate.parse(label.trim().take(10)) }.getOrNull()
+
+internal fun m15LabelBarTime(label: String): LocalTime? =
+    runCatching {
+        LocalTime.parse(label.trim().drop(11).take(5), intradayLabelFormatter)
+    }.getOrNull()
+
+/**
+ * Спред на открытии торгового дня: первый 15м бар дня с временем ≥ 07:30 МСК
+ * (утренняя сессия MOEX; в ISS-ряде это обычно бар 07:30).
+ */
+internal fun spreadPercentAtTradingDayOpen(
+    points: List<DataPoint>,
+    day: LocalDate,
+): Double? {
+    if (points.isEmpty()) return null
+    val openTime = tradingDayOpenTimeMsk()
+    val dayPoints = points.filter { m15LabelCalendarDate(it.tradeDate) == day }
+    if (dayPoints.isEmpty()) return null
+    val atOrAfterOpen = dayPoints.filter { pt ->
+        m15LabelBarTime(pt.tradeDate)?.let { it >= openTime } == true
+    }
+    return atOrAfterOpen.firstOrNull()?.spreadPercent
+        ?: dayPoints.first().spreadPercent
+}
+
+/** База правой оси Spread: открытие последнего календарного дня в видимом ряду. */
+internal fun spreadPercentBaseForChartRightAxis(points: List<DataPoint>): Double? {
+    if (points.isEmpty()) return null
+    val lastDay = points.mapNotNull { m15LabelCalendarDate(it.tradeDate) }.maxOrNull()
+        ?: return points.first().spreadPercent
+    return spreadPercentAtTradingDayOpen(points, lastDay)
 }

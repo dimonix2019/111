@@ -379,7 +379,7 @@ internal fun MoexScreenTabMarkets(
                                     ),
                                     labels = marketsM15ChartPoints.map { it.tradeDate },
                                     chartHeightDp = 208,
-                                    rightAxisPercentBase = marketsM15ChartPoints.minOfOrNull { it.spreadPercent },
+                                    rightAxisPercentBase = spreadPercentBaseForChartRightAxis(marketsM15ChartPoints),
                                     yScale = YAxisScale.Auto,
                                     showLegend = false,
                                     enableZoomPan = false,

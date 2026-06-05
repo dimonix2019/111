@@ -9,7 +9,7 @@ internal val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:
 internal val candleTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 internal val intradayLabelFormatter = DateTimeFormatter.ofPattern("HH:mm")
 internal val portfolio15mLabelFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-/** Локальное время (часы устройства): до этого момента пороги Z не пересчитываются «за сегодня». */
+/** Начало торгового дня (МСК): 07:30 — база 0%% на правой оси Spread и порог пересчёта Z «за сегодня». */
 internal const val DYNAMIC_Z_RECALC_HOUR = 7
 internal const val DYNAMIC_Z_RECALC_MINUTE = 30
 /** Ежедневный автоподбор порогов Z (30 дн. MOEX). Выкл. — на графике и в сигналах только «Портфель». */
@@ -112,6 +112,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.80 — Spread (Рынок): правая ось 0%% = спред на 07:30 МСК (открытие торгового дня).
 1.7.79 — Тест страт.: переключатель «Капитализация» без длинного пояснения.
 1.7.78 — Портфель: убраны поясняющие тексты (Z, номинал, подписи таблиц).
 1.7.77 — Портфель: убраны «Все показатели» и «Сверка за день».
