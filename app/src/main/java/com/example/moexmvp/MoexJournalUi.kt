@@ -43,7 +43,8 @@ internal fun JournalTabContent(
     exitThreshold: Double,
     modifier: Modifier = Modifier,
     onClearHistoryRequest: () -> Unit = {},
-    onClearPushLogRequest: () -> Unit = {}
+    onClearPushLogRequest: () -> Unit = {},
+    onExportRequest: () -> Unit = {}
 ) {
     var journalSection by remember { mutableIntStateOf(JOURNAL_SECTION_SIGNALS) }
     var typeFilter by remember { mutableIntStateOf(0) }
@@ -163,23 +164,34 @@ internal fun JournalTabContent(
                     color = Color.White,
                     fontWeight = FontWeight.Bold
                 )
-                Button(
-                    onClick = {
-                        if (journalSection == JOURNAL_SECTION_NOTIFICATIONS) {
-                            showClearPushDialog = true
-                        } else {
-                            showClearDialog = true
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (journalSection == JOURNAL_SECTION_SIGNALS) {
+                        Button(
+                            onClick = onExportRequest,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text("Экспорт", fontSize = 11.sp, color = Color.White)
                         }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        if (journalSection == JOURNAL_SECTION_NOTIFICATIONS) "Очистить push"
-                        else "Очистить историю",
-                        fontSize = 11.sp,
-                        color = Color.White
-                    )
+                    }
+                    Button(
+                        onClick = {
+                            if (journalSection == JOURNAL_SECTION_NOTIFICATIONS) {
+                                showClearPushDialog = true
+                            } else {
+                                showClearDialog = true
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            if (journalSection == JOURNAL_SECTION_NOTIFICATIONS) "Очистить push"
+                            else "Очистить историю",
+                            fontSize = 11.sp,
+                            color = Color.White
+                        )
+                    }
                 }
             }
         }

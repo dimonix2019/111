@@ -917,6 +917,48 @@ internal fun recordStrategySignalEvent(
     }
 }
 
+/** JSON для parity-скрипта (Журнал → Экспорт). */
+internal fun exportStrategySignalJournalJson(
+    context: Context,
+    entryThreshold: Double,
+    exitThreshold: Double,
+    notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+    leverage: Double = 7.0,
+    commissionPercentPerSide: Double = 0.04,
+): String {
+    val events = loadStrategySignalEvents(context)
+    val arr = JSONArray()
+    events.forEach { event ->
+        arr.put(
+            JSONObject()
+                .put("timestampMillis", event.timestampMillis)
+                .put("signalType", event.signalType.name)
+                .put("zScore", event.zScore)
+                .put("receivedAtMillis", event.receivedAtMillis)
+        )
+    }
+    return JSONObject()
+        .put("version", 1)
+        .put("exportedAtMillis", System.currentTimeMillis())
+        .put(
+            "thresholds",
+            JSONObject()
+                .put("entry", entryThreshold)
+                .put("exit", exitThreshold)
+        )
+        .put(
+            "simParams",
+            JSONObject()
+                .put("notionalRub", notionalRub)
+                .put("leverage", leverage)
+                .put("commissionPercentPerSide", commissionPercentPerSide)
+                .put("zMode", "rolling30")
+                .put("compoundReturns", false)
+        )
+        .put("events", arr)
+        .toString(2)
+}
+
 internal fun loadStrategySignalEvents(
     context: Context,
     fromTimestampMillis: Long? = null
