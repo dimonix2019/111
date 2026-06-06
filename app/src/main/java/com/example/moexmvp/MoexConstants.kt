@@ -112,6 +112,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.91 — Бэктест сетки порогов на 365д MOEX (threshold_sweep_365d CSV).
 1.7.90 — Скрипт и тест сетки порогов вход/выход 0…2.5 (threshold_gap_sweep).
 1.7.89 — Тест страт.: убрана подсказка «1 палец…» под графиком Z-score.
 1.7.88 — Тест страт.: убраны легенда и Min/Max под Z-score; Equity выше.
