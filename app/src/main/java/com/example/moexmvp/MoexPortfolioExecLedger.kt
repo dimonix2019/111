@@ -17,6 +17,20 @@ internal enum class PortfolioExecSource {
 internal fun isPortfolioTestTradeConfirmLabel(confirmLabel: String): Boolean =
     confirmLabel.contains("· тест")
 
+/** Однобуквенный тип сделки: Р — ручная, А — авто (подпись на графике Z). */
+internal fun portfolioTradeSourceTypeLetter(confirmLabel: String): String = when {
+    confirmLabel.startsWith("авто") -> "А"
+    confirmLabel.startsWith("ручное") -> "Р"
+    else -> "—"
+}
+
+/** Подпись у маркера на графике: «3А», «2Р». */
+internal fun portfolioTradeChartBadgeText(tradeDisplayId: String, confirmLabel: String): String {
+    val num = tradeDisplayId.trim().substringBefore(' ').ifBlank { tradeDisplayId }
+    val type = portfolioTradeSourceTypeLetter(confirmLabel)
+    return if (type == "—") num else "$num$type"
+}
+
 /**
  * Журнал фактических входов спрэда на песочнице (ручной «Принять» или авто‑заявки).
  * Портфель отображает сделки по журналу сигналов только если вход есть в этом списке (с фильтром по режиму).
@@ -63,6 +77,25 @@ internal fun clearPortfolioExecutionLedger(context: Context) {
             .edit()
             .remove(KEY_JSON)
             .apply()
+    }
+}
+
+internal fun removePortfolioExecutionLedgerEntry(
+    context: Context,
+    barTimestampMillis: Long,
+    signalType: StrategySignalType,
+    source: PortfolioExecSource,
+) {
+    if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return
+    val app = context.applicationContext
+    synchronized(portfolioExecLedgerLock) {
+        val list = loadPortfolioExecutionLedgerUnsafe(app).toMutableList()
+        val removed = list.removeAll {
+            it.barTimestampMillis == barTimestampMillis &&
+                it.signalType == signalType &&
+                it.source == source
+        }
+        if (removed) saveLedgerUnsafe(app, list)
     }
 }
 
@@ -127,6 +160,12 @@ internal fun ledgerEntryPairsForPortfolioReplay(
  * Вход Enter* — только если был реальный вход на демо (см. [ledgerEntryPairsForPortfolioReplay]).
  * Выход — только если в том же отфильтрованном потоке был соответствующий вход (иначе replay не закроет сделку).
  */
+/** Все записи реестра входов (ручные + авто) — для маркеров сделок на Z-графике. */
+internal fun ledgerEntryPairsAll(
+    ledger: List<PortfolioExecutionLedgerEntry>,
+): Set<Pair<StrategySignalType, Long>> =
+    ledger.map { Pair(it.signalType, it.barTimestampMillis) }.toSet()
+
 internal fun journalEventsForExecutionPortfolioTab(
     allEvents: List<StrategySignalEvent>,
     ledger: List<PortfolioExecutionLedgerEntry>,
@@ -140,6 +179,53 @@ internal fun journalEventsForExecutionPortfolioTab(
     val out = mutableListOf<StrategySignalEvent>()
     var position = ZStrategyPosition.Flat
 
+    for (ev in sorted) {
+        when (ev.signalType) {
+            StrategySignalType.EnterLong -> {
+                if (position == ZStrategyPosition.Flat &&
+                    (allowAllJournalEnters ||
+                        ledgerEntryMatchesSignalBar(ledgerPairs, ev.signalType, ev.timestampMillis))
+                ) {
+                    out += ev
+                    position = ZStrategyPosition.Long
+                }
+            }
+            StrategySignalType.EnterShort -> {
+                if (position == ZStrategyPosition.Flat &&
+                    (allowAllJournalEnters ||
+                        ledgerEntryMatchesSignalBar(ledgerPairs, ev.signalType, ev.timestampMillis))
+                ) {
+                    out += ev
+                    position = ZStrategyPosition.Short
+                }
+            }
+            StrategySignalType.ExitLong -> {
+                if (position == ZStrategyPosition.Long) {
+                    out += ev
+                    position = ZStrategyPosition.Flat
+                }
+            }
+            StrategySignalType.ExitShort -> {
+                if (position == ZStrategyPosition.Short) {
+                    out += ev
+                    position = ZStrategyPosition.Flat
+                }
+            }
+        }
+    }
+    return out
+}
+
+/** Журнал для Z-графика: все сделки с записью в реестре (ручные и авто). */
+internal fun journalEventsForChartTrades(
+    allEvents: List<StrategySignalEvent>,
+    ledger: List<PortfolioExecutionLedgerEntry>,
+): List<StrategySignalEvent> {
+    val ledgerPairs = ledgerEntryPairsAll(ledger)
+    val allowAllJournalEnters = ledger.isEmpty()
+    val sorted = allEvents.sortedBy { it.timestampMillis }
+    val out = mutableListOf<StrategySignalEvent>()
+    var position = ZStrategyPosition.Flat
     for (ev in sorted) {
         when (ev.signalType) {
             StrategySignalType.EnterLong -> {

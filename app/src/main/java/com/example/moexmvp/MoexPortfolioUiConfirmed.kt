@@ -57,13 +57,14 @@ import kotlin.math.max
 
 @Composable
 internal fun ConfirmedPortfolioTabContent(
-    metrics: PortfolioMetrics?,
     confirmedTradeTableRows: List<PortfolioConfirmedTradeTableRow>,
     sandboxSpreadExecutions: List<SandboxSpreadExecUi>,
     portfolioLoading: Boolean,
     portfolioError: String?,
     onRefresh: () -> Unit,
     onMoex15mFullReload: (() -> Unit)? = null,
+    lookbackDays: Long,
+    onLookbackDaysChange: (Long) -> Unit,
     leverage: Double,
     commissionPercentPerSide: Double,
     onLeverageChange: (Double) -> Unit,
@@ -79,40 +80,29 @@ internal fun ConfirmedPortfolioTabContent(
     onTestSpreadPairShortClick: () -> Unit,
     closeAllPortfolioBusy: Boolean,
     onCloseAllTradesClick: () -> Unit,
-    dailyReconciliation: DailyPortfolioReconciliation? = null,
-    latestZScore: Double? = null,
-    latestSpreadPercent: Double? = null,
-    latestBarLabel: String? = null,
+    onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
+    closingTradeId: String? = null,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        AppVersionBriefCard(tabHint = "Полный журнал версий — вкладка «О приложении».")
         PortfolioDataRefreshHeader(
             title = "Портфель · демо-счёт",
             portfolioLoading = portfolioLoading,
             onRefresh = onRefresh,
             onMoex15mFullReload = onMoex15mFullReload
         )
-        if (latestZScore != null || latestSpreadPercent != null) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = buildString {
-                    append("Z-score: ")
-                    append(
-                        latestZScore?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
-                    )
-                    append("   |   Спред: ")
-                    append(
-                        latestSpreadPercent?.let { String.format(Locale.US, "%.2f%%", it) } ?: "—"
-                    )
-                    if (!latestBarLabel.isNullOrBlank()) {
-                        append("   |   бар ")
-                        append(latestBarLabel)
-                    }
-                },
-                color = Color(0xFFE0E0E0),
-                fontSize = 13.sp
+                text = "Глубина",
+                color = Color(0xFF9E9E9E),
+                fontSize = 11.sp,
+            )
+            PortfolioDepthSelector(
+                selectedDays = lookbackDays,
+                onSelect = onLookbackDaysChange,
+                enabled = !portfolioLoading,
             )
             Text(
                 text = "Свечной график Z-score · 15м — вкладка «Рынок»",
@@ -272,16 +262,13 @@ internal fun ConfirmedPortfolioTabContent(
         }
         PortfolioTradesWindowSection(
             openExecutions = sandboxSpreadExecutions,
-            closedRows = confirmedTradeTableRows
-        )
-        Text(
-            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · оценка по спрэду 15м",
-            color = Color(0xFF9E9E9E),
-            fontSize = 10.sp,
-            maxLines = 3
+            closedRows = confirmedTradeTableRows,
+            lookbackDays = lookbackDays,
+            onCloseOpenTrade = onCloseOpenTrade,
+            closingTradeId = closingTradeId,
         )
         PortfolioCollapsibleSection(
-            title = "Плечо, комиссия, пояснения",
+            title = "Плечо и комиссия",
             defaultExpanded = false
         ) {
             PortfolioParamsControls(
@@ -295,11 +282,6 @@ internal fun ConfirmedPortfolioTabContent(
                 onEntryThresholdChange = {},
                 onExitThresholdChange = {}
             )
-            Text(
-                text = "Метрики ниже — по парам вход→выход из журнала исполнений на демо (ручной «Принять» или авто, см. переключатель выше).",
-                color = Color(0xFF757575),
-                fontSize = 10.sp
-            )
         }
 
         if (portfolioError != null) {
@@ -311,45 +293,6 @@ internal fun ConfirmedPortfolioTabContent(
                     Text("Повторить", fontSize = 11.sp)
                 }
             }
-        } else if (!portfolioLoading && metrics == null) {
-            val (openBucket, _) = buildPortfolioTradesBuckets(sandboxSpreadExecutions, confirmedTradeTableRows)
-            val hasOpenMtm = openBucket.groups.any { !it.netPnlRubApprox.isNaN() }
-            if (hasOpenMtm) {
-                Text(
-                    text = "Сводка по журналу недоступна (мало 15м данных). Нереализованный PnL открытых: ${formatRubSigned(openBucket.totalPnlRub)}",
-                    color = Color(0xFFBDBDBD),
-                    fontSize = 11.sp,
-                    maxLines = 4
-                )
-            } else {
-                Text("Нет сделок по данным портфеля (или нет 15м данных).", color = Color(0xFFBDBDBD), fontSize = 11.sp)
-            }
-        } else {
-            metrics?.let { m ->
-                PortfolioCompactHeroInline(m)
-                PortfolioCollapsibleSection(
-                    title = "Все показатели (сводка и сетка)",
-                    subtitle = "${formatRubSigned(m.totalPnlRubApprox)} · просадка ${formatRubSigned(-m.maxDrawdownRubApprox)}",
-                    defaultExpanded = false
-                ) {
-                    Text(
-                        text = "Итого = реализованный PnL + нереализованная нога (если позиция ещё открыта по журналу).",
-                        color = Color(0xFF616161),
-                        fontSize = 9.sp,
-                        maxLines = 3
-                    )
-                    PortfolioHeroMetricsRow(metrics = m)
-                    Text(
-                        text = m.periodDescription,
-                        color = Color(0xFF757575),
-                        fontSize = 10.sp
-                    )
-                    PortfolioMetricGrid(m, showHeroDuplicate = false)
-                }
-            }
-        }
-        dailyReconciliation?.let { rec ->
-            DailyReconciliationSection(rec)
         }
     }
 }

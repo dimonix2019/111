@@ -32,10 +32,10 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: Portf
                 return@refreshPortfolioUnlocked
             }
             val points = loaded
-            portfolioM15Points = loaded
+            portfolioM15Points = points
             if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
             val desc =
-                "15 мин (ISS 10m→15m) · $PORTFOLIO_TAB_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
+                "15 мин (ISS 10m→15m) · ${portfolioLookbackPeriodLabel(portfolioLookbackDays)} (${points.first().tradeDate}…${points.last().tradeDate})"
 
             val entryRt = (realTradeEntryThreshold ?: dynamicThresholds.entry)
                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
@@ -75,7 +75,13 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: Portf
                     periodDescription = desc
                 )
             }
-            confirmedPortfolioMetrics = executed.metrics
+            confirmedPortfolioMetrics = buildPortfolioTabSimulationMetricsForDisplay(
+                entryThreshold = entryRt,
+                exitThreshold = exitRt,
+                dynamicCalculatedDate = dynamicThresholds.calculatedDate,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+            ) ?: executed.metrics
             val sandboxRaw = withContext(Dispatchers.IO) {
                 TinkoffSandboxSpreadExecLog.loadRecent(context)
             }
@@ -389,6 +395,19 @@ internal suspend fun MoexScreenState.refreshData(
                                         saveDailySignalLimit(context, dailySignalLimit)
                                     }
                                 }
+                                launchScope.launch(Dispatchers.IO) {
+                                    val ran = runSandboxAutoExitIfNeeded(
+                                        context.applicationContext,
+                                        StrategySignalType.ExitLong,
+                                        latestZScore,
+                                        latestTimestampMillis,
+                                    )
+                                    if (ran) {
+                                        withContext(Dispatchers.Main) {
+                                            sandboxSpreadExecReload++
+                                        }
+                                    }
+                                }
                             }
 
                             ZStrategySignal.ExitShort -> {
@@ -416,6 +435,19 @@ internal suspend fun MoexScreenState.refreshData(
                                     if (sent) {
                                         dailySignalLimit = dailySignalLimit.copy(sentCount = dailySignalLimit.sentCount + 1)
                                         saveDailySignalLimit(context, dailySignalLimit)
+                                    }
+                                }
+                                launchScope.launch(Dispatchers.IO) {
+                                    val ran = runSandboxAutoExitIfNeeded(
+                                        context.applicationContext,
+                                        StrategySignalType.ExitShort,
+                                        latestZScore,
+                                        latestTimestampMillis,
+                                    )
+                                    if (ran) {
+                                        withContext(Dispatchers.Main) {
+                                            sandboxSpreadExecReload++
+                                        }
                                     }
                                 }
                             }

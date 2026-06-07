@@ -56,6 +56,19 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     val configuration = LocalConfiguration.current
     with(screen) {
         val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != MainTab.StrategyTest) {
+            strategyTestWorkGeneration++
+            clearStrategyTestVisibleState()
+            return@LaunchedEffect
+        }
+        if (strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) {
+            scheduleStrategyTestTabWork(reason = "tab_open_cache", preferNetwork = false)
+            return@LaunchedEffect
+        }
+        scheduleStrategyTestTabWork(reason = "tab_open", preferNetwork = false)
+    }
+
     LaunchedEffect(
         selectedTab,
         strategyTestEntryThreshold,
@@ -63,16 +76,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         portfolioLeverage,
         portfolioCommissionPercent,
         strategyTestCompoundReturns,
-        dynamicThresholds.entry,
-        dynamicThresholds.exit,
-        dynamicThresholds.calculatedDate,
     ) {
-        if (selectedTab != MainTab.StrategyTest) {
-            clearStrategyTestSession()
-            return@LaunchedEffect
-        }
-        val reloadFromDb = !strategyTestM15SessionCache.sufficientForStrategyTestSimulation()
-        refreshStrategyTestTab(preferNetwork = false, reloadFromDb = reloadFromDb)
+        if (selectedTab != MainTab.StrategyTest) return@LaunchedEffect
+        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
+        if (strategyTestM15Loading || strategyTestSimComputing) return@LaunchedEffect
+        if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
+        scheduleStrategyTestResimOnly(reason = "params_change")
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -157,6 +166,38 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(portfolioLookbackDays) {
+        withContext(Dispatchers.IO) {
+            savePortfolioLookbackDays(context, portfolioLookbackDays)
+        }
+    }
+
+    LaunchedEffect(
+        realTradeEntryThreshold,
+        realTradeExitThreshold,
+        strategyTestM15SessionCache.size,
+        portfolioM15Points.size,
+        portfolioLookbackDays,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        dynamicThresholds.calculatedDate,
+        portfolioLoading,
+    ) {
+        if (portfolioLoading) return@LaunchedEffect
+        val entry = realTradeEntryThreshold ?: return@LaunchedEffect
+        val exit = realTradeExitThreshold ?: return@LaunchedEffect
+        if (m15SeriesForZSimulation().isEmpty()) return@LaunchedEffect
+        confirmedPortfolioMetrics = withContext(Dispatchers.Default) {
+            buildPortfolioTabSimulationMetricsForDisplay(
+                entryThreshold = entry,
+                exitThreshold = exit,
+                dynamicCalculatedDate = dynamicThresholds.calculatedDate,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+            )
+        }
+    }
+
     LaunchedEffect(strategyTestEntryThreshold, strategyTestExitThreshold) {
         val entry = strategyTestEntryThreshold ?: return@LaunchedEffect
         val exit = strategyTestExitThreshold ?: return@LaunchedEffect
@@ -165,32 +206,30 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
-    LaunchedEffect(chartSuccess?.points, signalEvents) {
-        val pts = chartSuccess?.points
-        if (pts != null && pts.isNotEmpty()) {
-            val est = estimateTodaySpreadPnlFromEvents(signalEvents, pts)
-            todayPnlHint = est?.let { String.format(Locale.US, "%.2f п.п. спрэда", it) }
-        } else {
-            todayPnlHint = null
-        }
-    }
     val signalJournalFingerprint = signalEvents.size to signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
 
     LaunchedEffect(
         signalJournalFingerprint,
         confirmedPortfolioMetrics,
         strategyTestPortfolioMetrics,
+        portfolioLookbackDays,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
         dynamicThresholds.entry,
         dynamicThresholds.exit
     ) {
         dailyReconciliation = withContext(Dispatchers.Default) {
+            val confirmedForCompare = confirmedPortfolioMetrics?.let {
+                filterPortfolioMetricsToRecentDays(it, portfolioLookbackDays)
+            }
+            val simulationForCompare = strategyTestPortfolioMetrics?.let {
+                filterPortfolioMetricsToRecentDays(it, portfolioLookbackDays)
+            }
             buildDailyPortfolioReconciliation(
                 day = LocalDate.now(ZoneId.of("Europe/Moscow")),
                 journalEvents = signalEvents,
-                confirmed = confirmedPortfolioMetrics,
-                simulation = strategyTestPortfolioMetrics,
+                confirmed = confirmedForCompare,
+                simulation = simulationForCompare,
                 simEntryThreshold = strategyTestEntryThreshold ?: dynamicThresholds.entry,
                 simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit,
                 simExitMode = ZStrategyExitMode.FixedThreshold,
@@ -201,6 +240,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
 
     LaunchedEffect(
         selectedTab,
+        portfolioLookbackDays,
         dynamicThresholds.entry,
         dynamicThresholds.exit,
         portfolioLeverage,

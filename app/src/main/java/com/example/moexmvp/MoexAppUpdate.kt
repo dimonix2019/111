@@ -182,14 +182,24 @@ internal fun selectBestRemoteAppUpdate(candidates: List<AppRemoteUpdate>): AppRe
 
 internal fun resolveApkDownloadUrl(manifestUrl: String, parsed: AppRemoteUpdate): String {
     if (manifestUrl == APP_UPDATE_PUBLIC_MANIFEST_URL) {
-        val explicit = parsed.apkDownloadUrl
-        if (explicit.isNotBlank() && explicit.contains("/releases/download/")) {
-            return explicit
-        }
+        // gh-pages — публичное зеркало; APK всегда с raw.githubusercontent (без входа в GitHub).
         return APP_UPDATE_PUBLIC_APK_URL
     }
     return parsed.apkDownloadUrl.ifBlank { APK_DOWNLOAD_DIRECT_URL }
 }
+
+/** Порядок попыток скачивания: основной URL → зеркало gh-pages → прямая ссылка Release. */
+internal fun apkDownloadUrlCandidates(primaryUrl: String): List<String> =
+    buildList {
+        val primary = primaryUrl.trim()
+        if (primary.isNotBlank()) add(primary)
+        if (none { it.equals(APP_UPDATE_PUBLIC_APK_URL, ignoreCase = true) }) {
+            add(APP_UPDATE_PUBLIC_APK_URL)
+        }
+        if (none { it.equals(APK_DOWNLOAD_DIRECT_URL, ignoreCase = true) }) {
+            add(APK_DOWNLOAD_DIRECT_URL)
+        }
+    }
 
 internal fun parseAppUpdateManifestJson(json: String, manifestUrl: String = APP_UPDATE_MANIFEST_URL): AppRemoteUpdate? {
     val o = runCatching { JSONObject(json) }.getOrNull() ?: return null
@@ -340,15 +350,42 @@ internal fun downloadAppUpdateApk(
     destination: File,
     onProgress: ((Float?) -> Unit)? = null
 ) {
+    val urls = apkDownloadUrlCandidates(update.apkDownloadUrl)
+    var lastError: IOException? = null
+    for (url in urls) {
+        try {
+            downloadAppUpdateApkFromUrl(url, destination, onProgress)
+            return
+        } catch (e: IOException) {
+            lastError = e
+            if (destination.exists()) destination.delete()
+            if (!isApkDownloadRetryable(e)) throw e
+        }
+    }
+    throw lastError ?: IOException("APK недоступен. Попробуйте «Через браузер».")
+}
+
+private fun isApkDownloadRetryable(error: IOException): Boolean {
+    val msg = error.message.orEmpty()
+    return msg.contains("404") ||
+        msg.contains("слишком мал") ||
+        msg.contains("Пустой ответ")
+}
+
+private fun downloadAppUpdateApkFromUrl(
+    url: String,
+    destination: File,
+    onProgress: ((Float?) -> Unit)? = null
+) {
     destination.parentFile?.mkdirs()
     if (destination.exists()) destination.delete()
-    val request = Request.Builder().url(update.apkDownloadUrl).build()
+    val request = Request.Builder().url(url).build()
     updateHttpClient.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
             throw IOException(
                 when (response.code) {
-                    404 -> "HTTP 404 — APK недоступен (private repo? Откройте Release в браузере под аккаунтом GitHub)"
-                    else -> "HTTP ${response.code}"
+                    404 -> "HTTP 404 — APK недоступен по $url"
+                    else -> "HTTP ${response.code} — $url"
                 }
             )
         }

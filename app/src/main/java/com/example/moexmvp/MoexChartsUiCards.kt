@@ -79,16 +79,20 @@ internal fun ChartCard(
     markerScale: Float = 1f,
     showZoomHint: Boolean = false,
     rightPlotPaddingPx: Float = 16f,
+    m15TimeLabels: Boolean = false,
+    xLabelStyle: ChartXLabelStyle = ChartXLabelStyleTilted,
     /** Доп. строка под выбранной точкой (например PnL симуляции по Z). */
     tradeTapHintFormatter: ((Int) -> String?)? = null
 ) {
-    val axisScale = remember(series, labels, yScale, referenceLines) {
-        buildAxisScale(
+    val axisScale = remember(series, labels, yScale, referenceLines, m15TimeLabels) {
+        val base = buildAxisScale(
             series = series,
             labels = labels,
             yScale = yScale,
             valueHints = referenceLines.map { it.value }
         )
+        if (!m15TimeLabels) base
+        else base.copy(xTicks = buildXTicksForM15Labels(labels))
     }
     val stats = remember(series) { buildChartStats(series) }
     var selectedIndex by remember(series, labels) { mutableStateOf<Int?>(null) }
@@ -140,7 +144,8 @@ internal fun ChartCard(
                     .height(chartHeightDp.dp),
                 enableZoomPan = enableZoomPan,
                 markerScale = markerScale,
-                rightPlotPaddingPx = rightPlotPaddingPx
+                rightPlotPaddingPx = rightPlotPaddingPx,
+                xLabelStyle = xLabelStyle,
             )
             if (rightAxisPercentBase != null && rightAxisPercentBase != 0.0) {
                 Column(
@@ -208,6 +213,7 @@ internal fun CandlestickChartCard(
     referenceLines: List<ChartReferenceLine> = emptyList(),
     pointMarkers: List<ChartPointMarker> = emptyList(),
     showLegend: Boolean = true,
+    showMinMax: Boolean = true,
     enableZoomPan: Boolean = false,
     markerScale: Float = 1f,
     showZoomHint: Boolean = false,
@@ -217,10 +223,13 @@ internal fun CandlestickChartCard(
     initialWindowStart: Float = 0f,
     tradeTapHintFormatter: ((Int) -> String?)? = null,
     landscapeMinimal: Boolean = false,
+    xLabelStyle: ChartXLabelStyle = ChartXLabelStyleTilted,
     useDesktopStyle: Boolean = false,
     displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
     showPlotlyToolbar: Boolean = false,
     trackpadGestures: Boolean = true,
+    /** Меньше отступов между заголовком и графиком (без легенды / Min-Max / подсказки жестов). */
+    compactLayout: Boolean = false,
 ) {
     val axisScale = remember(candles, referenceLines) {
         buildCandleAxisScale(candles, valueHints = referenceLines.map { it.value })
@@ -275,12 +284,18 @@ internal fun CandlestickChartCard(
             .then(if (landscapeMinimal) Modifier.fillMaxHeight() else Modifier)
             .background(cardBg, RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp))
             .padding(if (landscapeMinimal) 2.dp else 10.dp),
-        verticalArrangement = Arrangement.spacedBy(if (landscapeMinimal) 2.dp else 8.dp)
+        verticalArrangement = Arrangement.spacedBy(
+            when {
+                landscapeMinimal -> 2.dp
+                compactLayout -> 4.dp
+                else -> 8.dp
+            }
+        )
     ) {
         if (!landscapeMinimal && title.isNotBlank()) {
             Text(title, fontWeight = FontWeight.Bold, color = Color(0xFFE5E7EB))
         }
-        if (showZoomHint && enableZoomPan && !landscapeMinimal) {
+        if (showZoomHint && enableZoomPan && !landscapeMinimal && !compactLayout) {
             Text(
                 text = if (useDesktopStyle) CHART_TRACKPAD_HINT else
                     "Масштаб: pinch — свечи и пороги по X и Y · сдвиг · двойной тап: сброс",
@@ -306,7 +321,7 @@ internal fun CandlestickChartCard(
                             if (landscapeMinimal) Modifier.fillMaxHeight()
                             else Modifier.height(chartHeightDp.dp)
                         )
-                        .width(54.dp),
+                        .width(if (landscapeMinimal) 42.dp else 54.dp),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     displayYTicks
@@ -352,6 +367,7 @@ internal fun CandlestickChartCard(
                     displayMode = displayMode,
                     useDesktopStyle = useDesktopStyle,
                     trackpadGestures = trackpadGestures,
+                    xLabelStyle = xLabelStyle,
                 )
             }
             if (enableZoomPan && useViewport && (showPlotlyToolbar || landscapeMinimal)) {
@@ -400,11 +416,13 @@ internal fun CandlestickChartCard(
                     )
                 }
             }
-            Text(
-                text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
-                fontSize = 12.sp,
-                color = Color(0xFFD7E3F4)
-            )
+            if (showMinMax) {
+                Text(
+                    text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
+                    fontSize = 12.sp,
+                    color = Color(0xFFD7E3F4)
+                )
+            }
         }
     }
 }

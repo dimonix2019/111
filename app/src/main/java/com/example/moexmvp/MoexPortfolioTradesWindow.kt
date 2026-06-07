@@ -6,22 +6,21 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /** Глубина списка сделок на вкладке «Портфель» (календарные дни, МСК). */
-internal const val PORTFOLIO_TRADES_WINDOW_DAYS = 3L
-
-private val portfolioTableMskParseFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-
 internal fun portfolioTradesWindowStartMillis(
+    lookbackDays: Long,
     zone: ZoneId = ZoneId.of("Europe/Moscow"),
-    nowMillis: Long = System.currentTimeMillis()
+    nowMillis: Long = System.currentTimeMillis(),
 ): Long =
     Instant.ofEpochMilli(nowMillis)
         .atZone(zone)
         .toLocalDate()
-        .minusDays(PORTFOLIO_TRADES_WINDOW_DAYS)
+        .minusDays((normalizePortfolioLookbackDays(lookbackDays) - 1).coerceAtLeast(0))
         .atStartOfDay(zone)
         .toInstant()
         .toEpochMilli()
+
+private val portfolioTableMskParseFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
 internal fun parsePortfolioExecutionTableMsk(label: String): Long? {
     if (label.isBlank() || label == "—") return null
@@ -35,13 +34,15 @@ internal fun parsePortfolioExecutionTableMsk(label: String): Long? {
 
 internal fun filterSandboxExecutionsInWindow(
     executions: List<SandboxSpreadExecUi>,
-    windowStartMillis: Long = portfolioTradesWindowStartMillis()
+    lookbackDays: Long,
+    windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
 ): List<SandboxSpreadExecUi> =
     executions.filter { it.executedAtMillis >= windowStartMillis }
 
 internal fun filterClosedTradeRowsInWindow(
     rows: List<PortfolioConfirmedTradeTableRow>,
-    windowStartMillis: Long = portfolioTradesWindowStartMillis()
+    lookbackDays: Long,
+    windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
 ): List<PortfolioConfirmedTradeTableRow> =
     rows.filter { row ->
         val exitMs = parsePortfolioExecutionTableMsk(row.exitTimeMsk) ?: return@filter false
@@ -65,7 +66,8 @@ internal fun parseSimTradeExitMillis(label: String): Long? {
 
 internal fun filterSimClosedTradesInWindow(
     trades: List<PortfolioClosedTrade>,
-    windowStartMillis: Long = portfolioTradesWindowStartMillis()
+    lookbackDays: Long,
+    windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
 ): List<PortfolioClosedTrade> =
     trades.filter { t ->
         val exitMs = parseSimTradeExitMillis(t.exitDate) ?: return@filter false
@@ -83,13 +85,36 @@ internal data class PortfolioTradesBucketUi(
     val isOpenTrades: Boolean
 )
 
+/** Фильтр таблиц сделок: скрыть ручные, оставить авто (и тестовые). */
+internal fun filterSandboxExecutionsForTradesTable(
+    executions: List<SandboxSpreadExecUi>,
+    autoOnly: Boolean,
+): List<SandboxSpreadExecUi> =
+    if (!autoOnly) executions
+    else filterSandboxExecutionsByPortfolioMode(executions, portfolioLedgerIncludeAuto = true)
+
+internal fun filterConfirmedTableRowsForTradesTable(
+    rows: List<PortfolioConfirmedTradeTableRow>,
+    autoOnly: Boolean,
+): List<PortfolioConfirmedTradeTableRow> =
+    if (!autoOnly) rows
+    else filterConfirmedTableRowsByPortfolioMode(rows, portfolioLedgerIncludeAuto = true)
+
 internal fun buildPortfolioTradesBuckets(
     openExecutions: List<SandboxSpreadExecUi>,
     closedRows: List<PortfolioConfirmedTradeTableRow>,
-    windowStartMillis: Long = portfolioTradesWindowStartMillis()
+    lookbackDays: Long,
+    windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
+    tradesAutoOnlyFilter: Boolean = false,
 ): Pair<PortfolioTradesBucketUi, PortfolioTradesBucketUi> {
-    val openFiltered = filterSandboxExecutionsInWindow(openExecutions, windowStartMillis)
-    val closedFiltered = filterClosedTradeRowsInWindow(closedRows, windowStartMillis)
+    val openFiltered = filterSandboxExecutionsForTradesTable(
+        filterSandboxExecutionsInWindow(openExecutions, lookbackDays, windowStartMillis),
+        autoOnly = tradesAutoOnlyFilter,
+    )
+    val closedFiltered = filterConfirmedTableRowsForTradesTable(
+        filterClosedTradeRowsInWindow(closedRows, lookbackDays, windowStartMillis),
+        autoOnly = tradesAutoOnlyFilter,
+    )
     val openGroups = openFiltered.asReversed().map { it.toTradeGroup() }
     val closedGroups = closedFiltered.map { it.toTradeGroup() }
     return PortfolioTradesBucketUi(
