@@ -13,7 +13,13 @@ internal class MoexScreenState(val context: Context) {
     val refreshMutex = Mutex()
 
     var pendingAppUpdate by mutableStateOf<AppRemoteUpdate?>(null)
-    var selectedTab by mutableStateOf(MainTab.Markets)
+    var selectedTab by mutableStateOf(
+        if (SignalForegroundService.isBackgroundMonitorEnabled(context)) {
+            MainTab.Journal
+        } else {
+            MainTab.Markets
+        }
+    )
     var confirmedPortfolioMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var confirmedPortfolioTableRows by mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList())
     var strategyTestCompoundReturns by mutableStateOf(false)

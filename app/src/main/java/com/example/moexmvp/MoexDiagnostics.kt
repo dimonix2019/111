@@ -51,11 +51,18 @@ internal object MoexDiagnostics {
     }
 
     fun logUncaught(context: Context, thread: Thread, throwable: Throwable) {
-        log(context, "crash", "UNCAUGHT thread=${thread.name} ${throwable.javaClass.simpleName}: ${throwable.message?.take(200)}")
+        val kind = if (throwable is Error) "fatal" else "crash"
+        log(context, kind, "UNCAUGHT thread=${thread.name} ${throwable.javaClass.simpleName}: ${throwable.message?.take(200)}")
         throwable.stackTraceToString()
             .lineSequence()
             .take(40)
-            .forEach { appendLine(context.applicationContext, "${timestamp()} [crash] ${it.take(240)}") }
+            .forEach { appendLine(context.applicationContext, "${timestamp()} [$kind] ${it.take(240)}") }
+        flushFile(context.applicationContext)
+    }
+
+    fun logWebViewGone(context: Context, detail: String) {
+        log(context, "webview", "render_process_gone $detail")
+        logMemory(context, "webview_gone")
         flushFile(context.applicationContext)
     }
 

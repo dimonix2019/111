@@ -36,13 +36,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        installMoexDiagnosticsCrashHandler(applicationContext)
         MoexDiagnostics.log(
             applicationContext,
             "lifecycle",
-            "app_start version=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            "activity_onCreate version=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
         )
-        MoexDiagnostics.logMemory(applicationContext, "app_start")
+        MoexDiagnostics.logMemory(applicationContext, "activity_onCreate")
         createPushNotificationChannel(this)
         requestPushPermissionIfNeeded()
         initPushMessaging()
@@ -66,6 +65,27 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        MoexDiagnostics.log(applicationContext, "lifecycle", "activity_onStart")
+    }
+
+    override fun onStop() {
+        MoexDiagnostics.log(applicationContext, "lifecycle", "activity_onStop")
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        MoexDiagnostics.log(applicationContext, "lifecycle", "activity_onDestroy")
+        super.onDestroy()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        MoexDiagnostics.log(applicationContext, "lifecycle", "onTrimMemory level=$level")
+        MoexDiagnostics.logMemory(applicationContext, "onTrimMemory")
     }
 
     private fun requestPushPermissionIfNeeded() {
@@ -102,7 +122,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun installMoexDiagnosticsCrashHandler(appContext: android.content.Context) {
+internal fun installMoexDiagnosticsCrashHandler(appContext: android.content.Context) {
     val prior = Thread.getDefaultUncaughtExceptionHandler()
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
         runCatching { MoexDiagnostics.logUncaught(appContext, thread, throwable) }

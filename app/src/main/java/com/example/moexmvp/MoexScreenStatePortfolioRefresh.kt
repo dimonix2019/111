@@ -142,6 +142,8 @@ internal suspend fun MoexScreenState.refreshData(
         selectedPeriod: Period,
         preferBackground: Boolean = false,
     ) {
+        MoexDiagnostics.log(context, "ui", "refreshData start period=$selectedPeriod showLoading=$showLoading")
+        MoexDiagnostics.logMemory(context, "refreshData_start")
         val hasDisplayCache = lastGoodMarkets != null
         val blockUi = showLoading && !hasDisplayCache
 
@@ -502,5 +504,11 @@ internal suspend fun MoexScreenState.refreshData(
             performRefresh()
         } finally {
             isRefreshing = false
+            MoexDiagnostics.log(
+                context,
+                "ui",
+                "refreshData done m15=${marketsM15Source().size} tab=${selectedTab.label} error=${realtimeError?.take(80)}",
+            )
+            MoexDiagnostics.logMemory(context, "refreshData_done")
         }
     }

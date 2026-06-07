@@ -282,8 +282,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(selectedTab) {
+        MoexDiagnostics.log(context, "ui", "tab=${selectedTab.label}")
+    }
+
     LaunchedEffect(Unit) {
-        marketsZChartPeriod = marketsZChartPeriod.coerceToMarketsUiPeriod()
         selectedPeriod = selectedPeriod.coerceToMarketsUiPeriod()
         coroutineScope {
             val marketsHydrate = async { hydrateMarketsFromLocalCache(selectedPeriod) }

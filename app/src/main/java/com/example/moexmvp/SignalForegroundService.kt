@@ -115,7 +115,7 @@ class SignalForegroundService : Service() {
             return@withContext
         }
         if (points.size < 2) {
-            if (monitorTickCount % 40 == 0) {
+            if (monitorTickCount <= 3 || monitorTickCount % 20 == 0) {
                 MoexDiagnostics.log(applicationContext, "monitor", "tick#$monitorTickCount points=${points.size} (wait data)")
             }
             return@withContext
@@ -131,7 +131,7 @@ class SignalForegroundService : Service() {
             thresholds = signalThresholds
         )
         if (edgeSignal == ZStrategySignal.None) {
-            if (monitorTickCount % 40 == 0) {
+            if (monitorTickCount <= 3 || monitorTickCount % 20 == 0) {
                 val last = points.last()
                 MoexDiagnostics.log(
                     applicationContext,

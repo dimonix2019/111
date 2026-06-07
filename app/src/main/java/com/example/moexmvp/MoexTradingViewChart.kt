@@ -317,6 +317,14 @@ internal fun TradingViewZScoreChart(
                     override fun onPageFinished(view: WebView?, url: String?) {
                         view?.evaluateJavascript("window.moexChartPageReady && window.moexChartPageReady()", null)
                     }
+
+                    override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                        MoexDiagnostics.logWebViewGone(
+                            context.applicationContext,
+                            "didCrash=${detail?.didCrash()} rendererPriorityAtExit=${detail?.rendererPriorityAtExit()}",
+                        )
+                        return true
+                    }
                 }
                 loadDataWithBaseURL(TRADINGVIEW_ASSET_BASE, html, "text/html", "UTF-8", null)
             }
