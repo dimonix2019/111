@@ -1,0 +1,26 @@
+{
+  "name": "Z-Strategy · TATN/TATNP",
+  "short_name": "Z-Score",
+  "description": "Z-score стратегия TATN/TATNP · мобильный режим",
+  "start_url": "/m",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#050a14",
+  "theme_color": "#050a14",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

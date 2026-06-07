@@ -42,7 +42,10 @@ jobs:
         run: ./gradlew :app:testDebugUnitTest --parallel --build-cache
 
       - name: Assemble Debug
-        run: ./gradlew :app:assembleDebug --parallel --build-cache -x lint
+        run: |
+          sed -i 's/\r$//' gradlew
+          chmod +x gradlew
+          bash ./gradlew :app:assembleDebug --parallel --build-cache -x lint
 
       - name: Extract version from Gradle
         id: meta
