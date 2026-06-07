@@ -72,21 +72,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         scheduleStrategyTestTabWork(reason = "tab_open", preferNetwork = false)
     }
 
-    LaunchedEffect(
-        selectedTab,
-        strategyTestEntryThreshold,
-        strategyTestExitThreshold,
-        portfolioLeverage,
-        portfolioCommissionPercent,
-        strategyTestCompoundReturns,
-    ) {
-        if (selectedTab != MainTab.StrategyTest) return@LaunchedEffect
-        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
-        if (strategyTestM15Loading || strategyTestSimComputing) return@LaunchedEffect
-        if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
-        scheduleStrategyTestResimOnly(reason = "params_change")
-    }
-
     val lifecycleOwner = LocalLifecycleOwner.current
     var activityResumed by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
@@ -129,6 +114,26 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(
+        selectedTab,
+        activityResumed,
+        strategyTestEntryThreshold,
+        strategyTestExitThreshold,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        strategyTestCompoundReturns,
+    ) {
+        if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
+        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
+        if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
+        delay(STRATEGY_TEST_RESIM_DEBOUNCE_MS)
+        if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
+        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
+        if (strategyTestM15Loading || strategyTestSimComputing) return@LaunchedEffect
+        if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
+        scheduleStrategyTestResimOnly(reason = "params_change")
     }
 
     LaunchedEffect(Unit) {
