@@ -28,7 +28,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -85,6 +88,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
+    var activityResumed by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
         fun hydrateVirtualTradeAndSandboxUi() {
             val act = context as? Activity
@@ -104,18 +108,23 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
         hydrateVirtualTradeAndSandboxUi()
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                hydrateVirtualTradeAndSandboxUi()
-                scope.launch {
-                    val (t, a) = withContext(Dispatchers.IO) {
-                        Pair(
-                            TinkoffSandboxStorage.getToken(context).orEmpty(),
-                            TinkoffSandboxStorage.getAccountId(context).orEmpty()
-                        )
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    activityResumed = true
+                    hydrateVirtualTradeAndSandboxUi()
+                    scope.launch {
+                        val (t, a) = withContext(Dispatchers.IO) {
+                            Pair(
+                                TinkoffSandboxStorage.getToken(context).orEmpty(),
+                                TinkoffSandboxStorage.getAccountId(context).orEmpty()
+                            )
+                        }
+                        sandboxTokenInput = t
+                        sandboxAccountInput = a
                     }
-                    sandboxTokenInput = t
-                    sandboxAccountInput = a
                 }
+                Lifecycle.Event.ON_PAUSE -> activityResumed = false
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -143,6 +152,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         val st = loadStrategyTestZThresholds(context, dynamicThresholds)
         if (strategyTestEntryThreshold == null) strategyTestEntryThreshold = st.entry
         if (strategyTestExitThreshold == null) strategyTestExitThreshold = st.exit
+        MoexDiagnostics.log(
+            context,
+            "config",
+            "thresholds real=${rt.entry}/${rt.exit} test=${st.entry}/${st.exit}",
+        )
     }
 
     LaunchedEffect(dynamicThresholds.entry, dynamicThresholds.exit) {
@@ -333,8 +347,8 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             }
         }
     }
-    LaunchedEffect(realtimeEnabled, selectedPeriod) {
-        if (!realtimeEnabled) return@LaunchedEffect
+    LaunchedEffect(realtimeEnabled, selectedPeriod, selectedTab, activityResumed) {
+        if (!realtimeEnabled || selectedTab != MainTab.Markets || !activityResumed) return@LaunchedEffect
         while (true) {
             delay(FIXED_REALTIME_INTERVAL_MS)
             refreshData(showLoading = false, launchScope = scope, selectedPeriod = selectedPeriod)

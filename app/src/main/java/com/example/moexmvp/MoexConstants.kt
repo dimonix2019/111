@@ -112,6 +112,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.97 — Fix: MOEX poll только на «Рынок» и при активном экране (не каждые 5с в фоне).
 1.7.96 — Диагностика вылетов: WebView crash, lifecycle, старт на «Журнал», largeHeap.
 1.7.95 — Журнал событий: лог вылетов/мониторинга, экспорт из «О приложении».
 1.7.94 — Parity: экспорт журнала, journal_vs_sim_parity.py, baseline-тест 0.7/0.5.
