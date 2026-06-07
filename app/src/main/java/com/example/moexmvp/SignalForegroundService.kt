@@ -35,26 +35,33 @@ class SignalForegroundService : Service() {
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private var workerStarted = false
     private var ticksSinceAppUpdateCheck = 0
+    private var monitorTickCount = 0
 
     override fun onCreate() {
         super.onCreate()
         createSignalMonitorChannel(this)
+        MoexDiagnostics.log(applicationContext, "monitor", "service_onCreate")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_SIGNAL_MONITOR) {
+            MoexDiagnostics.log(applicationContext, "monitor", "service_stop")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             saveSignalMonitorEnabled(this, false)
             return START_NOT_STICKY
         }
         saveSignalMonitorEnabled(this, true)
+        MoexDiagnostics.log(applicationContext, "monitor", "service_start foreground")
         startForeground(SIGNAL_MONITOR_NOTIFICATION_ID, buildForegroundNotification())
         if (!workerStarted) {
             workerStarted = true
             scope.launch {
                 while (isActive) {
                     runCatching { performSignalMonitorTick() }
+                        .onFailure { e ->
+                            MoexDiagnostics.logError(applicationContext, "monitor", e, "tick failed")
+                        }
                     delay(SIGNAL_MONITOR_INTERVAL_MS)
                 }
             }
@@ -63,6 +70,7 @@ class SignalForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        MoexDiagnostics.log(applicationContext, "monitor", "service_onDestroy")
         scope.cancel()
         super.onDestroy()
     }
@@ -87,17 +95,31 @@ class SignalForegroundService : Service() {
     }
 
     private suspend fun performSignalMonitorTick() = withContext(Dispatchers.IO) {
+        monitorTickCount++
         ticksSinceAppUpdateCheck++
         if (ticksSinceAppUpdateCheck * SIGNAL_MONITOR_INTERVAL_MS >= APP_UPDATE_CHECK_INTERVAL_MS) {
             ticksSinceAppUpdateCheck = 0
             runCatching { checkRemoteAppUpdateAndNotify(applicationContext) }
+                .onFailure { e ->
+                    MoexDiagnostics.logError(applicationContext, "monitor", e, "app_update_check")
+                }
         }
 
-        val points = loadPortfolio15mPointsForSignalMonitor(
-            applicationContext,
-            lookbackDays = marketsM15LookbackDays(Period.OneMonth),
-        )
-        if (points.size < 2) return@withContext
+        val points = runCatching {
+            loadPortfolio15mPointsForSignalMonitor(
+                applicationContext,
+                lookbackDays = marketsM15LookbackDays(Period.OneMonth),
+            )
+        }.getOrElse { e ->
+            MoexDiagnostics.logError(applicationContext, "monitor", e, "load_15m_failed")
+            return@withContext
+        }
+        if (points.size < 2) {
+            if (monitorTickCount % 40 == 0) {
+                MoexDiagnostics.log(applicationContext, "monitor", "tick#$monitorTickCount points=${points.size} (wait data)")
+            }
+            return@withContext
+        }
 
         val signalThresholds = loadRealTradeZThresholds(applicationContext, bgSignalFallbackThresholds)
         var dayLimit = loadDailySignalLimit(applicationContext, LocalDate.now())
@@ -108,7 +130,18 @@ class SignalForegroundService : Service() {
             position = currentPosition,
             thresholds = signalThresholds
         )
-        if (edgeSignal == ZStrategySignal.None) return@withContext
+        if (edgeSignal == ZStrategySignal.None) {
+            if (monitorTickCount % 40 == 0) {
+                val last = points.last()
+                MoexDiagnostics.log(
+                    applicationContext,
+                    "monitor",
+                    "tick#$monitorTickCount ok bars=${points.size} Z=${String.format(Locale.US, "%.2f", last.zScore)} " +
+                        "pos=$currentPosition thr=${signalThresholds.entry}/${signalThresholds.exit}",
+                )
+            }
+            return@withContext
+        }
 
         val lastPt = points.last()
         val latestZScore = lastPt.zScore
@@ -116,9 +149,20 @@ class SignalForegroundService : Service() {
         val latestTimestampMillis = lastPt.timestampMillis
 
         if (!tryConsume15mStrategySignalEdge(applicationContext, latestTimestampMillis, edgeSignal)) {
+            MoexDiagnostics.log(
+                applicationContext,
+                "monitor",
+                "signal_dedup $edgeSignal bar=$latestTimestampMillis Z=${String.format(Locale.US, "%.2f", latestZScore)}",
+            )
             return@withContext
         }
 
+        MoexDiagnostics.log(
+            applicationContext,
+            "signal",
+            "$edgeSignal bar=$latestTimestampMillis Z=${String.format(Locale.US, "%.2f", latestZScore)} " +
+                "spread=${String.format(Locale.US, "%.3f", latestSpreadPercent)}% pos=$currentPosition",
+        )
         when (edgeSignal) {
             ZStrategySignal.EnterLong -> {
                 currentPosition = ZStrategyPosition.Long

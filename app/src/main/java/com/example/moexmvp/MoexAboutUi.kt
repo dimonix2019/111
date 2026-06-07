@@ -1,7 +1,11 @@
 package com.example.moexmvp
 
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,8 +17,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -158,6 +164,7 @@ internal fun AboutTabContent(
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(top = 16.dp)
         )
+        EventLogSection(modifier = Modifier.padding(top = 16.dp))
         Column(
             modifier = Modifier
                 .padding(top = 8.dp)
@@ -182,6 +189,99 @@ internal fun AboutTabContent(
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EventLogSection(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var preview by remember { mutableStateOf(MoexDiagnostics.formatForDisplay(context, tail = 12)) }
+    var lineCount by remember { mutableIntStateOf(MoexDiagnostics.lineCount(context)) }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+            .padding(10.dp)
+    ) {
+        Text(
+            text = "Журнал событий (отладка вылетов)",
+            color = Color.White,
+            fontWeight = FontWeight.Medium,
+            fontSize = 14.sp
+        )
+        Text(
+            text = "Записей: $lineCount · сохраняется между перезапусками",
+            color = Color(0xFF9E9E9E),
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Text(
+            text = preview,
+            color = Color(0xFFB0BEC5),
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth()
+                .background(Color(0xFF121212), RoundedCornerShape(6.dp))
+                .padding(8.dp)
+        )
+        Row(
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = {
+                    MoexDiagnostics.shareExport(context)
+                    Toast.makeText(context, "Отправьте файл/text себе (Telegram, почта…)", Toast.LENGTH_LONG).show()
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text("Экспорт", fontSize = 12.sp)
+            }
+            OutlinedButton(
+                onClick = {
+                    val ok = MoexDiagnostics.copyToClipboard(context)
+                    Toast.makeText(
+                        context,
+                        if (ok) "Скопировано в буфер" else "Журнал пуст",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA))
+            ) {
+                Text("Копировать", fontSize = 12.sp)
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(
+                onClick = {
+                    preview = MoexDiagnostics.formatForDisplay(context, tail = 12)
+                    lineCount = MoexDiagnostics.lineCount(context)
+                }
+            ) {
+                Text("Обновить", color = Color(0xFF90CAF9), fontSize = 11.sp)
+            }
+            TextButton(
+                onClick = {
+                    MoexDiagnostics.clear(context)
+                    preview = MoexDiagnostics.formatForDisplay(context, tail = 12)
+                    lineCount = MoexDiagnostics.lineCount(context)
+                    Toast.makeText(context, "Журнал событий очищен", Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Text("Очистить", color = Color(0xFFFFAB91), fontSize = 11.sp)
             }
         }
     }
