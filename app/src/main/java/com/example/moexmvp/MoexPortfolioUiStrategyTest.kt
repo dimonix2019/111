@@ -305,6 +305,9 @@ internal fun StrategyTestTabContent(
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
                 )
+                buildStrategyTestDurationSummary(tradeItems.map { it.trade })?.let { durationSummary ->
+                    StrategyTestDurationSummarySection(summary = durationSummary)
+                }
                 if (!dataTailWarning.isNullOrBlank()) {
                     Text(
                         text = dataTailWarning,
@@ -333,6 +336,83 @@ internal fun StrategyTestTabContent(
     }
 }
 
+
+@Composable
+internal fun StrategyTestDurationSummarySection(summary: StrategyTestDurationSummary) {
+    val subtitle = buildString {
+        append("≤2 сут: ")
+        append(String.format(Locale.US, "%.0f", summary.short.winPercent))
+        append("% win · ")
+        append(formatRubSigned(summary.short.totalPnlRub))
+        append(" · >2 сут: ")
+        append(String.format(Locale.US, "%.0f", summary.long.winPercent))
+        append("% win · ")
+        append(formatRubSigned(summary.long.totalPnlRub))
+    }
+    PortfolioCollapsibleSection(
+        title = "Сводка по длительности сделок",
+        subtitle = subtitle,
+        defaultExpanded = true,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF252525), RoundedCornerShape(6.dp))
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Корзина · n · win% · сумма · ср.",
+                color = Color(0xFF757575),
+                fontSize = 9.sp,
+            )
+            StrategyTestDurationSummaryRow(
+                bucket = summary.short,
+                valueColor = Color(0xFF81C784),
+            )
+            StrategyTestDurationSummaryRow(
+                bucket = summary.long,
+                valueColor = Color(0xFFE57373),
+            )
+            if (summary.detailBuckets.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Детализация",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                summary.detailBuckets.forEach { bucket ->
+                    StrategyTestDurationSummaryRow(bucket = bucket)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StrategyTestDurationSummaryRow(
+    bucket: StrategyTestDurationBucket,
+    valueColor: Color? = null,
+) {
+    val pnlColor = valueColor ?: rubDeltaColor(bucket.totalPnlRub)
+    Text(
+        text = buildString {
+            append(bucket.title)
+            append(" · n=")
+            append(bucket.tradeCount)
+            append(" · ")
+            append(String.format(Locale.US, "%.0f", bucket.winPercent))
+            append("% · ")
+            append(formatRubSigned(bucket.totalPnlRub))
+            append(" · ср. ")
+            append(formatRubSigned(bucket.avgPnlRub))
+        },
+        color = pnlColor,
+        fontSize = 10.sp,
+        maxLines = 2,
+    )
+}
 
 @Composable
 internal fun StrategyTestExitModeControls(

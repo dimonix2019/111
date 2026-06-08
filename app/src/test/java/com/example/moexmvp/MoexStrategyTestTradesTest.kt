@@ -64,4 +64,31 @@ class MoexStrategyTestTradesTest {
         assertEquals(false, isSimTradeDurationUnderDay("2026-05-01 10:00", "2026-05-02 10:00"))
         assertEquals(false, isSimTradeDurationUnderDay("2026-05-01 10:00", "2026-05-03 14:00"))
     }
+
+    @Test
+    fun buildStrategyTestDurationSummary_groupsTradesByDuration() {
+        fun trade(entry: String, exit: String, pnl: Double) = PortfolioClosedTrade(
+            direction = ZStrategyPosition.Long,
+            entryDate = entry,
+            exitDate = exit,
+            entrySpreadPercent = 1.0,
+            exitSpreadPercent = 1.1,
+            pnlSpreadPoints = 0.1,
+            grossPnlRubApprox = pnl,
+            pnlRubApprox = pnl,
+        )
+        val trades = listOf(
+            trade("2026-05-01 10:00", "2026-05-01 12:00", 100.0),
+            trade("2026-05-01 10:00", "2026-05-02 09:00", 50.0),
+            trade("2026-05-01 10:00", "2026-05-04 10:00", -200.0),
+        )
+        val summary = buildStrategyTestDurationSummary(trades)!!
+        assertEquals(2, summary.short.tradeCount)
+        assertEquals(1, summary.long.tradeCount)
+        assertEquals(100.0, summary.short.winPercent, 0.01)
+        assertEquals(0.0, summary.long.winPercent, 0.01)
+        assertEquals(150.0, summary.short.totalPnlRub, 0.01)
+        assertEquals(-200.0, summary.long.totalPnlRub, 0.01)
+        assertEquals("< 1 дн.", summary.detailBuckets.first().title)
+    }
 }
