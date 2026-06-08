@@ -48,4 +48,11 @@ class MoexStrategyTestTradesTest {
         assertEquals("2 дн. 4 ч", formatSimTradeDurationLabel("2026-05-01 10:00", "2026-05-03 14:00"))
         assertEquals("—", formatSimTradeDurationLabel("", "2026-05-01 12:00"))
     }
+
+    @Test
+    fun isSimTradeDurationOverDays_trueOnlyWhenStrictlyOverTenDays() {
+        assertEquals(false, isSimTradeDurationOverDays("2026-05-01 10:00", "2026-05-11 10:00"))
+        assertEquals(true, isSimTradeDurationOverDays("2026-05-01 10:00", "2026-05-11 10:01"))
+        assertEquals(true, isSimTradeDurationOverDays("2026-05-01 10:00", "2026-05-15 10:00"))
+    }
 }

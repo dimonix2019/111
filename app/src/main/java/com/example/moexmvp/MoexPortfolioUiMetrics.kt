@@ -48,7 +48,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
@@ -353,9 +356,21 @@ internal fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade, showTradeDur
             }
         }
         if (showTradeDuration) {
+            val durationLabel = formatSimTradeDurationLabel(t.entryDate, t.exitDate)
+            val durationValueColor = if (isSimTradeDurationOverDays(t.entryDate, t.exitDate)) {
+                Color(0xFF42A5F5)
+            } else {
+                Color(0xFF9E9E9E)
+            }
             Text(
-                text = "Длительность сделки: ${formatSimTradeDurationLabel(t.entryDate, t.exitDate)}",
-                color = Color(0xFF9E9E9E),
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(color = Color(0xFF9E9E9E))) {
+                        append("Длительность сделки: ")
+                    }
+                    withStyle(SpanStyle(color = durationValueColor)) {
+                        append(durationLabel)
+                    }
+                },
                 fontSize = 10.sp
             )
         }

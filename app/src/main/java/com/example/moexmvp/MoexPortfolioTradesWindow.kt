@@ -64,12 +64,28 @@ internal fun parseSimTradeExitMillis(label: String): Long? {
     return null
 }
 
+/** Длительность сделки в миллисекундах (вход → выход); null если даты не разобрать. */
+internal fun simTradeDurationMillis(entryDate: String, exitDate: String): Long? {
+    val entryMs = parseSimTradeExitMillis(entryDate) ?: return null
+    val exitMs = parseSimTradeExitMillis(exitDate) ?: return null
+    val diffMs = exitMs - entryMs
+    if (diffMs < 0) return null
+    return diffMs
+}
+
+/** true, если длительность строго больше [thresholdDays] календарных суток (24 ч). */
+internal fun isSimTradeDurationOverDays(
+    entryDate: String,
+    exitDate: String,
+    thresholdDays: Long = 10,
+): Boolean {
+    val diffMs = simTradeDurationMillis(entryDate, exitDate) ?: return false
+    return diffMs > thresholdDays * 24 * 60 * 60_000L
+}
+
 /** Человекочитаемая длительность сделки (вход → выход) для списка «Тест страт.». */
 internal fun formatSimTradeDurationLabel(entryDate: String, exitDate: String): String {
-    val entryMs = parseSimTradeExitMillis(entryDate) ?: return "—"
-    val exitMs = parseSimTradeExitMillis(exitDate) ?: return "—"
-    val diffMs = exitMs - entryMs
-    if (diffMs < 0) return "—"
+    val diffMs = simTradeDurationMillis(entryDate, exitDate) ?: return "—"
     if (diffMs == 0L) return "0 мин"
     val totalMinutes = diffMs / 60_000L
     if (totalMinutes == 0L) return "< 1 мин"
