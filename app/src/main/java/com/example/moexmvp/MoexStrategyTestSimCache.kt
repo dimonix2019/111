@@ -78,19 +78,18 @@ internal fun MoexScreenState.applyStrategyTestVisibleSnapshot(snapshot: Strategy
 internal fun buildStrategyTestVisibleAnalytics(
     metrics: PortfolioMetrics,
     chartTail: List<DataPoint>,
+    m15PointsForRisk: List<DataPoint>,
     entryThreshold: Double,
 ): StrategyTestVisibleAnalytics {
     val closedTrades = metrics.closedTrades
-    val barIndex = buildM15BarIndexByLabel(chartTail)
     val tradeItems = buildStrategyTestTradeListFromSimulation(closedTrades)
     val chartTrades = filterStrategyTestTradesForChart(chartTail, tradeItems)
     return StrategyTestVisibleAnalytics(
         chartMarkers = buildZScoreMarkersFromStrategyTestTrades(chartTail, chartTrades),
-        tradeRiskAssessments = buildStrategyTestTradeRiskAssessments(
-            trades = closedTrades,
-            m15Points = chartTail,
+        tradeRiskAssessments = buildStrategyTestTradeRiskAssessmentsForItems(
+            tradeItems = tradeItems,
+            m15Points = m15PointsForRisk,
             entryThreshold = entryThreshold,
-            barIndexByLabel = barIndex,
         ),
         durationSummary = buildStrategyTestDurationSummary(closedTrades),
         spreadHourlyVolatility = buildSpreadHourlyVolatilityReport(chartTail),

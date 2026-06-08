@@ -11,7 +11,9 @@ internal const val STRATEGY_TEST_RISK_OVERNIGHT_HIGH_RUB = 100.0
 internal const val STRATEGY_TEST_RISK_MIDDAY_HOUR_START = 12
 internal const val STRATEGY_TEST_RISK_MIDDAY_HOUR_END = 14
 internal const val STRATEGY_TEST_RISK_PEAK_HOUR = 13
-private const val MS_PER_DAY = 24 * 3_600_000L
+private const val MS_PER_HOUR = 3_600_000L
+private const val MS_PER_SIX_HOURS = 6 * MS_PER_HOUR
+private const val MS_PER_DAY = 24 * MS_PER_HOUR
 
 internal enum class StrategyTestTradeRiskLevel {
     None,
@@ -82,25 +84,34 @@ internal fun buildStrategyTestTradeRiskAssessment(
             flags += StrategyTestTradeRiskFlag.VeryHighOvernight
             score += 2
         }
-        trade.overnightRubApprox > STRATEGY_TEST_RISK_OVERNIGHT_RUB -> {
+        trade.overnightRubApprox > STRATEGY_TEST_RISK_OVERNIGHT_RUB &&
+            durationMs != null &&
+            durationMs > MS_PER_DAY -> {
             flags += StrategyTestTradeRiskFlag.HighOvernight
             score += 2
         }
     }
 
-    if (entryZ != null && abs(entryZ) < STRATEGY_TEST_RISK_STRONG_ENTRY_Z) {
+    if (
+        entryZ != null &&
+        abs(entryZ) < STRATEGY_TEST_RISK_STRONG_ENTRY_Z &&
+        durationMs != null &&
+        durationMs > MS_PER_SIX_HOURS
+    ) {
         flags += StrategyTestTradeRiskFlag.WeakEntryZ
         score += 1
     }
 
-    when (entryHour) {
-        STRATEGY_TEST_RISK_PEAK_HOUR -> {
-            flags += StrategyTestTradeRiskFlag.PeakHourEntry
-            score += 1
-        }
-        in STRATEGY_TEST_RISK_MIDDAY_HOUR_START..STRATEGY_TEST_RISK_MIDDAY_HOUR_END -> {
-            flags += StrategyTestTradeRiskFlag.MiddayEntry
-            score += 1
+    if (durationMs != null && durationMs > MS_PER_SIX_HOURS) {
+        when (entryHour) {
+            STRATEGY_TEST_RISK_PEAK_HOUR -> {
+                flags += StrategyTestTradeRiskFlag.PeakHourEntry
+                score += 1
+            }
+            in STRATEGY_TEST_RISK_MIDDAY_HOUR_START..STRATEGY_TEST_RISK_MIDDAY_HOUR_END -> {
+                flags += StrategyTestTradeRiskFlag.MiddayEntry
+                score += 1
+            }
         }
     }
 
@@ -113,7 +124,12 @@ internal fun buildStrategyTestTradeRiskAssessment(
         score += 1
     }
 
-    if (entryZ != null && abs(entryZ) < entryThreshold + 0.05 && durationMs != null && durationMs > MS_PER_DAY) {
+    if (
+        entryZ != null &&
+        abs(entryZ) < entryThreshold + 0.05 &&
+        durationMs != null &&
+        durationMs > MS_PER_DAY
+    ) {
         score += 1
     }
 
@@ -142,13 +158,36 @@ internal fun buildStrategyTestTradeRiskAssessments(
         )
     }
 
+/** Оценки в том же порядке, что [buildStrategyTestTradeListFromSimulation] (новые сверху). */
+internal fun buildStrategyTestTradeRiskAssessmentsForItems(
+    tradeItems: List<StrategyTestTradeItem>,
+    m15Points: List<DataPoint>,
+    entryThreshold: Double = 0.8,
+    zoneId: ZoneId = moexZoneId,
+): List<StrategyTestTradeRiskAssessment> {
+    if (tradeItems.isEmpty()) return emptyList()
+    val barIndex = buildM15BarIndexByLabel(m15Points)
+    return tradeItems.map { item ->
+        buildStrategyTestTradeRiskAssessment(
+            trade = item.trade,
+            m15Points = m15Points,
+            entryThreshold = entryThreshold,
+            zoneId = zoneId,
+            barIndexByLabel = barIndex,
+        )
+    }
+}
+
+internal fun strategyTestTradeRiskIsFlagged(assessment: StrategyTestTradeRiskAssessment): Boolean =
+    assessment.level >= StrategyTestTradeRiskLevel.Elevated
+
 internal fun buildStrategyTestTradeRiskSummary(
     trades: List<PortfolioClosedTrade>,
     assessments: List<StrategyTestTradeRiskAssessment>,
 ): StrategyTestTradeRiskSummary? {
     if (trades.isEmpty() || assessments.size != trades.size) return null
     val flagged = assessments.mapIndexedNotNull { index, assessment ->
-        if (assessment.level == StrategyTestTradeRiskLevel.None) null else index
+        if (!strategyTestTradeRiskIsFlagged(assessment)) null else index
     }
     val baselineLoss = trades.count { it.pnlRubApprox < 0 }
     val flaggedLoss = flagged.count { trades[it].pnlRubApprox < 0 }
@@ -167,7 +206,7 @@ internal fun buildStrategyTestTradeRiskSummary(
 }
 
 internal fun formatStrategyTestTradeRiskFlags(assessment: StrategyTestTradeRiskAssessment): String =
-    if (assessment.flags.isEmpty()) {
+    if (!strategyTestTradeRiskIsFlagged(assessment) || assessment.flags.isEmpty()) {
         "—"
     } else {
         assessment.flags.joinToString(" · ") { it.shortLabel }
@@ -181,9 +220,9 @@ internal fun strategyTestTradeRiskLevelLabel(level: StrategyTestTradeRiskLevel):
 }
 
 private fun strategyTestTradeRiskLevelFromScore(score: Int): StrategyTestTradeRiskLevel = when {
-    score >= 5 -> StrategyTestTradeRiskLevel.Critical
-    score >= 3 -> StrategyTestTradeRiskLevel.High
-    score >= 1 -> StrategyTestTradeRiskLevel.Elevated
+    score >= 6 -> StrategyTestTradeRiskLevel.Critical
+    score >= 4 -> StrategyTestTradeRiskLevel.High
+    score >= 3 -> StrategyTestTradeRiskLevel.Elevated
     else -> StrategyTestTradeRiskLevel.None
 }
 
@@ -214,7 +253,7 @@ private fun isFridayEntry(entryDate: String, zoneId: ZoneId): Boolean {
 internal fun formatStrategyTestTradeRiskSummarySubtitle(summary: StrategyTestTradeRiskSummary): String =
     String.format(
         Locale.US,
-        "флаги: %d · крит. %d · убытков среди них %.0f%% (база %.0f%%)",
+        "риск ≥3 балла: %d · крит. %d · убытков %.0f%% (база %.0f%%)",
         summary.flaggedCount,
         summary.criticalCount,
         summary.flaggedLossRate,

@@ -392,7 +392,11 @@ internal fun StrategyTestTradesTable(
             tradeItems.take(maxRows).forEachIndexed { index, item ->
                 val t = item.trade
                 val risk = riskAssessments.getOrNull(index)
-                val rowBackground = strategyTestTradeRiskRowColor(risk?.level ?: StrategyTestTradeRiskLevel.None)
+                val rowBackground = if (risk != null && strategyTestTradeRiskIsFlagged(risk)) {
+                    strategyTestTradeRiskRowColor(risk.level)
+                } else {
+                    Color(0xFF242424)
+                }
                 val dir = when (t.direction) {
                     ZStrategyPosition.Long -> "LONG"
                     ZStrategyPosition.Short -> "SHORT"
@@ -439,13 +443,18 @@ internal fun StrategyTestTradesTable(
                             StrategyTestTradesTableColumn.Net ->
                                 formatPortfolioTableRub(t.pnlRubApprox) to netColor
                             StrategyTestTradesTableColumn.Risk -> {
-                                val level = risk?.level ?: StrategyTestTradeRiskLevel.None
-                                val label = if (level == StrategyTestTradeRiskLevel.None) {
-                                    "—"
-                                } else {
-                                    formatStrategyTestTradeRiskFlags(risk!!)
-                                }
-                                label to strategyTestTradeRiskLevelColor(level)
+                                val assessment = risk ?: StrategyTestTradeRiskAssessment(
+                                    flags = emptyList(),
+                                    level = StrategyTestTradeRiskLevel.None,
+                                    score = 0,
+                                    entryZ = null,
+                                )
+                                formatStrategyTestTradeRiskFlags(assessment) to
+                                    if (strategyTestTradeRiskIsFlagged(assessment)) {
+                                        strategyTestTradeRiskLevelColor(assessment.level)
+                                    } else {
+                                        Color(0xFF757575)
+                                    }
                             }
                         }
                         PortfolioTradeTableCell(

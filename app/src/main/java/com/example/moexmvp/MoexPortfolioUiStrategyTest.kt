@@ -406,7 +406,7 @@ internal fun StrategyTestTradeRiskSection(summary: StrategyTestTradeRiskSummary)
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                text = "Подсветка в таблице по исторической статистике симуляции: длительность, overnight, Z на входе, час MSK.",
+                text = "Подсветка: ≥3 балла — в основном >2 сут, overnight >50 ₽ (сут+), Z<1 при удержании >6 ч.",
                 color = Color(0xFF757575),
                 fontSize = 9.sp,
                 maxLines = 3,
@@ -437,7 +437,7 @@ internal fun StrategyTestTradeRiskSection(summary: StrategyTestTradeRiskSummary)
                 fontSize = 10.sp,
             )
             Text(
-                text = "Флаги: >2д · >5д · Ovn50/100 · Z<1 · 12–14 · 13ч · Пт>2д",
+                text = "Флаги: >2д · >5д · Ovn50 (>1 сут) · Ovn100 · Z<1 (>6 ч) · 12–14 · 13ч · Пт>2д",
                 color = Color(0xFF757575),
                 fontSize = 9.sp,
                 maxLines = 2,

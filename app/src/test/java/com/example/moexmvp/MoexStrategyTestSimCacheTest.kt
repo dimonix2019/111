@@ -38,6 +38,7 @@ class MoexStrategyTestSimCacheTest {
         val analytics = buildStrategyTestVisibleAnalytics(
             metrics = metrics,
             chartTail = chartTail,
+            m15PointsForRisk = chartTail,
             entryThreshold = 0.8,
         )
         assertEquals(metrics.closedTrades.size, analytics.tradeRiskAssessments.size)

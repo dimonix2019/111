@@ -3,6 +3,7 @@ package com.example.moexmvp
 import java.time.LocalDateTime
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,23 +24,39 @@ class MoexStrategyTestTradeRiskTest {
 
         assertTrue(StrategyTestTradeRiskFlag.LongHold in assessment.flags)
         assertTrue(StrategyTestTradeRiskFlag.VeryHighOvernight in assessment.flags)
-        assertTrue(StrategyTestTradeRiskFlag.WeakEntryZ in assessment.flags)
         assertTrue(assessment.level >= StrategyTestTradeRiskLevel.High)
     }
 
     @Test
-    fun buildStrategyTestTradeRiskAssessment_middayPeakHourFlag() {
+    fun buildStrategyTestTradeRiskAssessment_shortWinWithWeakZIsNotFlagged() {
         val trade = trade(
-            entry = "2026-05-19 13:15",
-            exit = "2026-05-19 15:15",
+            entry = "2026-05-19 10:00",
+            exit = "2026-05-19 12:00",
             overnight = 0.0,
             pnl = 100.0,
         )
-        val points = listOf(point("2026-05-19 13:15", z = -1.2))
+        val points = listOf(point("2026-05-19 10:00", z = -0.85))
         val assessment = buildStrategyTestTradeRiskAssessment(trade, points, zoneId = zone)
 
-        assertTrue(StrategyTestTradeRiskFlag.PeakHourEntry in assessment.flags)
-        assertEquals(StrategyTestTradeRiskLevel.Elevated, assessment.level)
+        assertFalse(strategyTestTradeRiskIsFlagged(assessment))
+        assertFalse(StrategyTestTradeRiskFlag.WeakEntryZ in assessment.flags)
+    }
+
+    @Test
+    fun buildStrategyTestTradeRiskAssessmentsForItems_matchesSortedTradeListOrder() {
+        val older = trade("2026-05-01 10:00", "2026-05-01 12:00", 0.0, 50.0)
+        val newer = trade("2026-05-17 10:00", "2026-05-22 10:00", 120.0, -200.0)
+        val items = buildStrategyTestTradeListFromSimulation(listOf(older, newer))
+        val points = listOf(
+            point("2026-05-01 10:00", z = -1.2),
+            point("2026-05-17 10:00", z = -0.85),
+        )
+        val assessments = buildStrategyTestTradeRiskAssessmentsForItems(items, points, zoneId = zone)
+
+        assertEquals(2, assessments.size)
+        assertTrue(strategyTestTradeRiskIsFlagged(assessments[0]))
+        assertFalse(strategyTestTradeRiskIsFlagged(assessments[1]))
+        assertEquals(newer.exitDate, items[0].trade.exitDate)
     }
 
     @Test
@@ -49,11 +66,15 @@ class MoexStrategyTestTradeRiskTest {
             trade("2026-05-19 10:00", "2026-05-22 10:00", 80.0, -200.0),
             trade("2026-05-20 10:00", "2026-05-20 12:00", 0.0, -50.0),
         )
-        val assessments = trades.map { buildStrategyTestTradeRiskAssessment(it, emptyList(), zoneId = zone) }
-        val summary = buildStrategyTestTradeRiskSummary(trades, assessments)!!
+        val items = buildStrategyTestTradeListFromSimulation(trades)
+        val assessments = buildStrategyTestTradeRiskAssessmentsForItems(items, emptyList(), zoneId = zone)
+        val summary = buildStrategyTestTradeRiskSummary(
+            trades = items.map { it.trade },
+            assessments = assessments,
+        )!!
 
         assertEquals(3, summary.assessedCount)
-        assertTrue(summary.flaggedCount >= 1)
+        assertEquals(1, summary.flaggedCount)
         assertEquals(1, summary.flaggedLossCount)
         assertTrue(summary.flaggedLossRate > summary.baselineLossRate)
     }
@@ -84,7 +105,7 @@ class MoexStrategyTestTradeRiskTest {
             tatnClose = 100.0,
             tatnpClose = 95.0,
             spreadPercent = 5.0,
-            diff = 5.0,
+            diff = 0.0,
             zScore = z,
         )
     }

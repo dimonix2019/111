@@ -92,6 +92,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 buildStrategyTestVisibleAnalytics(
                     metrics = metrics,
                     chartTail = chartTail,
+                    m15PointsForRisk = points,
                     entryThreshold = entry,
                 )
             }
