@@ -177,6 +177,17 @@ internal fun StrategyTestTabContent(
                     )
                 }
             }
+            val spreadHourlyVolatility by produceState<SpreadHourlyVolatilityReport?>(
+                initialValue = null,
+                m15ChartPoints,
+            ) {
+                value = withContext(Dispatchers.Default) {
+                    buildSpreadHourlyVolatilityReport(m15ChartPoints)
+                }
+            }
+            spreadHourlyVolatility?.let { hourlyVolatility ->
+                SpreadHourlyVolatilityChartCard(report = hourlyVolatility)
+            }
         }
         Row(
             modifier = Modifier

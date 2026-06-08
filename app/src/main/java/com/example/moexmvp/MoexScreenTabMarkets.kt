@@ -121,6 +121,14 @@ internal fun MoexScreenTabMarkets(
                 )
             }
         }
+    val spreadHourlyVolatility by produceState<SpreadHourlyVolatilityReport?>(
+        initialValue = null,
+        marketsM15ChartPoints,
+    ) {
+        value = withContext(Dispatchers.Default) {
+            buildSpreadHourlyVolatilityReport(marketsM15ChartPoints)
+        }
+    }
                 Column(Modifier.fillMaxSize()) {
                     if (!landscapeZChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
@@ -362,6 +370,11 @@ internal fun MoexScreenTabMarkets(
                                     m15TimeLabels = true,
                                     xLabelStyle = ChartXLabelStyleHorizontal,
                                 )
+                            }
+                            spreadHourlyVolatility?.let { hourlyVolatility ->
+                                item {
+                                    SpreadHourlyVolatilityChartCard(report = hourlyVolatility)
+                                }
                             }
                         } else if (waitingM15) {
                             item {
