@@ -66,6 +66,11 @@ class MoexStrategyTestTradesTest {
     }
 
     @Test
+    fun strategyTestTradesTableColumn_defaultVisibleIncludesAllColumns() {
+        assertEquals(StrategyTestTradesTableColumn.entries.size, StrategyTestTradesTableColumn.defaultVisible.size)
+    }
+
+    @Test
     fun simTradeDurationTone_mapsShortAndLongBuckets() {
         assertEquals(SimTradeDurationTone.Short, simTradeDurationTone("2026-05-01 10:00", "2026-05-01 12:00"))
         assertEquals(SimTradeDurationTone.Long, simTradeDurationTone("2026-05-01 10:00", "2026-05-02 10:00"))

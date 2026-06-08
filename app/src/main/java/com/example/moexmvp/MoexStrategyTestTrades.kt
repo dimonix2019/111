@@ -95,3 +95,27 @@ internal fun buildStrategyTestDurationSummary(
         }.filter { it.tradeCount > 0 },
     )
 }
+
+/** Столбцы таблицы сделок на вкладке «Тест страт.». */
+internal enum class StrategyTestTradesTableColumn(
+    val title: String,
+    val widthDp: Int,
+) {
+    Index("#", 22),
+    Direction("Напр.", 34),
+    Entry("Вход", 44),
+    Exit("Выход", 44),
+    Duration("Длит.", 38),
+    SpreadEntry("S%вх", 30),
+    SpreadExit("S%вых", 30),
+    SpreadDelta("Δпп", 28),
+    Gross("Вал.", 42),
+    Commission("Ком.", 38),
+    Overnight("Овн.", 38),
+    Net("Чист.", 46),
+    ;
+
+    companion object {
+        val defaultVisible: Set<StrategyTestTradesTableColumn> = entries.toSet()
+    }
+}
