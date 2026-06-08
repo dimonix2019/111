@@ -55,16 +55,21 @@ internal data class StrategyTestTradeRiskSummary(
     val baselineLossRate: Double,
 )
 
-internal fun buildStrategyTestTradeRiskAssessment(
-    trade: PortfolioClosedTrade,
-    m15Points: List<DataPoint>,
-    entryThreshold: Double = 0.8,
+internal data class TradeRiskInputs(
+    val entryDateLabel: String,
+    val exitDateLabel: String,
+    val entryZ: Double?,
+    val overnightRubApprox: Double,
+    val entryThreshold: Double,
+)
+
+internal fun buildTradeRiskAssessmentFromInputs(
+    inputs: TradeRiskInputs,
     zoneId: ZoneId = moexZoneId,
-    barIndexByLabel: Map<String, Int> = buildM15BarIndexByLabel(m15Points),
 ): StrategyTestTradeRiskAssessment {
-    val durationMs = simTradeDurationMillis(trade.entryDate, trade.exitDate)
-    val entryZ = lookupEntryZ(trade, m15Points, barIndexByLabel)
-    val entryHour = entryHourMsk(trade.entryDate, zoneId)
+    val durationMs = simTradeDurationMillis(inputs.entryDateLabel, inputs.exitDateLabel)
+    val entryZ = inputs.entryZ
+    val entryHour = entryHourMsk(inputs.entryDateLabel, zoneId)
     val flags = linkedSetOf<StrategyTestTradeRiskFlag>()
     var score = 0
 
@@ -80,11 +85,11 @@ internal fun buildStrategyTestTradeRiskAssessment(
     }
 
     when {
-        trade.overnightRubApprox > STRATEGY_TEST_RISK_OVERNIGHT_HIGH_RUB -> {
+        inputs.overnightRubApprox > STRATEGY_TEST_RISK_OVERNIGHT_HIGH_RUB -> {
             flags += StrategyTestTradeRiskFlag.VeryHighOvernight
             score += 2
         }
-        trade.overnightRubApprox > STRATEGY_TEST_RISK_OVERNIGHT_RUB &&
+        inputs.overnightRubApprox > STRATEGY_TEST_RISK_OVERNIGHT_RUB &&
             durationMs != null &&
             durationMs > MS_PER_DAY -> {
             flags += StrategyTestTradeRiskFlag.HighOvernight
@@ -118,7 +123,7 @@ internal fun buildStrategyTestTradeRiskAssessment(
     if (
         durationMs != null &&
         durationMs > 2 * MS_PER_DAY &&
-        isFridayEntry(trade.entryDate, zoneId)
+        isFridayEntry(inputs.entryDateLabel, zoneId)
     ) {
         flags += StrategyTestTradeRiskFlag.FridayLongHold
         score += 1
@@ -126,7 +131,7 @@ internal fun buildStrategyTestTradeRiskAssessment(
 
     if (
         entryZ != null &&
-        abs(entryZ) < entryThreshold + 0.05 &&
+        abs(entryZ) < inputs.entryThreshold + 0.05 &&
         durationMs != null &&
         durationMs > MS_PER_DAY
     ) {
@@ -140,6 +145,71 @@ internal fun buildStrategyTestTradeRiskAssessment(
         entryZ = entryZ,
     )
 }
+
+internal fun buildStrategyTestTradeRiskAssessment(
+    trade: PortfolioClosedTrade,
+    m15Points: List<DataPoint>,
+    entryThreshold: Double = 0.8,
+    zoneId: ZoneId = moexZoneId,
+    barIndexByLabel: Map<String, Int> = buildM15BarIndexByLabel(m15Points),
+): StrategyTestTradeRiskAssessment {
+    val entryZ = lookupEntryZ(trade, m15Points, barIndexByLabel)
+    return buildTradeRiskAssessmentFromInputs(
+        TradeRiskInputs(
+            entryDateLabel = trade.entryDate,
+            exitDateLabel = trade.exitDate,
+            entryZ = entryZ,
+            overnightRubApprox = trade.overnightRubApprox,
+            entryThreshold = entryThreshold,
+        ),
+        zoneId = zoneId,
+    )
+}
+
+internal fun buildPortfolioTradeGroupRiskAssessment(
+    group: PortfolioTradeGroupRow,
+    entryThreshold: Double,
+    zoneId: ZoneId = moexZoneId,
+    nowMillis: Long = System.currentTimeMillis(),
+): StrategyTestTradeRiskAssessment {
+    val exitLabel = if (group.isOpen) {
+        formatPortfolioTradeRiskNowLabel(nowMillis, zoneId)
+    } else {
+        group.exitTimeMsk
+    }
+    val entryZ = group.entryZ.takeUnless { it.isNaN() }
+    return buildTradeRiskAssessmentFromInputs(
+        TradeRiskInputs(
+            entryDateLabel = group.entryTimeMsk,
+            exitDateLabel = exitLabel,
+            entryZ = entryZ,
+            overnightRubApprox = group.overnightRubApprox,
+            entryThreshold = entryThreshold,
+        ),
+        zoneId = zoneId,
+    )
+}
+
+internal fun buildPortfolioTradeGroupRiskAssessments(
+    groups: List<PortfolioTradeGroupRow>,
+    entryThreshold: Double,
+    zoneId: ZoneId = moexZoneId,
+    nowMillis: Long = System.currentTimeMillis(),
+): List<StrategyTestTradeRiskAssessment> =
+    groups.map { group ->
+        buildPortfolioTradeGroupRiskAssessment(
+            group = group,
+            entryThreshold = entryThreshold,
+            zoneId = zoneId,
+            nowMillis = nowMillis,
+        )
+    }
+
+private fun formatPortfolioTradeRiskNowLabel(nowMillis: Long, zoneId: ZoneId): String =
+    Instant.ofEpochMilli(nowMillis)
+        .atZone(zoneId)
+        .toLocalDateTime()
+        .format(portfolio15mLabelFormatter)
 
 internal fun buildStrategyTestTradeRiskAssessments(
     trades: List<PortfolioClosedTrade>,

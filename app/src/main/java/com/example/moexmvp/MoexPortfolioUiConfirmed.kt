@@ -259,6 +259,7 @@ internal fun ConfirmedPortfolioTabContent(
             openExecutions = sandboxSpreadExecutions,
             closedRows = confirmedTradeTableRows,
             lookbackDays = lookbackDays,
+            realTradeEntryThreshold = realTradeEntryThreshold,
             onCloseOpenTrade = onCloseOpenTrade,
             closingTradeId = closingTradeId,
         )

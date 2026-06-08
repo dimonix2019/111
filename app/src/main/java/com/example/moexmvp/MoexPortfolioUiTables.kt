@@ -119,6 +119,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
     exitZColumnTitle: String = "Zвых",
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
+    riskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
 ) {
     if (groups.isEmpty()) return
     val scroll = rememberScrollState()
@@ -153,6 +154,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
             PortfolioTradeGroupColumn("Чист.", 48),
             PortfolioTradeGroupColumn("Ком.", 42),
             PortfolioTradeGroupColumn("Овн.", 42),
+            PortfolioTradeGroupColumn("Риск", 72),
         )
         val orderCols = listOf(
             PortfolioTradeGroupColumn("№", 18),
@@ -170,11 +172,17 @@ internal fun PortfolioTradeOrdersGroupedTable(
                 )
             }
         }
-        groups.take(40).forEach { group ->
+        groups.take(40).forEachIndexed { groupIndex, group ->
+            val risk = riskAssessments.getOrNull(groupIndex)
+            val rowBackground = if (risk != null && strategyTestTradeRiskIsFlagged(risk)) {
+                strategyTestTradeRiskRowColor(risk.level)
+            } else {
+                Color(0xFF242424)
+            }
             Column(
                 Modifier
                     .padding(vertical = 2.dp)
-                    .background(Color(0xFF242424), RoundedCornerShape(4.dp))
+                    .background(rowBackground, RoundedCornerShape(4.dp))
                     .padding(vertical = 2.dp)
             ) {
                 if (group.isOpen && onCloseOpenTrade != null) {
@@ -217,6 +225,18 @@ internal fun PortfolioTradeOrdersGroupedTable(
                     }
                     Row(Modifier.padding(horizontal = 1.dp, vertical = 1.dp)) {
                         if (isFirstOrder) {
+                            val assessment = risk ?: StrategyTestTradeRiskAssessment(
+                                flags = emptyList(),
+                                level = StrategyTestTradeRiskLevel.None,
+                                score = 0,
+                                entryZ = null,
+                            )
+                            val riskText = formatStrategyTestTradeRiskFlags(assessment)
+                            val riskColor = if (strategyTestTradeRiskIsFlagged(assessment)) {
+                                strategyTestTradeRiskLevelColor(assessment.level)
+                            } else {
+                                Color(0xFF757575)
+                            }
                             val cells = listOf(
                                 group.tradeDisplayId to Color(0xFFE0E0E0),
                                 compactPortfolioTableDateTimeTwoLines(group.entrySignalId) to Color(0xFFCE93D8),
@@ -238,6 +258,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
                                     else rubDeltaColor(group.netPnlRubApprox),
                                 formatPortfolioTableCostRub(group.commissionRubApprox) to Color(0xFFFFAB91),
                                 formatPortfolioTableCostRub(group.overnightRubApprox) to Color(0xFFFFAB91),
+                                riskText to riskColor,
                             )
                             cells.forEachIndexed { index, (text, color) ->
                                 val w = groupWidths[index]
@@ -505,6 +526,7 @@ internal fun PortfolioTradesWindowSection(
     openExecutions: List<SandboxSpreadExecUi>,
     closedRows: List<PortfolioConfirmedTradeTableRow>,
     lookbackDays: Long,
+    realTradeEntryThreshold: Double,
     modifier: Modifier = Modifier,
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
@@ -517,6 +539,12 @@ internal fun PortfolioTradesWindowSection(
         lookbackDays = lookbackDays,
         tradesAutoOnlyFilter = tradesAutoOnlyFilter,
     )
+    val openRiskAssessments = remember(openBucket.groups, realTradeEntryThreshold) {
+        buildPortfolioTradeGroupRiskAssessments(openBucket.groups, realTradeEntryThreshold)
+    }
+    val closedRiskAssessments = remember(closedBucket.groups, realTradeEntryThreshold) {
+        buildPortfolioTradeGroupRiskAssessments(closedBucket.groups, realTradeEntryThreshold)
+    }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -563,6 +591,7 @@ internal fun PortfolioTradesWindowSection(
                     exitZColumnTitle = "Z сейч.",
                     onCloseOpenTrade = onCloseOpenTrade,
                     closingTradeId = closingTradeId,
+                    riskAssessments = openRiskAssessments,
                 )
             }
         }
@@ -584,6 +613,7 @@ internal fun PortfolioTradesWindowSection(
                 PortfolioTradeOrdersGroupedTable(
                     groups = closedBucket.groups,
                     caption = "",
+                    riskAssessments = closedRiskAssessments,
                 )
             }
         }
