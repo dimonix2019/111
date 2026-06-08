@@ -85,6 +85,14 @@ internal fun isSimTradeDurationOverDay(entryDate: String, exitDate: String): Boo
     return diffMs >= 24 * 60 * 60_000L
 }
 
+internal enum class SimTradeDurationTone { Neutral, Short, Long }
+
+internal fun simTradeDurationTone(entryDate: String, exitDate: String): SimTradeDurationTone = when {
+    isSimTradeDurationUnderDay(entryDate, exitDate) -> SimTradeDurationTone.Short
+    isSimTradeDurationOverDay(entryDate, exitDate) -> SimTradeDurationTone.Long
+    else -> SimTradeDurationTone.Neutral
+}
+
 /** Человекочитаемая длительность сделки (вход → выход) для списка «Тест страт.». */
 internal fun formatSimTradeDurationLabel(entryDate: String, exitDate: String): String {
     val diffMs = simTradeDurationMillis(entryDate, exitDate) ?: return "—"

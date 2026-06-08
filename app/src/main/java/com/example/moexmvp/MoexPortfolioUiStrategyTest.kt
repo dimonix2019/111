@@ -89,7 +89,6 @@ internal fun StrategyTestTabContent(
     dailyReconciliation: DailyPortfolioReconciliation? = null,
     portfolioEntryThreshold: Double? = null,
     portfolioExitThreshold: Double? = null,
-    embedTradeRows: Boolean = true,
 ) {
     val exitRuleNote =
         "выход по фиксированному порогу ±${String.format(Locale.US, "%.2f", exitThreshold)}"
@@ -323,10 +322,11 @@ internal fun StrategyTestTabContent(
                         fontSize = 11.sp,
                         maxLines = 3
                     )
-                } else if (embedTradeRows) {
-                    tradeItems.forEachIndexed { index, item ->
-                        StrategyTestTradeRow(index = index + 1, item = item)
-                    }
+                } else {
+                    StrategyTestTradesTable(
+                        tradeItems = tradeItems,
+                        caption = "Сделок: ${tradeItems.size}. Прокрутка вправо — все столбцы.",
+                    )
                 }
             }
         }
@@ -502,9 +502,4 @@ internal fun StrategyExitModeButton(
     ) {
         Text(text, fontSize = 10.sp, maxLines = 1)
     }
-}
-
-@Composable
-internal fun StrategyTestTradeRow(index: Int, item: StrategyTestTradeItem) {
-    PortfolioTradeRow(index = index, t = item.trade, showTradeDuration = true)
 }

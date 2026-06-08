@@ -66,6 +66,12 @@ class MoexStrategyTestTradesTest {
     }
 
     @Test
+    fun simTradeDurationTone_mapsShortAndLongBuckets() {
+        assertEquals(SimTradeDurationTone.Short, simTradeDurationTone("2026-05-01 10:00", "2026-05-01 12:00"))
+        assertEquals(SimTradeDurationTone.Long, simTradeDurationTone("2026-05-01 10:00", "2026-05-02 10:00"))
+    }
+
+    @Test
     fun buildStrategyTestDurationSummary_groupsTradesByDuration() {
         fun trade(entry: String, exit: String, pnl: Double) = PortfolioClosedTrade(
             direction = ZStrategyPosition.Long,

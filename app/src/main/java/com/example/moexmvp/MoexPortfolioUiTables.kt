@@ -290,6 +290,109 @@ internal fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTab
     )
 }
 
+private data class StrategyTestTradeColumn(
+    val title: String,
+    val widthDp: Int,
+)
+
+@Composable
+internal fun StrategyTestTradesTable(
+    tradeItems: List<StrategyTestTradeItem>,
+    caption: String,
+    maxRows: Int = 120,
+) {
+    if (tradeItems.isEmpty()) return
+    val scroll = rememberScrollState()
+    if (caption.isNotBlank()) {
+        Text(
+            text = caption,
+            color = Color(0xFF757575),
+            fontSize = 9.sp,
+            modifier = Modifier.padding(bottom = 4.dp),
+            maxLines = 4
+        )
+    }
+    val cols = listOf(
+        StrategyTestTradeColumn("#", 22),
+        StrategyTestTradeColumn("Напр.", 34),
+        StrategyTestTradeColumn("Вход", 44),
+        StrategyTestTradeColumn("Выход", 44),
+        StrategyTestTradeColumn("Длит.", 38),
+        StrategyTestTradeColumn("S%вх", 30),
+        StrategyTestTradeColumn("S%вых", 30),
+        StrategyTestTradeColumn("Δпп", 28),
+        StrategyTestTradeColumn("Вал.", 42),
+        StrategyTestTradeColumn("Ком.", 38),
+        StrategyTestTradeColumn("Овн.", 38),
+        StrategyTestTradeColumn("Чист.", 46),
+    )
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scroll)
+            .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
+            .padding(vertical = 6.dp)
+    ) {
+        Row(Modifier.padding(horizontal = 1.dp, vertical = 1.dp)) {
+            cols.forEach { col ->
+                PortfolioTradeTableCell(
+                    text = col.title,
+                    modifier = Modifier.widthIn(min = col.widthDp.dp).width(col.widthDp.dp),
+                    color = Color(0xFF90A4AE)
+                )
+            }
+        }
+        tradeItems.take(maxRows).forEachIndexed { index, item ->
+            val t = item.trade
+            val dir = when (t.direction) {
+                ZStrategyPosition.Long -> "LONG"
+                ZStrategyPosition.Short -> "SHORT"
+                ZStrategyPosition.Flat -> "—"
+            }
+            val durationLabel = formatSimTradeDurationLabel(t.entryDate, t.exitDate)
+            val durationColor = when (simTradeDurationTone(t.entryDate, t.exitDate)) {
+                SimTradeDurationTone.Short -> Color(0xFF81C784)
+                SimTradeDurationTone.Long -> Color(0xFFE57373)
+                SimTradeDurationTone.Neutral -> Color(0xFF9E9E9E)
+            }
+            val netColor = rubDeltaColor(t.pnlRubApprox)
+            val grossColor = rubDeltaColor(t.grossPnlRubApprox)
+            Row(
+                Modifier
+                    .padding(horizontal = 1.dp, vertical = 1.dp)
+                    .background(Color(0xFF242424), RoundedCornerShape(4.dp))
+            ) {
+                val cells = listOf(
+                    "${index + 1}" to Color(0xFFE0E0E0),
+                    dir to when (t.direction) {
+                        ZStrategyPosition.Long -> Color(0xFF81C784)
+                        ZStrategyPosition.Short -> Color(0xFFFFAB91)
+                        ZStrategyPosition.Flat -> Color(0xFFE0E0E0)
+                    },
+                    compactPortfolioTableDateTimeTwoLines(t.entryDate) to Color(0xFFE0E0E0),
+                    compactPortfolioTableDateTimeTwoLines(t.exitDate) to Color(0xFFE0E0E0),
+                    durationLabel to durationColor,
+                    String.format(Locale.US, "%.2f", t.entrySpreadPercent) to Color(0xFF9E9E9E),
+                    String.format(Locale.US, "%.2f", t.exitSpreadPercent) to Color(0xFF9E9E9E),
+                    String.format(Locale.US, "%+.2f", t.pnlSpreadPoints) to grossColor,
+                    formatPortfolioTableRub(t.grossPnlRubApprox) to grossColor,
+                    formatPortfolioTableCostRub(t.commissionRubApprox) to Color(0xFFFFAB91),
+                    formatPortfolioTableCostRub(t.overnightRubApprox) to Color(0xFFFFAB91),
+                    formatPortfolioTableRub(t.pnlRubApprox) to netColor,
+                )
+                cells.forEachIndexed { cellIndex, (text, color) ->
+                    val w = cols[cellIndex].widthDp
+                    PortfolioTradeTableCell(
+                        text = text,
+                        modifier = Modifier.widthIn(min = w.dp).width(w.dp),
+                        color = color
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** Портфель: сделки по журналу; вход в метриках — только при записи в реестре исполнений под выбранным режимом. */
 @Composable
 internal fun PortfolioTradesBucketHeader(

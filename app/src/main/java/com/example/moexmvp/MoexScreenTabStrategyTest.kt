@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -122,18 +121,7 @@ internal fun MoexScreenTabStrategyTest(
                             .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                         portfolioExitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
                             .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                        embedTradeRows = false,
                     )
-                }
-                if (strategyTestTradeItems.isNotEmpty()) {
-                    itemsIndexed(
-                        items = strategyTestTradeItems,
-                        key = { _, item ->
-                            "${item.trade.entryDate}|${item.trade.exitDate}|${item.trade.direction}"
-                        },
-                    ) { index, item ->
-                        StrategyTestTradeRow(index = index + 1, item = item)
-                    }
                 }
             }
         }

@@ -227,15 +227,6 @@ internal fun MoexScreenTabPortfolio(
                         closingTradeId = closingTradeId,
                     )
                 }
-                if (portfolioLoading) {
-                    item {
-                        LoadingStateWithProgress(
-                            progress = dataLoadProgress,
-                            dataLoadSessions = dataLoadSessions,
-                            statusText = "Загрузка 15м для портфеля (${portfolioLookbackPeriodLabel(portfolioLookbackDays)})…",
-                        )
-                    }
-                }
             }
         }
     }
