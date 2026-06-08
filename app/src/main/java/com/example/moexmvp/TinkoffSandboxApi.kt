@@ -14,13 +14,18 @@ import java.util.UUID
 
 private val jsonMediaUtf8 = "application/json; charset=utf-8".toMediaType()
 
-/** Strip accidental "Bearer " prefix and whitespace (users often paste full header). */
+/** Strip accidental "Bearer " prefix, whitespace and non-ASCII junk (invalid in Authorization header). */
 internal fun normalizeInvestToken(raw: String): String {
     var t = raw.trim()
     if (t.startsWith("Bearer ", ignoreCase = true)) {
         t = t.substring(7).trim()
     }
-    return t.trim()
+    t = t.replace(Regex("""[\s\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000\uFEFF]+"""), "")
+    return buildString(t.length) {
+        for (ch in t) {
+            if (ch.code in 33..126 && ch != '"' && ch != '\\') append(ch)
+        }
+    }
 }
 
 private fun parseJsonObjectOrEmpty(text: String): JSONObject {
@@ -73,17 +78,29 @@ private suspend fun tinkoffSbxPostRaw(
 ): String =
     withContext(Dispatchers.IO) {
         val norm = normalizeInvestToken(token)
+        if (norm.isEmpty()) {
+            throw IOException(
+                "Пустой или недопустимый токен API. Вставьте токен из личного кабинета Т‑Инвест без пробелов и спецсимволов."
+            )
+        }
         var lastFailure: IOException? = null
         for (prefix in prefixes) {
             val url = "$prefix/$method"
-            val req = Request.Builder()
-                .url(url)
-                .post(bodyJson.toRequestBody(jsonMediaUtf8))
-                .header("Authorization", "Bearer $norm")
-                .header("Accept", "application/json")
-                .header("Content-Type", "application/json; charset=utf-8")
-                .header("User-Agent", "MOEX-MVP-Android")
-                .build()
+            val req = try {
+                Request.Builder()
+                    .url(url)
+                    .post(bodyJson.toRequestBody(jsonMediaUtf8))
+                    .header("Authorization", "Bearer $norm")
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .header("User-Agent", "MOEX-MVP-Android")
+                    .build()
+            } catch (e: IllegalArgumentException) {
+                throw IOException(
+                    "Недопустимые символы в токене API. Скопируйте токен заново из личного кабинета Т‑Инвест (только латиница и цифры).",
+                    e
+                )
+            }
             try {
                 httpClient.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
