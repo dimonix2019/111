@@ -426,5 +426,5 @@ internal fun StrategyExitModeButton(
 
 @Composable
 internal fun StrategyTestTradeRow(index: Int, item: StrategyTestTradeItem) {
-    PortfolioTradeRow(index = index, t = item.trade)
+    PortfolioTradeRow(index = index, t = item.trade, showTradeDuration = true)
 }

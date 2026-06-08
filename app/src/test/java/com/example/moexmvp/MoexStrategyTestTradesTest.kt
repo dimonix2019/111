@@ -40,4 +40,12 @@ class MoexStrategyTestTradesTest {
         }
         assertEquals(20, buildStrategyTestTradeListFromSimulation(trades).size)
     }
+
+    @Test
+    fun formatSimTradeDurationLabel_formatsMinutesHoursAndDays() {
+        assertEquals("2 ч", formatSimTradeDurationLabel("2026-05-01 10:00", "2026-05-01 12:00"))
+        assertEquals("30 мин", formatSimTradeDurationLabel("2026-05-01 10:00", "2026-05-01 10:30"))
+        assertEquals("2 дн. 4 ч", formatSimTradeDurationLabel("2026-05-01 10:00", "2026-05-03 14:00"))
+        assertEquals("—", formatSimTradeDurationLabel("", "2026-05-01 12:00"))
+    }
 }

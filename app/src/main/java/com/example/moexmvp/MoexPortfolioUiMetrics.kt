@@ -313,7 +313,7 @@ internal fun PortfolioParamsControls(
     }
 }
 @Composable
-internal fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
+internal fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade, showTradeDuration: Boolean = false) {
     val dir = when (t.direction) {
         ZStrategyPosition.Long -> "LONG"
         ZStrategyPosition.Short -> "SHORT"
@@ -351,6 +351,13 @@ internal fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
                     fontSize = 8.sp
                 )
             }
+        }
+        if (showTradeDuration) {
+            Text(
+                text = "Длительность сделки: ${formatSimTradeDurationLabel(t.entryDate, t.exitDate)}",
+                color = Color(0xFF9E9E9E),
+                fontSize = 10.sp
+            )
         }
         Text(
             text = "валовый ${formatRubSigned(t.grossPnlRubApprox)} · комис. ${formatRubExpense(t.commissionRubApprox)} · оверн. ${formatRubExpense(t.overnightRubApprox)}",

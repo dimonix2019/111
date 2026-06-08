@@ -64,6 +64,28 @@ internal fun parseSimTradeExitMillis(label: String): Long? {
     return null
 }
 
+/** Человекочитаемая длительность сделки (вход → выход) для списка «Тест страт.». */
+internal fun formatSimTradeDurationLabel(entryDate: String, exitDate: String): String {
+    val entryMs = parseSimTradeExitMillis(entryDate) ?: return "—"
+    val exitMs = parseSimTradeExitMillis(exitDate) ?: return "—"
+    val diffMs = exitMs - entryMs
+    if (diffMs < 0) return "—"
+    if (diffMs == 0L) return "0 мин"
+    val totalMinutes = diffMs / 60_000L
+    if (totalMinutes == 0L) return "< 1 мин"
+    val days = totalMinutes / (24 * 60)
+    val hours = (totalMinutes % (24 * 60)) / 60
+    val minutes = totalMinutes % 60
+    return when {
+        days > 0 -> buildString {
+            append("$days дн.")
+            if (hours > 0) append(" $hours ч")
+        }
+        hours > 0 -> if (minutes > 0) "$hours ч $minutes мин" else "$hours ч"
+        else -> "$minutes мин"
+    }
+}
+
 internal fun filterSimClosedTradesInWindow(
     trades: List<PortfolioClosedTrade>,
     lookbackDays: Long,
