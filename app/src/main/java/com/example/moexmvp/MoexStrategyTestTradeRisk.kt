@@ -58,9 +58,10 @@ internal fun buildStrategyTestTradeRiskAssessment(
     m15Points: List<DataPoint>,
     entryThreshold: Double = 0.8,
     zoneId: ZoneId = moexZoneId,
+    barIndexByLabel: Map<String, Int> = buildM15BarIndexByLabel(m15Points),
 ): StrategyTestTradeRiskAssessment {
     val durationMs = simTradeDurationMillis(trade.entryDate, trade.exitDate)
-    val entryZ = lookupEntryZ(trade, m15Points)
+    val entryZ = lookupEntryZ(trade, m15Points, barIndexByLabel)
     val entryHour = entryHourMsk(trade.entryDate, zoneId)
     val flags = linkedSetOf<StrategyTestTradeRiskFlag>()
     var score = 0
@@ -124,6 +125,23 @@ internal fun buildStrategyTestTradeRiskAssessment(
     )
 }
 
+internal fun buildStrategyTestTradeRiskAssessments(
+    trades: List<PortfolioClosedTrade>,
+    m15Points: List<DataPoint>,
+    entryThreshold: Double = 0.8,
+    zoneId: ZoneId = moexZoneId,
+    barIndexByLabel: Map<String, Int> = buildM15BarIndexByLabel(m15Points),
+): List<StrategyTestTradeRiskAssessment> =
+    trades.map { trade ->
+        buildStrategyTestTradeRiskAssessment(
+            trade = trade,
+            m15Points = m15Points,
+            entryThreshold = entryThreshold,
+            zoneId = zoneId,
+            barIndexByLabel = barIndexByLabel,
+        )
+    }
+
 internal fun buildStrategyTestTradeRiskSummary(
     trades: List<PortfolioClosedTrade>,
     assessments: List<StrategyTestTradeRiskAssessment>,
@@ -169,9 +187,15 @@ private fun strategyTestTradeRiskLevelFromScore(score: Int): StrategyTestTradeRi
     else -> StrategyTestTradeRiskLevel.None
 }
 
-private fun lookupEntryZ(trade: PortfolioClosedTrade, m15Points: List<DataPoint>): Double? {
+private fun lookupEntryZ(
+    trade: PortfolioClosedTrade,
+    m15Points: List<DataPoint>,
+    barIndexByLabel: Map<String, Int>,
+): Double? {
     if (m15Points.isEmpty()) return null
-    val idx = indexForTradeDateLabel(m15Points, trade.entryDate) ?: return null
+    val idx = barIndexByLabel[trade.entryDate]
+        ?: indexForTradeDateLabel(m15Points, trade.entryDate)
+        ?: return null
     return m15Points[idx].zScore
 }
 

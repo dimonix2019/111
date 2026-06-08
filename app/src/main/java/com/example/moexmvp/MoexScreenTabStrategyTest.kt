@@ -41,7 +41,11 @@ internal fun MoexScreenTabStrategyTest(
                         m15ChartPoints = strategyTestM15ChartPoints,
                         zScoreCandles = strategyTestZScoreCandles,
                         chartThresholds = strategyTestChartThresholds,
+                        chartMarkers = strategyTestChartMarkers,
                         zInitialWindow = strategyTestZInitialWindow,
+                        durationSummary = strategyTestDurationSummary,
+                        tradeRiskAssessments = strategyTestTradeRiskAssessments,
+                        spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
                         onRefresh = {
                             scope.launch {
                                 ensureM15PointsForStrategyTest(preferNetwork = true)

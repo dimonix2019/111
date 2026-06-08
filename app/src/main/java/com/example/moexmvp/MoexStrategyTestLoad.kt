@@ -31,14 +31,20 @@ internal fun strategyTestM15PointsForChart(full: List<DataPoint>): List<DataPoin
 internal fun MoexScreenState.clearStrategyTestVisibleState() {
     strategyTestM15ChartTail = emptyList()
     strategyTestPortfolioMetrics = null
+    strategyTestChartMarkers = emptyList()
+    strategyTestTradeRiskAssessments = emptyList()
+    strategyTestDurationSummary = null
+    strategyTestSpreadHourlyVolatility = null
     strategyTestSimComputing = false
     strategyTestM15Loading = false
     strategyTestError = null
 }
 
-/** Полный сброс, включая кэш 255д (например при нехватке памяти). */
+/** Полный сброс, включая кэш 255д и снимок UI (например при нехватке памяти). */
 internal fun MoexScreenState.clearStrategyTestSession() {
     strategyTestM15SessionCache = emptyList()
+    strategyTestVisibleSessionCache = null
+    strategyTestLastSimKey = 0L
     clearStrategyTestVisibleState()
 }
 
@@ -63,10 +69,10 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
         }
         if (!isStrategyTestWorkCurrent(workId)) return
         strategyTestM15ChartTail = chartTail
+        val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
+            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
         val metrics = withContext(Dispatchers.Default) {
             if (!points.sufficientForStrategyTestSimulation()) return@withContext null
-            val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
             val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
             buildZStrategyPortfolioMetrics(
@@ -81,7 +87,36 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
             )
         }
         if (!isStrategyTestWorkCurrent(workId)) return
+        val analytics = if (metrics != null && chartTail.size >= 2) {
+            withContext(Dispatchers.Default) {
+                buildStrategyTestVisibleAnalytics(
+                    metrics = metrics,
+                    chartTail = chartTail,
+                    entryThreshold = entry,
+                )
+            }
+        } else {
+            null
+        }
+        if (!isStrategyTestWorkCurrent(workId)) return
+        val simKey = strategyTestSimulationKey()
+        strategyTestLastSimKey = simKey
         strategyTestPortfolioMetrics = metrics
+        strategyTestChartMarkers = analytics?.chartMarkers.orEmpty()
+        strategyTestTradeRiskAssessments = analytics?.tradeRiskAssessments.orEmpty()
+        strategyTestDurationSummary = analytics?.durationSummary
+        strategyTestSpreadHourlyVolatility = analytics?.spreadHourlyVolatility
+        if (metrics != null && chartTail.size >= 2) {
+            strategyTestVisibleSessionCache = StrategyTestVisibleSnapshot(
+                simKey = simKey,
+                metrics = metrics,
+                chartTail = chartTail,
+                chartMarkers = strategyTestChartMarkers,
+                tradeRiskAssessments = strategyTestTradeRiskAssessments,
+                durationSummary = strategyTestDurationSummary,
+                spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
+            )
+        }
         val trades = metrics?.closedTrades?.size ?: 0
         MoexDiagnostics.log(context, "st_sim", "done id=$workId trades=$trades chartTail=${chartTail.size}")
     } catch (e: OutOfMemoryError) {
@@ -106,6 +141,10 @@ internal suspend fun MoexScreenState.scheduleStrategyTestResimOnly(reason: Strin
     if (!isOnStrategyTestTab()) return
     if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return
     if (strategyTestM15Loading) return
+    if (strategyTestVisibleResultsFresh()) {
+        MoexDiagnostics.log(context, "strategy_test", "skip resim fresh reason=$reason")
+        return
+    }
     val workId = ++strategyTestWorkGeneration
     MoexDiagnostics.log(context, "strategy_test", "resim id=$workId reason=$reason")
     refreshMutex.withLock {
@@ -136,6 +175,10 @@ internal suspend fun MoexScreenState.scheduleStrategyTestTabWork(
     )
     refreshMutex.withLock {
         if (!isStrategyTestWorkCurrent(workId)) return@withLock
+        if (!preferNetwork && strategyTestVisibleResultsFresh()) {
+            MoexDiagnostics.log(context, "strategy_test", "skip tab work fresh id=$workId reason=$reason")
+            return@withLock
+        }
         if (!preferNetwork && strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) {
             runStrategyTestSimulation(strategyTestM15SessionCache, workId, "$reason+cache_hit")
             return@withLock

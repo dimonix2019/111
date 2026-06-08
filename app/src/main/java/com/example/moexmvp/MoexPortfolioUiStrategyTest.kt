@@ -42,7 +42,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,8 +53,6 @@ import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /** Симуляция Z на полном 15м ряду (~255 дн.); без графика Z и без трейлинга выхода. */
 @Composable
@@ -68,7 +65,11 @@ internal fun StrategyTestTabContent(
     m15ChartPoints: List<DataPoint> = emptyList(),
     zScoreCandles: List<CandlePoint> = emptyList(),
     chartThresholds: DynamicThresholds? = null,
+    chartMarkers: List<ChartPointMarker> = emptyList(),
     zInitialWindow: Pair<Float, Float> = 1f to 0f,
+    durationSummary: StrategyTestDurationSummary? = null,
+    tradeRiskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
+    spreadHourlyVolatility: SpreadHourlyVolatilityReport? = null,
     onRefresh: () -> Unit,
     onMoex15mFullReload: () -> Unit,
     leverage: Double,
@@ -134,18 +135,8 @@ internal fun StrategyTestTabContent(
             onExitThresholdChange = onExitThresholdChange
         )
         if (zScoreCandles.isNotEmpty() && chartThresholds != null) {
-            val zReferenceLines = buildZScoreReferenceLines(chartThresholds, desktopStyle = true)
-            val chartMarkers by produceState(
-                initialValue = emptyList<ChartPointMarker>(),
-                m15ChartPoints,
-                tradeItems,
-            ) {
-                value = withContext(Dispatchers.Default) {
-                    buildZScoreMarkersFromStrategyTestTrades(
-                        m15ChartPoints,
-                        filterStrategyTestTradesForChart(m15ChartPoints, tradeItems),
-                    )
-                }
+            val zReferenceLines = remember(chartThresholds) {
+                buildZScoreReferenceLines(chartThresholds, desktopStyle = true)
             }
             CandlestickChartCard(
                 title = "Z-score · 15м (тот же ряд, что симуляция)",
@@ -175,14 +166,6 @@ internal fun StrategyTestTabContent(
                         drawdownRub = m.drawdownCurveRub,
                         chartHeightDp = 280,
                     )
-                }
-            }
-            val spreadHourlyVolatility by produceState<SpreadHourlyVolatilityReport?>(
-                initialValue = null,
-                m15ChartPoints,
-            ) {
-                value = withContext(Dispatchers.Default) {
-                    buildSpreadHourlyVolatilityReport(m15ChartPoints)
                 }
             }
             spreadHourlyVolatility?.let { hourlyVolatility ->
@@ -315,24 +298,8 @@ internal fun StrategyTestTabContent(
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
                 )
-                buildStrategyTestDurationSummary(tradeItems.map { it.trade })?.let { durationSummary ->
-                    StrategyTestDurationSummarySection(summary = durationSummary)
-                }
-                val tradeRiskAssessments by produceState(
-                    initialValue = emptyList<StrategyTestTradeRiskAssessment>(),
-                    tradeItems,
-                    m15ChartPoints,
-                    entryThreshold,
-                ) {
-                    value = withContext(Dispatchers.Default) {
-                        tradeItems.map { item ->
-                            buildStrategyTestTradeRiskAssessment(
-                                trade = item.trade,
-                                m15Points = m15ChartPoints,
-                                entryThreshold = entryThreshold,
-                            )
-                        }
-                    }
+                durationSummary?.let { summary ->
+                    StrategyTestDurationSummarySection(summary = summary)
                 }
                 buildStrategyTestTradeRiskSummary(
                     trades = tradeItems.map { it.trade },

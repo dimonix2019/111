@@ -51,7 +51,7 @@ internal const val DAILY_SIGNAL_MAX_PER_DAY = 20
 internal const val STRATEGY_SIGNAL_JOURNAL_DEDUP_WALL_MS = 25_000L
 internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 /** Debounce rapid threshold/leverage tweaks on «Тест страт.» before rerunning simulation. */
-internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 400L
+internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 750L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
 
 /** Portfolio tab: entry/exit |Z| limits are independent (UI steppers). */

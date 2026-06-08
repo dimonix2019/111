@@ -58,7 +58,13 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     LaunchedEffect(selectedTab) {
         if (selectedTab != MainTab.StrategyTest) {
             strategyTestWorkGeneration++
-            clearStrategyTestVisibleState()
+            detachStrategyTestVisibleState()
+            return@LaunchedEffect
+        }
+        if (restoreStrategyTestVisibleFromSession()) {
+            return@LaunchedEffect
+        }
+        if (strategyTestVisibleResultsFresh()) {
             return@LaunchedEffect
         }
         if (strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) {
@@ -129,6 +135,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
         if (strategyTestM15Loading || strategyTestSimComputing) return@LaunchedEffect
         if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
+        if (strategyTestVisibleResultsFresh()) return@LaunchedEffect
         scheduleStrategyTestResimOnly(reason = "params_change")
     }
 
@@ -224,6 +231,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     val signalJournalFingerprint = signalEvents.size to signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
 
     LaunchedEffect(
+        selectedTab,
         signalJournalFingerprint,
         confirmedPortfolioMetrics,
         strategyTestPortfolioMetrics,
@@ -233,6 +241,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         dynamicThresholds.entry,
         dynamicThresholds.exit
     ) {
+        if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
         dailyReconciliation = withContext(Dispatchers.Default) {
             val confirmedForCompare = confirmedPortfolioMetrics?.let {
                 filterPortfolioMetricsToRecentDays(it, portfolioLookbackDays)
