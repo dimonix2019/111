@@ -113,9 +113,9 @@ internal fun buildDailyPortfolioReconciliation(
                 )
             } else {
                 rows += DailyReconciliationRow(
-                    headline = "Только подтверждённые (журнал): ${dirRu(c.direction)}",
-                    detail = "${c.entryDate} → ${c.exitDate}, ${formatRub(c.pnlRubApprox)}. В симуляции за день такого закрытого круга нет — " +
-                        "проверьте пороги на «Тест страт.» или что сигнал выхода не попал в журнал.",
+                    headline = "Только портфель (симуляция Z): ${dirRu(c.direction)}",
+                    detail = "${c.entryDate} → ${c.exitDate}, ${formatRub(c.pnlRubApprox)}. В «Тест страт.» за день такого круга нет — " +
+                        "сверьте пороги (розовые vs степперы теста), режим «Фикс./Капитализация» и нажмите «Обновить» на обеих вкладках.",
                     isOk = false
                 )
             }

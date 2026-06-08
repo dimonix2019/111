@@ -22,6 +22,14 @@ class MoexChartInteractionTest {
     }
 
     @Test
+    fun chartViewportState_panX_allowsRightOverscroll() {
+        val state = ChartViewportState(0.3f, 0.7f, -2.0, 2.0)
+        state.panX(0.25f)
+        assertTrue(state.windowStart > 1f - state.windowWidth)
+        assertTrue(state.windowStart <= chartWindowStartMax(state.windowWidth) + 1e-4f)
+    }
+
+    @Test
     fun chartViewportState_resetWindow_restoresY() {
         val state = ChartViewportState(1f, 0f, -1.0, 1.0)
         state.zoomY(2f)

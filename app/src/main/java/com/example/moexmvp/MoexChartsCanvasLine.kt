@@ -67,7 +67,8 @@ internal fun LineChart(
     modifier: Modifier = Modifier,
     enableZoomPan: Boolean = false,
     markerScale: Float = 1f,
-    rightPlotPaddingPx: Float = 16f
+    rightPlotPaddingPx: Float = 16f,
+    xLabelStyle: ChartXLabelStyle = ChartXLabelStyleTilted,
 ) {
     if (series.isEmpty() || series.all { it.values.isEmpty() }) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -83,7 +84,7 @@ internal fun LineChart(
     val leftPadding = 16f
     val rightPadding = rightPlotPaddingPx.coerceAtLeast(16f)
     val topPadding = 12f
-    val bottomPadding = CHART_BOTTOM_PADDING_PX
+    val bottomPadding = xLabelStyle.bottomPaddingPx
 
     val maxIndex = series.maxOfOrNull { it.values.lastIndex }?.coerceAtLeast(0) ?: 0
 
@@ -131,13 +132,15 @@ internal fun LineChart(
                             val centroidRel =
                                 ((centroid.x - leftPadding) / chartWidthPx).coerceIn(0f, 1f)
                             val dataFracUnderCentroid = windowStart + centroidRel * windowWidth
-                            var newStart = dataFracUnderCentroid - centroidRel * newW
-                            newStart = newStart.coerceIn(0f, 1f - newW)
+                            val newStart = coerceChartWindowStart(
+                                dataFracUnderCentroid - centroidRel * newW,
+                                newW,
+                            )
                             windowWidth = newW
                             windowStart = newStart
                         } else if (pan.x != 0f) {
                             val panFrac = -pan.x / chartWidthPx * windowWidth
-                            windowStart = (windowStart + panFrac).coerceIn(0f, 1f - windowWidth)
+                            windowStart = coerceChartWindowStart(windowStart + panFrac, windowWidth)
                         }
                     }
                 }
@@ -311,18 +314,22 @@ internal fun LineChart(
             val labelPaint = Paint().apply {
                 isAntiAlias = true
                 color = android.graphics.Color.rgb(221, 236, 255)
-                textSize = 10.sp.toPx()
-                textAlign = Paint.Align.RIGHT
+                textSize = (if (xLabelStyle.horizontal) 9f else 10f).sp.toPx()
+                textAlign = if (xLabelStyle.horizontal) Paint.Align.CENTER else Paint.Align.RIGHT
             }
-            val labelBaselineY = size.height - CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX
+            val labelBaselineY = size.height - xLabelStyle.baselineFromBottomPx
             xTicks.forEach { tick ->
                 val frac = fracForIndex(tick.index)
                 if (frac < wStart - 0.02f || frac > wStart + wWidth + 0.02f) return@forEach
                 val x = xForIndexDraw(tick.index)
-                drawContext.canvas.nativeCanvas.save()
-                drawContext.canvas.nativeCanvas.rotate(CHART_X_LABEL_ROTATION_DEG, x, labelBaselineY)
-                drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
-                drawContext.canvas.nativeCanvas.restore()
+                if (xLabelStyle.rotationDeg == 0f) {
+                    drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
+                } else {
+                    drawContext.canvas.nativeCanvas.save()
+                    drawContext.canvas.nativeCanvas.rotate(xLabelStyle.rotationDeg, x, labelBaselineY)
+                    drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
+                    drawContext.canvas.nativeCanvas.restore()
+                }
             }
         }
     }

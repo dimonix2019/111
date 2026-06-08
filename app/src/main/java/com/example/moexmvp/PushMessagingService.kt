@@ -67,8 +67,8 @@ internal data class StrategySignalEvent(
 internal fun spreadLegPushCorrelationTag(barTimestampMillis: Long, signalType: StrategySignalType): String =
     "spreadLeg|${barTimestampMillis}|${signalType.name}"
 
-/** Короткий ID сигнала для таблицы сделок (тип + ts бара 15м). */
-internal fun strategySignalDisplayId(barTimestampMillis: Long, signalType: StrategySignalType): String {
+/** Устаревший ID (до еженедельной нумерации): тип + ts бара 15м. */
+internal fun legacyStrategySignalDisplayId(barTimestampMillis: Long, signalType: StrategySignalType): String {
     val code = when (signalType) {
         StrategySignalType.EnterLong -> "EL"
         StrategySignalType.EnterShort -> "ES"
@@ -79,28 +79,52 @@ internal fun strategySignalDisplayId(barTimestampMillis: Long, signalType: Strat
 }
 
 internal data class StrategySignalDisplay(
+    /** Полный ID: «3 long 2026-06-01 14:30». */
     val signalId: String,
+    /** Короткий ID сделки: «3 long». */
+    val tradeDisplayId: String,
     val barTimeMsk: String,
     val receivedTimeMsk: String
 )
 
-internal fun strategySignalDisplay(event: StrategySignalEvent): StrategySignalDisplay =
-    StrategySignalDisplay(
-        signalId = strategySignalDisplayId(event.timestampMillis, event.signalType),
+internal fun strategySignalDisplay(
+    event: StrategySignalEvent,
+    journalEvents: List<StrategySignalEvent> = listOf(event),
+): StrategySignalDisplay {
+    val index = buildWeeklySignalNumberIndex(journalEvents)
+    val weeklyLabel = weeklyStrategySignalLabel(index, event)
+    val weeklyTradeId = if (event.signalType == StrategySignalType.EnterLong ||
+        event.signalType == StrategySignalType.EnterShort
+    ) {
+        weeklyTradeDisplayId(index, event.timestampMillis, event.signalType)
+    } else {
+        null
+    }
+    val legacyId = legacyStrategySignalDisplayId(event.timestampMillis, event.signalType)
+    return StrategySignalDisplay(
+        signalId = weeklyLabel ?: legacyId,
+        tradeDisplayId = weeklyTradeId ?: legacyId,
         barTimeMsk = formatPortfolioExecutionTableMsk(event.timestampMillis),
         receivedTimeMsk = formatMessageReceivedAtMsk(event.receivedAtMillis)
     )
+}
 
 internal fun strategySignalDisplay(
     barTimestampMillis: Long,
     signalType: StrategySignalType,
-    receivedAtMillis: Long = barTimestampMillis
-): StrategySignalDisplay =
-    StrategySignalDisplay(
-        signalId = strategySignalDisplayId(barTimestampMillis, signalType),
-        barTimeMsk = formatPortfolioExecutionTableMsk(barTimestampMillis),
-        receivedTimeMsk = formatMessageReceivedAtMsk(receivedAtMillis)
+    receivedAtMillis: Long = barTimestampMillis,
+    journalEvents: List<StrategySignalEvent> = emptyList(),
+): StrategySignalDisplay {
+    val ev = journalEvents.lastOrNull {
+        it.timestampMillis == barTimestampMillis && it.signalType == signalType
+    } ?: StrategySignalEvent(
+        timestampMillis = barTimestampMillis,
+        signalType = signalType,
+        zScore = 0.0,
+        receivedAtMillis = receivedAtMillis,
     )
+    return strategySignalDisplay(ev, journalEvents.ifEmpty { listOf(ev) })
+}
 
 /** Поля для таблицы сделок: ID сигнала входа, бар 15м, время записи в журнал. */
 internal fun entrySignalDisplayFields(
@@ -113,11 +137,140 @@ internal fun entrySignalDisplayFields(
         it.timestampMillis == barTimestampMillis && it.signalType == signalType
     }
     val d = if (ev != null) {
-        strategySignalDisplay(ev)
+        strategySignalDisplay(ev, journalEvents)
     } else {
-        strategySignalDisplay(barTimestampMillis, signalType, fallbackReceivedAtMillis)
+        strategySignalDisplay(barTimestampMillis, signalType, fallbackReceivedAtMillis, journalEvents)
     }
     return Triple(d.signalId, d.barTimeMsk, d.receivedTimeMsk)
+}
+
+/** Короткий ID сделки для таблицы портфеля: «3 long». */
+internal fun entryTradeDisplayId(
+    journalEvents: List<StrategySignalEvent>,
+    barTimestampMillis: Long,
+    signalType: StrategySignalType,
+    fallbackReceivedAtMillis: Long = barTimestampMillis,
+): String {
+    val ev = journalEvents.lastOrNull {
+        it.timestampMillis == barTimestampMillis && it.signalType == signalType
+    }
+    val d = if (ev != null) {
+        strategySignalDisplay(ev, journalEvents)
+    } else {
+        strategySignalDisplay(barTimestampMillis, signalType, fallbackReceivedAtMillis, journalEvents)
+    }
+    return d.tradeDisplayId
+}
+
+/** Заголовок push для сигнала Z (как в шторке). */
+internal fun strategySignalPushTitle(signalType: StrategySignalType): String = when (signalType) {
+    StrategySignalType.EnterLong -> "Вход: LONG TATN / SHORT TATNP"
+    StrategySignalType.EnterShort -> "Вход: LONG TATNP / SHORT TATN"
+    StrategySignalType.ExitLong -> "Выход: закрыть LONG TATN / SHORT TATNP"
+    StrategySignalType.ExitShort -> "Выход: закрыть LONG TATNP / SHORT TATN"
+}
+
+/** Тело push без строки «Получено: …» (она показывается отдельно). */
+internal fun strategySignalPushBody(
+    signalType: StrategySignalType,
+    zScore: Double,
+    entryThreshold: Double,
+    exitThreshold: Double,
+): String = when (signalType) {
+    StrategySignalType.EnterLong -> String.format(
+        Locale.US,
+        "Z <= -%.1f (текущий Z=%.2f)",
+        entryThreshold,
+        zScore
+    )
+    StrategySignalType.EnterShort -> String.format(
+        Locale.US,
+        "Z >= +%.1f (текущий Z=%.2f)",
+        entryThreshold,
+        zScore
+    )
+    StrategySignalType.ExitLong -> String.format(
+        Locale.US,
+        "Z >= -%.1f (текущий Z=%.2f)",
+        exitThreshold,
+        zScore
+    )
+    StrategySignalType.ExitShort -> String.format(
+        Locale.US,
+        "Z <= +%.1f (текущий Z=%.2f)",
+        exitThreshold,
+        zScore
+    )
+}
+
+internal fun strategySignalPushBodyForDisplay(body: String): String =
+    body.lineSequence()
+        .filterNot { messageBodyHasReceivedTimeLine(it) }
+        .joinToString("\n")
+        .trim()
+
+/** Связка записи журнала сигналов с локальным логом push. */
+internal fun findPushLogForStrategySignal(
+    event: StrategySignalEvent,
+    pushLog: List<PushNotificationLogEntry>,
+): PushNotificationLogEntry? {
+    pushLog.asReversed().firstOrNull { entry ->
+        entry.virtualTapBarTimestampMillis == event.timestampMillis &&
+            entry.virtualTapSignalType == event.signalType.name
+    }?.let { return it }
+    val title = strategySignalPushTitle(event.signalType)
+    return pushLog.asReversed().firstOrNull { entry ->
+        entry.title == title &&
+            kotlin.math.abs(entry.wallTimestampMillis - event.receivedAtMillis) <= 120_000L
+    }
+}
+
+internal data class StrategySignalJournalPushView(
+    val receivedAtMillis: Long,
+    val signalId: String,
+    val pushIdText: String,
+    val title: String,
+    val messageBody: String,
+    val pushStatusText: String?,
+    val pushPosted: Boolean?,
+)
+
+internal fun buildStrategySignalJournalPushView(
+    event: StrategySignalEvent,
+    pushLog: List<PushNotificationLogEntry>,
+    entryThreshold: Double,
+    exitThreshold: Double,
+    allJournalEvents: List<StrategySignalEvent> = listOf(event),
+): StrategySignalJournalPushView {
+    val sig = strategySignalDisplay(event, allJournalEvents)
+    val push = findPushLogForStrategySignal(event, pushLog)
+    val title = push?.title ?: strategySignalPushTitle(event.signalType)
+    val rawBody = push?.body ?: strategySignalPushBody(
+        event.signalType,
+        event.zScore,
+        entryThreshold,
+        exitThreshold,
+    )
+    val messageBody = strategySignalPushBodyForDisplay(rawBody)
+    val (statusText, posted) = when {
+        push == null -> "Push не отправлен" to false
+        push.posted -> "Показано в шторке" to true
+        push.skipReason == PushNotificationLogSkipReason.DUPLICATE_WITHIN_WINDOW ->
+            "Пропущено (дубликат)" to false
+        push.skipReason == PushNotificationLogSkipReason.POST_NOTIFICATIONS_DENIED ->
+            "Пропущено (нет разрешения)" to false
+        push.skipReason != null -> "Пропущено (${push.skipReason})" to false
+        else -> "Не показано" to false
+    }
+    return StrategySignalJournalPushView(
+        receivedAtMillis = event.receivedAtMillis,
+        signalId = sig.signalId,
+        pushIdText = push?.let { formatPushNotificationIdDisplay(it) } ?: "—",
+        title = title,
+        messageBody = messageBody,
+        pushStatusText = statusText,
+        pushPosted = posted,
+    )
 }
 
 internal fun createPushNotificationChannel(context: Context) {
@@ -215,6 +368,292 @@ internal fun showPushNotification(
     NotificationManagerCompat.from(context).notify(notificationId, notification)
     trace(true, null, notificationId)
     return true
+}
+
+internal fun sandboxTradeOpenedPushCorrelationTag(
+    barTimestampMillis: Long,
+    signalType: StrategySignalType,
+): String = "tradeOpened|${barTimestampMillis}|${signalType.name}"
+
+/** Текст push «Сделка открыта» — все поля сделки и номер сигнала. */
+internal fun buildSandboxTradeOpenedNotificationBody(
+    execution: SandboxSpreadExecUi,
+    journalEvents: List<StrategySignalEvent>,
+    notionalRub: Double,
+    leverage: Double,
+    portfolioTotalRub: String? = null,
+    portfolioCashRub: String? = null,
+    openedAtMillis: Long = System.currentTimeMillis(),
+): String {
+    val sig = strategySignalDisplay(
+        barTimestampMillis = execution.barTimestampMillis,
+        signalType = execution.signalType,
+        receivedAtMillis = execution.executedAtMillis,
+        journalEvents = journalEvents,
+    )
+    val tradeId = entryTradeDisplayId(
+        journalEvents = journalEvents,
+        barTimestampMillis = execution.barTimestampMillis,
+        signalType = execution.signalType,
+        fallbackReceivedAtMillis = execution.executedAtMillis,
+    )
+    return buildString {
+        append(formatMessageReceivedLine(openedAtMillis))
+        append('\n')
+        append("Сигнал: ")
+        append(compactPortfolioTableDateLabel(sig.signalId))
+        append('\n')
+        append("Сделка: ")
+        append(tradeId)
+        append('\n')
+        append("ID: ")
+        append(execution.tradeId)
+        append('\n')
+        append("Направление: ")
+        append(execution.directionLabel)
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "Z вход: %.2f · спрэд вход: %.2f%%",
+                execution.zScore,
+                execution.entrySpreadPercent,
+            )
+        )
+        append('\n')
+        append("Бар сигнала: ")
+        append(compactPortfolioTableDateLabel(execution.entrySignalBarTimeMsk))
+        append('\n')
+        append("Получен: ")
+        append(compactPortfolioTableDateLabel(execution.entrySignalReceivedMsk))
+        append('\n')
+        append("Вход: ")
+        append(compactPortfolioTableDateLabel(execution.entryTimeMsk))
+        append('\n')
+        append("Подтв.: ")
+        append(execution.confirmLabel)
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "Номинал: %.0f ₽ · плечо ×%.1f · объём: %s",
+                notionalRub,
+                leverage,
+                execution.volumeText,
+            )
+        )
+        execution.legs.forEachIndexed { index, leg ->
+            append('\n')
+            append("Нога ")
+            append(index + 1)
+            append(": ")
+            append(leg.ticker)
+            append(" · ")
+            append(leg.sideRu)
+            if (leg.orderBrief.isNotBlank() && leg.orderBrief != "—") {
+                append(" · ")
+                append(leg.orderBrief)
+            }
+        }
+        portfolioTotalRub?.let {
+            append('\n')
+            append("Баланс портфеля: ")
+            append(it)
+        }
+        portfolioCashRub?.let {
+            append('\n')
+            append("Деньги (₽): ")
+            append(it)
+        }
+    }
+}
+
+internal fun sandboxTradeClosedPushCorrelationTag(
+    barTimestampMillis: Long,
+    signalType: StrategySignalType,
+): String = "tradeClosed|${barTimestampMillis}|${signalType.name}"
+
+/** Текст push «Сделка закрыта» — сигнал выхода, PnL сделки и общий PnL счёта. */
+internal fun buildSandboxTradeClosedNotificationBody(
+    execution: SandboxSpreadExecUi,
+    exitSignalType: StrategySignalType,
+    exitBarTimestampMillis: Long,
+    exitZScore: Double,
+    tradePnl: SandboxClosedTradePnl,
+    accountTotalPnlRub: Double,
+    journalEvents: List<StrategySignalEvent>,
+    notionalRub: Double,
+    leverage: Double,
+    portfolioTotalRub: String? = null,
+    portfolioCashRub: String? = null,
+    closedAtMillis: Long = System.currentTimeMillis(),
+): String {
+    val entryTradeId = entryTradeDisplayId(
+        journalEvents = journalEvents,
+        barTimestampMillis = execution.barTimestampMillis,
+        signalType = execution.signalType,
+        fallbackReceivedAtMillis = execution.executedAtMillis,
+    )
+    val exitSig = strategySignalDisplay(
+        barTimestampMillis = exitBarTimestampMillis,
+        signalType = exitSignalType,
+        receivedAtMillis = exitBarTimestampMillis,
+        journalEvents = journalEvents,
+    )
+    val exitTimeMsk = formatPortfolioExecutionTableMsk(exitBarTimestampMillis)
+    return buildString {
+        append(formatMessageReceivedLine(closedAtMillis))
+        append('\n')
+        append("Сигнал выхода: ")
+        append(compactPortfolioTableDateLabel(exitSig.signalId))
+        append('\n')
+        append("Сделка: ")
+        append(entryTradeId)
+        append('\n')
+        append("ID: ")
+        append(execution.tradeId)
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "Z вход: %.2f · Z выход: %.2f",
+                execution.zScore,
+                exitZScore,
+            )
+        )
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "Спрэд вход: %.2f%% · выход: %.2f%%",
+                execution.entrySpreadPercent,
+                tradePnl.exitSpreadPercent,
+            )
+        )
+        append('\n')
+        append("Вход: ")
+        append(compactPortfolioTableDateLabel(execution.entryTimeMsk))
+        append(" · Выход: ")
+        append(compactPortfolioTableDateLabel(exitTimeMsk))
+        append('\n')
+        append("PnL сделки: ")
+        append(formatRubSigned(tradePnl.netRub))
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "  валовый %s · комис. %s · оверн. %s",
+                formatRubSigned(tradePnl.grossRub),
+                formatRubSigned(-kotlin.math.abs(tradePnl.commissionRub)),
+                formatRubSigned(-kotlin.math.abs(tradePnl.overnightRub)),
+            )
+        )
+        append('\n')
+        append("Общий PnL счёта: ")
+        append(formatRubSigned(accountTotalPnlRub))
+        append('\n')
+        append(
+            String.format(
+                Locale.US,
+                "Номинал: %.0f ₽ · плечо ×%.1f",
+                notionalRub,
+                leverage,
+            )
+        )
+        portfolioTotalRub?.let {
+            append('\n')
+            append("Баланс счёта: ")
+            append(it)
+        }
+        portfolioCashRub?.let {
+            append('\n')
+            append("Деньги (₽): ")
+            append(it)
+        }
+    }
+}
+
+/** Одно уведомление после закрытия спрэд-сделки на демо. */
+internal fun notifySandboxTradeClosed(
+    context: Context,
+    execution: SandboxSpreadExecUi,
+    exitSignalType: StrategySignalType,
+    exitBarTimestampMillis: Long,
+    exitZScore: Double,
+    tradePnl: SandboxClosedTradePnl,
+    accountTotalPnlRub: Double,
+    notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+    leverage: Double,
+    portfolioTotalRub: String? = null,
+    portfolioCashRub: String? = null,
+) {
+    val app = context.applicationContext
+    val journal = loadStrategySignalEvents(app)
+    val entryTradeId = entryTradeDisplayId(
+        journalEvents = journal,
+        barTimestampMillis = execution.barTimestampMillis,
+        signalType = execution.signalType,
+        fallbackReceivedAtMillis = execution.executedAtMillis,
+    )
+    val body = buildSandboxTradeClosedNotificationBody(
+        execution = execution,
+        exitSignalType = exitSignalType,
+        exitBarTimestampMillis = exitBarTimestampMillis,
+        exitZScore = exitZScore,
+        tradePnl = tradePnl,
+        accountTotalPnlRub = accountTotalPnlRub,
+        journalEvents = journal,
+        notionalRub = notionalRub,
+        leverage = leverage,
+        portfolioTotalRub = portfolioTotalRub,
+        portfolioCashRub = portfolioCashRub,
+    )
+    showPushNotification(
+        context = app,
+        title = "Сделка закрыта · $entryTradeId · ${formatRubSigned(tradePnl.netRub)}",
+        body = body,
+        virtualTradeTap = null,
+        skipDuplicateCheck = true,
+        correlationTag = sandboxTradeClosedPushCorrelationTag(exitBarTimestampMillis, exitSignalType),
+    )
+}
+
+/** Одно уведомление после открытия спрэд-сделки на демо (вместо push по ногам на входе). */
+internal fun notifySandboxTradeOpened(
+    context: Context,
+    execution: SandboxSpreadExecUi,
+    notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+    leverage: Double,
+    portfolioTotalRub: String? = null,
+    portfolioCashRub: String? = null,
+) {
+    val app = context.applicationContext
+    val journal = loadStrategySignalEvents(app)
+    val tradeId = entryTradeDisplayId(
+        journalEvents = journal,
+        barTimestampMillis = execution.barTimestampMillis,
+        signalType = execution.signalType,
+        fallbackReceivedAtMillis = execution.executedAtMillis,
+    )
+    val body = buildSandboxTradeOpenedNotificationBody(
+        execution = execution,
+        journalEvents = journal,
+        notionalRub = notionalRub,
+        leverage = leverage,
+        portfolioTotalRub = portfolioTotalRub,
+        portfolioCashRub = portfolioCashRub,
+    )
+    showPushNotification(
+        context = app,
+        title = "Сделка открыта · $tradeId",
+        body = body,
+        virtualTradeTap = null,
+        skipDuplicateCheck = true,
+        correlationTag = sandboxTradeOpenedPushCorrelationTag(
+            execution.barTimestampMillis,
+            execution.signalType,
+        ),
+    )
 }
 
 /** Отдельное уведомление по каждой ноге спрэда после PostSandboxOrder (тест песочницы). */
@@ -478,6 +917,48 @@ internal fun recordStrategySignalEvent(
     }
 }
 
+/** JSON для parity-скрипта (Журнал → Экспорт). */
+internal fun exportStrategySignalJournalJson(
+    context: Context,
+    entryThreshold: Double,
+    exitThreshold: Double,
+    notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+    leverage: Double = 7.0,
+    commissionPercentPerSide: Double = 0.04,
+): String {
+    val events = loadStrategySignalEvents(context)
+    val arr = JSONArray()
+    events.forEach { event ->
+        arr.put(
+            JSONObject()
+                .put("timestampMillis", event.timestampMillis)
+                .put("signalType", event.signalType.name)
+                .put("zScore", event.zScore)
+                .put("receivedAtMillis", event.receivedAtMillis)
+        )
+    }
+    return JSONObject()
+        .put("version", 1)
+        .put("exportedAtMillis", System.currentTimeMillis())
+        .put(
+            "thresholds",
+            JSONObject()
+                .put("entry", entryThreshold)
+                .put("exit", exitThreshold)
+        )
+        .put(
+            "simParams",
+            JSONObject()
+                .put("notionalRub", notionalRub)
+                .put("leverage", leverage)
+                .put("commissionPercentPerSide", commissionPercentPerSide)
+                .put("zMode", "rolling30")
+                .put("compoundReturns", false)
+        )
+        .put("events", arr)
+        .toString(2)
+}
+
 internal fun loadStrategySignalEvents(
     context: Context,
     fromTimestampMillis: Long? = null
@@ -527,6 +1008,7 @@ internal fun clearStrategySignalJournalAndLocalStrategyState(context: Context) {
     clearSandboxAutoSpreadDedup(app)
     clearPortfolioExecutionLedger(app)
     TinkoffSandboxSpreadExecLog.clear(app)
+    SandboxAccountPnlLedger.clear(app)
 }
 
 internal fun showDynamicZThresholdsPushNotification(

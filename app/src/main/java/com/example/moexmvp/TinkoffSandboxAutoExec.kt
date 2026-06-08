@@ -5,12 +5,14 @@ import android.content.Context
 private val autoSpreadDedupLock = Any()
 private const val AUTO_SPREAD_PREFS = "moex_sandbox_auto_spread_dedup"
 private const val KEY_LAST_AUTO = "last_executed_bar_key"
+private const val KEY_LAST_AUTO_EXIT = "last_executed_exit_bar_key"
 
 internal fun clearSandboxAutoSpreadDedup(context: Context) {
     synchronized(autoSpreadDedupLock) {
         context.applicationContext.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
             .edit()
             .remove(KEY_LAST_AUTO)
+            .remove(KEY_LAST_AUTO_EXIT)
             .apply()
     }
 }
@@ -68,7 +70,7 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             signalType = signalType,
             source = PortfolioExecSource.AUTO
         )
-        TinkoffSandboxSpreadExecLog.recordFromLegs(
+        val execution = TinkoffSandboxSpreadExecLog.recordFromLegs(
             app,
             signalType,
             zScore,
@@ -79,16 +81,96 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             legs = legs,
             fromTestButton = fromTestButton
         )
-        notifySandboxSpreadLegExecutionResults(
-            app,
-            legs,
-            DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage,
-            spreadLegPushCorrelationTag(barTimestampMillis, signalType)
-        )
+        execution?.let { opened ->
+            val lastLeg = legs.lastOrNull()
+            notifySandboxTradeOpened(
+                context = app,
+                execution = opened,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = leverage,
+                portfolioTotalRub = lastLeg?.portfolioTotalRub,
+                portfolioCashRub = lastLeg?.portfolioCashRub,
+            )
+        }
         true
     } catch (e: Exception) {
         notifySandboxAutoEntrySkipped(
+            app,
+            e.message?.take(200) ?: e.javaClass.simpleName
+        )
+        false
+    }
+}
+
+/**
+ * В режиме AUTO: после сигнала выхода отправить обратные заявки на песочницу и снять сделку с открытых.
+ * Журнал выхода уже записан обработчиком сигнала — дублировать не нужно.
+ */
+internal suspend fun runSandboxAutoExitIfNeeded(
+    context: Context,
+    exitSignalType: StrategySignalType,
+    zScore: Double,
+    barTimestampMillis: Long,
+): Boolean {
+    if (exitSignalType != StrategySignalType.ExitLong &&
+        exitSignalType != StrategySignalType.ExitShort
+    ) {
+        return false
+    }
+    if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
+    val dedupKey = "${exitSignalType.name}|$barTimestampMillis"
+    synchronized(autoSpreadDedupLock) {
+        val p = context.applicationContext.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
+        if (p.getString(KEY_LAST_AUTO_EXIT, null) == dedupKey) return false
+    }
+    val openTrade = findOpenTradeForStrategyExit(
+        TinkoffSandboxSpreadExecLog.loadRecent(context),
+        exitSignalType,
+    ) ?: return false
+    when (TinkoffSandboxStorage.resolveExecUiState(context)) {
+        SandboxExecUiState.MissingCredentials -> {
+            notifySandboxAutoExitSkipped(context, "Укажите токен и счёт песочницы (вкладка «Песочница»).")
+            return false
+        }
+        SandboxExecUiState.Ready -> Unit
+        SandboxExecUiState.Off -> Unit
+    }
+    val token = TinkoffSandboxStorage.getToken(context) ?: run {
+        notifySandboxAutoExitSkipped(context, "Нет токена песочницы.")
+        return false
+    }
+    val accountId = TinkoffSandboxStorage.getAccountId(context) ?: run {
+        notifySandboxAutoExitSkipped(context, "Нет счёта песочницы.")
+        return false
+    }
+    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
+    val app = context.applicationContext
+    return try {
+        val legs = tinkoffSandboxExecuteSpreadExitDetailed(token, accountId, openTrade.signalType)
+        synchronized(autoSpreadDedupLock) {
+            app.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_LAST_AUTO_EXIT, dedupKey).commit()
+        }
+        finalizePortfolioOpenTradeClose(
+            context = app,
+            execution = openTrade,
+            recordExitInJournal = false,
+            exitZScore = zScore,
+            exitTimestampMillis = barTimestampMillis,
+        ).getOrThrow()
+        notifySandboxTradeClosedAfterClose(
+            context = app,
+            execution = openTrade,
+            exitSignalType = exitSignalType,
+            exitBarTimestampMillis = barTimestampMillis,
+            exitZScore = zScore,
+            exitLegs = legs,
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = leverage,
+        )
+        true
+    } catch (e: Exception) {
+        notifySandboxAutoExitSkipped(
             app,
             e.message?.take(200) ?: e.javaClass.simpleName
         )
@@ -100,6 +182,15 @@ private fun notifySandboxAutoEntrySkipped(context: Context, reason: String) {
     showPushNotification(
         context = context,
         title = "Песочница: авто-вход не выполнен",
+        body = reason,
+        virtualTradeTap = null
+    )
+}
+
+private fun notifySandboxAutoExitSkipped(context: Context, reason: String) {
+    showPushNotification(
+        context = context,
+        title = "Песочница: авто-выход не выполнен",
         body = reason,
         virtualTradeTap = null
     )

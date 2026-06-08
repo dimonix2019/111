@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
@@ -81,7 +82,8 @@ internal fun candleDefaultYViewCenter(dataMin: Double, dataMax: Double): Double 
 internal fun chartCandleBodyWidthPx(plotWidthPx: Float, visibleCandleCount: Float): Float {
     val count = visibleCandleCount.coerceAtLeast(1f)
     val slot = plotWidthPx / count
-    return (slot * 0.72f).coerceIn(2f, slot * 0.92f)
+    val upper = maxOf(2f, slot * 0.92f)
+    return (slot * 0.72f).coerceIn(2f, upper)
 }
 
 /** Видимый диапазон Y; viewCenter может быть вне dataMin..dataMax (как zoom фото в галерее). */
@@ -303,15 +305,49 @@ internal fun buildCandleStats(candles: List<CandlePoint>): ChartStats {
 }
 
 private val m15ChartXAxisLabelFormatter =
-    DateTimeFormatter.ofPattern("dd.MM HH:mm", Locale.forLanguageTag("ru"))
+    DateTimeFormatter.ofPattern("dd.MM.yy HH:mm", Locale.forLanguageTag("ru"))
 
-/** Подпись времени под 15м Z-графиком (без года — короче, меньше наложений). */
+/** Подпись времени под 15м Z-графиком: dd.MM.yy HH:mm (год «26», без секунд). */
 internal fun formatM15ChartXAxisLabel(tradeDateLabel: String): String {
     val trimmed = tradeDateLabel.trim()
     val dt = runCatching { LocalDateTime.parse(trimmed, portfolio15mLabelFormatter) }.getOrNull()
-        ?: return trimmed.takeLast(11)
+        ?: runCatching { LocalDateTime.parse(trimmed, updatedAtFormatter) }.getOrNull()
+        ?: return trimmed
+            .removeSuffix(":00")
+            .let { s -> if (s.length >= 16) s.substring(2, 16) else s.takeLast(14) }
     return dt.format(m15ChartXAxisLabelFormatter)
 }
+
+/** Время последней загрузки MOEX в сводке «Рынок» (без секунд). */
+internal fun formatMarketsLoadedAtShort(raw: String?): String {
+    if (raw.isNullOrBlank() || raw == "—") return "—"
+    val trimmed = raw.trim()
+    val dt = runCatching { LocalDateTime.parse(trimmed, updatedAtFormatter) }.getOrNull()
+        ?: runCatching { LocalDateTime.parse(trimmed, portfolio15mLabelFormatter) }.getOrNull()
+        ?: return trimmed.removeSuffix(":00").takeLast(14)
+    return dt.format(m15ChartXAxisLabelFormatter)
+}
+
+internal data class ChartXLabelStyle(
+    val rotationDeg: Float,
+    val bottomPaddingPx: Float,
+    val baselineFromBottomPx: Float,
+    val horizontal: Boolean,
+)
+
+internal val ChartXLabelStyleTilted = ChartXLabelStyle(
+    rotationDeg = CHART_X_LABEL_ROTATION_DEG,
+    bottomPaddingPx = CHART_BOTTOM_PADDING_PX,
+    baselineFromBottomPx = CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX,
+    horizontal = false,
+)
+
+internal val ChartXLabelStyleHorizontal = ChartXLabelStyle(
+    rotationDeg = 0f,
+    bottomPaddingPx = 36f,
+    baselineFromBottomPx = 12f,
+    horizontal = true,
+)
 
 internal fun buildCandleAxisScale(
     candles: List<CandlePoint>,
@@ -427,7 +463,22 @@ internal fun buildXTicks(labels: List<String>, desiredCount: Int = 5): List<XAxi
         .map { index -> XAxisTick(index = index, label = labels[index]) }
 }
 
-/** Подписи X для 15м свечей: индексы по времени слева→направо, короткий dd.MM HH:mm. */
+/** Подписи X для 15м рядов (линейный график спреда и т.п.). */
+internal fun buildXTicksForM15Labels(
+    labels: List<String>,
+    desiredCount: Int = 5,
+): List<XAxisTick> {
+    if (labels.isEmpty()) return emptyList()
+    return buildXTicks(labels, desiredCount)
+        .map { tick ->
+            XAxisTick(
+                index = tick.index,
+                label = formatM15ChartXAxisLabel(labels[tick.index]),
+            )
+        }
+}
+
+/** Подписи X для 15м свечей: индексы по времени слева→направо, короткий dd.MM.yy HH:mm. */
 internal fun buildXTicksForM15Candles(
     candles: List<CandlePoint>,
     desiredCount: Int = 6,
@@ -456,4 +507,43 @@ internal fun formatPercentDeltaFromBase(value: Double, base: Double): String {
     val deltaPercent = ((value / base) - 1.0) * 100.0
     val sign = if (deltaPercent > 0) "+" else ""
     return sign + String.format(Locale.US, "%.2f%%", deltaPercent)
+}
+
+/** Время открытия торгового дня (МСК) — совпадает с [DYNAMIC_Z_RECALC_HOUR]/[DYNAMIC_Z_RECALC_MINUTE]. */
+internal fun tradingDayOpenTimeMsk(): LocalTime =
+    LocalTime.of(DYNAMIC_Z_RECALC_HOUR, DYNAMIC_Z_RECALC_MINUTE)
+
+internal fun m15LabelCalendarDate(label: String): LocalDate? =
+    runCatching { LocalDate.parse(label.trim().take(10)) }.getOrNull()
+
+internal fun m15LabelBarTime(label: String): LocalTime? =
+    runCatching {
+        LocalTime.parse(label.trim().drop(11).take(5), intradayLabelFormatter)
+    }.getOrNull()
+
+/**
+ * Спред на открытии торгового дня: первый 15м бар дня с временем ≥ 07:30 МСК
+ * (утренняя сессия MOEX; в ISS-ряде это обычно бар 07:30).
+ */
+internal fun spreadPercentAtTradingDayOpen(
+    points: List<DataPoint>,
+    day: LocalDate,
+): Double? {
+    if (points.isEmpty()) return null
+    val openTime = tradingDayOpenTimeMsk()
+    val dayPoints = points.filter { m15LabelCalendarDate(it.tradeDate) == day }
+    if (dayPoints.isEmpty()) return null
+    val atOrAfterOpen = dayPoints.filter { pt ->
+        m15LabelBarTime(pt.tradeDate)?.let { it >= openTime } == true
+    }
+    return atOrAfterOpen.firstOrNull()?.spreadPercent
+        ?: dayPoints.first().spreadPercent
+}
+
+/** База правой оси Spread: открытие последнего календарного дня в видимом ряду. */
+internal fun spreadPercentBaseForChartRightAxis(points: List<DataPoint>): Double? {
+    if (points.isEmpty()) return null
+    val lastDay = points.mapNotNull { m15LabelCalendarDate(it.tradeDate) }.maxOrNull()
+        ?: return points.first().spreadPercent
+    return spreadPercentAtTradingDayOpen(points, lastDay)
 }

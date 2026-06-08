@@ -86,8 +86,8 @@ class MoexAppRegressionTest {
             val start = startUpper * 0.7f
             val state = ChartViewportState(width, start, -2.0, 2.0)
             state.resetWindow(width, start)
-            assertTrue(state.windowStart >= 0f)
-            assertTrue(state.windowStart + state.windowWidth <= 1.0001f)
+            assertTrue(state.windowStart >= chartWindowStartMin())
+            assertTrue(state.windowStart <= chartWindowStartMax(state.windowWidth) + 1e-4f)
         }
     }
 
@@ -138,8 +138,8 @@ class MoexAppRegressionTest {
 
     private fun assertValidChartWindow(width: Float, start: Float, label: String) {
         assertTrue("$label width=$width", width in CHART_ZOOM_MIN_WINDOW..1f)
-        assertTrue("$label start=$start", start >= 0f)
-        assertTrue("$label start+width", start + width <= 1.02f)
+        assertTrue("$label start=$start", start >= chartWindowStartMin())
+        assertTrue("$label start=$start", start <= chartWindowStartMax(width) + 1e-4f)
     }
 
     private fun assertTimestampsAscending(points: List<DataPoint>, label: String) {

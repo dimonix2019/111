@@ -32,12 +32,15 @@ internal data class PortfolioConfirmedTradeTableRow(
     val overnightRubApprox: Double = 0.0,
     val entrySignalId: String = "—",
     val entrySignalBarTimeMsk: String = "—",
-    val entrySignalReceivedMsk: String = "—"
+    val entrySignalReceivedMsk: String = "—",
+    val tradeDisplayId: String = tradeId,
 )
 
 /** Одна сделка (пара ног) и её ордера для таблицы портфеля. */
 internal data class PortfolioTradeGroupRow(
     val tradeId: String,
+    /** Показывается в колонке «ID сделки» (еженедельный номер + тип). */
+    val tradeDisplayId: String = tradeId,
     val directionLabel: String,
     val entryTimeMsk: String,
     val exitTimeMsk: String,
@@ -70,6 +73,7 @@ internal data class PortfolioOrderTableRow(
 
 internal fun PortfolioConfirmedTradeTableRow.toTradeGroup(): PortfolioTradeGroupRow = PortfolioTradeGroupRow(
     tradeId = tradeId,
+    tradeDisplayId = tradeDisplayId,
     directionLabel = directionLabel,
     entryTimeMsk = entryTimeMsk,
     exitTimeMsk = exitTimeMsk,
@@ -299,9 +303,10 @@ internal fun buildExecutedPortfolioWithTable(
                                 exitDateLabel = point.tradeDate,
                                 includeExitCommission = true
                             )
-                            val entrySig = strategySignalDisplay(ec.event)
+                            val entrySig = strategySignalDisplay(ec.event, events)
                             tableRows += PortfolioConfirmedTradeTableRow(
                                 tradeId = "T-%03d".format(Locale.US, tradeSeq),
+                                tradeDisplayId = entrySig.tradeDisplayId,
                                 directionLabel = "long",
                                 entryTimeMsk = formatPortfolioExecutionTableMsk(ec.point.timestampMillis),
                                 exitTimeMsk = formatPortfolioExecutionTableMsk(point.timestampMillis),
@@ -368,9 +373,10 @@ internal fun buildExecutedPortfolioWithTable(
                                 exitDateLabel = point.tradeDate,
                                 includeExitCommission = true
                             )
-                            val entrySig = strategySignalDisplay(ec.event)
+                            val entrySig = strategySignalDisplay(ec.event, events)
                             tableRows += PortfolioConfirmedTradeTableRow(
                                 tradeId = "T-%03d".format(Locale.US, tradeSeq),
+                                tradeDisplayId = entrySig.tradeDisplayId,
                                 directionLabel = "short",
                                 entryTimeMsk = formatPortfolioExecutionTableMsk(ec.point.timestampMillis),
                                 exitTimeMsk = formatPortfolioExecutionTableMsk(point.timestampMillis),

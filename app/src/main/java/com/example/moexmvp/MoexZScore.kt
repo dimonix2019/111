@@ -154,6 +154,17 @@ internal fun applyZScoresForMode(points: List<DataPoint>, mode: ZScoreMode): Lis
 internal fun applyZScoresDefault(points: List<DataPoint>): List<DataPoint> =
     applyZScoresForMode(points, ZScoreMode.Rolling30)
 
+/** Как [applyZScoresDefault], но без второго полного списка (меньше пиков RAM на 255д). */
+internal fun applyZScoresDefaultInPlace(points: MutableList<DataPoint>) {
+    if (points.size < 2) return
+    val cache = RollingSpreadStatsCache.from(points)
+    for (i in points.indices) {
+        val stats = cache.at(i) ?: continue
+        val z = zScoreAtSpread(points[i].spreadPercent, stats)
+        points[i] = points[i].copy(zScore = z)
+    }
+}
+
 internal fun barMillisAt(point: DataPoint): Long {
     if (point.timestampMillis > 0L) return point.timestampMillis
     return parseTradeDateMillis(point.tradeDate)

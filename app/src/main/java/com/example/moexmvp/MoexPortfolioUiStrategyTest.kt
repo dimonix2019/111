@@ -42,11 +42,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Симуляция Z на полном 15м ряду (~255 дн.); без графика Z и без трейлинга выхода. */
 @Composable
@@ -86,7 +88,7 @@ internal fun StrategyTestTabContent(
     walkForwardBusy: Boolean,
     dailyReconciliation: DailyPortfolioReconciliation? = null,
     portfolioEntryThreshold: Double? = null,
-    portfolioExitThreshold: Double? = null
+    portfolioExitThreshold: Double? = null,
 ) {
     val exitRuleNote =
         "выход по фиксированному порогу ±${String.format(Locale.US, "%.2f", exitThreshold)}"
@@ -94,7 +96,6 @@ internal fun StrategyTestTabContent(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        AppVersionBriefCard(tabHint = "Симуляция на полном 15м ряду; пороги только для «Тест страт.»")
         PortfolioDataRefreshHeader(
             title = "Тест стратегии · 15м",
             portfolioLoading = m15Loading || simulationComputing,
@@ -115,10 +116,10 @@ internal fun StrategyTestTabContent(
             maxLines = 2
         )
         Text(
-            text = "Пороги ниже задают только симуляцию на этом экране и не влияют на розовые пороги вкладки «Портфель».",
+            text = "Пороги ниже — только «Тест страт.». Розовые на «Портфеле» — отдельно; при одинаковых ± и фикс. номинале списки закрытых сделок совпадают.",
             color = Color(0xFFF48FB1),
             fontSize = 10.sp,
-            maxLines = 2
+            maxLines = 3
         )
         PortfolioParamsControls(
             leverage = leverage,
@@ -134,23 +135,48 @@ internal fun StrategyTestTabContent(
         )
         if (zScoreCandles.isNotEmpty() && chartThresholds != null) {
             val zReferenceLines = buildZScoreReferenceLines(chartThresholds, desktopStyle = true)
+            val chartMarkers by produceState(
+                initialValue = emptyList<ChartPointMarker>(),
+                m15ChartPoints,
+                tradeItems,
+            ) {
+                value = withContext(Dispatchers.Default) {
+                    buildZScoreMarkersFromStrategyTestTrades(
+                        m15ChartPoints,
+                        filterStrategyTestTradesForChart(m15ChartPoints, tradeItems),
+                    )
+                }
+            }
             CandlestickChartCard(
                 title = "Z-score · 15м (тот же ряд, что симуляция)",
                 candles = zScoreCandles,
                 chartHeightDp = 260,
                 referenceLines = zReferenceLines,
-                pointMarkers = buildZScoreMarkersFromStrategyTestTrades(m15ChartPoints, tradeItems),
-                showLegend = true,
+                pointMarkers = chartMarkers,
+                showLegend = false,
+                showMinMax = false,
                 enableZoomPan = true,
                 markerScale = 1.25f,
                 rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-                showZoomHint = true,
+                showZoomHint = false,
+                compactLayout = true,
+                trackpadGestures = false,
                 initialWindowWidth = zInitialWindow.first,
                 initialWindowStart = zInitialWindow.second,
                 useDesktopStyle = true,
                 displayMode = ChartDisplayMode.Candles,
                 showPlotlyToolbar = true,
             )
+            metrics?.let { m ->
+                if (m.equityCurveRub.isNotEmpty() && m.drawdownCurveRub.isNotEmpty()) {
+                    StrategyTestEquityDrawdownChartCard(
+                        labels = m.equityCurveLabels,
+                        equityRub = m.equityCurveRub,
+                        drawdownRub = m.drawdownCurveRub,
+                        chartHeightDp = 280,
+                    )
+                }
+            }
         }
         Row(
             modifier = Modifier
@@ -159,35 +185,16 @@ internal fun StrategyTestTabContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Режим симуляции",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = if (compoundReturns) {
-                        "Капитализация: перед каждой новой сделкой размер позиции пересчитывается от текущего капитала (старт + накопленный PnL в ₽)."
-                    } else {
-                        "Фиксированный номинал: каждая сделка как при первоначальных 100 тыс. ₽ (классическая симуляция)."
-                    },
-                    color = Color(0xFF757575),
-                    fontSize = 9.sp,
-                    maxLines = 3
-                )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = if (compoundReturns) "Капитализация" else "Фикс.",
-                    color = Color(0xFF9FA8DA),
-                    fontSize = 10.sp
-                )
-                Switch(
-                    checked = compoundReturns,
-                    onCheckedChange = onCompoundReturnsChange
-                )
-            }
+            Text(
+                text = "Капитализация",
+                color = Color(0xFFE0E0E0),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Switch(
+                checked = compoundReturns,
+                onCheckedChange = onCompoundReturnsChange
+            )
         }
         Text(
             text = "Сделки ниже — все закрытые круги симуляции на 15м ряду за ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. " +
@@ -205,6 +212,13 @@ internal fun StrategyTestTabContent(
                         "не совпадают с розовыми на «Портфеле» (±${String.format(Locale.US, "%.2f", portfolioEntryThreshold)} / ±${String.format(Locale.US, "%.2f", portfolioExitThreshold)}). " +
                         "Сделки на вкладках будут различаться.",
                     color = Color(0xFFFFCC80),
+                    fontSize = 10.sp,
+                    maxLines = 4
+                )
+            } else if (!compoundReturns) {
+                Text(
+                    text = "Пороги совпадают с «Портфелем» и режим «Фикс. номинал» — закрытые сделки в списке должны совпасть со сводкой портфеля (после «Обновить» на обеих вкладках).",
+                    color = Color(0xFFA5D6A7),
                     fontSize = 10.sp,
                     maxLines = 4
                 )
@@ -273,7 +287,7 @@ internal fun StrategyTestTabContent(
             metrics?.let { m ->
                 PortfolioCollapsibleSection(
                     title = "Детальные показатели симуляции",
-                    subtitle = "таблица · Equity и просадка",
+                    subtitle = "таблица метрик",
                     defaultExpanded = false
                 ) {
                     Text(
@@ -282,14 +296,6 @@ internal fun StrategyTestTabContent(
                         fontSize = 10.sp
                     )
                     PortfolioMetricGrid(m, showHeroDuplicate = false)
-                    if (m.equityCurveRub.isNotEmpty() && m.drawdownCurveRub.isNotEmpty()) {
-                        StrategyTestEquityDrawdownChartCard(
-                            labels = m.equityCurveLabels,
-                            equityRub = m.equityCurveRub,
-                            drawdownRub = m.drawdownCurveRub,
-                            chartHeightDp = 280
-                        )
-                    }
                 }
                 Text(
                     text = "Сделки симуляции (${tradeItems.size}) · ${m.periodDescription}",
@@ -298,6 +304,9 @@ internal fun StrategyTestTabContent(
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
                 )
+                buildStrategyTestDurationSummary(tradeItems.map { it.trade })?.let { durationSummary ->
+                    StrategyTestDurationSummarySection(summary = durationSummary)
+                }
                 if (!dataTailWarning.isNullOrBlank()) {
                     Text(
                         text = dataTailWarning,
@@ -314,9 +323,10 @@ internal fun StrategyTestTabContent(
                         maxLines = 3
                     )
                 } else {
-                    tradeItems.forEachIndexed { index, item ->
-                        StrategyTestTradeRow(index = index + 1, item = item)
-                    }
+                    StrategyTestTradesTable(
+                        tradeItems = tradeItems,
+                        caption = "Сделок: ${tradeItems.size}. Прокрутка вправо — все столбцы.",
+                    )
                 }
             }
         }
@@ -326,6 +336,83 @@ internal fun StrategyTestTabContent(
     }
 }
 
+
+@Composable
+internal fun StrategyTestDurationSummarySection(summary: StrategyTestDurationSummary) {
+    val subtitle = buildString {
+        append("≤2 сут: ")
+        append(String.format(Locale.US, "%.0f", summary.short.winPercent))
+        append("% win · ")
+        append(formatRubSigned(summary.short.totalPnlRub))
+        append(" · >2 сут: ")
+        append(String.format(Locale.US, "%.0f", summary.long.winPercent))
+        append("% win · ")
+        append(formatRubSigned(summary.long.totalPnlRub))
+    }
+    PortfolioCollapsibleSection(
+        title = "Сводка по длительности сделок",
+        subtitle = subtitle,
+        defaultExpanded = true,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF252525), RoundedCornerShape(6.dp))
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Корзина · n · win% · сумма · ср.",
+                color = Color(0xFF757575),
+                fontSize = 9.sp,
+            )
+            StrategyTestDurationSummaryRow(
+                bucket = summary.short,
+                valueColor = Color(0xFF81C784),
+            )
+            StrategyTestDurationSummaryRow(
+                bucket = summary.long,
+                valueColor = Color(0xFFE57373),
+            )
+            if (summary.detailBuckets.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Детализация",
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                summary.detailBuckets.forEach { bucket ->
+                    StrategyTestDurationSummaryRow(bucket = bucket)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StrategyTestDurationSummaryRow(
+    bucket: StrategyTestDurationBucket,
+    valueColor: Color? = null,
+) {
+    val pnlColor = valueColor ?: rubDeltaColor(bucket.totalPnlRub)
+    Text(
+        text = buildString {
+            append(bucket.title)
+            append(" · n=")
+            append(bucket.tradeCount)
+            append(" · ")
+            append(String.format(Locale.US, "%.0f", bucket.winPercent))
+            append("% · ")
+            append(formatRubSigned(bucket.totalPnlRub))
+            append(" · ср. ")
+            append(formatRubSigned(bucket.avgPnlRub))
+        },
+        color = pnlColor,
+        fontSize = 10.sp,
+        maxLines = 2,
+    )
+}
 
 @Composable
 internal fun StrategyTestExitModeControls(
@@ -415,9 +502,4 @@ internal fun StrategyExitModeButton(
     ) {
         Text(text, fontSize = 10.sp, maxLines = 1)
     }
-}
-
-@Composable
-internal fun StrategyTestTradeRow(index: Int, item: StrategyTestTradeItem) {
-    PortfolioTradeRow(index = index, t = item.trade)
 }
