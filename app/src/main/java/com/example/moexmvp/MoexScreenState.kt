@@ -36,6 +36,10 @@ internal class MoexScreenState(val context: Context) {
     /** Период 15м Z-графика (портрет/альбом); смена не вызывает refresh MOEX — только фильтр кэша. */
     var marketsZChartPeriod by mutableStateOf(Period.OneDay)
     var realtimeEnabled by mutableStateOf(true)
+    /** ON_RESUME / ON_PAUSE — останавливает авто-опрос «Рынок» в фоне. */
+    var activityResumed by mutableStateOf(false)
+    /** Последний onTrimMemory (ComponentCallbacks2) для адаптивного опроса и сброса кэшей. */
+    var memoryPressureLevel by mutableStateOf(0)
     var isRefreshing by mutableStateOf(false)
     var realtimeError by mutableStateOf<String?>(null)
     var previousZScoreForAlert by mutableStateOf<Double?>(null)

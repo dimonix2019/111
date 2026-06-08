@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -28,6 +29,19 @@ internal fun MoexScreen() {
     val context = LocalContext.current
     val screen = remember(context) { MoexScreenState(context) }
     val scope = rememberCoroutineScope()
+
+    DisposableEffect(screen) {
+        MoexMemoryPressure.registerTrimHandler { level ->
+            screen.trimMemoryCaches(level)
+            MoexDiagnostics.log(
+                context,
+                "mem",
+                "trimCaches level=$level tab=${screen.selectedTab.label} usedAfter=${Runtime.getRuntime().let { (it.totalMemory() - it.freeMemory()) / (1024 * 1024) }}MB",
+            )
+        }
+        onDispose { MoexMemoryPressure.unregisterTrimHandler() }
+    }
+
     val configuration = LocalConfiguration.current
     val landscapeZChartFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&

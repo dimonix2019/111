@@ -28,10 +28,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -73,7 +69,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    var activityResumed by remember { mutableStateOf(false) }
     DisposableEffect(lifecycleOwner) {
         fun hydrateVirtualTradeAndSandboxUi() {
             val act = context as? Activity
@@ -96,6 +91,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
                     activityResumed = true
+                    memoryPressureLevel = 0
                     hydrateVirtualTradeAndSandboxUi()
                     scope.launch {
                         val (t, a) = withContext(Dispatchers.IO) {
@@ -346,11 +342,19 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             }
         }
     }
-    LaunchedEffect(realtimeEnabled, selectedPeriod, selectedTab, activityResumed) {
+    LaunchedEffect(realtimeEnabled, selectedPeriod, selectedTab, activityResumed, memoryPressureLevel) {
         if (!realtimeEnabled || selectedTab != MainTab.Markets || !activityResumed) return@LaunchedEffect
         while (true) {
-            delay(FIXED_REALTIME_INTERVAL_MS)
-            refreshData(showLoading = false, launchScope = scope, selectedPeriod = selectedPeriod)
+            val interval = MoexMemoryPressure.autoPollIntervalMs(memoryPressureLevel)
+            if (interval <= 0L) return@LaunchedEffect
+            delay(interval)
+            if (!mayRefreshMarkets(MarketsRefreshPolicy.AutoPoll)) continue
+            refreshData(
+                showLoading = false,
+                launchScope = scope,
+                selectedPeriod = selectedPeriod,
+                refreshPolicy = MarketsRefreshPolicy.AutoPoll,
+            )
         }
     }
     }

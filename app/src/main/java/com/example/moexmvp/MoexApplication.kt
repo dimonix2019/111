@@ -8,4 +8,9 @@ class MoexApplication : Application() {
         installMoexDiagnosticsCrashHandler(applicationContext)
         MoexDiagnostics.log(applicationContext, "lifecycle", "application_onCreate")
     }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        MoexMemoryPressure.onTrimMemory(level)
+    }
 }

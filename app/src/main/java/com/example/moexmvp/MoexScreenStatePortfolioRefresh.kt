@@ -141,7 +141,16 @@ internal suspend fun MoexScreenState.refreshData(
         launchScope: CoroutineScope,
         selectedPeriod: Period,
         preferBackground: Boolean = false,
+        refreshPolicy: MarketsRefreshPolicy = MarketsRefreshPolicy.UserInitiated,
     ) {
+        if (!mayRefreshMarkets(refreshPolicy)) {
+            MoexDiagnostics.log(
+                context,
+                "ui",
+                "refreshData skip policy=$refreshPolicy tab=${selectedTab.label} resumed=$activityResumed mem=$memoryPressureLevel",
+            )
+            return
+        }
         MoexDiagnostics.log(context, "ui", "refreshData start period=$selectedPeriod showLoading=$showLoading")
         MoexDiagnostics.logMemory(context, "refreshData_start")
         val hasDisplayCache = lastGoodMarkets != null
@@ -179,6 +188,7 @@ internal suspend fun MoexScreenState.refreshData(
                             }
                             portfolio15mSeriesTailStale(marketsM15Source()) -> {
                                 launchScope.launch {
+                                    if (!mayRefreshMarkets(MarketsRefreshPolicy.UserInitiated)) return@launch
                                     val loaded = loadM15ForMarkets()
                                     if (loaded.size >= 2) {
                                         storeMarketsM15(loaded)
@@ -489,6 +499,7 @@ internal suspend fun MoexScreenState.refreshData(
         if (hasDisplayCache && preferBackground) {
             initialMarketsRefreshDone = true
             launchScope.launch {
+                if (!mayRefreshMarkets(refreshPolicy)) return@launch
                 isRefreshing = true
                 try {
                     performRefresh()

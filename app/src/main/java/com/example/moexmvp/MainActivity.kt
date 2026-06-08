@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        MoexMemoryPressure.onTrimMemory(level)
         MoexDiagnostics.log(applicationContext, "lifecycle", "onTrimMemory level=$level")
         MoexDiagnostics.logMemory(applicationContext, "onTrimMemory")
     }
