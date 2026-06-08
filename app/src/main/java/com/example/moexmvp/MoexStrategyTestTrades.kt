@@ -113,6 +113,7 @@ internal enum class StrategyTestTradesTableColumn(
     Commission("Ком.", 38),
     Overnight("Овн.", 38),
     Net("Чист.", 46),
+    Risk("Риск", 58),
     ;
 
     companion object {

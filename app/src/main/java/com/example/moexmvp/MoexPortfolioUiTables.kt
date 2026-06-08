@@ -319,6 +319,7 @@ internal fun StrategyTestTradesTable(
     tradeItems: List<StrategyTestTradeItem>,
     caption: String,
     maxRows: Int = 120,
+    riskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
 ) {
     if (tradeItems.isEmpty()) return
     var visibleColumns by remember {
@@ -390,6 +391,8 @@ internal fun StrategyTestTradesTable(
             }
             tradeItems.take(maxRows).forEachIndexed { index, item ->
                 val t = item.trade
+                val risk = riskAssessments.getOrNull(index)
+                val rowBackground = strategyTestTradeRiskRowColor(risk?.level ?: StrategyTestTradeRiskLevel.None)
                 val dir = when (t.direction) {
                     ZStrategyPosition.Long -> "LONG"
                     ZStrategyPosition.Short -> "SHORT"
@@ -406,7 +409,7 @@ internal fun StrategyTestTradesTable(
                 Row(
                     Modifier
                         .padding(horizontal = 1.dp, vertical = 1.dp)
-                        .background(Color(0xFF242424), RoundedCornerShape(4.dp))
+                        .background(rowBackground, RoundedCornerShape(4.dp))
                 ) {
                     cols.forEach { col ->
                         val (text, color) = when (col.key) {
@@ -435,6 +438,15 @@ internal fun StrategyTestTradesTable(
                                 formatPortfolioTableCostRub(t.overnightRubApprox) to Color(0xFFFFAB91)
                             StrategyTestTradesTableColumn.Net ->
                                 formatPortfolioTableRub(t.pnlRubApprox) to netColor
+                            StrategyTestTradesTableColumn.Risk -> {
+                                val level = risk?.level ?: StrategyTestTradeRiskLevel.None
+                                val label = if (level == StrategyTestTradeRiskLevel.None) {
+                                    "—"
+                                } else {
+                                    formatStrategyTestTradeRiskFlags(risk!!)
+                                }
+                                label to strategyTestTradeRiskLevelColor(level)
+                            }
                         }
                         PortfolioTradeTableCell(
                             text = text,
@@ -585,4 +597,18 @@ private fun PortfolioTradesSourceFilterChip(
     ) {
         Text(label, fontSize = 11.sp)
     }
+}
+
+internal fun strategyTestTradeRiskRowColor(level: StrategyTestTradeRiskLevel): Color = when (level) {
+    StrategyTestTradeRiskLevel.None -> Color(0xFF242424)
+    StrategyTestTradeRiskLevel.Elevated -> Color(0xFF2A2418)
+    StrategyTestTradeRiskLevel.High -> Color(0xFF352020)
+    StrategyTestTradeRiskLevel.Critical -> Color(0xFF4A1818)
+}
+
+internal fun strategyTestTradeRiskLevelColor(level: StrategyTestTradeRiskLevel): Color = when (level) {
+    StrategyTestTradeRiskLevel.None -> Color(0xFF757575)
+    StrategyTestTradeRiskLevel.Elevated -> Color(0xFFFFCC80)
+    StrategyTestTradeRiskLevel.High -> Color(0xFFFFAB91)
+    StrategyTestTradeRiskLevel.Critical -> Color(0xFFE57373)
 }

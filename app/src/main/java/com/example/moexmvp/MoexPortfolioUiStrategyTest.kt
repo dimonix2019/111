@@ -318,6 +318,28 @@ internal fun StrategyTestTabContent(
                 buildStrategyTestDurationSummary(tradeItems.map { it.trade })?.let { durationSummary ->
                     StrategyTestDurationSummarySection(summary = durationSummary)
                 }
+                val tradeRiskAssessments by produceState(
+                    initialValue = emptyList<StrategyTestTradeRiskAssessment>(),
+                    tradeItems,
+                    m15ChartPoints,
+                    entryThreshold,
+                ) {
+                    value = withContext(Dispatchers.Default) {
+                        tradeItems.map { item ->
+                            buildStrategyTestTradeRiskAssessment(
+                                trade = item.trade,
+                                m15Points = m15ChartPoints,
+                                entryThreshold = entryThreshold,
+                            )
+                        }
+                    }
+                }
+                buildStrategyTestTradeRiskSummary(
+                    trades = tradeItems.map { it.trade },
+                    assessments = tradeRiskAssessments,
+                )?.let { riskSummary ->
+                    StrategyTestTradeRiskSection(summary = riskSummary)
+                }
                 if (!dataTailWarning.isNullOrBlank()) {
                     Text(
                         text = dataTailWarning,
@@ -337,6 +359,7 @@ internal fun StrategyTestTabContent(
                     StrategyTestTradesTable(
                         tradeItems = tradeItems,
                         caption = "Сделок: ${tradeItems.size}. Прокрутка вправо — все столбцы.",
+                        riskAssessments = tradeRiskAssessments,
                     )
                 }
             }
@@ -399,6 +422,96 @@ internal fun StrategyTestDurationSummarySection(summary: StrategyTestDurationSum
             }
         }
     }
+}
+
+@Composable
+internal fun StrategyTestTradeRiskSection(summary: StrategyTestTradeRiskSummary) {
+    PortfolioCollapsibleSection(
+        title = "Факторы риска сделок",
+        subtitle = formatStrategyTestTradeRiskSummarySubtitle(summary),
+        defaultExpanded = true,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF252525), RoundedCornerShape(6.dp))
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Подсветка в таблице по исторической статистике симуляции: длительность, overnight, Z на входе, час MSK.",
+                color = Color(0xFF757575),
+                fontSize = 9.sp,
+                maxLines = 3,
+            )
+            StrategyTestTradeRiskSummaryRow(
+                label = "С флагами риска",
+                count = summary.flaggedCount,
+                lossCount = summary.flaggedLossCount,
+                winCount = summary.flaggedWinCount,
+                lossRate = summary.flaggedLossRate,
+            )
+            StrategyTestTradeRiskSummaryRow(
+                label = "Умеренный",
+                count = summary.elevatedCount,
+            )
+            StrategyTestTradeRiskSummaryRow(
+                label = "Высокий",
+                count = summary.highCount,
+            )
+            StrategyTestTradeRiskSummaryRow(
+                label = "Критический",
+                count = summary.criticalCount,
+                emphasize = true,
+            )
+            Text(
+                text = "Базовая доля убытков по всем сделкам: ${String.format(Locale.US, "%.0f", summary.baselineLossRate)}%",
+                color = Color(0xFF9E9E9E),
+                fontSize = 10.sp,
+            )
+            Text(
+                text = "Флаги: >2д · >5д · Ovn50/100 · Z<1 · 12–14 · 13ч · Пт>2д",
+                color = Color(0xFF757575),
+                fontSize = 9.sp,
+                maxLines = 2,
+            )
+        }
+    }
+}
+
+@Composable
+private fun StrategyTestTradeRiskSummaryRow(
+    label: String,
+    count: Int,
+    lossCount: Int? = null,
+    winCount: Int? = null,
+    lossRate: Double? = null,
+    emphasize: Boolean = false,
+) {
+    val color = when {
+        emphasize && count > 0 -> Color(0xFFE57373)
+        count > 0 -> Color(0xFFFFCC80)
+        else -> Color(0xFF757575)
+    }
+    Text(
+        text = buildString {
+            append(label)
+            append(": ")
+            append(count)
+            if (lossCount != null && winCount != null && lossRate != null && count > 0) {
+                append(" · убытков ")
+                append(lossCount)
+                append(" · win ")
+                append(winCount)
+                append(" · ")
+                append(String.format(Locale.US, "%.0f", lossRate))
+                append("% loss")
+            }
+        },
+        color = color,
+        fontSize = 10.sp,
+        maxLines = 2,
+    )
 }
 
 @Composable
