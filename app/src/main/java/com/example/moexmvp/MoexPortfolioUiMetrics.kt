@@ -358,8 +358,8 @@ internal fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade, showTradeDur
         if (showTradeDuration) {
             val durationLabel = formatSimTradeDurationLabel(t.entryDate, t.exitDate)
             val durationValueColor = when {
-                isSimTradeDurationOverDays(t.entryDate, t.exitDate) -> Color(0xFF42A5F5)
-                isSimTradeDurationUnderDay(t.entryDate, t.exitDate) -> Color(0xFFCE93D8)
+                isSimTradeDurationUnderDay(t.entryDate, t.exitDate) -> Color(0xFF81C784)
+                isSimTradeDurationOverDay(t.entryDate, t.exitDate) -> Color(0xFFE57373)
                 else -> Color(0xFF9E9E9E)
             }
             Text(

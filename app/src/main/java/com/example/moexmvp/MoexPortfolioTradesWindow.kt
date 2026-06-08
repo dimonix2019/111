@@ -79,14 +79,10 @@ internal fun isSimTradeDurationUnderDay(entryDate: String, exitDate: String): Bo
     return diffMs < 24 * 60 * 60_000L
 }
 
-/** true, если длительность строго больше [thresholdDays] календарных суток (24 ч). */
-internal fun isSimTradeDurationOverDays(
-    entryDate: String,
-    exitDate: String,
-    thresholdDays: Long = 10,
-): Boolean {
+/** true, если длительность строго больше суток (24 ч). */
+internal fun isSimTradeDurationOverDay(entryDate: String, exitDate: String): Boolean {
     val diffMs = simTradeDurationMillis(entryDate, exitDate) ?: return false
-    return diffMs > thresholdDays * 24 * 60 * 60_000L
+    return diffMs > 24 * 60 * 60_000L
 }
 
 /** Человекочитаемая длительность сделки (вход → выход) для списка «Тест страт.». */
