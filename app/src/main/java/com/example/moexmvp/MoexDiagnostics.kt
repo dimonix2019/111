@@ -22,6 +22,7 @@ internal object MoexDiagnostics {
     private val zone = ZoneId.of("Europe/Moscow")
     private val timeFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
     private val lock = Any()
+    private val networkFailureLastLogAt = mutableMapOf<String, Long>()
 
     fun log(context: Context, category: String, message: String) {
         val line = "${timestamp()} [$category] $message"
@@ -48,6 +49,25 @@ internal object MoexDiagnostics {
             .lineSequence()
             .take(16)
             .forEach { log(context, category, it.take(240)) }
+    }
+
+    /** Сетевые сбои без stack trace, не чаще одного сообщения на ключ за интервал. */
+    fun logNetworkFailure(
+        context: Context,
+        category: String,
+        throwable: Throwable,
+        message: String,
+        minIntervalMs: Long = 5 * 60_000L,
+    ) {
+        val key = "$category:$message:${throwable.javaClass.name}"
+        val now = System.currentTimeMillis()
+        synchronized(lock) {
+            val last = networkFailureLastLogAt[key] ?: 0L
+            if (now - last < minIntervalMs) return
+            networkFailureLastLogAt[key] = now
+        }
+        val head = "$message — ${throwable.javaClass.simpleName}: ${throwable.message?.take(120)}"
+        log(context, category, head)
     }
 
     fun logUncaught(context: Context, thread: Thread, throwable: Throwable) {
