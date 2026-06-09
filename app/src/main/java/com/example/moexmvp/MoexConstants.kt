@@ -95,6 +95,9 @@ internal val PORTFOLIO_M15_CACHE_RETENTION_DAYS: Long
         DEFAULT_PORTFOLIO_LOOKBACK_DAYS,
         MARKETS_M15_MAX_LOOKBACK_DAYS,
     )
+/** Min bars in 30d rolling window for native 10m series (~48×15/10 vs 15m bars). */
+internal const val Z_SCORE_ROLLING_MIN_BARS_10M = 72
+
 /** Rolling Z: окно μ/σ в календарных днях (MSK), parity с strategy-web. */
 internal const val Z_SCORE_ROLLING_LOOKBACK_DAYS = 30
 internal const val Z_SCORE_ROLLING_MIN_BARS = 48

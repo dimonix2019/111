@@ -154,6 +154,14 @@ internal fun applyZScoresForMode(points: List<DataPoint>, mode: ZScoreMode): Lis
 internal fun applyZScoresDefault(points: List<DataPoint>): List<DataPoint> =
     applyZScoresForMode(points, ZScoreMode.Rolling30)
 
+/** Rolling Z для нативного 10м ряда (тот же 30d календарный lookback, плотнее min bars). */
+internal fun applyZScoresFor10mBars(points: List<DataPoint>): List<DataPoint> =
+    applyZScoresRolling(
+        points = points,
+        lookbackDays = Z_SCORE_ROLLING_LOOKBACK_DAYS,
+        minBarsInWindow = Z_SCORE_ROLLING_MIN_BARS_10M,
+    )
+
 /** Как [applyZScoresDefault], но без второго полного списка (меньше пиков RAM на 255д). */
 internal fun applyZScoresDefaultInPlace(points: MutableList<DataPoint>) {
     if (points.size < 2) return

@@ -24,8 +24,8 @@ android {
         applicationId = "com.example.moexmvp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 236
-        versionName = "1.7.118"
+        versionCode = 237
+        versionName = "1.7.119"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -122,6 +122,7 @@ tasks.withType<Test>().configureEach {
     if (System.getenv("GITHUB_ACTIONS") == "true") {
         filter {
             excludeTestsMatching("com.example.moexmvp.MoexTodayBacktestTest")
+            excludeTestsMatching("com.example.moexmvp.Moex10mBacktestTest")
             excludeTestsMatching("com.example.moexmvp.MoexZPeakTrailingFullBacktestTest")
         }
     }
