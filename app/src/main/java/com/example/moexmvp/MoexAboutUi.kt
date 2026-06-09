@@ -197,6 +197,7 @@ internal fun AboutTabContent(
 @Composable
 private fun EventLogSection(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var preview by remember { mutableStateOf(MoexDiagnostics.formatForDisplay(context, tail = 12)) }
     var lineCount by remember { mutableIntStateOf(MoexDiagnostics.lineCount(context)) }
     Column(
@@ -236,8 +237,10 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
         ) {
             Button(
                 onClick = {
-                    MoexDiagnostics.shareExport(context)
-                    Toast.makeText(context, "Отправьте файл/text себе (Telegram, почта…)", Toast.LENGTH_LONG).show()
+                    scope.launch {
+                        withContext(Dispatchers.IO) { MoexDiagnostics.shareExport(context) }
+                        Toast.makeText(context, "Отправьте файл/text себе (Telegram, почта…)", Toast.LENGTH_LONG).show()
+                    }
                 },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
@@ -247,12 +250,14 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
             }
             OutlinedButton(
                 onClick = {
-                    val ok = MoexDiagnostics.copyToClipboard(context)
-                    Toast.makeText(
-                        context,
-                        if (ok) "Скопировано в буфер" else "Журнал пуст",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) { MoexDiagnostics.copyToClipboard(context) }
+                        Toast.makeText(
+                            context,
+                            if (ok) "Скопировано в буфер" else "Журнал пуст",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 },
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
@@ -267,8 +272,14 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
         ) {
             TextButton(
                 onClick = {
-                    preview = MoexDiagnostics.formatForDisplay(context, tail = 12)
-                    lineCount = MoexDiagnostics.lineCount(context)
+                    scope.launch {
+                        val (text, count) = withContext(Dispatchers.IO) {
+                            MoexDiagnostics.formatForDisplay(context, tail = 12) to
+                                MoexDiagnostics.lineCount(context)
+                        }
+                        preview = text
+                        lineCount = count
+                    }
                 }
             ) {
                 Text("Обновить", color = Color(0xFF90CAF9), fontSize = 11.sp)

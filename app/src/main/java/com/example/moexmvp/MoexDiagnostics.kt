@@ -8,9 +8,14 @@ import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
 import java.io.File
+import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import javax.net.ssl.SSLException
 
 /** Кольцевой журнал событий (файл + logcat) для отладки вылетов на тестовых устройствах. */
 internal object MoexDiagnostics {
@@ -22,6 +27,49 @@ internal object MoexDiagnostics {
     private val zone = ZoneId.of("Europe/Moscow")
     private val timeFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
     private val lock = Any()
+    private var lastNetworkErrorKey: String? = null
+    private var lastNetworkErrorAtMs: Long = 0L
+    private const val NETWORK_ERROR_LOG_INTERVAL_MS = 5 * 60_000L
+
+    fun isTransientNetworkError(throwable: Throwable): Boolean {
+        var t: Throwable? = throwable
+        while (t != null) {
+            when (t) {
+                is UnknownHostException,
+                is SocketTimeoutException,
+                is ConnectException,
+                is SSLException,
+                -> return true
+                is IOException -> {
+                    val msg = t.message?.lowercase().orEmpty()
+                    if (msg.contains("unable to resolve host") ||
+                        msg.contains("failed to connect") ||
+                        msg.contains("network is unreachable") ||
+                        msg.contains("timeout")
+                    ) {
+                        return true
+                    }
+                }
+            }
+            t = t.cause
+        }
+        return false
+    }
+
+    /** Сеть/DNS: одна строка без stack trace, не чаще раза в 5 минут на ключ. */
+    fun logNetworkErrorThrottled(context: Context, category: String, throwable: Throwable, message: String) {
+        val key = "$category:$message:${throwable.javaClass.simpleName}"
+        val now = System.currentTimeMillis()
+        synchronized(lock) {
+            if (key == lastNetworkErrorKey && now - lastNetworkErrorAtMs < NETWORK_ERROR_LOG_INTERVAL_MS) {
+                return
+            }
+            lastNetworkErrorKey = key
+            lastNetworkErrorAtMs = now
+        }
+        val head = "$message — ${throwable.javaClass.simpleName}: ${throwable.message?.take(200)}"
+        log(context, category, head)
+    }
 
     fun log(context: Context, category: String, message: String) {
         val line = "${timestamp()} [$category] $message"

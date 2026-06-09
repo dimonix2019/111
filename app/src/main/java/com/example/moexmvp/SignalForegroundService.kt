@@ -105,13 +105,31 @@ class SignalForegroundService : Service() {
                 }
         }
 
+        val lookbackDays = marketsM15LookbackDays(Period.OneMonth)
         val points = runCatching {
             loadPortfolio15mPointsForSignalMonitor(
                 applicationContext,
-                lookbackDays = marketsM15LookbackDays(Period.OneMonth),
+                lookbackDays = lookbackDays,
+            )
+        }.recoverCatching { e ->
+            if (!MoexDiagnostics.isTransientNetworkError(e)) throw e
+            MoexDiagnostics.logNetworkErrorThrottled(
+                applicationContext,
+                "monitor",
+                e,
+                "load_15m_network_fallback_cache",
+            )
+            loadPortfolio15mPointsForSignalMonitor(
+                applicationContext,
+                mode = PortfolioM15LoadMode.CACHE_ONLY,
+                lookbackDays = lookbackDays,
             )
         }.getOrElse { e ->
-            MoexDiagnostics.logError(applicationContext, "monitor", e, "load_15m_failed")
+            if (MoexDiagnostics.isTransientNetworkError(e)) {
+                MoexDiagnostics.logNetworkErrorThrottled(applicationContext, "monitor", e, "load_15m_failed")
+            } else {
+                MoexDiagnostics.logError(applicationContext, "monitor", e, "load_15m_failed")
+            }
             return@withContext
         }
         if (points.size < 2) {
