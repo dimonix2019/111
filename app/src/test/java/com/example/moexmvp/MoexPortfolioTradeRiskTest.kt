@@ -2,6 +2,7 @@ package com.example.moexmvp
 
 import java.time.LocalDateTime
 import java.time.ZoneId
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,7 +27,7 @@ class MoexPortfolioTradeRiskTest {
     }
 
     @Test
-    fun buildPortfolioTradeGroupRiskAssessment_openShortHoldIsNotFlagged() {
+    fun buildPortfolioTradeGroupRiskAssessment_openShortHoldBreakdownIsZero() {
         val entryMs = LocalDateTime.parse("2026-05-19 10:00", portfolio15mLabelFormatter)
             .atZone(zone)
             .toInstant()
@@ -48,8 +49,28 @@ class MoexPortfolioTradeRiskTest {
         )
 
         assertFalse(strategyTestTradeRiskIsFlagged(assessment))
-        assertFalse(StrategyTestTradeRiskFlag.WeakEntryZ in assessment.flags)
+        assertEquals(0, assessment.score)
+        assertEquals(0, assessment.breakdown.totalScore)
+        assertEquals(listOf(0, 0, 0, 0, 0, 0), portfolioTradeRiskBreakdownPointValues(assessment))
+        assertEquals("0", formatPortfolioTradeRiskTotalScore(assessment))
         assertTrue(entryMs < nowMs)
+    }
+
+    @Test
+    fun buildPortfolioTradeGroupRiskAssessment_breakdownMatchesTotalScore() {
+        val group = closedGroup(
+            entry = "2026-05-19 10:00",
+            exit = "2026-05-22 10:00",
+            entryZ = -0.85,
+            overnight = 120.0,
+        )
+        val assessment = buildPortfolioTradeGroupRiskAssessment(group, entryThreshold = 0.8, zoneId = zone)
+
+        assertEquals(assessment.score, assessment.breakdown.totalScore)
+        assertEquals(3, assessment.breakdown.holdPoints)
+        assertEquals(2, assessment.breakdown.overnightPoints)
+        assertEquals(1, assessment.breakdown.weakEntryZPoints)
+        assertTrue(assessment.score >= 5)
     }
 
     @Test

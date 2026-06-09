@@ -840,29 +840,29 @@ internal fun applyVirtualTradeTapIntent(context: Context, intent: Intent?) {
     intent.removeExtra(EXTRA_TAP_TS)
 }
 
+/** @return true if a new journal row was persisted (false when the same 15m bar edge was already logged). */
+internal fun strategySignalJournalHasBarEdge(
+    events: Iterable<StrategySignalEvent>,
+    signalType: StrategySignalType,
+    barTimestampMillis: Long,
+): Boolean = events.any {
+    it.timestampMillis == barTimestampMillis && it.signalType == signalType
+}
+
 internal fun recordStrategySignalEvent(
     context: Context,
     signalType: StrategySignalType,
     zScore: Double,
     timestampMillis: Long,
-    /** When true, skip 25s wall dedup (e.g. sandbox «Принять» right after the same signal was logged). */
+    /** When true, allow duplicate bar edge (e.g. sandbox «Принять» right after the same signal was logged). */
     skipJournalWallDedup: Boolean = false,
     /** When false, do not refresh pending virtual-trade card (used after sandbox execution). */
     savePendingVirtualTradeIfEntry: Boolean = true
-) {
+): Boolean {
+    var recorded = false
     synchronized(signalEventsLock) signalLock@{
         val prefs = context.getSharedPreferences(SIGNAL_EVENTS_PREFS_NAME, Context.MODE_PRIVATE)
         val nowWall = System.currentTimeMillis()
-        if (!skipJournalWallDedup) {
-            val prevWall = prefs.getLong(PREF_SIGNAL_LAST_WALL_MS, 0L)
-            val prevType = prefs.getString(PREF_SIGNAL_LAST_TYPE, null)
-            if (prevWall > 0L && prevType == signalType.name &&
-                (nowWall - prevWall) <= STRATEGY_SIGNAL_JOURNAL_DEDUP_WALL_MS
-            ) {
-                // Дубликат строки в журнал не пишем, но ниже всё равно обновим pending-карточку для входа.
-                return@signalLock
-            }
-        }
         val existing = prefs.getString(PREF_SIGNAL_EVENTS_JSON, null).orEmpty()
         val source = runCatching { JSONArray(existing) }.getOrElse { JSONArray() }
         val events = mutableListOf<StrategySignalEvent>()
@@ -877,6 +877,12 @@ internal fun recordStrategySignalEvent(
                 zScore = item.optDouble("zScore", 0.0),
                 receivedAtMillis = item.optLong("receivedAtMillis", barTs)
             )
+        }
+        if (!skipJournalWallDedup &&
+            strategySignalJournalHasBarEdge(events, signalType, timestampMillis)
+        ) {
+            // Дубликат строки в журнал не пишем, но ниже всё равно обновим pending-карточку для входа.
+            return@signalLock
         }
         val receivedAt = System.currentTimeMillis()
         events += StrategySignalEvent(
@@ -898,11 +904,11 @@ internal fun recordStrategySignalEvent(
                     .put("receivedAtMillis", event.receivedAtMillis)
             )
         }
-        prefs.edit()
+        recorded = prefs.edit()
             .putString(PREF_SIGNAL_EVENTS_JSON, output.toString())
             .putLong(PREF_SIGNAL_LAST_WALL_MS, nowWall)
             .putString(PREF_SIGNAL_LAST_TYPE, signalType.name)
-            .apply()
+            .commit()
     }
     if (savePendingVirtualTradeIfEntry &&
         !TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context) &&
@@ -915,6 +921,7 @@ internal fun recordStrategySignalEvent(
             timestampMillis = timestampMillis
         )
     }
+    return recorded
 }
 
 /** JSON для parity-скрипта (Журнал → Экспорт). */

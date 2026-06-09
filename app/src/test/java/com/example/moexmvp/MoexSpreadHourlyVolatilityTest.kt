@@ -35,6 +35,37 @@ class MoexSpreadHourlyVolatilityTest {
     }
 
     @Test
+    fun filterSpreadHourlyVolatilityForDisplay_excludesNightHours() {
+        val bars = (0 until 24).map { hour ->
+            SpreadHourlyVolatilityBar(
+                hour = hour,
+                volatility = if (hour == 3) 0.5 else 0.1,
+                deltaSampleCount = 3,
+                spreadSampleCount = 4,
+            )
+        }
+        val visible = filterSpreadHourlyVolatilityForDisplay(bars)
+        assertTrue(visible.none { it.hour in 0..7 })
+        assertTrue(visible.any { it.hour == 10 })
+    }
+
+    @Test
+    fun buildSpreadHourlyVolatilityReport_worksOnLongConsecutiveSeries() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val points = buildList {
+            var ts = LocalDateTime.of(2026, 3, 1, 10, 0)
+            repeat(200) {
+                add(point(ts.format(portfolio15mLabelFormatter), 5.0 + (it % 5) * 0.02))
+                ts = ts.plusMinutes(15)
+            }
+        }
+        val report = buildSpreadHourlyVolatilityReport(points, zoneId = zone)
+        assertNotNull(report)
+        assertTrue(report!!.totalDeltaSamples > 50)
+        assertTrue(report.peakVolatility > 0.0)
+    }
+
+    @Test
     fun buildSpreadHourlyVolatilityReport_returnsNullForShortSeries() {
         assertEquals(null, buildSpreadHourlyVolatilityReport(emptyList()))
         assertEquals(

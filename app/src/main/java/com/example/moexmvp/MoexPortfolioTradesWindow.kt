@@ -156,7 +156,7 @@ internal fun buildPortfolioTradesBuckets(
     tradesAutoOnlyFilter: Boolean = false,
 ): Pair<PortfolioTradesBucketUi, PortfolioTradesBucketUi> {
     val openFiltered = filterSandboxExecutionsForTradesTable(
-        filterSandboxExecutionsInWindow(openExecutions, lookbackDays, windowStartMillis),
+        openExecutions,
         autoOnly = tradesAutoOnlyFilter,
     )
     val closedFiltered = filterConfirmedTableRowsForTradesTable(

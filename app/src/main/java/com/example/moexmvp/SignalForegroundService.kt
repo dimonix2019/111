@@ -165,13 +165,17 @@ class SignalForegroundService : Service() {
         )
         when (edgeSignal) {
             ZStrategySignal.EnterLong -> {
-                currentPosition = ZStrategyPosition.Long
-                recordStrategySignalEvent(
+                val recorded = recordStrategySignalEvent(
                     context = applicationContext,
                     signalType = StrategySignalType.EnterLong,
                     zScore = latestZScore,
                     timestampMillis = latestTimestampMillis
                 )
+                if (!recorded) {
+                    MoexDiagnostics.log(applicationContext, "signal", "journal_skip EnterLong bar=$latestTimestampMillis")
+                    return@withContext
+                }
+                currentPosition = ZStrategyPosition.Long
                 if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
                         context = applicationContext,
@@ -203,13 +207,17 @@ class SignalForegroundService : Service() {
             }
 
             ZStrategySignal.EnterShort -> {
-                currentPosition = ZStrategyPosition.Short
-                recordStrategySignalEvent(
+                val recorded = recordStrategySignalEvent(
                     context = applicationContext,
                     signalType = StrategySignalType.EnterShort,
                     zScore = latestZScore,
                     timestampMillis = latestTimestampMillis
                 )
+                if (!recorded) {
+                    MoexDiagnostics.log(applicationContext, "signal", "journal_skip EnterShort bar=$latestTimestampMillis")
+                    return@withContext
+                }
+                currentPosition = ZStrategyPosition.Short
                 if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
                         context = applicationContext,
@@ -241,13 +249,17 @@ class SignalForegroundService : Service() {
             }
 
             ZStrategySignal.ExitLong -> {
-                currentPosition = ZStrategyPosition.Flat
-                recordStrategySignalEvent(
+                val recorded = recordStrategySignalEvent(
                     context = applicationContext,
                     signalType = StrategySignalType.ExitLong,
                     zScore = latestZScore,
                     timestampMillis = latestTimestampMillis
                 )
+                if (!recorded) {
+                    MoexDiagnostics.log(applicationContext, "signal", "journal_skip ExitLong bar=$latestTimestampMillis")
+                    return@withContext
+                }
+                currentPosition = ZStrategyPosition.Flat
                 clearPendingVirtualTradeProposal(applicationContext)
                 if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(
@@ -273,13 +285,17 @@ class SignalForegroundService : Service() {
             }
 
             ZStrategySignal.ExitShort -> {
-                currentPosition = ZStrategyPosition.Flat
-                recordStrategySignalEvent(
+                val recorded = recordStrategySignalEvent(
                     context = applicationContext,
                     signalType = StrategySignalType.ExitShort,
                     zScore = latestZScore,
                     timestampMillis = latestTimestampMillis
                 )
+                if (!recorded) {
+                    MoexDiagnostics.log(applicationContext, "signal", "journal_skip ExitShort bar=$latestTimestampMillis")
+                    return@withContext
+                }
+                currentPosition = ZStrategyPosition.Flat
                 clearPendingVirtualTradeProposal(applicationContext)
                 if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                     val sent = showZStrategySignalPushNotification(

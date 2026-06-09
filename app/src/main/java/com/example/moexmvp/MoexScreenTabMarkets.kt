@@ -123,10 +123,10 @@ internal fun MoexScreenTabMarkets(
         }
     val spreadHourlyVolatility by produceState<SpreadHourlyVolatilityReport?>(
         initialValue = null,
-        marketsM15ChartPoints,
+        marketsM15SourcePoints,
     ) {
         value = withContext(Dispatchers.Default) {
-            buildSpreadHourlyVolatilityReport(marketsM15ChartPoints)
+            buildSpreadHourlyVolatilityReport(marketsM15SourcePoints)
         }
     }
                 Column(Modifier.fillMaxSize()) {

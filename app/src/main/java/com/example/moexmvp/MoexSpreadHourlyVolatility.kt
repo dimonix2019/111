@@ -7,6 +7,18 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.sqrt
 
+/** Часы MSK на графике волатильности (без ночного простоя 0–7). */
+internal const val SPREAD_HOURLY_VOLATILITY_HOUR_START_MSK = 8
+internal const val SPREAD_HOURLY_VOLATILITY_HOUR_END_MSK = 23
+
+internal fun spreadHourlyVolatilityTradingHoursRange(): IntRange =
+    SPREAD_HOURLY_VOLATILITY_HOUR_START_MSK..SPREAD_HOURLY_VOLATILITY_HOUR_END_MSK
+
+internal fun filterSpreadHourlyVolatilityForDisplay(
+    bars: List<SpreadHourlyVolatilityBar>,
+): List<SpreadHourlyVolatilityBar> =
+    bars.filter { it.hour in spreadHourlyVolatilityTradingHoursRange() }
+
 /** Волатильность спреда для одного часа торгового дня (MSK, 0–23). */
 internal data class SpreadHourlyVolatilityBar(
     val hour: Int,
@@ -68,8 +80,10 @@ internal fun buildSpreadHourlyVolatilityReport(
         )
     }
 
-    val peak = bars.filter { it.deltaSampleCount >= minDeltaSamplesPerHour }
-        .maxByOrNull { it.volatility }
+    val peak = bars.filter {
+        it.hour in spreadHourlyVolatilityTradingHoursRange() &&
+            it.deltaSampleCount >= minDeltaSamplesPerHour
+    }.maxByOrNull { it.volatility }
 
     return SpreadHourlyVolatilityReport(
         bars = bars,

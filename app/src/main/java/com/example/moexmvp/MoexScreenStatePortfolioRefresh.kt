@@ -285,14 +285,14 @@ internal suspend fun MoexScreenState.refreshData(
                                 ZStrategySignal.EnterLong -> {
                                 zStrategyPosition = ZStrategyPosition.Long
                                 saveStrategyPosition(context, zStrategyPosition)
-                                recordStrategySignalEvent(
+                                val recorded = recordStrategySignalEvent(
                                     context = context,
                                     signalType = StrategySignalType.EnterLong,
                                     zScore = latestZScore,
                                     timestampMillis = latestTimestampMillis
                                 )
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (recorded && !backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATN / SHORT TATNP",
@@ -334,14 +334,14 @@ internal suspend fun MoexScreenState.refreshData(
                             ZStrategySignal.EnterShort -> {
                                 zStrategyPosition = ZStrategyPosition.Short
                                 saveStrategyPosition(context, zStrategyPosition)
-                                recordStrategySignalEvent(
+                                val recorded = recordStrategySignalEvent(
                                     context = context,
                                     signalType = StrategySignalType.EnterShort,
                                     zScore = latestZScore,
                                     timestampMillis = latestTimestampMillis
                                 )
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (recorded && !backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATNP / SHORT TATN",
@@ -383,7 +383,7 @@ internal suspend fun MoexScreenState.refreshData(
                             ZStrategySignal.ExitLong -> {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
-                                recordStrategySignalEvent(
+                                val recorded = recordStrategySignalEvent(
                                     context = context,
                                     signalType = StrategySignalType.ExitLong,
                                     zScore = latestZScore,
@@ -391,7 +391,7 @@ internal suspend fun MoexScreenState.refreshData(
                                 )
                                 clearPendingVirtualTradeProposal(context)
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (recorded && !backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATN / SHORT TATNP",
@@ -425,7 +425,7 @@ internal suspend fun MoexScreenState.refreshData(
                             ZStrategySignal.ExitShort -> {
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 saveStrategyPosition(context, zStrategyPosition)
-                                recordStrategySignalEvent(
+                                val recorded = recordStrategySignalEvent(
                                     context = context,
                                     signalType = StrategySignalType.ExitShort,
                                     zScore = latestZScore,
@@ -433,7 +433,7 @@ internal suspend fun MoexScreenState.refreshData(
                                 )
                                 clearPendingVirtualTradeProposal(context)
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (recorded && !backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATNP / SHORT TATN",

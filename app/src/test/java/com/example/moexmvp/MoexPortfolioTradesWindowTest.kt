@@ -79,6 +79,21 @@ class MoexPortfolioTradesWindowTest {
     }
 
     @Test
+    fun buildBuckets_openTradesIgnoreLookbackWindow() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val windowStart = ZonedDateTime.of(2026, 6, 8, 0, 0, 0, 0, zone).toInstant().toEpochMilli()
+        val oldOpen = sandboxExec(executedAt = windowStart - 86_400_000L).copy(tradeId = "D-OLD")
+        val (open, _) = buildPortfolioTradesBuckets(
+            listOf(oldOpen),
+            emptyList(),
+            lookbackDays = 3L,
+            windowStartMillis = windowStart,
+        )
+        assertEquals(1, open.tradeCount)
+        assertEquals("D-OLD", open.groups.single().tradeId)
+    }
+
+    @Test
     fun buildBuckets_sumsClosedPnl() {
         val row = PortfolioConfirmedTradeTableRow(
             tradeId = "T-1",
