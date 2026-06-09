@@ -111,7 +111,7 @@ internal suspend fun finalizePortfolioOpenTradeClose(
     }
 }
 
-private suspend fun executeSandboxSpreadExitIfConfigured(
+internal suspend fun executeSandboxSpreadExitIfConfigured(
     context: Context,
     entrySignal: StrategySignalType,
 ): List<SandboxLegOrderResult> {
