@@ -103,8 +103,8 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
 }
 
 /**
- * В режиме AUTO: после сигнала выхода отправить обратные заявки на песочницу и снять сделку с открытых.
- * Закрывает любую открытую сделку (ручную или авто), не только при режиме авто-входа.
+ * В режиме AUTO: после сигнала выхода отправить обратные заявки на песочницу и снять авто-сделку с открытых.
+ * Ручные сделки алгоритмом не закрываются — только через «Закрыть» на «Портфеле».
  * Журнал выхода уже записан обработчиком сигнала — дублировать не нужно.
  */
 internal suspend fun runSandboxAutoExitIfNeeded(
@@ -118,26 +118,36 @@ internal suspend fun runSandboxAutoExitIfNeeded(
     ) {
         return false
     }
+    if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
     val dedupKey = "${exitSignalType.name}|$barTimestampMillis"
     synchronized(autoSpreadDedupLock) {
         val p = context.applicationContext.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
         if (p.getString(KEY_LAST_AUTO_EXIT, null) == dedupKey) return false
     }
-    val app = context.applicationContext
     val openTrade = findOpenTradeForStrategyExit(
-        TinkoffSandboxSpreadExecLog.loadRecent(app),
+        TinkoffSandboxSpreadExecLog.loadRecent(context),
         exitSignalType,
-    ) ?: run {
-        MoexDiagnostics.log(
-            app,
-            "sandbox",
-            "auto_exit_skip no_open_trade signal=$exitSignalType bar=$barTimestampMillis",
-        )
+    ) ?: return false
+    when (TinkoffSandboxStorage.resolveExecUiState(context)) {
+        SandboxExecUiState.MissingCredentials -> {
+            notifySandboxAutoExitSkipped(context, "Укажите токен и счёт песочницы (вкладка «Песочница»).")
+            return false
+        }
+        SandboxExecUiState.Ready -> Unit
+        SandboxExecUiState.Off -> Unit
+    }
+    val token = TinkoffSandboxStorage.getToken(context) ?: run {
+        notifySandboxAutoExitSkipped(context, "Нет токена песочницы.")
         return false
     }
-    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(app)
+    val accountId = TinkoffSandboxStorage.getAccountId(context) ?: run {
+        notifySandboxAutoExitSkipped(context, "Нет счёта песочницы.")
+        return false
+    }
+    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
+    val app = context.applicationContext
     return try {
-        val legs = executeSandboxSpreadExitIfConfigured(app, openTrade.signalType)
+        val legs = tinkoffSandboxExecuteSpreadExitDetailed(token, accountId, openTrade.signalType)
         synchronized(autoSpreadDedupLock) {
             app.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_LAST_AUTO_EXIT, dedupKey).commit()

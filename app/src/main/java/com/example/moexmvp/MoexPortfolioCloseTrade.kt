@@ -3,7 +3,7 @@ package com.example.moexmvp
 import android.content.Context
 import java.time.LocalDate
 
-/** Открытая сделка на демо, соответствующая сигналу выхода стратегии. */
+/** Открытая авто-сделка на демо, соответствующая сигналу выхода стратегии (ручные не учитываются). */
 internal fun findOpenTradeForStrategyExit(
     openExecutions: List<SandboxSpreadExecUi>,
     exitSignalType: StrategySignalType,
@@ -14,7 +14,7 @@ internal fun findOpenTradeForStrategyExit(
         else -> return null
     }
     return openExecutions
-        .filter { it.signalType == entrySignal }
+        .filter { it.signalType == entrySignal && it.source == PortfolioExecSource.AUTO }
         .maxByOrNull { it.barTimestampMillis }
 }
 

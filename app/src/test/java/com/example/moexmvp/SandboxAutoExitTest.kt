@@ -42,6 +42,18 @@ class SandboxAutoExitTest {
         )
     }
 
+    @Test
+    fun findOpenTradeForStrategyExit_ignoresManualTrades() {
+        val manualLong = sandboxOpen("D-M", StrategySignalType.EnterLong, 3000L)
+            .copy(source = PortfolioExecSource.MANUAL, confirmLabel = "ручное")
+        assertNull(
+            findOpenTradeForStrategyExit(
+                listOf(manualLong),
+                StrategySignalType.ExitLong,
+            )
+        )
+    }
+
     private fun sandboxOpen(
         tradeId: String,
         signalType: StrategySignalType,
