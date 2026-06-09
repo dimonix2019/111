@@ -191,8 +191,8 @@ internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
 }
 
 /**
- * 15м ряд и Z для фонового монитора, UI-сигналов и тестовых входов —
- * тот же кэш ISS 10m→15m и lookback, что вкладка «Портфель».
+ * 15м ряд и Z для короткого окна «Рынок» / legacy.
+ * Для live-сигналов и parity с «Тест страт.» используйте [loadZStrategySignalSeries].
  */
 internal suspend fun loadPortfolio15mPointsForSignalMonitor(
     context: Context,
