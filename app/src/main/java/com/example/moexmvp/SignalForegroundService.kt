@@ -23,7 +23,6 @@ import java.util.Locale
 
 internal const val SIGNAL_MONITOR_CHANNEL_ID = "moex_signal_monitor_channel"
 internal const val SIGNAL_MONITOR_NOTIFICATION_ID = 11001
-internal const val SIGNAL_MONITOR_INTERVAL_MS = 15_000L
 
 private val bgSignalFallbackThresholds = DynamicThresholds(
     entry = DEFAULT_DYNAMIC_Z_ENTRY,
@@ -36,6 +35,8 @@ class SignalForegroundService : Service() {
     private var workerStarted = false
     private var ticksSinceAppUpdateCheck = 0
     private var monitorTickCount = 0
+    private var consecutiveNetworkFailures = 0
+    private var lastOfflineCacheLogMs = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -60,9 +61,19 @@ class SignalForegroundService : Service() {
                 while (isActive) {
                     runCatching { performSignalMonitorTick() }
                         .onFailure { e ->
-                            MoexDiagnostics.logError(applicationContext, "monitor", e, "tick failed")
+                            if (isTransientNetworkFailure(e)) {
+                                consecutiveNetworkFailures = (consecutiveNetworkFailures + 1).coerceAtMost(8)
+                                MoexDiagnostics.logNetworkFailure(
+                                    applicationContext,
+                                    "monitor",
+                                    e,
+                                    "tick failed",
+                                )
+                            } else {
+                                MoexDiagnostics.logError(applicationContext, "monitor", e, "tick failed")
+                            }
                         }
-                    delay(SIGNAL_MONITOR_INTERVAL_MS)
+                    delay(nextSignalMonitorDelayMs(consecutiveNetworkFailures))
                 }
             }
         }
@@ -99,19 +110,25 @@ class SignalForegroundService : Service() {
         ticksSinceAppUpdateCheck++
         if (ticksSinceAppUpdateCheck * SIGNAL_MONITOR_INTERVAL_MS >= APP_UPDATE_CHECK_INTERVAL_MS) {
             ticksSinceAppUpdateCheck = 0
-            runCatching { checkRemoteAppUpdateAndNotify(applicationContext) }
-                .onFailure { e ->
-                    MoexDiagnostics.logError(applicationContext, "monitor", e, "app_update_check")
-                }
+            if (isDeviceNetworkAvailable(applicationContext)) {
+                runCatching { checkRemoteAppUpdateAndNotify(applicationContext) }
+                    .onFailure { e ->
+                        if (isTransientNetworkFailure(e)) {
+                            MoexDiagnostics.logNetworkFailure(
+                                applicationContext,
+                                "monitor",
+                                e,
+                                "app_update_check",
+                            )
+                        } else {
+                            MoexDiagnostics.logError(applicationContext, "monitor", e, "app_update_check")
+                        }
+                    }
+            }
         }
 
-        val points = runCatching {
-            loadPortfolio15mPointsForSignalMonitor(
-                applicationContext,
-                lookbackDays = marketsM15LookbackDays(Period.OneMonth),
-            )
-        }.getOrElse { e ->
-            MoexDiagnostics.logError(applicationContext, "monitor", e, "load_15m_failed")
+        val points = loadMonitor15mPoints()
+        if (points == null) {
             return@withContext
         }
         if (points.size < 2) {
@@ -309,6 +326,60 @@ class SignalForegroundService : Service() {
 
         saveDailySignalLimit(applicationContext, dayLimit)
         saveStrategyPosition(applicationContext, currentPosition)
+    }
+
+    private suspend fun loadMonitor15mPoints(): List<DataPoint>? {
+        val lookbackDays = marketsM15LookbackDays(Period.OneMonth)
+        val online = isDeviceNetworkAvailable(applicationContext)
+        if (!online) {
+            consecutiveNetworkFailures = (consecutiveNetworkFailures + 1).coerceAtMost(8)
+            val now = System.currentTimeMillis()
+            if (now - lastOfflineCacheLogMs >= 5 * 60_000L) {
+                lastOfflineCacheLogMs = now
+                MoexDiagnostics.log(applicationContext, "monitor", "no network — poll from local cache")
+            }
+            val cached = runCatching {
+                loadPortfolio15mPointsForSignalMonitor(
+                    applicationContext,
+                    mode = PortfolioM15LoadMode.CACHE_ONLY,
+                    lookbackDays = lookbackDays,
+                )
+            }.getOrElse { e ->
+                MoexDiagnostics.logNetworkFailure(applicationContext, "monitor", e, "cache_only_failed")
+                return null
+            }
+            if (cached.isNotEmpty()) {
+                return cached
+            }
+            return null
+        }
+
+        val loaded = runCatching {
+            loadPortfolio15mPointsForSignalMonitor(
+                applicationContext,
+                lookbackDays = lookbackDays,
+            )
+        }.getOrElse { e ->
+            if (isTransientNetworkFailure(e)) {
+                consecutiveNetworkFailures = (consecutiveNetworkFailures + 1).coerceAtMost(8)
+                MoexDiagnostics.logNetworkFailure(applicationContext, "monitor", e, "load_15m_failed")
+            } else {
+                MoexDiagnostics.logError(applicationContext, "monitor", e, "load_15m_failed")
+            }
+            runCatching {
+                loadPortfolio15mPointsForSignalMonitor(
+                    applicationContext,
+                    mode = PortfolioM15LoadMode.CACHE_ONLY,
+                    lookbackDays = lookbackDays,
+                )
+            }.getOrNull()
+        }
+
+        if (loaded == null || loaded.isEmpty()) {
+            return loaded
+        }
+        consecutiveNetworkFailures = 0
+        return loaded
     }
 
     companion object {
