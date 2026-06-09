@@ -222,7 +222,10 @@ internal fun MoexScreen() {
             )
             }
         }
-        if (!landscapeZChartFullscreen && screen.isDataLoadActive) {
+        if (!landscapeZChartFullscreen &&
+            screen.isDataLoadActive &&
+            screen.selectedTab != MainTab.Journal
+        ) {
             DataLoadProgressCard(
                 progress = screen.dataLoadProgress ?: DataLoadProgress(
                     phase = DataLoadPhase.CacheRead,

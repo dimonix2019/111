@@ -340,6 +340,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     }
 
     LaunchedEffect(
+        selectedTab,
         portfolioM15Points,
         marketsM15DataEpoch,
         portfolioLeverage,
@@ -348,6 +349,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         portfolioLedgerIncludeAuto,
         signalJournalFingerprint
     ) {
+        if (selectedTab != MainTab.Portfolio && selectedTab != MainTab.Markets) return@LaunchedEffect
         syncSandboxExecutionsEnrichment()
     }
 
@@ -401,11 +403,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
-    LaunchedEffect(selectedTab, sandboxSpreadExecReload, signalJournalFingerprint) {
-        if (selectedTab == MainTab.Journal) {
-            pushNotificationLog = withContext(Dispatchers.IO) {
-                loadPushNotificationLog(context.applicationContext)
-            }
+    LaunchedEffect(selectedTab, sandboxSpreadExecReload) {
+        if (selectedTab != MainTab.Journal) return@LaunchedEffect
+        if (sandboxSpreadExecReload == 0) return@LaunchedEffect
+        pushNotificationLog = withContext(Dispatchers.IO) {
+            loadPushNotificationLog(context.applicationContext)
         }
     }
     LaunchedEffect(realtimeEnabled, selectedPeriod, selectedTab, activityResumed, memoryPressureLevel) {

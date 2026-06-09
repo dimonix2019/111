@@ -119,6 +119,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.125 — Журнал: без overlay «чтение кэша» при старте; легче открытие вкладки.
 1.7.124 — Sim «сегодня» с carry-in позиции на открытие дня; «Сверка за день» на вкладке Портфель.
 1.7.123 — Live-сигналы: единый 15м+Z ряд 255д (parity с «Тест страт.»), монитор и UI.
 1.7.122 — Монитор: replay пропущенных 15м баров после пакетной загрузки; fix consume/journal.

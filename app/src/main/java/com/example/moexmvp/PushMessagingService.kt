@@ -90,8 +90,9 @@ internal data class StrategySignalDisplay(
 internal fun strategySignalDisplay(
     event: StrategySignalEvent,
     journalEvents: List<StrategySignalEvent> = listOf(event),
+    weeklyIndex: Map<StrategySignalKey, Int>? = null,
 ): StrategySignalDisplay {
-    val index = buildWeeklySignalNumberIndex(journalEvents)
+    val index = weeklyIndex ?: buildWeeklySignalNumberIndex(journalEvents)
     val weeklyLabel = weeklyStrategySignalLabel(index, event)
     val weeklyTradeId = if (event.signalType == StrategySignalType.EnterLong ||
         event.signalType == StrategySignalType.EnterShort
@@ -241,8 +242,9 @@ internal fun buildStrategySignalJournalPushView(
     entryThreshold: Double,
     exitThreshold: Double,
     allJournalEvents: List<StrategySignalEvent> = listOf(event),
+    weeklyIndex: Map<StrategySignalKey, Int>? = null,
 ): StrategySignalJournalPushView {
-    val sig = strategySignalDisplay(event, allJournalEvents)
+    val sig = strategySignalDisplay(event, allJournalEvents, weeklyIndex)
     val push = findPushLogForStrategySignal(event, pushLog)
     val title = push?.title ?: strategySignalPushTitle(event.signalType)
     val rawBody = push?.body ?: strategySignalPushBody(

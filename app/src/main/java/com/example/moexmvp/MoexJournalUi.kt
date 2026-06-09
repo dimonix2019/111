@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -31,6 +32,8 @@ import androidx.compose.ui.unit.sp
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val JOURNAL_SECTION_SIGNALS = 0
 private const val JOURNAL_SECTION_NOTIFICATIONS = 1
@@ -52,6 +55,11 @@ internal fun JournalTabContent(
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearPushDialog by remember { mutableStateOf(false) }
     val zone = ZoneId.of("Europe/Moscow")
+    val weeklyIndex by produceState<Map<StrategySignalKey, Int>>(emptyMap(), events) {
+        value = withContext(Dispatchers.Default) {
+            buildWeeklySignalNumberIndex(events)
+        }
+    }
     val filtered = remember(events, typeFilter, dayFilter) {
         events.asSequence().filter { ev ->
             when (typeFilter) {
@@ -227,13 +235,14 @@ internal fun JournalTabContent(
                 items = filtered,
                 key = { index, ev -> "sig_${index}_${ev.timestampMillis}_${ev.signalType.name}" }
             ) { _, ev ->
-                val view = remember(ev, events, pushNotifications, entryThreshold, exitThreshold) {
+                val view = remember(ev, weeklyIndex, pushNotifications, entryThreshold, exitThreshold) {
                     buildStrategySignalJournalPushView(
                         event = ev,
                         pushLog = pushNotifications,
                         entryThreshold = entryThreshold,
                         exitThreshold = exitThreshold,
                         allJournalEvents = events,
+                        weeklyIndex = weeklyIndex,
                     )
                 }
                 JournalSignalOrPushCard(
