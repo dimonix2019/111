@@ -636,6 +636,7 @@ internal fun PortfolioTradesWindowSection(
                     groups = closedBucket.groups,
                     caption = "",
                     riskAssessments = closedRiskAssessments,
+                    showRiskScoreBreakdown = true,
                 )
             }
         }
