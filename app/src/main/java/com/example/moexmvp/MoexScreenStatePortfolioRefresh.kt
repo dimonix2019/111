@@ -256,7 +256,9 @@ internal suspend fun MoexScreenState.refreshData(
                     }
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
                     if (!fromDiskCache && !deferM15Network) {
-                        val m15ForSignal = loadMarketsM15PointsOnce()
+                        val m15ForSignal = withContext(Dispatchers.IO) {
+                            loadZStrategySignalSeries(context, PortfolioM15LoadMode.INCREMENTAL)
+                        }
                         if (!backgroundMonitorEnabled && m15ForSignal.size >= 2) {
                             val signalThresholds = DynamicThresholds(
                                 entry = (realTradeEntryThreshold ?: dynamicThresholds.entry)

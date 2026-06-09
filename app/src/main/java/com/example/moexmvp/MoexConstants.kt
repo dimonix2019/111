@@ -119,6 +119,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.123 — Live-сигналы: единый 15м+Z ряд 255д (parity с «Тест страт.»), монитор и UI.
 1.7.122 — Монитор: replay пропущенных 15м баров после пакетной загрузки; fix consume/journal.
 1.7.97 — Fix: MOEX poll только на «Рынок» и при активном экране (не каждые 5с в фоне).
 1.7.96 — Диагностика вылетов: WebView crash, lifecycle, старт на «Журнал», largeHeap.

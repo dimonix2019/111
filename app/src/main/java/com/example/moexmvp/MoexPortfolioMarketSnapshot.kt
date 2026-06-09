@@ -28,8 +28,8 @@ internal suspend fun loadCurrentPortfolioMarketSnapshot(
     val app = context.applicationContext
     val points = when {
         forTestEntry -> loadPortfolio15mPointsForTestEntry(app)
-        forceNetworkRefresh -> loadPortfolio15mPointsForSignalMonitor(app, PortfolioM15LoadMode.INCREMENTAL)
-        else -> loadPortfolio15mPointsForSignalMonitor(app, PortfolioM15LoadMode.CACHE_ONLY)
+        forceNetworkRefresh -> loadZStrategySignalSeries(app, PortfolioM15LoadMode.INCREMENTAL)
+        else -> loadZStrategySignalSeries(app, PortfolioM15LoadMode.CACHE_ONLY)
     }
     val last = points.lastOrNull()
     return if (last != null) {
@@ -55,7 +55,7 @@ internal suspend fun resolveSpreadPercentAtBar(
     barTimestampMillis: Long,
     fallback: Double = 0.0
 ): Double {
-    val points = loadPortfolio15mPointsForSignalMonitor(context, PortfolioM15LoadMode.CACHE_ONLY)
+    val points = loadZStrategySignalSeries(context, PortfolioM15LoadMode.CACHE_ONLY)
     if (points.isEmpty()) return fallback
     return points.minByOrNull { abs(it.timestampMillis - barTimestampMillis) }?.spreadPercent ?: fallback
 }
