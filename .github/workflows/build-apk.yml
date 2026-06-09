@@ -3,9 +3,11 @@
 #
 # Стабильная ссылка: https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk
 #
-# Push на main / cursor/portfolio-close-trade-60e5: публикация moexmvp-debug-latest + gh-pages.
-# Другие cursor/* — только сборка в PR/push (иначе последний push перезаписывает APK чужой ветки).
-# PR: только проверка сборки.
+# Публикация moexmvp-debug-latest + gh-pages:
+# - push на main / cursor/portfolio-close-trade-60e5 (если versionCode >= опубликованного)
+# - push на любую cursor/* (если versionCode строго выше опубликованного — не затираем новее)
+# - workflow_dispatch (всегда)
+# PR: только сборка и тесты.
 
 name: Build APK
 
@@ -56,12 +58,39 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "vcode=${VC}" >> "$GITHUB_OUTPUT"
 
+      - name: Decide APK publish
+        id: publish
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        env:
+          REF: ${{ github.ref }}
+          NEW_VCODE: ${{ steps.meta.outputs.vcode }}
+        run: |
+          PUBLISHED=0
+          if curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/gh-pages/app-update.json" -o /tmp/app-update.json 2>/dev/null; then
+            PUBLISHED=$(sed -n 's/.*"versionCode"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' /tmp/app-update.json | head -1)
+            PUBLISHED=${PUBLISHED:-0}
+          fi
+          echo "published_vcode=${PUBLISHED}" >> "$GITHUB_OUTPUT"
+
+          PUBLISH=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PUBLISH=true
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            if [ "$REF" = "refs/heads/main" ] || [ "$REF" = "refs/heads/cursor/portfolio-close-trade-60e5" ]; then
+              if [ "$NEW_VCODE" -ge "$PUBLISHED" ]; then
+                PUBLISH=true
+              fi
+            elif [[ "$REF" == refs/heads/cursor/* ]]; then
+              if [ "$NEW_VCODE" -gt "$PUBLISHED" ]; then
+                PUBLISH=true
+              fi
+            fi
+          fi
+          echo "should=${PUBLISH}" >> "$GITHUB_OUTPUT"
+          echo "Publish: ref=${REF} new_vcode=${NEW_VCODE} published_vcode=${PUBLISHED} -> ${PUBLISH}"
+
       - name: Prepare APK for release
-        if: >-
-          (github.event_name == 'push' &&
-           (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-            github.ref == 'refs/heads/cursor/portfolio-close-trade-60e5')) ||
-          github.event_name == 'workflow_dispatch'
+        if: steps.publish.outputs.should == 'true'
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk moexmvp-debug.apk
           printf '{"versionCode":%s,"versionName":"%s","apkUrl":"https://raw.githubusercontent.com/%s/gh-pages/moexmvp-debug.apk"}\n' \
@@ -70,11 +99,7 @@ jobs:
             "${{ github.repository }}" > app-update.json
 
       - name: Remove previous rolling release (best effort)
-        if: >-
-          (github.event_name == 'push' &&
-           (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-            github.ref == 'refs/heads/cursor/portfolio-close-trade-60e5')) ||
-          github.event_name == 'workflow_dispatch'
+        if: steps.publish.outputs.should == 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,11 +109,7 @@ jobs:
           gh api --method DELETE "repos/${{ github.repository }}/git/refs/tags/moexmvp-debug-latest" 2>/dev/null || true
 
       - name: Publish rolling debug release
-        if: >-
-          (github.event_name == 'push' &&
-           (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-            github.ref == 'refs/heads/cursor/portfolio-close-trade-60e5')) ||
-          github.event_name == 'workflow_dispatch'
+        if: steps.publish.outputs.should == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: moexmvp-debug-latest
@@ -115,11 +136,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish public update mirror (gh-pages)
-        if: >-
-          (github.event_name == 'push' &&
-           (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
-            github.ref == 'refs/heads/cursor/portfolio-close-trade-60e5')) ||
-          github.event_name == 'workflow_dispatch'
+        if: steps.publish.outputs.should == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -131,5 +148,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add moexmvp-debug.apk app-update.json
-          git commit -m "Update ${{ steps.meta.outputs.version }} (${{ steps.meta.outputs.vcode }})"
+          git commit -m "Update ${{ steps.meta.outputs.version }} (${{ steps.meta.outputs.vcode }}) from ${{ github.ref_name }}"
           git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" gh-pages:gh-pages
