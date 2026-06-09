@@ -152,3 +152,60 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
         )
     }
 }
+
+/** Открытые и закрытые сделки портфеля для маркеров на Z-графике «Рынок». */
+internal suspend fun loadPortfolioTradesForZChart(
+    context: Context,
+    points: List<DataPoint>,
+    leverage: Double,
+    commissionPercentPerSide: Double,
+): Pair<List<SandboxSpreadExecUi>, List<PortfolioConfirmedTradeTableRow>> {
+    if (points.size < 2) return emptyList<SandboxSpreadExecUi>() to emptyList()
+    return withContext(Dispatchers.IO) {
+        val eventsAll = loadStrategySignalEvents(
+            context = context,
+            fromTimestampMillis = points.first().timestampMillis,
+        )
+        val ledger = loadPortfolioExecutionLedger(context)
+        val chartEvents = journalEventsForChartTrades(eventsAll, ledger)
+        val pushLog = loadPushNotificationLog(context)
+        val executed = withContext(Dispatchers.Default) {
+            buildExecutedPortfolioWithTable(
+                points = points,
+                events = chartEvents,
+                ledger = ledger,
+                pushLog = pushLog,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = leverage,
+                commissionPercentPerSide = commissionPercentPerSide,
+                periodDescription = "z-chart",
+            )
+        }
+        val sandboxRaw = TinkoffSandboxSpreadExecLog.loadRecent(context)
+        val (closedFromOpens, opensAfterJournalClose) = withContext(Dispatchers.Default) {
+            buildClosedRowsFromSandboxOpensAndJournalExits(
+                openExecutions = sandboxRaw,
+                allJournalEvents = eventsAll,
+                points = points,
+                ledger = ledger,
+                pushLog = pushLog,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = leverage,
+                commissionPercentPerSide = commissionPercentPerSide,
+                portfolioLedgerIncludeAuto = true,
+                includeAllLedgerEntries = true,
+            )
+        }
+        val closed = mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens)
+        val opens = TinkoffSandboxSpreadExecLog.enrichForDisplay(
+            context = context,
+            executions = opensAfterJournalClose,
+            points = points,
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = leverage,
+            commissionPercentPerSide = commissionPercentPerSide,
+            journalEvents = eventsAll,
+        )
+        opens to closed
+    }
+}

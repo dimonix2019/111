@@ -63,22 +63,30 @@ internal object TinkoffSandboxStorage {
         }
     }
 
+    private fun normalizeStoredCredential(raw: String): String = normalizeInvestToken(raw)
+
     fun getToken(context: Context): String? {
         val app = context.applicationContext
         val primary = prefs(context).getString(KEY_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
         if (primary != null) {
+            val norm = normalizeStoredCredential(primary)
+            if (norm != primary) setToken(context, norm.takeIf { it.isNotEmpty() })
+            if (norm.isEmpty()) return null
             val m = mirrorPrefs(app)
-            if (m.getString(KEY_TOKEN, null) != primary) {
-                m.edit().putString(KEY_TOKEN, primary).apply()
+            if (m.getString(KEY_TOKEN, null) != norm) {
+                m.edit().putString(KEY_TOKEN, norm).apply()
             }
-            return primary
+            return norm
         }
         val mirrored = mirrorPrefs(app).getString(KEY_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
             ?: return null
+        val norm = normalizeStoredCredential(mirrored)
+        if (norm != mirrored) setToken(context, norm.takeIf { it.isNotEmpty() })
+        if (norm.isEmpty()) return null
         runCatching {
-            prefs(app).edit().putString(KEY_TOKEN, mirrored).apply()
+            prefs(app).edit().putString(KEY_TOKEN, norm).apply()
         }
-        return mirrored
+        return norm
     }
 
     fun setToken(context: Context, token: String?) {

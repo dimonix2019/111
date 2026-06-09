@@ -77,7 +77,7 @@ internal fun MoexScreenVirtualTradeCard(
                                 }
                                 try {
                                     val nowMs = System.currentTimeMillis()
-                                    val (skipDupJournal, legs) = withContext(Dispatchers.IO) {
+                                    val (skipDupJournal, legs, opened) = withContext(Dispatchers.IO) {
                                         val legsInner = tinkoffSandboxExecuteSpreadEntryDetailed(
                                             tok,
                                             acc,
@@ -109,7 +109,7 @@ internal fun MoexScreenVirtualTradeCard(
                                             context,
                                             proposal.timestampMillis
                                         )
-                                        TinkoffSandboxSpreadExecLog.recordFromLegs(
+                                        val opened = TinkoffSandboxSpreadExecLog.recordFromLegs(
                                             context,
                                             proposal.signalType,
                                             proposal.zScore,
@@ -126,18 +126,19 @@ internal fun MoexScreenVirtualTradeCard(
                                             else -> ZStrategyPosition.Flat
                                         }
                                         saveStrategyPosition(context, position)
-                                        Pair(skipDup, legsInner)
+                                        Triple(skipDup, legsInner, opened)
                                     }
-                                    notifySandboxSpreadLegExecutionResults(
-                                        context,
-                                        legs,
-                                        DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                                        TinkoffSandboxStorage.getSandboxNotifyLeverage(context),
-                                        spreadLegPushCorrelationTag(
-                                            proposal.timestampMillis,
-                                            proposal.signalType
+                                    val lastLeg = legs.lastOrNull()
+                                    opened?.let { trade ->
+                                        notifySandboxTradeOpened(
+                                            context = context,
+                                            execution = trade,
+                                            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                                            leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context),
+                                            portfolioTotalRub = lastLeg?.portfolioTotalRub,
+                                            portfolioCashRub = lastLeg?.portfolioCashRub,
                                         )
-                                    )
+                                    }
                                     zStrategyPosition = loadSavedStrategyPosition(context)
                                     pendingVirtualTrade = null
                                     sandboxSpreadExecReload++
