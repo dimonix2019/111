@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -198,8 +199,15 @@ internal fun AboutTabContent(
 private fun EventLogSection(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var preview by remember { mutableStateOf(MoexDiagnostics.formatForDisplay(context, tail = 12)) }
-    var lineCount by remember { mutableIntStateOf(MoexDiagnostics.lineCount(context)) }
+    var preview by remember { mutableStateOf("Загрузка журнала…") }
+    var lineCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        val (text, count) = withContext(Dispatchers.IO) {
+            MoexDiagnostics.formatForDisplay(context, tail = 12) to MoexDiagnostics.lineCount(context)
+        }
+        preview = text
+        lineCount = count
+    }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -286,10 +294,16 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
             }
             TextButton(
                 onClick = {
-                    MoexDiagnostics.clear(context)
-                    preview = MoexDiagnostics.formatForDisplay(context, tail = 12)
-                    lineCount = MoexDiagnostics.lineCount(context)
-                    Toast.makeText(context, "Журнал событий очищен", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        withContext(Dispatchers.IO) { MoexDiagnostics.clear(context) }
+                        val (text, count) = withContext(Dispatchers.IO) {
+                            MoexDiagnostics.formatForDisplay(context, tail = 12) to
+                                MoexDiagnostics.lineCount(context)
+                        }
+                        preview = text
+                        lineCount = count
+                        Toast.makeText(context, "Журнал событий очищен", Toast.LENGTH_SHORT).show()
+                    }
                 }
             ) {
                 Text("Очистить", color = Color(0xFFFFAB91), fontSize = 11.sp)

@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.IOException
+import java.io.RandomAccessFile
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -115,11 +116,11 @@ internal object MoexDiagnostics {
     }
 
     fun loadLines(context: Context, tail: Int = 200): List<String> {
-        val lines = readAllLines(context.applicationContext)
-        return if (tail <= 0) lines else lines.takeLast(tail)
+        val app = context.applicationContext
+        return if (tail <= 0) readAllLines(app) else readTailLines(app, tail)
     }
 
-    fun lineCount(context: Context): Int = readAllLines(context.applicationContext).size
+    fun lineCount(context: Context): Int = countLines(context.applicationContext)
 
     fun formatForDisplay(context: Context, tail: Int = 40): String {
         val lines = loadLines(context, tail)
@@ -211,6 +212,51 @@ internal object MoexDiagnostics {
             return runCatching {
                 file.readLines().filter { it.isNotBlank() }
             }.getOrElse { emptyList() }
+        }
+    }
+
+    /** Последние N строк без чтения всего файла в память (для превью на UI). */
+    private fun readTailLines(context: Context, maxLines: Int): List<String> {
+        synchronized(lock) {
+            val file = logFile(context)
+            if (!file.isFile || file.length() == 0L || maxLines <= 0) return emptyList()
+            return runCatching {
+                RandomAccessFile(file, "r").use { raf ->
+                    val length = raf.length()
+                    if (length == 0L) return@use emptyList<String>()
+                    val chunkSize = 8192
+                    val buffer = StringBuilder()
+                    var pos = length
+                    var newlineCount = 0
+                    while (pos > 0 && newlineCount <= maxLines) {
+                        val readSize = minOf(chunkSize.toLong(), pos).toInt()
+                        pos -= readSize
+                        raf.seek(pos)
+                        val bytes = ByteArray(readSize)
+                        raf.readFully(bytes)
+                        buffer.insert(0, String(bytes, Charsets.UTF_8))
+                        newlineCount = buffer.count { it == '\n' }
+                    }
+                    buffer.toString()
+                        .split('\n')
+                        .filter { it.isNotBlank() }
+                        .takeLast(maxLines)
+                }
+            }.getOrElse { emptyList() }
+        }
+    }
+
+    private fun countLines(context: Context): Int {
+        synchronized(lock) {
+            val file = logFile(context)
+            if (!file.isFile || file.length() == 0L) return 0
+            return runCatching {
+                file.bufferedReader().use { reader ->
+                    var count = 0
+                    while (reader.readLine() != null) count++
+                    count
+                }
+            }.getOrElse { 0 }
         }
     }
 
