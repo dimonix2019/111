@@ -120,6 +120,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
     riskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
+    showRiskScoreBreakdown: Boolean = false,
 ) {
     if (groups.isEmpty()) return
     val scroll = rememberScrollState()
@@ -139,6 +140,11 @@ internal fun PortfolioTradeOrdersGroupedTable(
             .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
             .padding(vertical = 6.dp)
     ) {
+        val riskBreakdownCols = if (showRiskScoreBreakdown) {
+            portfolioTradeRiskBreakdownColumnTitles().map { PortfolioTradeGroupColumn(it, 22) }
+        } else {
+            emptyList()
+        }
         val groupCols = listOf(
             PortfolioTradeGroupColumn("ID", 40),
             PortfolioTradeGroupColumn("Сигн.", 46),
@@ -154,7 +160,8 @@ internal fun PortfolioTradeOrdersGroupedTable(
             PortfolioTradeGroupColumn("Чист.", 48),
             PortfolioTradeGroupColumn("Ком.", 42),
             PortfolioTradeGroupColumn("Овн.", 42),
-            PortfolioTradeGroupColumn("Риск", 72),
+        ) + riskBreakdownCols + listOf(
+            PortfolioTradeGroupColumn("Риск", if (showRiskScoreBreakdown) 28 else 72),
         )
         val orderCols = listOf(
             PortfolioTradeGroupColumn("№", 18),
@@ -230,12 +237,25 @@ internal fun PortfolioTradeOrdersGroupedTable(
                                 level = StrategyTestTradeRiskLevel.None,
                                 score = 0,
                                 entryZ = null,
+                                breakdown = TradeRiskScoreBreakdown(),
                             )
-                            val riskText = formatStrategyTestTradeRiskFlags(assessment)
                             val riskColor = if (strategyTestTradeRiskIsFlagged(assessment)) {
                                 strategyTestTradeRiskLevelColor(assessment.level)
                             } else {
                                 Color(0xFF757575)
+                            }
+                            val riskText = if (showRiskScoreBreakdown) {
+                                formatPortfolioTradeRiskTotalScore(assessment)
+                            } else {
+                                formatStrategyTestTradeRiskFlags(assessment)
+                            }
+                            val breakdownCells = if (showRiskScoreBreakdown) {
+                                portfolioTradeRiskBreakdownPointValues(assessment).map { points ->
+                                    formatTradeRiskScorePoints(points) to
+                                        if (points > 0) Color(0xFFFFCC80) else Color(0xFF757575)
+                                }
+                            } else {
+                                emptyList()
                             }
                             val cells = listOf(
                                 group.tradeDisplayId to Color(0xFFE0E0E0),
@@ -258,6 +278,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
                                     else rubDeltaColor(group.netPnlRubApprox),
                                 formatPortfolioTableCostRub(group.commissionRubApprox) to Color(0xFFFFAB91),
                                 formatPortfolioTableCostRub(group.overnightRubApprox) to Color(0xFFFFAB91),
+                            ) + breakdownCells + listOf(
                                 riskText to riskColor,
                             )
                             cells.forEachIndexed { index, (text, color) ->
@@ -592,6 +613,7 @@ internal fun PortfolioTradesWindowSection(
                     onCloseOpenTrade = onCloseOpenTrade,
                     closingTradeId = closingTradeId,
                     riskAssessments = openRiskAssessments,
+                    showRiskScoreBreakdown = true,
                 )
             }
         }

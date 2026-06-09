@@ -36,11 +36,31 @@ internal enum class StrategyTestTradeRiskFlag(
     FridayLongHold("Пятница + >2 сут", "Пт>2д"),
 }
 
+internal data class TradeRiskScoreBreakdown(
+    /** >2 сут (+3) или >5 сут (+4). */
+    val holdPoints: Int = 0,
+    /** Overnight >100 ₽ или >50 ₽ при удержании >1 сут (+2). */
+    val overnightPoints: Int = 0,
+    /** |Z| < 1.0 на входе при удержании >6 ч (+1). */
+    val weakEntryZPoints: Int = 0,
+    /** Вход 13:00 или 12–14 МСК при удержании >6 ч (+1). */
+    val entryHourPoints: Int = 0,
+    /** Пятница + удержание >2 сут (+1). */
+    val fridayLongHoldPoints: Int = 0,
+    /** |Z| у порога входа при удержании >1 сут (+1). */
+    val nearThresholdPoints: Int = 0,
+) {
+    val totalScore: Int
+        get() = holdPoints + overnightPoints + weakEntryZPoints +
+            entryHourPoints + fridayLongHoldPoints + nearThresholdPoints
+}
+
 internal data class StrategyTestTradeRiskAssessment(
     val flags: List<StrategyTestTradeRiskFlag>,
     val level: StrategyTestTradeRiskLevel,
     val score: Int,
     val entryZ: Double?,
+    val breakdown: TradeRiskScoreBreakdown = TradeRiskScoreBreakdown(),
 )
 
 internal data class StrategyTestTradeRiskSummary(
@@ -71,29 +91,34 @@ internal fun buildTradeRiskAssessmentFromInputs(
     val entryZ = inputs.entryZ
     val entryHour = entryHourMsk(inputs.entryDateLabel, zoneId)
     val flags = linkedSetOf<StrategyTestTradeRiskFlag>()
-    var score = 0
+    var holdPoints = 0
+    var overnightPoints = 0
+    var weakEntryZPoints = 0
+    var entryHourPoints = 0
+    var fridayLongHoldPoints = 0
+    var nearThresholdPoints = 0
 
     when {
         durationMs != null && durationMs > 5 * MS_PER_DAY -> {
             flags += StrategyTestTradeRiskFlag.VeryLongHold
-            score += 4
+            holdPoints = 4
         }
         durationMs != null && durationMs > 2 * MS_PER_DAY -> {
             flags += StrategyTestTradeRiskFlag.LongHold
-            score += 3
+            holdPoints = 3
         }
     }
 
     when {
         inputs.overnightRubApprox > STRATEGY_TEST_RISK_OVERNIGHT_HIGH_RUB -> {
             flags += StrategyTestTradeRiskFlag.VeryHighOvernight
-            score += 2
+            overnightPoints = 2
         }
         inputs.overnightRubApprox > STRATEGY_TEST_RISK_OVERNIGHT_RUB &&
             durationMs != null &&
             durationMs > MS_PER_DAY -> {
             flags += StrategyTestTradeRiskFlag.HighOvernight
-            score += 2
+            overnightPoints = 2
         }
     }
 
@@ -104,18 +129,18 @@ internal fun buildTradeRiskAssessmentFromInputs(
         durationMs > MS_PER_SIX_HOURS
     ) {
         flags += StrategyTestTradeRiskFlag.WeakEntryZ
-        score += 1
+        weakEntryZPoints = 1
     }
 
     if (durationMs != null && durationMs > MS_PER_SIX_HOURS) {
         when (entryHour) {
             STRATEGY_TEST_RISK_PEAK_HOUR -> {
                 flags += StrategyTestTradeRiskFlag.PeakHourEntry
-                score += 1
+                entryHourPoints = 1
             }
             in STRATEGY_TEST_RISK_MIDDAY_HOUR_START..STRATEGY_TEST_RISK_MIDDAY_HOUR_END -> {
                 flags += StrategyTestTradeRiskFlag.MiddayEntry
-                score += 1
+                entryHourPoints = 1
             }
         }
     }
@@ -126,7 +151,7 @@ internal fun buildTradeRiskAssessmentFromInputs(
         isFridayEntry(inputs.entryDateLabel, zoneId)
     ) {
         flags += StrategyTestTradeRiskFlag.FridayLongHold
-        score += 1
+        fridayLongHoldPoints = 1
     }
 
     if (
@@ -135,14 +160,25 @@ internal fun buildTradeRiskAssessmentFromInputs(
         durationMs != null &&
         durationMs > MS_PER_DAY
     ) {
-        score += 1
+        nearThresholdPoints = 1
     }
+
+    val breakdown = TradeRiskScoreBreakdown(
+        holdPoints = holdPoints,
+        overnightPoints = overnightPoints,
+        weakEntryZPoints = weakEntryZPoints,
+        entryHourPoints = entryHourPoints,
+        fridayLongHoldPoints = fridayLongHoldPoints,
+        nearThresholdPoints = nearThresholdPoints,
+    )
+    val score = breakdown.totalScore
 
     return StrategyTestTradeRiskAssessment(
         flags = flags.toList(),
         level = strategyTestTradeRiskLevelFromScore(score),
         score = score,
         entryZ = entryZ,
+        breakdown = breakdown,
     )
 }
 
@@ -281,6 +317,34 @@ internal fun formatStrategyTestTradeRiskFlags(assessment: StrategyTestTradeRiskA
     } else {
         assessment.flags.joinToString(" · ") { it.shortLabel }
     }
+
+internal fun formatTradeRiskScorePoints(points: Int): String = points.toString()
+
+internal fun formatPortfolioTradeRiskTotalScore(assessment: StrategyTestTradeRiskAssessment): String =
+    assessment.breakdown.totalScore.toString()
+
+internal fun portfolioTradeRiskBreakdownColumnTitles(): List<String> = listOf(
+    ">2д",
+    "Ovn",
+    "Z<1",
+    "Час",
+    "Пт",
+    "Z~п",
+)
+
+internal fun portfolioTradeRiskBreakdownPointValues(
+    assessment: StrategyTestTradeRiskAssessment,
+): List<Int> {
+    val b = assessment.breakdown
+    return listOf(
+        b.holdPoints,
+        b.overnightPoints,
+        b.weakEntryZPoints,
+        b.entryHourPoints,
+        b.fridayLongHoldPoints,
+        b.nearThresholdPoints,
+    )
+}
 
 internal fun strategyTestTradeRiskLevelLabel(level: StrategyTestTradeRiskLevel): String = when (level) {
     StrategyTestTradeRiskLevel.None -> "нет"
