@@ -30,13 +30,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Пояснение: системные экраны Google/Android при sideload нельзя отключить из приложения. */
-internal const val APP_UPDATE_ANDROID_INSTALL_HINT =
-    "MOEX MVP ставится с GitHub, не из Play Store. Android покажет:\n" +
-        "• один раз — «Установка из неизвестных источников» (включите для MOEX MVP);\n" +
-        "• при каждой установке — PIN или отпечаток (защита Google, это нормально).\n" +
-        "Если в приложении много лишних экранов — проще «Через браузер»: скачайте APK и установите из «Загрузок»."
-
 @Composable
 internal fun AppUpdateDialogHost(
     pendingUpdate: AppRemoteUpdate?,
@@ -100,13 +93,6 @@ internal fun AppUpdateDialogHost(
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
-                Text(
-                    text = APP_UPDATE_ANDROID_INSTALL_HINT,
-                    color = Color(0xFFBCAAA4),
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp,
-                    modifier = Modifier.padding(top = 10.dp)
-                )
                 if (downloading) {
                     LinearProgressIndicator(
                         progress = { if (downloadIndeterminate) 0.3f else downloadProgress },

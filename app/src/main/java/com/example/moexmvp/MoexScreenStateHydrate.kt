@@ -11,6 +11,7 @@ import java.util.Locale
 
     /** Быстрый старт: снимок «Рынка» + 15м из SQLite до сети MOEX. */
 internal suspend fun MoexScreenState.hydrateMarketsFromLocalCache(preferredPeriod: Period = Period.OneDay) {
+        MoexDiagnostics.log(context, "ui", "hydrate_markets start period=$preferredPeriod")
         withDataLoadSession {
             withContext(Dispatchers.IO) {
                 val snapshot = readMarketsSnapshotForDisplay(context, preferredPeriod)
@@ -36,6 +37,11 @@ internal suspend fun MoexScreenState.hydrateMarketsFromLocalCache(preferredPerio
                 }
             }
         }
+        MoexDiagnostics.log(
+            context,
+            "ui",
+            "hydrate_markets done m15=${marketsM15Source().size} state=${state::class.simpleName}",
+        )
     }
 
     /** Подгрузка prefs/журнала после первого кадра (не блокирует ctor). */

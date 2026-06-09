@@ -57,13 +57,21 @@ class MoexAppUpdateParseTest {
     }
 
     @Test
-    fun parseAppUpdateManifestJson_publicMirrorUsesReleaseApkWhenManifestSaysSo() {
+    fun parseAppUpdateManifestJson_publicMirrorUsesGhPagesApkEvenWhenManifestSaysRelease() {
         val json = """
             {"versionCode":136,"versionName":"1.7.18","apkUrl":"https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk"}
         """.trimIndent()
         val u = parseAppUpdateManifestJson(json, manifestUrl = APP_UPDATE_PUBLIC_MANIFEST_URL)
         assertNotNull(u)
-        assertEquals(APK_DOWNLOAD_DIRECT_URL, u!!.apkDownloadUrl)
+        assertEquals(APP_UPDATE_PUBLIC_APK_URL, u!!.apkDownloadUrl)
+    }
+
+    @Test
+    fun apkDownloadUrlCandidates_includesGhPagesAndReleaseFallbacks() {
+        val urls = apkDownloadUrlCandidates(APK_DOWNLOAD_DIRECT_URL)
+        assertEquals(APK_DOWNLOAD_DIRECT_URL, urls.first())
+        assertTrue(urls.contains(APP_UPDATE_PUBLIC_APK_URL))
+        assertEquals(2, urls.size)
     }
 
     @Test
