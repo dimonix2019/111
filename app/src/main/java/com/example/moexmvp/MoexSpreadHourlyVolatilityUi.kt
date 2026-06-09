@@ -22,8 +22,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.max
-import kotlin.math.roundToInt
 
 @Composable
 internal fun SpreadHourlyVolatilityChartCard(
@@ -31,12 +32,12 @@ internal fun SpreadHourlyVolatilityChartCard(
     modifier: Modifier = Modifier,
     chartHeightDp: Int = 132,
 ) {
-    val visibleBars = remember(report) {
-        report.bars.filter { it.deltaSampleCount >= 2 && it.volatility > 0.0 }
+    val tradingHours = remember { spreadHourlyVolatilityTradingHoursRange().toList() }
+    val displayBars = remember(report) {
+        filterSpreadHourlyVolatilityForDisplay(report.bars)
+            .filter { it.deltaSampleCount >= 2 && it.volatility > 0.0 }
     }
-    val maxVol = remember(visibleBars) {
-        visibleBars.maxOfOrNull { it.volatility }?.takeIf { it > 0.0 } ?: 1.0
-    }
+    val yRange = remember(displayBars) { spreadVolatilityDisplayYRange(displayBars) }
     val subtitle = remember(report) { formatSpreadHourlyVolatilitySubtitle(report) }
 
     Column(
@@ -57,108 +58,144 @@ internal fun SpreadHourlyVolatilityChartCard(
             fontSize = 10.sp,
             maxLines = 2,
         )
-        Canvas(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(chartHeightDp.dp)
-                .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-        ) {
-            val leftPad = 34f
-            val rightPad = 8f
-            val topPad = 8f
-            val bottomPad = 22f
-            val plotW = (size.width - leftPad - rightPad).coerceAtLeast(1f)
-            val plotH = (size.height - topPad - bottomPad).coerceAtLeast(1f)
-            val slotW = plotW / 24f
-            val barW = (slotW * 0.72f).coerceAtLeast(2f)
+        if (displayBars.isEmpty() || yRange == null) {
+            Text(
+                text = "Недостаточно соседних 15м баров для почасовой σ",
+                color = Color(0xFF757575),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        } else {
+            val (yMin, yMax) = yRange
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(chartHeightDp.dp)
+                    .background(Color(0xFF0F1722), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+            ) {
+                val leftPad = 34f
+                val rightPad = 8f
+                val topPad = 8f
+                val bottomPad = 22f
+                val plotW = (size.width - leftPad - rightPad).coerceAtLeast(1f)
+                val plotH = (size.height - topPad - bottomPad).coerceAtLeast(1f)
+                val slotCount = tradingHours.size.coerceAtLeast(1)
+                val slotW = plotW / slotCount
+                val barW = (slotW * 0.72f).coerceAtLeast(2f)
 
-            val yTicks = buildSpreadVolatilityYTicks(maxVol)
-            val yMax = yTicks.lastOrNull()?.coerceAtLeast(maxVol) ?: maxVol
-            val yMin = 0.0
+                val yTicks = buildSpreadVolatilityYTicks(yMin, yMax)
+                val axisMax = yTicks.lastOrNull() ?: yMax
 
-            fun yForValue(value: Double): Float {
-                val range = (yMax - yMin).takeIf { it > 0.0 } ?: 1.0
-                val rel = ((value - yMin) / range).toFloat().coerceIn(0f, 1f)
-                return topPad + plotH * (1f - rel)
-            }
+                fun yForValue(value: Double): Float {
+                    val range = (axisMax - yMin).takeIf { it > 0.0 } ?: 1.0
+                    val rel = ((value - yMin) / range).toFloat().coerceIn(0f, 1f)
+                    return topPad + plotH * (1f - rel)
+                }
 
-            val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = android.graphics.Color.parseColor("#607D8B")
-                textSize = 22f
-            }
-            for (tick in yTicks) {
-                val y = yForValue(tick)
-                drawLine(
-                    color = Color(0xFF37474F),
-                    start = Offset(leftPad, y),
-                    end = Offset(size.width - rightPad, y),
-                    strokeWidth = 1f,
-                )
-            }
-            drawContext.canvas.nativeCanvas.apply {
+                val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.parseColor("#607D8B")
+                    textSize = 22f
+                }
                 for (tick in yTicks) {
                     val y = yForValue(tick)
-                    drawText(
-                        String.format(Locale.US, "%.2f", tick),
-                        2f,
-                        y + 7f,
-                        labelPaint,
+                    drawLine(
+                        color = Color(0xFF37474F),
+                        start = Offset(leftPad, y),
+                        end = Offset(size.width - rightPad, y),
+                        strokeWidth = 1f,
                     )
                 }
-                for (hour in listOf(0, 3, 6, 9, 10, 12, 14, 16, 18, 21)) {
-                    val xCenter = leftPad + slotW * hour + slotW / 2f
-                    drawText(
-                        String.format(Locale.US, "%02d", hour),
-                        xCenter - 12f,
-                        size.height - 4f,
-                        labelPaint,
-                    )
+                drawContext.canvas.nativeCanvas.apply {
+                    for (tick in yTicks) {
+                        val y = yForValue(tick)
+                        drawText(
+                            String.format(Locale.US, "%.2f", tick),
+                            2f,
+                            y + 7f,
+                            labelPaint,
+                        )
+                    }
+                    for (hour in listOf(8, 10, 12, 14, 16, 18, 21)) {
+                        val slotIndex = tradingHours.indexOf(hour)
+                        if (slotIndex < 0) continue
+                        val xCenter = leftPad + slotW * slotIndex + slotW / 2f
+                        drawText(
+                            String.format(Locale.US, "%02d", hour),
+                            xCenter - 12f,
+                            size.height - 4f,
+                            labelPaint,
+                        )
+                    }
                 }
-            }
 
-            for (bar in report.bars) {
-                if (bar.volatility <= 0.0) continue
-                val xCenter = leftPad + slotW * bar.hour + slotW / 2f
-                val top = yForValue(bar.volatility)
-                val bottom = yForValue(0.0)
-                val barHeight = (bottom - top).coerceAtLeast(2f)
-                val intensity = (bar.volatility / yMax).toFloat().coerceIn(0.15f, 1f)
-                val color = Color(
-                    red = 0.41f + 0.35f * intensity,
-                    green = 0.82f - 0.25f * intensity,
-                    blue = 0.68f - 0.35f * intensity,
-                )
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(xCenter - barW / 2f, top),
-                    size = Size(barW, barHeight),
-                    cornerRadius = CornerRadius(2f, 2f),
-                )
+                for (bar in displayBars) {
+                    val slotIndex = tradingHours.indexOf(bar.hour)
+                    if (slotIndex < 0) continue
+                    val xCenter = leftPad + slotW * slotIndex + slotW / 2f
+                    val top = yForValue(bar.volatility)
+                    val bottom = yForValue(yMin)
+                    val barHeight = (bottom - top).coerceAtLeast(2f)
+                    val span = (axisMax - yMin).takeIf { it > 0.0 } ?: 1.0
+                    val intensity = ((bar.volatility - yMin) / span).toFloat().coerceIn(0.15f, 1f)
+                    val color = Color(
+                        red = 0.41f + 0.35f * intensity,
+                        green = 0.82f - 0.25f * intensity,
+                        blue = 0.68f - 0.35f * intensity,
+                    )
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(xCenter - barW / 2f, top),
+                        size = Size(barW, barHeight),
+                        cornerRadius = CornerRadius(2f, 2f),
+                    )
+                }
             }
         }
         Text(
-            text = "Ось Y: σ |Δspread%| между 15м барами · ось X: час MSK",
+            text = "Ось Y: σ |Δspread%| между 15м барами · ось X: час MSK (8–23)",
             color = Color(0xFF757575),
             fontSize = 9.sp,
         )
     }
 }
 
-private fun buildSpreadVolatilityYTicks(maxValue: Double): List<Double> {
-    val safeMax = max(maxValue, 0.01)
+internal fun spreadVolatilityDisplayYRange(
+    visibleBars: List<SpreadHourlyVolatilityBar>,
+): Pair<Double, Double>? {
+    if (visibleBars.isEmpty()) return null
+    val rawMin = visibleBars.minOf { it.volatility }
+    val rawMax = visibleBars.maxOf { it.volatility }
+    if (rawMax <= 0.0) return null
+    val yMax = rawMax
+    val yMin = if (rawMax - rawMin < 1e-9) {
+        max(0.0, rawMax * 0.85)
+    } else {
+        rawMin
+    }
+    return if (yMax > yMin) yMin to yMax else null
+}
+
+internal fun buildSpreadVolatilityYTicks(minValue: Double, maxValue: Double): List<Double> {
+    if (maxValue <= minValue) return listOf(minValue, maxValue)
+    val span = maxValue - minValue
     val step = when {
-        safeMax <= 0.05 -> 0.01
-        safeMax <= 0.15 -> 0.02
-        safeMax <= 0.4 -> 0.05
+        span <= 0.02 -> 0.005
+        span <= 0.05 -> 0.01
+        span <= 0.15 -> 0.02
+        span <= 0.4 -> 0.05
         else -> 0.1
     }
-    val top = ((safeMax / step).roundToInt() + 1) * step
+    val start = floor(minValue / step) * step
+    val top = ceil(maxValue / step - 1e-12) * step
     val ticks = mutableListOf<Double>()
-    var v = 0.0
-    while (v <= top + step * 0.01) {
+    var v = start
+    while (v <= top + step * 0.001) {
         ticks.add(v)
         v += step
     }
-    return ticks
+    if (ticks.isEmpty() || ticks.last() < maxValue - 1e-9) {
+        ticks.add(top)
+    }
+    return ticks.distinct().sorted()
 }
