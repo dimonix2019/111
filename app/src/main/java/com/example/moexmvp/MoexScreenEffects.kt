@@ -236,28 +236,85 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         confirmedPortfolioMetrics,
         strategyTestPortfolioMetrics,
         portfolioLookbackDays,
+        portfolioM15Points.size,
+        strategyTestM15SessionCache.size,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
+        realTradeEntryThreshold,
+        realTradeExitThreshold,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        strategyTestCompoundReturns,
         dynamicThresholds.entry,
-        dynamicThresholds.exit
+        dynamicThresholds.exit,
+        dynamicThresholds.calculatedDate,
     ) {
         if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
         dailyReconciliation = withContext(Dispatchers.Default) {
-            val confirmedForCompare = confirmedPortfolioMetrics?.let {
-                filterPortfolioMetricsToRecentDays(it, portfolioLookbackDays)
-            }
-            val simulationForCompare = strategyTestPortfolioMetrics?.let {
-                filterPortfolioMetricsToRecentDays(it, portfolioLookbackDays)
-            }
+            val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
+            val points = m15SeriesForZSimulation()
+            if (points.size < 2) return@withContext null
+
+            val portfolioEntry = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            val portfolioExit = (realTradeExitThreshold ?: dynamicThresholds.exit)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            val testEntry = strategyTestEntryThreshold ?: dynamicThresholds.entry
+            val testExit = strategyTestExitThreshold ?: dynamicThresholds.exit
+            val testThresholds = DynamicThresholds(testEntry, testExit, dynamicThresholds.calculatedDate)
+            val portfolioThresholds = DynamicThresholds(
+                portfolioEntry,
+                portfolioExit,
+                dynamicThresholds.calculatedDate,
+            )
+
+            val confirmedToday = buildTodaySimPortfolioMetricsFromDayOpen(
+                points = points,
+                day = today,
+                thresholds = portfolioThresholds,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+                compoundReturns = false,
+            )
+            val simToday = buildTodaySimPortfolioMetricsFromDayOpen(
+                points = points,
+                day = today,
+                thresholds = testThresholds,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+                compoundReturns = strategyTestCompoundReturns,
+            )
+
+            val journalPos = inferJournalPositionBeforeDay(signalEvents, today)
+            val simPosAtOpen = inferSimPositionAtDayOpen(
+                points = points,
+                day = today,
+                thresholds = testThresholds,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+            )
+            val simSignals = collectZStrategySignalEdgesOnCalendarDay(
+                points = points,
+                day = today,
+                initialPosition = simPosAtOpen,
+                thresholds = testThresholds,
+            ).size
+
             buildDailyPortfolioReconciliation(
-                day = LocalDate.now(ZoneId.of("Europe/Moscow")),
+                day = today,
                 journalEvents = signalEvents,
-                confirmed = confirmedForCompare,
-                simulation = simulationForCompare,
-                simEntryThreshold = strategyTestEntryThreshold ?: dynamicThresholds.entry,
-                simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit,
+                confirmed = confirmedToday,
+                simulation = simToday,
+                simEntryThreshold = testEntry,
+                simExitThreshold = testExit,
+                journalPositionAtDayOpen = journalPos,
+                simPositionAtDayOpen = simPosAtOpen,
+                simSignalsToday = simSignals,
                 simExitMode = ZStrategyExitMode.FixedThreshold,
-                simZPeakTrailZ = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL
+                simZPeakTrailZ = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL,
             )
         }
     }

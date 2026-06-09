@@ -227,6 +227,11 @@ internal fun MoexScreenTabPortfolio(
                         closingTradeId = closingTradeId,
                     )
                 }
+                dailyReconciliation?.let { rec ->
+                    item {
+                        DailyReconciliationSection(rec)
+                    }
+                }
             }
         }
     }

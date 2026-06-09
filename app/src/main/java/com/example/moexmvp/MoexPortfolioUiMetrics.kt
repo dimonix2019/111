@@ -63,7 +63,8 @@ internal fun DailyReconciliationSection(rec: DailyPortfolioReconciliation) {
     val dayStr = rec.day.toString()
     PortfolioCollapsibleSection(
         title = "Сверка за день ($dayStr, МСК)",
-        subtitle = "журнал ${rec.journalEnters} вх. / ${rec.journalExits} вых. · подтв. ${rec.confirmedClosedOnDay} · тест ${rec.simClosedOnDay}",
+        subtitle = "откр. ${dirRuShort(rec.journalPositionAtDayOpen)}/${dirRuShort(rec.simPositionAtDayOpen)} · " +
+            "журнал ${rec.journalEnters} вх./${rec.journalExits} вых. · подтв. ${rec.confirmedClosedOnDay} · тест ${rec.simClosedOnDay}",
         defaultExpanded = true
     ) {
         Text(
