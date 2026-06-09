@@ -61,16 +61,35 @@ internal enum class ChartDisplayMode {
     Line,
 }
 
+/** Макс. [windowStart]: видимое окно может уходить правее последней свечи (пустой зазор справа). */
+internal fun chartWindowStartMax(windowWidth: Float): Float =
+    (1f - windowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f) + CHART_X_OVERSCROLL_RIGHT_MAX)
+        .coerceAtLeast(0f)
+
+internal fun chartWindowStartMin(): Float = -CHART_X_OVERSCROLL_LEFT_MAX
+
+internal fun coerceChartWindowStart(start: Float, windowWidth: Float): Float {
+    val w = windowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
+    return start.coerceIn(chartWindowStartMin(), chartWindowStartMax(w))
+}
+
+/** Стартовая позиция: последняя свеча не вплотную к правому краю. */
+internal fun chartInitialWindowStartWithRightGap(windowWidth: Float): Float =
+    coerceChartWindowStart(
+        1f - windowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f) * (1f - CHART_INITIAL_RIGHT_MARGIN_IN_WINDOW),
+        windowWidth,
+    )
+
 internal class ChartViewportState(
     initialWindowWidth: Float,
     initialWindowStart: Float,
     dataYMin: Double,
     dataYMax: Double,
 ) {
-    var windowStart by mutableFloatStateOf(initialWindowStart.coerceIn(0f, 1f))
     var windowWidth by mutableFloatStateOf(
         initialWindowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
     )
+    var windowStart by mutableFloatStateOf(coerceChartWindowStart(initialWindowStart, windowWidth))
     var yZoom by mutableFloatStateOf(1f)
     var yViewCenter by mutableDoubleStateOf(candleDefaultYViewCenter(dataYMin, dataYMax))
     var isInteracting by mutableStateOf(false)
@@ -80,8 +99,7 @@ internal class ChartViewportState(
 
     fun resetWindow(initialWidth: Float, initialStart: Float) {
         windowWidth = initialWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
-        val startUpper = (1f - windowWidth).coerceAtLeast(0f)
-        windowStart = initialStart.coerceIn(0f, startUpper)
+        windowStart = coerceChartWindowStart(initialStart, windowWidth)
         yZoom = 1f
         yViewCenter = candleDefaultYViewCenter(dataYMinRef, dataYMaxRef)
     }
@@ -90,7 +108,7 @@ internal class ChartViewportState(
         val f = focusFrac.coerceIn(0f, 1f)
         val newW = (windowWidth * factor).coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
         val anchor = windowStart + f * windowWidth
-        windowStart = (anchor - f * newW).coerceIn(0f, 1f - newW)
+        windowStart = coerceChartWindowStart(anchor - f * newW, newW)
         windowWidth = newW
     }
 
@@ -99,7 +117,7 @@ internal class ChartViewportState(
     }
 
     fun panX(panFrac: Float) {
-        windowStart = (windowStart + panFrac).coerceIn(0f, 1f - windowWidth)
+        windowStart = coerceChartWindowStart(windowStart + panFrac, windowWidth)
     }
 
     fun panY(deltaY: Double) {
@@ -117,7 +135,7 @@ internal class ChartViewportState(
         val cx = centroidXRel.coerceIn(0f, 1f)
         val newW = (windowWidth / zoom).coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
         val anchor = windowStart + cx * windowWidth
-        windowStart = (anchor - cx * newW).coerceIn(0f, 1f - newW)
+        windowStart = coerceChartWindowStart(anchor - cx * newW, newW)
         windowWidth = newW
         val (newZoom, newCenter) = yViewAfterPinchZoom(
             dataMin = dataYMin,
@@ -199,7 +217,7 @@ internal fun Modifier.trackpadChartGestures(
                             val cy = ((centroid.y - topPadding) / chartHeightPx).coerceIn(0f, 1f)
                             val newW = (pinchBaseWidth / scale).coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
                             val anchor = pinchBaseStart + cx * pinchBaseWidth
-                            viewport.windowStart = (anchor - cx * newW).coerceIn(0f, 1f - newW)
+                            viewport.windowStart = coerceChartWindowStart(anchor - cx * newW, newW)
                             viewport.windowWidth = newW
                             val (newYZoom, newYCenter) = yViewAfterPinchZoom(
                                 dataMin = dataYMin,
@@ -283,4 +301,4 @@ private fun ChartToolbarButton(
 }
 
 internal const val CHART_TRACKPAD_HINT =
-    "1 палец — сдвиг (вверх/вниз как тачпад) · 2 пальца — масштаб · двойной тап — сброс · кнопки справа"
+    "1 палец — сдвиг по времени (можно оставить пустое место справа) · 2 пальца — масштаб · двойной тап — сброс"

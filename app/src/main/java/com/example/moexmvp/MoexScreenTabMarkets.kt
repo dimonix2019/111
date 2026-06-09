@@ -26,6 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -56,12 +58,12 @@ internal fun MoexScreenTabMarkets(
     landscapeZChartFullscreen: Boolean,
     chartSuccess: UiState.Success?,
     staleMarkets: Boolean,
+    marketsM15SourcePoints: List<DataPoint>,
     marketsM15ChartPoints: List<DataPoint>,
     marketsZScoreCandles: List<CandlePoint>,
     marketsChartThresholds: DynamicThresholds,
     marketsZStrategyTapMetrics: PortfolioMetrics?,
     dataSourceLabel: MarketsDataSource,
-    todayPnlHint: String?,
 ) {
     val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.marketsZChartPeriod) {
         chartInitialWindowForLastCalendarDays(
@@ -74,30 +76,72 @@ internal fun MoexScreenTabMarkets(
     }
     Column(modifier) {
     with(screen) {
+        val markerSourcePoints = marketsM15SourcePoints.ifEmpty { marketsM15ChartPoints }
+        val zChartOverlay by produceState(
+            initialValue = ZChartPortfolioOverlay(emptyList(), emptyList()),
+            markerSourcePoints,
+            marketsM15ChartPoints,
+            sandboxSpreadExecReload,
+            portfolioLeverage,
+            portfolioCommissionPercent,
+        ) {
+            if (markerSourcePoints.size < 2) {
+                value = ZChartPortfolioOverlay(emptyList(), emptyList())
+                return@produceState
+            }
+            val (opens, closed) = withContext(Dispatchers.IO) {
+                loadPortfolioTradesForZChart(
+                    context = context.applicationContext,
+                    points = markerSourcePoints,
+                    leverage = portfolioLeverage,
+                    commissionPercentPerSide = portfolioCommissionPercent,
+                )
+            }
+            val sourceMarkers = zScoreChartMarkersFromPortfolioTrades(
+                points = markerSourcePoints,
+                openExecutions = opens,
+                closedRows = closed,
+            )
+            val segmentPoints = marketsM15ChartPoints.ifEmpty { markerSourcePoints }
+            val tradeSegments = buildTradingViewTradeSegments(
+                opens = opens,
+                closed = closed,
+                displayPoints = segmentPoints,
+            )
+            value = if (marketsM15ChartPoints.size < 2) {
+                ZChartPortfolioOverlay(sourceMarkers, tradeSegments)
+            } else {
+                ZChartPortfolioOverlay(
+                    markers = remapChartMarkersToDisplaySeries(
+                        sourcePoints = markerSourcePoints,
+                        displayPoints = marketsM15ChartPoints,
+                        markers = sourceMarkers,
+                    ),
+                    tradeSegments = tradeSegments,
+                )
+            }
+        }
+    val spreadHourlyVolatility by produceState<SpreadHourlyVolatilityReport?>(
+        initialValue = null,
+        marketsM15SourcePoints,
+    ) {
+        value = withContext(Dispatchers.Default) {
+            buildSpreadHourlyVolatilityReport(marketsM15SourcePoints)
+        }
+    }
                 Column(Modifier.fillMaxSize()) {
                     if (!landscapeZChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
                             ?: chartSuccess?.points?.lastOrNull()
-                        val demoTail = TinkoffSandboxStorage.getAccountId(context)?.takeLast(8).orEmpty()
-                        val sandboxDemoHint = when (sandboxExecState) {
-                            SandboxExecUiState.MissingCredentials ->
-                                "Т‑Инвест песочница: сохраните токен и счёт (вкладка «Песочница»), чтобы слать заявки по «Принять»."
-                            SandboxExecUiState.Ready ->
-                                "Демо-счёт Т‑Инвест · …$demoTail · «Принять» → покупка 1 лота + продажа 1 лота (спрэд TATN/TATNP)."
-                            SandboxExecUiState.Off ->
-                                "Т‑Инвест песочница: сохраните токен и счёт (вкладка «Песочница»)."
-                        }
                         MarketsSummaryStrip(
                             z = last?.zScore,
                             spread = last?.spreadPercent,
                             position = zStrategyPosition,
                             signalsToday = dailySignalLimit.sentCount,
                             signalsMax = DAILY_SIGNAL_MAX_PER_DAY,
-                            todayPnlSpreadHint = todayPnlHint,
                             lastLoadedAt = chartSuccess?.loadedAt ?: "—",
                             dataSource = dataSourceLabel,
                             stale = staleMarkets,
-                            sandboxDemoHint = sandboxDemoHint,
                             onMoexRefresh = {
                                 scope.launch { refreshData(showLoading = state !is UiState.Success, launchScope = scope, selectedPeriod = selectedPeriod) }
                             }
@@ -130,11 +174,10 @@ internal fun MoexScreenTabMarkets(
                                     previousZScoreForAlert = null
                                 },
                                 candles = marketsZScoreCandles,
+                                displayPoints = marketsM15ChartPoints,
                                 referenceLines = marketsZReferenceLines,
-                                pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                    points = marketsM15ChartPoints,
-                                    events = signalEvents
-                                ),
+                                pointMarkers = zChartOverlay.markers,
+                                tradeSegments = zChartOverlay.tradeSegments,
                                 initialWindowWidth = marketsZInitialWindow.first,
                                 initialWindowStart = marketsZInitialWindow.second,
                                 useDesktopStyle = true,
@@ -321,29 +364,16 @@ internal fun MoexScreenTabMarkets(
                         val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isDataLoadActive)
                         if (showZCharts) {
                             item {
-                                CandlestickChartCard(
-                                    title = "Z-score · 15м (ISS 10м→15м, как «Тест страт.»)",
+                                TradingViewZScoreChartCard(
+                                    title = "Z-score · 15м (TradingView)",
                                     candles = marketsZScoreCandles,
+                                    displayPoints = marketsM15ChartPoints,
                                     chartHeightDp = 320,
                                     referenceLines = marketsZReferenceLines,
-                                    pointMarkers = buildZScoreSignalMarkersFromEvents(
-                                        points = marketsM15ChartPoints,
-                                        events = signalEvents
-                                    ),
-                                    showLegend = true,
-                                    enableZoomPan = true,
-                                    markerScale = 1.35f,
-                                    rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-                                    showZoomHint = true,
+                                    pointMarkers = zChartOverlay.markers,
+                                    tradeSegments = zChartOverlay.tradeSegments,
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
-                                    useDesktopStyle = true,
-                                    displayMode = ChartDisplayMode.Candles,
-                                    showPlotlyToolbar = true,
-                                    trackpadGestures = false,
-                                    tradeTapHintFormatter = { idx ->
-                                        formatZStrategyTradeTapHint(idx, marketsM15ChartPoints, marketsZStrategyTapMetrics)
-                                    }
                                 )
                             }
                             item {
@@ -358,13 +388,20 @@ internal fun MoexScreenTabMarkets(
                                     ),
                                     labels = marketsM15ChartPoints.map { it.tradeDate },
                                     chartHeightDp = 208,
-                                    rightAxisPercentBase = marketsM15ChartPoints.minOfOrNull { it.spreadPercent },
+                                    rightAxisPercentBase = spreadPercentBaseForChartRightAxis(marketsM15ChartPoints),
                                     yScale = YAxisScale.Auto,
                                     showLegend = false,
                                     enableZoomPan = false,
                                     markerScale = 1f,
-                                    showZoomHint = false
+                                    showZoomHint = false,
+                                    m15TimeLabels = true,
+                                    xLabelStyle = ChartXLabelStyleHorizontal,
                                 )
+                            }
+                            spreadHourlyVolatility?.let { hourlyVolatility ->
+                                item {
+                                    SpreadHourlyVolatilityChartCard(report = hourlyVolatility)
+                                }
                             }
                         } else if (waitingM15) {
                             item {

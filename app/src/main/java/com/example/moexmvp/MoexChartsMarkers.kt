@@ -171,8 +171,10 @@ internal fun chartInitialWindowForLastCalendarDays(
     val maxIndex = points.lastIndex.coerceAtLeast(1)
     val width = ((points.size - firstVisibleIdx).toFloat() / points.size)
         .coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
-    val startUpper = (1f - width).coerceAtLeast(0f)
-    val start = (firstVisibleIdx.toFloat() / maxIndex).coerceIn(0f, startUpper)
+    val startUpper = chartWindowStartMax(width)
+    val startFromData = (firstVisibleIdx.toFloat() / maxIndex).coerceIn(0f, startUpper)
+    val start = maxOf(startFromData, chartInitialWindowStartWithRightGap(width))
+        .coerceIn(0f, startUpper)
     return width to start
 }
 
@@ -180,16 +182,63 @@ internal fun indexForTradeDateLabel(points: List<DataPoint>, label: String): Int
     if (points.isEmpty()) return null
     val exact = points.indexOfFirst { it.tradeDate == label }
     if (exact >= 0) return exact
-    val targetTs = runCatching {
-        LocalDateTime.parse(label, portfolio15mLabelFormatter)
-            .atZone(moexZoneId)
-            .toInstant()
-            .toEpochMilli()
-    }.getOrNull() ?: return null
+    val targetTs = parsePortfolioExecutionTableMsk(label) ?: return null
     val idx = points.indices.minByOrNull { kotlin.math.abs(points[it].timestampMillis - targetTs) }
         ?: return null
     val diff = kotlin.math.abs(points[idx].timestampMillis - targetTs)
     return if (diff <= 15 * 60 * 1000L * 2) idx else null
+}
+
+private fun chartSnapToleranceMs(points: List<DataPoint>, idx: Int): Long {
+    val self = points[idx].timestampMillis
+    val prev = points.getOrNull(idx - 1)?.timestampMillis
+    val next = points.getOrNull(idx + 1)?.timestampMillis
+    val leftGap = if (prev != null) kotlin.math.abs(self - prev) / 2 else 45 * 60_000L
+    val rightGap = if (next != null) kotlin.math.abs(next - self) / 2 else 45 * 60_000L
+    return max(15 * 60_000L, max(leftGap, rightGap))
+}
+
+/** Привязка сделки к ближайшему бару на отображаемом ряду (в т.ч. после downsample). */
+internal fun indexForChartTradeLabel(points: List<DataPoint>, label: String): Int? {
+    if (points.isEmpty() || label.isBlank() || label == "—") return null
+    indexForTradeDateLabel(points, label)?.let { return it }
+    val targetTs = parsePortfolioExecutionTableMsk(label) ?: return null
+    val idx = points.indices.minByOrNull { kotlin.math.abs(points[it].timestampMillis - targetTs) }
+        ?: return null
+    val diff = kotlin.math.abs(points[idx].timestampMillis - targetTs)
+    return if (diff <= chartSnapToleranceMs(points, idx)) idx else null
+}
+
+internal fun portfolioChartEntryTimeLabel(
+    entryTimeMsk: String,
+    entrySignalBarTimeMsk: String,
+    barTimestampMillis: Long,
+): String = when {
+    entrySignalBarTimeMsk.isNotBlank() && entrySignalBarTimeMsk != "—" -> entrySignalBarTimeMsk
+    entryTimeMsk.isNotBlank() && entryTimeMsk != "—" -> entryTimeMsk
+    else -> formatPortfolioExecutionTableMsk(barTimestampMillis)
+}
+
+internal fun remapChartMarkersToDisplaySeries(
+    sourcePoints: List<DataPoint>,
+    displayPoints: List<DataPoint>,
+    markers: List<ChartPointMarker>,
+): List<ChartPointMarker> {
+    if (sourcePoints.isEmpty() || displayPoints.isEmpty()) return emptyList()
+    if (sourcePoints.size == displayPoints.size &&
+        sourcePoints.zip(displayPoints).all { (a, b) -> a.timestampMillis == b.timestampMillis }
+    ) {
+        return markers
+    }
+    return markers.mapNotNull { marker ->
+        val ts = sourcePoints.getOrNull(marker.index)?.timestampMillis ?: return@mapNotNull null
+        val displayIdx = indexForChartTradeLabel(
+            displayPoints,
+            formatPortfolioExecutionTableMsk(ts),
+        ) ?: return@mapNotNull null
+        val z = if (marker.value.isNaN()) displayPoints[displayIdx].zScore else marker.value
+        marker.copy(index = displayIdx, value = z)
+    }
 }
 
 /** Маркеры входа/выхода симуляции «Тест страт.»; [badgeText] = номер как в списке (#1 — свежая). */
@@ -230,5 +279,108 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
     }
     return markers
 }
+
+private fun portfolioTradeEnterMarkerStyle(directionLabel: String): Pair<ChartMarkerShape, Color> =
+    when (directionLabel.lowercase(Locale.US)) {
+        "short" -> ChartMarkerShape.TriangleDown to Color(0xFFFF8A80)
+        else -> ChartMarkerShape.TriangleUp to Color(0xFF69F0AE)
+    }
+
+/** Маркеры сделок портфеля (демо): номер + тип (А/Р) у входа и выхода. */
+internal fun buildZScoreMarkersFromPortfolioTrades(
+    points: List<DataPoint>,
+    openExecutions: List<SandboxSpreadExecUi>,
+    closedRows: List<PortfolioConfirmedTradeTableRow>,
+): List<ChartPointMarker> {
+    if (points.isEmpty()) return emptyList()
+    val markers = mutableListOf<ChartPointMarker>()
+    fun addEntry(
+        entryLabel: String,
+        entryZ: Double,
+        tradeDisplayId: String,
+        confirmLabel: String,
+        directionLabel: String,
+    ) {
+        val idx = indexForChartTradeLabel(points, entryLabel) ?: return
+        val (shape, color) = portfolioTradeEnterMarkerStyle(directionLabel)
+        val badge = portfolioTradeChartBadgeText(tradeDisplayId, confirmLabel)
+        markers += ChartPointMarker(
+            index = idx,
+            value = if (entryZ.isNaN()) points[idx].zScore else entryZ,
+            color = color,
+            label = "Вх $badge",
+            shape = shape,
+            badgeText = badge,
+        )
+    }
+    fun addExit(
+        exitLabel: String,
+        exitZ: Double,
+        tradeDisplayId: String,
+        confirmLabel: String,
+    ) {
+        if (exitLabel.isBlank() || exitLabel == "—") return
+        val idx = indexForChartTradeLabel(points, exitLabel) ?: return
+        val badge = portfolioTradeChartBadgeText(tradeDisplayId, confirmLabel)
+        markers += ChartPointMarker(
+            index = idx,
+            value = if (exitZ.isNaN()) points[idx].zScore else exitZ,
+            color = Color(0xFFFFCC80),
+            label = "Вых $badge",
+            shape = ChartMarkerShape.Diamond,
+            badgeText = badge,
+        )
+    }
+    openExecutions.forEach { exec ->
+        addEntry(
+            entryLabel = portfolioChartEntryTimeLabel(
+                entryTimeMsk = exec.entryTimeMsk,
+                entrySignalBarTimeMsk = exec.entrySignalBarTimeMsk,
+                barTimestampMillis = exec.barTimestampMillis,
+            ),
+            entryZ = exec.zScore,
+            tradeDisplayId = exec.tradeDisplayId,
+            confirmLabel = exec.confirmLabel,
+            directionLabel = exec.directionLabel,
+        )
+    }
+    closedRows.forEach { row ->
+        addEntry(
+            entryLabel = portfolioChartEntryTimeLabel(
+                entryTimeMsk = row.entryTimeMsk,
+                entrySignalBarTimeMsk = row.entrySignalBarTimeMsk,
+                barTimestampMillis = parsePortfolioExecutionTableMsk(row.entryTimeMsk) ?: 0L,
+            ),
+            entryZ = row.entryZ,
+            tradeDisplayId = row.tradeDisplayId,
+            confirmLabel = row.confirmLabel,
+            directionLabel = row.directionLabel,
+        )
+        addExit(
+            exitLabel = row.exitTimeMsk,
+            exitZ = row.exitZ,
+            tradeDisplayId = row.tradeDisplayId,
+            confirmLabel = row.confirmLabel,
+        )
+    }
+    return markers
+}
+
+internal fun zScoreChartMarkersWithPortfolioTrades(
+    points: List<DataPoint>,
+    signalEvents: List<StrategySignalEvent>,
+    openExecutions: List<SandboxSpreadExecUi>,
+    closedRows: List<PortfolioConfirmedTradeTableRow>,
+): List<ChartPointMarker> =
+    buildZScoreSignalMarkersFromEvents(points, signalEvents) +
+        buildZScoreMarkersFromPortfolioTrades(points, openExecutions, closedRows)
+
+/** Маркеры только по сделкам портфеля (без Enter LONG / Exit SHORT). */
+internal fun zScoreChartMarkersFromPortfolioTrades(
+    points: List<DataPoint>,
+    openExecutions: List<SandboxSpreadExecUi>,
+    closedRows: List<PortfolioConfirmedTradeTableRow>,
+): List<ChartPointMarker> =
+    buildZScoreMarkersFromPortfolioTrades(points, openExecutions, closedRows)
 
 /** Равномерный прореживание ряда для отрисовки (симуляция — на полном ряду). */

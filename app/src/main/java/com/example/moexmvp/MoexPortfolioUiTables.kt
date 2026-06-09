@@ -65,6 +65,26 @@ internal fun formatPortfolioTableRub(value: Double): String =
 internal fun formatPortfolioTableCostRub(value: Double): String =
     if (value.isNaN()) "—" else formatRubSigned(-kotlin.math.abs(value))
 
+/** В таблице портфеля: «2026-06-01 10:15» → «26-06-01 10:15». */
+internal fun compactPortfolioTableDateLabel(text: String): String {
+    if (text == "—") return text
+    return Regex("""20(\d{2}-\d{2}-\d{2}(?: \d{2}:\d{2})?)""").replace(text) { it.groupValues[1] }
+}
+
+/** Дата и время на двух строках — столбец уже: «26-06-01\n10:15», «1 long 26-06-01\n10:15». */
+internal fun compactPortfolioTableDateTimeTwoLines(text: String): String {
+    if (text == "—") return text
+    val compact = compactPortfolioTableDateLabel(text)
+    val time = Regex("""\d{2}:\d{2}$""").find(compact)?.value ?: return compact
+    val datePart = compact.removeSuffix(time).trimEnd()
+    return if (datePart.isEmpty()) time else "$datePart\n$time"
+}
+
+private data class PortfolioTradeGroupColumn(
+    val title: String,
+    val widthDp: Int,
+)
+
 @Composable
 internal fun PortfolioTradeTableCell(
     text: String,
@@ -74,28 +94,45 @@ internal fun PortfolioTradeTableCell(
     Text(
         text = text,
         color = color,
-        fontSize = 9.sp,
-        maxLines = 4,
-        lineHeight = 11.sp,
-        modifier = modifier.padding(horizontal = 3.dp, vertical = 2.dp)
+        fontSize = 8.sp,
+        maxLines = 3,
+        lineHeight = 10.sp,
+        modifier = modifier.padding(horizontal = 1.dp, vertical = 1.dp)
     )
+}
+
+@Composable
+private fun PortfolioTradeGroupSpacerCells(widths: List<Int>) {
+    widths.forEach { w ->
+        PortfolioTradeTableCell(
+            "·",
+            Modifier.widthIn(min = w.dp).width(w.dp),
+            Color(0xFF424242)
+        )
+    }
 }
 
 @Composable
 internal fun PortfolioTradeOrdersGroupedTable(
     groups: List<PortfolioTradeGroupRow>,
     caption: String,
-    exitZColumnTitle: String = "Zвых"
+    exitZColumnTitle: String = "Zвых",
+    onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
+    closingTradeId: String? = null,
+    riskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
+    showRiskScoreBreakdown: Boolean = false,
 ) {
     if (groups.isEmpty()) return
     val scroll = rememberScrollState()
-    Text(
-        text = caption,
-        color = Color(0xFF757575),
-        fontSize = 9.sp,
-        modifier = Modifier.padding(bottom = 4.dp),
-        maxLines = 4
-    )
+    if (caption.isNotBlank()) {
+        Text(
+            text = caption,
+            color = Color(0xFF757575),
+            fontSize = 9.sp,
+            modifier = Modifier.padding(bottom = 4.dp),
+            maxLines = 4
+        )
+    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -103,45 +140,89 @@ internal fun PortfolioTradeOrdersGroupedTable(
             .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
             .padding(vertical = 6.dp)
     ) {
-        Row(Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
-            val heads = listOf(
-                "ID сделки" to 52.dp,
-                "ID сигн." to 72.dp,
-                "Бар сигн." to 100.dp,
-                "Получен" to 96.dp,
-                "Вход" to 100.dp,
-                "Выход" to 100.dp,
-                "Объём" to 48.dp,
-                "Подтв." to 52.dp,
-                "Zвх" to 36.dp,
-                exitZColumnTitle to 36.dp,
-                "Push" to 88.dp,
-                "PnL L" to 52.dp,
-                "PnL S" to 52.dp,
-                "Чистый" to 58.dp,
-                "Комис." to 52.dp,
-                "Оверн." to 52.dp,
-                "№" to 24.dp,
-                "Нога" to 36.dp,
-                "Тикер" to 40.dp,
-                "Сторона" to 72.dp,
-                "Заявка" to 120.dp
-            )
-            heads.forEach { (title, w) ->
+        val riskBreakdownCols = if (showRiskScoreBreakdown) {
+            portfolioTradeRiskBreakdownColumnTitles().map { PortfolioTradeGroupColumn(it, 22) }
+        } else {
+            emptyList()
+        }
+        val groupCols = listOf(
+            PortfolioTradeGroupColumn("ID", 40),
+            PortfolioTradeGroupColumn("Сигн.", 46),
+            PortfolioTradeGroupColumn("Бар", 44),
+            PortfolioTradeGroupColumn("Получ.", 44),
+            PortfolioTradeGroupColumn("Вход", 44),
+            PortfolioTradeGroupColumn("Выход", 44),
+            PortfolioTradeGroupColumn("Подтв.", 40),
+            PortfolioTradeGroupColumn("Zвх", 30),
+            PortfolioTradeGroupColumn(exitZColumnTitle, 30),
+            PortfolioTradeGroupColumn("PnL L", 44),
+            PortfolioTradeGroupColumn("PnL S", 44),
+            PortfolioTradeGroupColumn("Чист.", 48),
+            PortfolioTradeGroupColumn("Ком.", 42),
+            PortfolioTradeGroupColumn("Овн.", 42),
+        ) + riskBreakdownCols + listOf(
+            PortfolioTradeGroupColumn("Риск", if (showRiskScoreBreakdown) 28 else 72),
+        )
+        val orderCols = listOf(
+            PortfolioTradeGroupColumn("№", 18),
+            PortfolioTradeGroupColumn("Нога", 28),
+            PortfolioTradeGroupColumn("Тик.", 32),
+            PortfolioTradeGroupColumn("Стор.", 50),
+        )
+        val groupWidths = groupCols.map { it.widthDp }
+        Row(Modifier.padding(horizontal = 1.dp, vertical = 1.dp)) {
+            (groupCols + orderCols).forEach { col ->
                 PortfolioTradeTableCell(
-                    text = title,
-                    modifier = Modifier.widthIn(min = w).width(w),
+                    text = col.title,
+                    modifier = Modifier.widthIn(min = col.widthDp.dp).width(col.widthDp.dp),
                     color = Color(0xFF90A4AE)
                 )
             }
         }
-        groups.take(40).forEach { group ->
+        groups.take(40).forEachIndexed { groupIndex, group ->
+            val risk = riskAssessments.getOrNull(groupIndex)
+            val rowBackground = if (risk != null && strategyTestTradeRiskIsFlagged(risk)) {
+                strategyTestTradeRiskRowColor(risk.level)
+            } else {
+                Color(0xFF242424)
+            }
             Column(
                 Modifier
                     .padding(vertical = 2.dp)
-                    .background(Color(0xFF242424), RoundedCornerShape(4.dp))
+                    .background(rowBackground, RoundedCornerShape(4.dp))
                     .padding(vertical = 2.dp)
             ) {
+                if (group.isOpen && onCloseOpenTrade != null) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${group.tradeDisplayId} · ${compactPortfolioTableDateTimeTwoLines(group.entryTimeMsk)}",
+                            color = Color(0xFFB3E5FC),
+                            fontSize = 10.sp,
+                            maxLines = 3,
+                            lineHeight = 12.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = { onCloseOpenTrade(group.tradeId) },
+                            enabled = closingTradeId != group.tradeId,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFFFFAB91)
+                            )
+                        ) {
+                            Text(
+                                text = if (closingTradeId == group.tradeId) "Закрытие…" else "Закрыть",
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
                 group.orders.forEachIndexed { orderIdx, order ->
                     val isFirstOrder = orderIdx == 0
                     val tickerColor = when (order.legRole) {
@@ -149,87 +230,86 @@ internal fun PortfolioTradeOrdersGroupedTable(
                         "Short" -> Color(0xFFFFAB91)
                         else -> Color(0xFFE0E0E0)
                     }
-                    Row(Modifier.padding(horizontal = 2.dp, vertical = 1.dp)) {
+                    Row(Modifier.padding(horizontal = 1.dp, vertical = 1.dp)) {
                         if (isFirstOrder) {
-                            PortfolioTradeTableCell(group.tradeId, Modifier.widthIn(min = 52.dp).width(52.dp))
-                            PortfolioTradeTableCell(
-                                group.entrySignalId,
-                                Modifier.widthIn(min = 72.dp).width(72.dp),
-                                Color(0xFFCE93D8)
+                            val assessment = risk ?: StrategyTestTradeRiskAssessment(
+                                flags = emptyList(),
+                                level = StrategyTestTradeRiskLevel.None,
+                                score = 0,
+                                entryZ = null,
+                                breakdown = TradeRiskScoreBreakdown(),
                             )
-                            PortfolioTradeTableCell(
-                                group.entrySignalBarTimeMsk,
-                                Modifier.widthIn(min = 100.dp).width(100.dp),
-                                Color(0xFFCE93D8)
+                            val riskColor = if (strategyTestTradeRiskIsFlagged(assessment)) {
+                                strategyTestTradeRiskLevelColor(assessment.level)
+                            } else {
+                                Color(0xFF757575)
+                            }
+                            val riskText = if (showRiskScoreBreakdown) {
+                                formatPortfolioTradeRiskTotalScore(assessment)
+                            } else {
+                                formatStrategyTestTradeRiskFlags(assessment)
+                            }
+                            val breakdownCells = if (showRiskScoreBreakdown) {
+                                portfolioTradeRiskBreakdownPointValues(assessment).map { points ->
+                                    formatTradeRiskScorePoints(points) to
+                                        if (points > 0) Color(0xFFFFCC80) else Color(0xFF757575)
+                                }
+                            } else {
+                                emptyList()
+                            }
+                            val cells = listOf(
+                                group.tradeDisplayId to Color(0xFFE0E0E0),
+                                compactPortfolioTableDateTimeTwoLines(group.entrySignalId) to Color(0xFFCE93D8),
+                                compactPortfolioTableDateTimeTwoLines(group.entrySignalBarTimeMsk) to Color(0xFFCE93D8),
+                                compactPortfolioTableDateTimeTwoLines(group.entrySignalReceivedMsk) to Color(0xFF81D4FA),
+                                compactPortfolioTableDateTimeTwoLines(group.entryTimeMsk) to Color(0xFFE0E0E0),
+                                compactPortfolioTableDateTimeTwoLines(group.exitTimeMsk) to Color(0xFFE0E0E0),
+                                group.confirmLabel to Color(0xFFE0E0E0),
+                                formatPortfolioTableZ(group.entryZ) to Color(0xFFE0E0E0),
+                                formatPortfolioTableZ(group.exitZ) to Color(0xFFE0E0E0),
+                                formatPortfolioTableRub(group.legLongPnlSplitRubApprox) to
+                                    if (group.legLongPnlSplitRubApprox.isNaN()) Color(0xFF757575)
+                                    else rubDeltaColor(group.legLongPnlSplitRubApprox),
+                                formatPortfolioTableRub(group.legShortPnlSplitRubApprox) to
+                                    if (group.legShortPnlSplitRubApprox.isNaN()) Color(0xFF757575)
+                                    else rubDeltaColor(group.legShortPnlSplitRubApprox),
+                                formatPortfolioTableRub(group.netPnlRubApprox) to
+                                    if (group.netPnlRubApprox.isNaN()) Color(0xFF757575)
+                                    else rubDeltaColor(group.netPnlRubApprox),
+                                formatPortfolioTableCostRub(group.commissionRubApprox) to Color(0xFFFFAB91),
+                                formatPortfolioTableCostRub(group.overnightRubApprox) to Color(0xFFFFAB91),
+                            ) + breakdownCells + listOf(
+                                riskText to riskColor,
                             )
-                            PortfolioTradeTableCell(
-                                group.entrySignalReceivedMsk,
-                                Modifier.widthIn(min = 96.dp).width(96.dp),
-                                Color(0xFF81D4FA)
-                            )
-                            PortfolioTradeTableCell(group.entryTimeMsk, Modifier.widthIn(min = 100.dp).width(100.dp))
-                            PortfolioTradeTableCell(group.exitTimeMsk, Modifier.widthIn(min = 100.dp).width(100.dp))
-                            PortfolioTradeTableCell(group.volumeText, Modifier.widthIn(min = 48.dp).width(48.dp))
-                            PortfolioTradeTableCell(group.confirmLabel, Modifier.widthIn(min = 52.dp).width(52.dp))
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableZ(group.entryZ),
-                                Modifier.widthIn(min = 36.dp).width(36.dp)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableZ(group.exitZ),
-                                Modifier.widthIn(min = 36.dp).width(36.dp)
-                            )
-                            PortfolioTradeTableCell(
-                                group.notificationIdsText,
-                                Modifier.widthIn(min = 88.dp).width(88.dp),
-                                Color(0xFFB3E5FC)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableRub(group.legLongPnlSplitRubApprox),
-                                Modifier.widthIn(min = 52.dp).width(52.dp),
-                                if (group.legLongPnlSplitRubApprox.isNaN()) Color(0xFF757575)
-                                else rubDeltaColor(group.legLongPnlSplitRubApprox)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableRub(group.legShortPnlSplitRubApprox),
-                                Modifier.widthIn(min = 52.dp).width(52.dp),
-                                if (group.legShortPnlSplitRubApprox.isNaN()) Color(0xFF757575)
-                                else rubDeltaColor(group.legShortPnlSplitRubApprox)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableRub(group.netPnlRubApprox),
-                                Modifier.widthIn(min = 58.dp).width(58.dp),
-                                if (group.netPnlRubApprox.isNaN()) Color(0xFF757575)
-                                else rubDeltaColor(group.netPnlRubApprox)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableCostRub(group.commissionRubApprox),
-                                Modifier.widthIn(min = 52.dp).width(52.dp),
-                                Color(0xFFFFAB91)
-                            )
-                            PortfolioTradeTableCell(
-                                formatPortfolioTableCostRub(group.overnightRubApprox),
-                                Modifier.widthIn(min = 52.dp).width(52.dp),
-                                Color(0xFFFFAB91)
-                            )
-                        } else {
-                            listOf(52, 72, 100, 96, 100, 100, 48, 52, 36, 36, 88, 52, 52, 58, 52, 52).forEach { w ->
+                            cells.forEachIndexed { index, (text, color) ->
+                                val w = groupWidths[index]
                                 PortfolioTradeTableCell(
-                                    "·",
+                                    text,
                                     Modifier.widthIn(min = w.dp).width(w.dp),
-                                    Color(0xFF424242)
+                                    color
                                 )
                             }
+                        } else {
+                            PortfolioTradeGroupSpacerCells(groupWidths)
                         }
-                        PortfolioTradeTableCell(
-                            "${order.orderIndex}",
-                            Modifier.widthIn(min = 24.dp).width(24.dp),
-                            Color(0xFFCE93D8)
-                        )
-                        PortfolioTradeTableCell(order.legRole, Modifier.widthIn(min = 36.dp).width(36.dp))
-                        PortfolioTradeTableCell(order.ticker, Modifier.widthIn(min = 40.dp).width(40.dp), tickerColor)
-                        PortfolioTradeTableCell(order.sideRu, Modifier.widthIn(min = 72.dp).width(72.dp))
-                        PortfolioTradeTableCell(order.orderBrief, Modifier.widthIn(min = 120.dp).width(120.dp))
+                        orderCols.forEachIndexed { index, col ->
+                            val text = when (index) {
+                                0 -> "${order.orderIndex}"
+                                1 -> order.legRole
+                                2 -> order.ticker
+                                else -> order.sideRu
+                            }
+                            val color = when (index) {
+                                0 -> Color(0xFFCE93D8)
+                                2 -> tickerColor
+                                else -> Color(0xFFE0E0E0)
+                            }
+                            PortfolioTradeTableCell(
+                                text,
+                                Modifier.widthIn(min = col.widthDp.dp).width(col.widthDp.dp),
+                                color
+                            )
+                        }
                     }
                 }
             }
@@ -250,6 +330,185 @@ internal fun PortfolioConfirmedTradesTable(rows: List<PortfolioConfirmedTradeTab
         groups = rows.map { it.toTradeGroup() },
         caption = "Сделок: ${rows.size}. У каждой сделки (пары) — 2 строки ордеров. Прокрутка вправо — все столбцы."
     )
+}
+
+private data class StrategyTestTradeColumn(
+    val key: StrategyTestTradesTableColumn,
+    val title: String,
+    val widthDp: Int,
+)
+
+@Composable
+private fun StrategyTestTableColumnFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) Color(0xFF1565C0) else Color(0xFF424242),
+            contentColor = Color.White,
+        ),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+    ) {
+        Text(label, fontSize = 10.sp, maxLines = 1)
+    }
+}
+
+@Composable
+internal fun StrategyTestTradesTable(
+    tradeItems: List<StrategyTestTradeItem>,
+    caption: String,
+    maxRows: Int = 120,
+    riskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
+) {
+    if (tradeItems.isEmpty()) return
+    var visibleColumns by remember {
+        mutableStateOf(StrategyTestTradesTableColumn.defaultVisible)
+    }
+    val scroll = rememberScrollState()
+    val filterScroll = rememberScrollState()
+    if (caption.isNotBlank()) {
+        Text(
+            text = caption,
+            color = Color(0xFF757575),
+            fontSize = 9.sp,
+            modifier = Modifier.padding(bottom = 4.dp),
+            maxLines = 4
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Столбцы таблицы",
+                color = Color(0xFF9E9E9E),
+                fontSize = 10.sp,
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(filterScroll),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                StrategyTestTableColumnFilterChip(
+                    label = "Все",
+                    selected = visibleColumns.size == StrategyTestTradesTableColumn.entries.size,
+                ) {
+                    visibleColumns = StrategyTestTradesTableColumn.defaultVisible
+                }
+                StrategyTestTradesTableColumn.entries.forEach { column ->
+                    StrategyTestTableColumnFilterChip(
+                        label = column.title,
+                        selected = column in visibleColumns,
+                    ) {
+                        visibleColumns = if (column in visibleColumns) {
+                            val next = visibleColumns - column
+                            if (next.isEmpty()) visibleColumns else next
+                        } else {
+                            visibleColumns + column
+                        }
+                    }
+                }
+            }
+        }
+        val cols = StrategyTestTradesTableColumn.entries
+            .filter { it in visibleColumns }
+            .map { StrategyTestTradeColumn(key = it, title = it.title, widthDp = it.widthDp) }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(scroll)
+                .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
+                .padding(vertical = 6.dp)
+        ) {
+            Row(Modifier.padding(horizontal = 1.dp, vertical = 1.dp)) {
+                cols.forEach { col ->
+                    PortfolioTradeTableCell(
+                        text = col.title,
+                        modifier = Modifier.widthIn(min = col.widthDp.dp).width(col.widthDp.dp),
+                        color = Color(0xFF90A4AE)
+                    )
+                }
+            }
+            tradeItems.take(maxRows).forEachIndexed { index, item ->
+                val t = item.trade
+                val risk = riskAssessments.getOrNull(index)
+                val rowBackground = if (risk != null && strategyTestTradeRiskIsFlagged(risk)) {
+                    strategyTestTradeRiskRowColor(risk.level)
+                } else {
+                    Color(0xFF242424)
+                }
+                val dir = when (t.direction) {
+                    ZStrategyPosition.Long -> "LONG"
+                    ZStrategyPosition.Short -> "SHORT"
+                    ZStrategyPosition.Flat -> "—"
+                }
+                val durationLabel = formatSimTradeDurationLabel(t.entryDate, t.exitDate)
+                val durationColor = when (simTradeDurationTone(t.entryDate, t.exitDate)) {
+                    SimTradeDurationTone.Short -> Color(0xFF81C784)
+                    SimTradeDurationTone.Long -> Color(0xFFE57373)
+                    SimTradeDurationTone.Neutral -> Color(0xFF9E9E9E)
+                }
+                val netColor = rubDeltaColor(t.pnlRubApprox)
+                val grossColor = rubDeltaColor(t.grossPnlRubApprox)
+                Row(
+                    Modifier
+                        .padding(horizontal = 1.dp, vertical = 1.dp)
+                        .background(rowBackground, RoundedCornerShape(4.dp))
+                ) {
+                    cols.forEach { col ->
+                        val (text, color) = when (col.key) {
+                            StrategyTestTradesTableColumn.Index -> "${index + 1}" to Color(0xFFE0E0E0)
+                            StrategyTestTradesTableColumn.Direction -> dir to when (t.direction) {
+                                ZStrategyPosition.Long -> Color(0xFF81C784)
+                                ZStrategyPosition.Short -> Color(0xFFFFAB91)
+                                ZStrategyPosition.Flat -> Color(0xFFE0E0E0)
+                            }
+                            StrategyTestTradesTableColumn.Entry ->
+                                compactPortfolioTableDateTimeTwoLines(t.entryDate) to Color(0xFFE0E0E0)
+                            StrategyTestTradesTableColumn.Exit ->
+                                compactPortfolioTableDateTimeTwoLines(t.exitDate) to Color(0xFFE0E0E0)
+                            StrategyTestTradesTableColumn.Duration -> durationLabel to durationColor
+                            StrategyTestTradesTableColumn.SpreadEntry ->
+                                String.format(Locale.US, "%.2f", t.entrySpreadPercent) to Color(0xFF9E9E9E)
+                            StrategyTestTradesTableColumn.SpreadExit ->
+                                String.format(Locale.US, "%.2f", t.exitSpreadPercent) to Color(0xFF9E9E9E)
+                            StrategyTestTradesTableColumn.SpreadDelta ->
+                                String.format(Locale.US, "%+.2f", t.pnlSpreadPoints) to grossColor
+                            StrategyTestTradesTableColumn.Gross ->
+                                formatPortfolioTableRub(t.grossPnlRubApprox) to grossColor
+                            StrategyTestTradesTableColumn.Commission ->
+                                formatPortfolioTableCostRub(t.commissionRubApprox) to Color(0xFFFFAB91)
+                            StrategyTestTradesTableColumn.Overnight ->
+                                formatPortfolioTableCostRub(t.overnightRubApprox) to Color(0xFFFFAB91)
+                            StrategyTestTradesTableColumn.Net ->
+                                formatPortfolioTableRub(t.pnlRubApprox) to netColor
+                            StrategyTestTradesTableColumn.Risk -> {
+                                val assessment = risk ?: StrategyTestTradeRiskAssessment(
+                                    flags = emptyList(),
+                                    level = StrategyTestTradeRiskLevel.None,
+                                    score = 0,
+                                    entryZ = null,
+                                )
+                                formatStrategyTestTradeRiskFlags(assessment) to
+                                    if (strategyTestTradeRiskIsFlagged(assessment)) {
+                                        strategyTestTradeRiskLevelColor(assessment.level)
+                                    } else {
+                                        Color(0xFF757575)
+                                    }
+                            }
+                        }
+                        PortfolioTradeTableCell(
+                            text = text,
+                            modifier = Modifier.widthIn(min = col.widthDp.dp).width(col.widthDp.dp),
+                            color = color
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** Портфель: сделки по журналу; вход в метриках — только при записи в реестре исполнений под выбранным режимом. */
@@ -287,9 +546,26 @@ internal fun PortfolioTradesBucketHeader(
 internal fun PortfolioTradesWindowSection(
     openExecutions: List<SandboxSpreadExecUi>,
     closedRows: List<PortfolioConfirmedTradeTableRow>,
-    modifier: Modifier = Modifier
+    lookbackDays: Long,
+    realTradeEntryThreshold: Double,
+    modifier: Modifier = Modifier,
+    onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
+    closingTradeId: String? = null,
 ) {
-    val (openBucket, closedBucket) = buildPortfolioTradesBuckets(openExecutions, closedRows)
+    var tradesAutoOnlyFilter by remember { mutableStateOf(false) }
+    val depthLabel = portfolioLookbackPeriodLabel(lookbackDays)
+    val (openBucket, closedBucket) = buildPortfolioTradesBuckets(
+        openExecutions = openExecutions,
+        closedRows = closedRows,
+        lookbackDays = lookbackDays,
+        tradesAutoOnlyFilter = tradesAutoOnlyFilter,
+    )
+    val openRiskAssessments = remember(openBucket.groups, realTradeEntryThreshold) {
+        buildPortfolioTradeGroupRiskAssessments(openBucket.groups, realTradeEntryThreshold)
+    }
+    val closedRiskAssessments = remember(closedBucket.groups, realTradeEntryThreshold) {
+        buildPortfolioTradeGroupRiskAssessments(closedBucket.groups, realTradeEntryThreshold)
+    }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -298,20 +574,23 @@ internal fun PortfolioTradesWindowSection(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "Сделки за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня (МСК)",
+            text = "Сделки · $depthLabel (МСК)",
             color = Color(0xFFE0E0E0),
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium
         )
-        Text(
-            text = "Открытые — исполнение на демо; закрытые — журнал вход/выход + демо (не симуляция «Тест страт.»). " +
-                "ID сигн. / бар / «Получен» — вход из журнала сигналов (сверка с авто-заявками). " +
-                "Если сигнал в журнале есть, а сделки нет — проверьте «Исполнять на демо» и реестр входа (авто). " +
-                "Окно: ${PORTFOLIO_TRADES_WINDOW_DAYS} дн. (МСК).",
-            color = Color(0xFF9E9E9E),
-            fontSize = 10.sp,
-            maxLines = 3
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PortfolioTradesSourceFilterChip(
+                label = "Всё",
+                selected = !tradesAutoOnlyFilter,
+                onClick = { tradesAutoOnlyFilter = false },
+            )
+            PortfolioTradesSourceFilterChip(
+                label = "только Авто",
+                selected = tradesAutoOnlyFilter,
+                onClick = { tradesAutoOnlyFilter = true },
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -322,15 +601,19 @@ internal fun PortfolioTradesWindowSection(
             PortfolioTradesBucketHeader(openBucket)
             if (openBucket.groups.isEmpty()) {
                 Text(
-                    text = "Нет открытых сделок за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня.",
+                    text = "Нет открытых сделок за $depthLabel.",
                     color = Color(0xFF9E9E9E),
                     fontSize = 11.sp
                 )
             } else {
                 PortfolioTradeOrdersGroupedTable(
                     groups = openBucket.groups,
-                    caption = "Ордера сгруппированы по сделкам (2 строки). PnL открытых — оценка по Δ спрэда 15м.",
-                    exitZColumnTitle = "Z сейч."
+                    caption = "",
+                    exitZColumnTitle = "Z сейч.",
+                    onCloseOpenTrade = onCloseOpenTrade,
+                    closingTradeId = closingTradeId,
+                    riskAssessments = openRiskAssessments,
+                    showRiskScoreBreakdown = true,
                 )
             }
         }
@@ -344,16 +627,50 @@ internal fun PortfolioTradesWindowSection(
             PortfolioTradesBucketHeader(closedBucket)
             if (closedBucket.groups.isEmpty()) {
                 Text(
-                    text = "Нет закрытых сделок за ${PORTFOLIO_TRADES_WINDOW_DAYS} дня.",
+                    text = "Нет закрытых сделок за $depthLabel.",
                     color = Color(0xFF9E9E9E),
                     fontSize = 11.sp
                 )
             } else {
                 PortfolioTradeOrdersGroupedTable(
                     groups = closedBucket.groups,
-                    caption = "Закрытые сделки: реализованный PnL по паре вход→выход (журнал + демо)."
+                    caption = "",
+                    riskAssessments = closedRiskAssessments,
+                    showRiskScoreBreakdown = true,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun PortfolioTradesSourceFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) Color(0xFF1565C0) else Color(0xFF424242),
+            contentColor = Color.White,
+        ),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(label, fontSize = 11.sp)
+    }
+}
+
+internal fun strategyTestTradeRiskRowColor(level: StrategyTestTradeRiskLevel): Color = when (level) {
+    StrategyTestTradeRiskLevel.None -> Color(0xFF242424)
+    StrategyTestTradeRiskLevel.Elevated -> Color(0xFF2A2418)
+    StrategyTestTradeRiskLevel.High -> Color(0xFF352020)
+    StrategyTestTradeRiskLevel.Critical -> Color(0xFF4A1818)
+}
+
+internal fun strategyTestTradeRiskLevelColor(level: StrategyTestTradeRiskLevel): Color = when (level) {
+    StrategyTestTradeRiskLevel.None -> Color(0xFF757575)
+    StrategyTestTradeRiskLevel.Elevated -> Color(0xFFFFCC80)
+    StrategyTestTradeRiskLevel.High -> Color(0xFFFFAB91)
+    StrategyTestTradeRiskLevel.Critical -> Color(0xFFE57373)
 }

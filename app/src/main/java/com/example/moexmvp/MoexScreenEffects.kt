@@ -28,7 +28,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -56,23 +55,23 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     val configuration = LocalConfiguration.current
     with(screen) {
         val chartSuccess = (state as? UiState.Success) ?: lastGoodMarkets
-    LaunchedEffect(
-        selectedTab,
-        strategyTestEntryThreshold,
-        strategyTestExitThreshold,
-        portfolioLeverage,
-        portfolioCommissionPercent,
-        strategyTestCompoundReturns,
-        dynamicThresholds.entry,
-        dynamicThresholds.exit,
-        dynamicThresholds.calculatedDate,
-    ) {
+    LaunchedEffect(selectedTab) {
         if (selectedTab != MainTab.StrategyTest) {
-            clearStrategyTestSession()
+            strategyTestWorkGeneration++
+            detachStrategyTestVisibleState()
             return@LaunchedEffect
         }
-        val reloadFromDb = !strategyTestM15SessionCache.sufficientForStrategyTestSimulation()
-        refreshStrategyTestTab(preferNetwork = false, reloadFromDb = reloadFromDb)
+        if (restoreStrategyTestVisibleFromSession()) {
+            return@LaunchedEffect
+        }
+        if (strategyTestVisibleResultsFresh()) {
+            return@LaunchedEffect
+        }
+        if (strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) {
+            scheduleStrategyTestTabWork(reason = "tab_open_cache", preferNetwork = false)
+            return@LaunchedEffect
+        }
+        scheduleStrategyTestTabWork(reason = "tab_open", preferNetwork = false)
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -95,22 +94,49 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
         hydrateVirtualTradeAndSandboxUi()
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                hydrateVirtualTradeAndSandboxUi()
-                scope.launch {
-                    val (t, a) = withContext(Dispatchers.IO) {
-                        Pair(
-                            TinkoffSandboxStorage.getToken(context).orEmpty(),
-                            TinkoffSandboxStorage.getAccountId(context).orEmpty()
-                        )
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    activityResumed = true
+                    memoryPressureLevel = 0
+                    hydrateVirtualTradeAndSandboxUi()
+                    scope.launch {
+                        val (t, a) = withContext(Dispatchers.IO) {
+                            Pair(
+                                TinkoffSandboxStorage.getToken(context).orEmpty(),
+                                TinkoffSandboxStorage.getAccountId(context).orEmpty()
+                            )
+                        }
+                        sandboxTokenInput = t
+                        sandboxAccountInput = a
                     }
-                    sandboxTokenInput = t
-                    sandboxAccountInput = a
                 }
+                Lifecycle.Event.ON_PAUSE -> activityResumed = false
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(
+        selectedTab,
+        activityResumed,
+        strategyTestEntryThreshold,
+        strategyTestExitThreshold,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        strategyTestCompoundReturns,
+    ) {
+        if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
+        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
+        if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
+        delay(STRATEGY_TEST_RESIM_DEBOUNCE_MS)
+        if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
+        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
+        if (strategyTestM15Loading || strategyTestSimComputing) return@LaunchedEffect
+        if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
+        if (strategyTestVisibleResultsFresh()) return@LaunchedEffect
+        scheduleStrategyTestResimOnly(reason = "params_change")
     }
 
     LaunchedEffect(Unit) {
@@ -134,6 +160,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         val st = loadStrategyTestZThresholds(context, dynamicThresholds)
         if (strategyTestEntryThreshold == null) strategyTestEntryThreshold = st.entry
         if (strategyTestExitThreshold == null) strategyTestExitThreshold = st.exit
+        MoexDiagnostics.log(
+            context,
+            "config",
+            "thresholds real=${rt.entry}/${rt.exit} test=${st.entry}/${st.exit}",
+        )
     }
 
     LaunchedEffect(dynamicThresholds.entry, dynamicThresholds.exit) {
@@ -157,6 +188,38 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(portfolioLookbackDays) {
+        withContext(Dispatchers.IO) {
+            savePortfolioLookbackDays(context, portfolioLookbackDays)
+        }
+    }
+
+    LaunchedEffect(
+        realTradeEntryThreshold,
+        realTradeExitThreshold,
+        strategyTestM15SessionCache.size,
+        portfolioM15Points.size,
+        portfolioLookbackDays,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        dynamicThresholds.calculatedDate,
+        portfolioLoading,
+    ) {
+        if (portfolioLoading) return@LaunchedEffect
+        val entry = realTradeEntryThreshold ?: return@LaunchedEffect
+        val exit = realTradeExitThreshold ?: return@LaunchedEffect
+        if (m15SeriesForZSimulation().isEmpty()) return@LaunchedEffect
+        confirmedPortfolioMetrics = withContext(Dispatchers.Default) {
+            buildPortfolioTabSimulationMetricsForDisplay(
+                entryThreshold = entry,
+                exitThreshold = exit,
+                dynamicCalculatedDate = dynamicThresholds.calculatedDate,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+            )
+        }
+    }
+
     LaunchedEffect(strategyTestEntryThreshold, strategyTestExitThreshold) {
         val entry = strategyTestEntryThreshold ?: return@LaunchedEffect
         val exit = strategyTestExitThreshold ?: return@LaunchedEffect
@@ -165,32 +228,32 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
-    LaunchedEffect(chartSuccess?.points, signalEvents) {
-        val pts = chartSuccess?.points
-        if (pts != null && pts.isNotEmpty()) {
-            val est = estimateTodaySpreadPnlFromEvents(signalEvents, pts)
-            todayPnlHint = est?.let { String.format(Locale.US, "%.2f п.п. спрэда", it) }
-        } else {
-            todayPnlHint = null
-        }
-    }
     val signalJournalFingerprint = signalEvents.size to signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
 
     LaunchedEffect(
+        selectedTab,
         signalJournalFingerprint,
         confirmedPortfolioMetrics,
         strategyTestPortfolioMetrics,
+        portfolioLookbackDays,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
         dynamicThresholds.entry,
         dynamicThresholds.exit
     ) {
+        if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
         dailyReconciliation = withContext(Dispatchers.Default) {
+            val confirmedForCompare = confirmedPortfolioMetrics?.let {
+                filterPortfolioMetricsToRecentDays(it, portfolioLookbackDays)
+            }
+            val simulationForCompare = strategyTestPortfolioMetrics?.let {
+                filterPortfolioMetricsToRecentDays(it, portfolioLookbackDays)
+            }
             buildDailyPortfolioReconciliation(
                 day = LocalDate.now(ZoneId.of("Europe/Moscow")),
                 journalEvents = signalEvents,
-                confirmed = confirmedPortfolioMetrics,
-                simulation = strategyTestPortfolioMetrics,
+                confirmed = confirmedForCompare,
+                simulation = simulationForCompare,
                 simEntryThreshold = strategyTestEntryThreshold ?: dynamicThresholds.entry,
                 simExitThreshold = strategyTestExitThreshold ?: dynamicThresholds.exit,
                 simExitMode = ZStrategyExitMode.FixedThreshold,
@@ -201,14 +264,9 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
 
     LaunchedEffect(
         selectedTab,
-        dynamicThresholds.entry,
-        dynamicThresholds.exit,
+        portfolioLookbackDays,
         portfolioLeverage,
         portfolioCommissionPercent,
-        realTradeEntryThreshold,
-        realTradeExitThreshold,
-        strategyTestEntryThreshold,
-        strategyTestExitThreshold,
         signalJournalFingerprint,
         strategyTestCompoundReturns,
         sandboxSpreadExecReload,
@@ -242,8 +300,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(selectedTab) {
+        MoexDiagnostics.log(context, "ui", "tab=${selectedTab.label}")
+    }
+
     LaunchedEffect(Unit) {
-        marketsZChartPeriod = marketsZChartPeriod.coerceToMarketsUiPeriod()
         selectedPeriod = selectedPeriod.coerceToMarketsUiPeriod()
         coroutineScope {
             val marketsHydrate = async { hydrateMarketsFromLocalCache(selectedPeriod) }
@@ -290,11 +351,19 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             }
         }
     }
-    LaunchedEffect(realtimeEnabled, selectedPeriod) {
-        if (!realtimeEnabled) return@LaunchedEffect
+    LaunchedEffect(realtimeEnabled, selectedPeriod, selectedTab, activityResumed, memoryPressureLevel) {
+        if (!realtimeEnabled || selectedTab != MainTab.Markets || !activityResumed) return@LaunchedEffect
         while (true) {
-            delay(FIXED_REALTIME_INTERVAL_MS)
-            refreshData(showLoading = false, launchScope = scope, selectedPeriod = selectedPeriod)
+            val interval = MoexMemoryPressure.autoPollIntervalMs(memoryPressureLevel)
+            if (interval <= 0L) return@LaunchedEffect
+            delay(interval)
+            if (!mayRefreshMarkets(MarketsRefreshPolicy.AutoPoll)) continue
+            refreshData(
+                showLoading = false,
+                launchScope = scope,
+                selectedPeriod = selectedPeriod,
+                refreshPolicy = MarketsRefreshPolicy.AutoPoll,
+            )
         }
     }
     }

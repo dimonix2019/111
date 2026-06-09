@@ -226,6 +226,58 @@ internal fun zStrategySignalOnLast15mBar(
 
 private val consumed15mSignalEdgeLock = Any()
 
+internal fun loadLastProcessed15mBarTimestamp(context: Context): Long? {
+    val raw = context.applicationContext.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .getLong(PREF_LAST_PROCESSED_15M_BAR_UNIX, 0L)
+    return raw.takeIf { it > 0L }
+}
+
+internal fun saveLastProcessed15mBarTimestamp(context: Context, barTimestampMillis: Long) {
+    context.applicationContext.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putLong(PREF_LAST_PROCESSED_15M_BAR_UNIX, barTimestampMillis)
+        .apply()
+}
+
+/**
+ * При первом запуске после обновления — догон с последнего бара в журнале сигналов,
+ * чтобы не пропустить пересечение внутри пакетной загрузки MOEX.
+ */
+internal fun resolveLastProcessed15mBarTimestampForReplay(context: Context): Long? {
+    loadLastProcessed15mBarTimestamp(context)?.let { return it }
+    return loadStrategySignalEvents(context)
+        .maxOfOrNull { it.timestampMillis }
+        ?.takeIf { it > 0L }
+}
+
+internal fun is15mStrategySignalEdgeConsumed(
+    context: Context,
+    barTimestampMillis: Long,
+    signal: ZStrategySignal,
+): Boolean {
+    if (signal == ZStrategySignal.None) return true
+    val edgeKey = "$barTimestampMillis|${signal.name}"
+    synchronized(consumed15mSignalEdgeLock) {
+        val prefs = context.applicationContext.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(PREF_LAST_CONSUMED_15M_SIGNAL_EDGE, null) == edgeKey
+    }
+}
+
+internal fun mark15mStrategySignalEdgeConsumed(
+    context: Context,
+    barTimestampMillis: Long,
+    signal: ZStrategySignal,
+) {
+    if (signal == ZStrategySignal.None) return
+    val edgeKey = "$barTimestampMillis|${signal.name}"
+    synchronized(consumed15mSignalEdgeLock) {
+        context.applicationContext.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(PREF_LAST_CONSUMED_15M_SIGNAL_EDGE, edgeKey)
+            .commit()
+    }
+}
+
 /**
  * Не обрабатывать один и тот же пересечение на одном 15м баре повторно
  * (опрос каждые 5–15 с, UI + фон, сброс позиции из симуляции).
@@ -236,15 +288,11 @@ internal fun tryConsume15mStrategySignalEdge(
     signal: ZStrategySignal
 ): Boolean {
     if (signal == ZStrategySignal.None) return false
-    val edgeKey = "$barTimestampMillis|${signal.name}"
-    synchronized(consumed15mSignalEdgeLock) {
-        val prefs = context.applicationContext.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
-        if (prefs.getString(PREF_LAST_CONSUMED_15M_SIGNAL_EDGE, null) == edgeKey) {
-            return false
-        }
-        prefs.edit().putString(PREF_LAST_CONSUMED_15M_SIGNAL_EDGE, edgeKey).commit()
-        return true
+    if (is15mStrategySignalEdgeConsumed(context, barTimestampMillis, signal)) {
+        return false
     }
+    mark15mStrategySignalEdgeConsumed(context, barTimestampMillis, signal)
+    return true
 }
 
 internal fun clearConsumed15mStrategySignalEdge(context: Context) {
@@ -252,6 +300,7 @@ internal fun clearConsumed15mStrategySignalEdge(context: Context) {
         context.applicationContext.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .remove(PREF_LAST_CONSUMED_15M_SIGNAL_EDGE)
+            .remove(PREF_LAST_PROCESSED_15M_BAR_UNIX)
             .apply()
     }
 }

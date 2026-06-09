@@ -32,10 +32,10 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: Portf
                 return@refreshPortfolioUnlocked
             }
             val points = loaded
-            portfolioM15Points = loaded
+            portfolioM15Points = points
             if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
             val desc =
-                "15 мин (ISS 10m→15m) · $PORTFOLIO_TAB_M15_LOOKBACK_DAYS дн. (${points.first().tradeDate}…${points.last().tradeDate})"
+                "15 мин (ISS 10m→15m) · ${portfolioLookbackPeriodLabel(portfolioLookbackDays)} (${points.first().tradeDate}…${points.last().tradeDate})"
 
             val entryRt = (realTradeEntryThreshold ?: dynamicThresholds.entry)
                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
@@ -75,7 +75,13 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: Portf
                     periodDescription = desc
                 )
             }
-            confirmedPortfolioMetrics = executed.metrics
+            confirmedPortfolioMetrics = buildPortfolioTabSimulationMetricsForDisplay(
+                entryThreshold = entryRt,
+                exitThreshold = exitRt,
+                dynamicCalculatedDate = dynamicThresholds.calculatedDate,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+            ) ?: executed.metrics
             val sandboxRaw = withContext(Dispatchers.IO) {
                 TinkoffSandboxSpreadExecLog.loadRecent(context)
             }
@@ -135,7 +141,18 @@ internal suspend fun MoexScreenState.refreshData(
         launchScope: CoroutineScope,
         selectedPeriod: Period,
         preferBackground: Boolean = false,
+        refreshPolicy: MarketsRefreshPolicy = MarketsRefreshPolicy.UserInitiated,
     ) {
+        if (!mayRefreshMarkets(refreshPolicy)) {
+            MoexDiagnostics.log(
+                context,
+                "ui",
+                "refreshData skip policy=$refreshPolicy tab=${selectedTab.label} resumed=$activityResumed mem=$memoryPressureLevel",
+            )
+            return
+        }
+        MoexDiagnostics.log(context, "ui", "refreshData start period=$selectedPeriod showLoading=$showLoading")
+        MoexDiagnostics.logMemory(context, "refreshData_start")
         val hasDisplayCache = lastGoodMarkets != null
         val blockUi = showLoading && !hasDisplayCache
 
@@ -171,6 +188,7 @@ internal suspend fun MoexScreenState.refreshData(
                             }
                             portfolio15mSeriesTailStale(marketsM15Source()) -> {
                                 launchScope.launch {
+                                    if (!mayRefreshMarkets(MarketsRefreshPolicy.UserInitiated)) return@launch
                                     val loaded = loadM15ForMarkets()
                                     if (loaded.size >= 2) {
                                         storeMarketsM15(loaded)
@@ -247,32 +265,36 @@ internal suspend fun MoexScreenState.refreshData(
                                     .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                                 calculatedDate = dynamicThresholds.calculatedDate
                             )
-                            val lastPt = m15ForSignal.last()
-                            val latestZScore = lastPt.zScore
-                            val latestSpreadPercent = lastPt.spreadPercent
-                            val latestTimestampMillis = lastPt.timestampMillis
-                            val edgeSignal = zStrategySignalOnLast15mBar(
+                            val signalLastProcessed = resolveLastProcessed15mBarTimestampForReplay(context)
+                            val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
                                 points = m15ForSignal,
-                                position = zStrategyPosition,
-                                thresholds = signalThresholds
+                                lastProcessedBarTimestampMillis = signalLastProcessed,
+                                initialPosition = zStrategyPosition,
+                                thresholds = signalThresholds,
                             )
-                            if (edgeSignal != ZStrategySignal.None &&
-                                tryConsume15mStrategySignalEdge(
-                                    context,
-                                    latestTimestampMillis,
-                                    edgeSignal
-                                )
-                            ) {
-                            when (edgeSignal) {
-                                ZStrategySignal.EnterLong -> {
-                                zStrategyPosition = ZStrategyPosition.Long
-                                saveStrategyPosition(context, zStrategyPosition)
-                                recordStrategySignalEvent(
+                            for (edge in signalEdges) {
+                                val edgeSignal = edge.signal
+                                val bar = edge.bar
+                                val latestZScore = bar.zScore
+                                val latestSpreadPercent = bar.spreadPercent
+                                val latestTimestampMillis = bar.timestampMillis
+                                if (is15mStrategySignalEdgeConsumed(context, latestTimestampMillis, edgeSignal)) {
+                                    zStrategyPosition = edge.positionAfter
+                                    continue
+                                }
+                                val signalType = zStrategySignalToStrategySignalType(edgeSignal)
+                                val recorded = recordStrategySignalEvent(
                                     context = context,
-                                    signalType = StrategySignalType.EnterLong,
+                                    signalType = signalType,
                                     zScore = latestZScore,
-                                    timestampMillis = latestTimestampMillis
+                                    timestampMillis = latestTimestampMillis,
                                 )
+                                mark15mStrategySignalEdgeConsumed(context, latestTimestampMillis, edgeSignal)
+                                zStrategyPosition = edge.positionAfter
+                                saveStrategyPosition(context, zStrategyPosition)
+                                if (!recorded) continue
+                                when (edgeSignal) {
+                                ZStrategySignal.EnterLong -> {
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
@@ -314,14 +336,6 @@ internal suspend fun MoexScreenState.refreshData(
                             }
 
                             ZStrategySignal.EnterShort -> {
-                                zStrategyPosition = ZStrategyPosition.Short
-                                saveStrategyPosition(context, zStrategyPosition)
-                                recordStrategySignalEvent(
-                                    context = context,
-                                    signalType = StrategySignalType.EnterShort,
-                                    zScore = latestZScore,
-                                    timestampMillis = latestTimestampMillis
-                                )
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
@@ -363,14 +377,6 @@ internal suspend fun MoexScreenState.refreshData(
                             }
 
                             ZStrategySignal.ExitLong -> {
-                                zStrategyPosition = ZStrategyPosition.Flat
-                                saveStrategyPosition(context, zStrategyPosition)
-                                recordStrategySignalEvent(
-                                    context = context,
-                                    signalType = StrategySignalType.ExitLong,
-                                    zScore = latestZScore,
-                                    timestampMillis = latestTimestampMillis
-                                )
                                 clearPendingVirtualTradeProposal(context)
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
@@ -389,17 +395,22 @@ internal suspend fun MoexScreenState.refreshData(
                                         saveDailySignalLimit(context, dailySignalLimit)
                                     }
                                 }
+                                launchScope.launch(Dispatchers.IO) {
+                                    val ran = runSandboxAutoExitIfNeeded(
+                                        context.applicationContext,
+                                        StrategySignalType.ExitLong,
+                                        latestZScore,
+                                        latestTimestampMillis,
+                                    )
+                                    if (ran) {
+                                        withContext(Dispatchers.Main) {
+                                            sandboxSpreadExecReload++
+                                        }
+                                    }
+                                }
                             }
 
                             ZStrategySignal.ExitShort -> {
-                                zStrategyPosition = ZStrategyPosition.Flat
-                                saveStrategyPosition(context, zStrategyPosition)
-                                recordStrategySignalEvent(
-                                    context = context,
-                                    signalType = StrategySignalType.ExitShort,
-                                    zScore = latestZScore,
-                                    timestampMillis = latestTimestampMillis
-                                )
                                 clearPendingVirtualTradeProposal(context)
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
                                 if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
@@ -418,12 +429,32 @@ internal suspend fun MoexScreenState.refreshData(
                                         saveDailySignalLimit(context, dailySignalLimit)
                                     }
                                 }
+                                launchScope.launch(Dispatchers.IO) {
+                                    val ran = runSandboxAutoExitIfNeeded(
+                                        context.applicationContext,
+                                        StrategySignalType.ExitShort,
+                                        latestZScore,
+                                        latestTimestampMillis,
+                                    )
+                                    if (ran) {
+                                        withContext(Dispatchers.Main) {
+                                            sandboxSpreadExecReload++
+                                        }
+                                    }
+                                }
                             }
 
                             ZStrategySignal.None -> Unit
                             }
                             }
-                            previousZScoreForAlert = latestZScore
+                            if (shouldAdvanceLastProcessed15mBar(m15ForSignal, signalLastProcessed)) {
+                                saveLastProcessed15mBarTimestamp(context, m15ForSignal.last().timestampMillis)
+                            }
+                            if (replayPosition != zStrategyPosition) {
+                                zStrategyPosition = replayPosition
+                                saveStrategyPosition(context, zStrategyPosition)
+                            }
+                            previousZScoreForAlert = m15ForSignal.last().zScore
                         }
                     }
                     signalEvents = loadStrategySignalEvents(context)
@@ -455,6 +486,7 @@ internal suspend fun MoexScreenState.refreshData(
         if (hasDisplayCache && preferBackground) {
             initialMarketsRefreshDone = true
             launchScope.launch {
+                if (!mayRefreshMarkets(refreshPolicy)) return@launch
                 isRefreshing = true
                 try {
                     performRefresh()
@@ -470,5 +502,11 @@ internal suspend fun MoexScreenState.refreshData(
             performRefresh()
         } finally {
             isRefreshing = false
+            MoexDiagnostics.log(
+                context,
+                "ui",
+                "refreshData done m15=${marketsM15Source().size} tab=${selectedTab.label} error=${realtimeError?.take(80)}",
+            )
+            MoexDiagnostics.logMemory(context, "refreshData_done")
         }
     }
