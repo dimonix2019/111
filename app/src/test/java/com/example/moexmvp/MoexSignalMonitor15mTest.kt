@@ -52,4 +52,66 @@ class MoexSignalMonitor15mTest {
         val signal = zStrategySignalOnLast15mBar(points, ZStrategyPosition.Flat, thresholds)
         assertEquals(ZStrategySignal.EnterLong, signal)
     }
+
+    @Test
+    fun collectZStrategy15mSignalEdges_replaysBatchCrossingNotVisibleOnLastBarPair() {
+        val thresholds = DynamicThresholds(entry = 0.7, exit = 0.5, calculatedDate = null)
+        fun point(ts: Long, z: Double) = DataPoint(
+            timestampMillis = ts,
+            tradeDate = "2026-06-09",
+            tatnClose = 1.0,
+            tatnpClose = 1.0,
+            spreadPercent = 0.0,
+            diff = 0.0,
+            zScore = z,
+        )
+        val points = listOf(
+            point(1L, 0.31),
+            point(2L, 0.55),
+            point(3L, 0.72),
+            point(4L, 0.82),
+        )
+        val lastPairOnly = zStrategySignalOnLast15mBar(points, ZStrategyPosition.Flat, thresholds)
+        assertEquals(ZStrategySignal.None, lastPairOnly)
+
+        val (edges, finalPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
+            points = points,
+            lastProcessedBarTimestampMillis = 1L,
+            initialPosition = ZStrategyPosition.Flat,
+            thresholds = thresholds,
+        )
+        assertEquals(1, edges.size)
+        assertEquals(ZStrategySignal.EnterShort, edges.single().signal)
+        assertEquals(3L, edges.single().bar.timestampMillis)
+        assertEquals(ZStrategyPosition.Short, finalPosition)
+    }
+
+    @Test
+    fun collectZStrategy15mSignalEdges_firstRunOnlyChecksLastBarPair() {
+        val thresholds = DynamicThresholds(entry = 0.7, exit = 0.5, calculatedDate = null)
+        fun point(ts: Long, z: Double) = DataPoint(
+            timestampMillis = ts,
+            tradeDate = "2026-06-09",
+            tatnClose = 1.0,
+            tatnpClose = 1.0,
+            spreadPercent = 0.0,
+            diff = 0.0,
+            zScore = z,
+        )
+        val points = listOf(
+            point(1L, 0.2),
+            point(2L, 0.65),
+            point(3L, 0.75),
+        )
+        val (edges, finalPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
+            points = points,
+            lastProcessedBarTimestampMillis = null,
+            initialPosition = ZStrategyPosition.Flat,
+            thresholds = thresholds,
+        )
+        assertEquals(1, edges.size)
+        assertEquals(ZStrategySignal.EnterShort, edges.single().signal)
+        assertEquals(3L, edges.single().bar.timestampMillis)
+        assertEquals(ZStrategyPosition.Short, finalPosition)
+    }
 }

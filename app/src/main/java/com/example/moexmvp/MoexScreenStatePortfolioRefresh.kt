@@ -265,34 +265,38 @@ internal suspend fun MoexScreenState.refreshData(
                                     .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                                 calculatedDate = dynamicThresholds.calculatedDate
                             )
-                            val lastPt = m15ForSignal.last()
-                            val latestZScore = lastPt.zScore
-                            val latestSpreadPercent = lastPt.spreadPercent
-                            val latestTimestampMillis = lastPt.timestampMillis
-                            val edgeSignal = zStrategySignalOnLast15mBar(
+                            val signalLastProcessed = resolveLastProcessed15mBarTimestampForReplay(context)
+                            val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
                                 points = m15ForSignal,
-                                position = zStrategyPosition,
-                                thresholds = signalThresholds
+                                lastProcessedBarTimestampMillis = signalLastProcessed,
+                                initialPosition = zStrategyPosition,
+                                thresholds = signalThresholds,
                             )
-                            if (edgeSignal != ZStrategySignal.None &&
-                                tryConsume15mStrategySignalEdge(
-                                    context,
-                                    latestTimestampMillis,
-                                    edgeSignal
-                                )
-                            ) {
-                            when (edgeSignal) {
-                                ZStrategySignal.EnterLong -> {
-                                zStrategyPosition = ZStrategyPosition.Long
-                                saveStrategyPosition(context, zStrategyPosition)
+                            for (edge in signalEdges) {
+                                val edgeSignal = edge.signal
+                                val bar = edge.bar
+                                val latestZScore = bar.zScore
+                                val latestSpreadPercent = bar.spreadPercent
+                                val latestTimestampMillis = bar.timestampMillis
+                                if (is15mStrategySignalEdgeConsumed(context, latestTimestampMillis, edgeSignal)) {
+                                    zStrategyPosition = edge.positionAfter
+                                    continue
+                                }
+                                val signalType = zStrategySignalToStrategySignalType(edgeSignal)
                                 val recorded = recordStrategySignalEvent(
                                     context = context,
-                                    signalType = StrategySignalType.EnterLong,
+                                    signalType = signalType,
                                     zScore = latestZScore,
-                                    timestampMillis = latestTimestampMillis
+                                    timestampMillis = latestTimestampMillis,
                                 )
+                                mark15mStrategySignalEdgeConsumed(context, latestTimestampMillis, edgeSignal)
+                                zStrategyPosition = edge.positionAfter
+                                saveStrategyPosition(context, zStrategyPosition)
+                                if (!recorded) continue
+                                when (edgeSignal) {
+                                ZStrategySignal.EnterLong -> {
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (recorded && !backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATN / SHORT TATNP",
@@ -332,16 +336,8 @@ internal suspend fun MoexScreenState.refreshData(
                             }
 
                             ZStrategySignal.EnterShort -> {
-                                zStrategyPosition = ZStrategyPosition.Short
-                                saveStrategyPosition(context, zStrategyPosition)
-                                val recorded = recordStrategySignalEvent(
-                                    context = context,
-                                    signalType = StrategySignalType.EnterShort,
-                                    zScore = latestZScore,
-                                    timestampMillis = latestTimestampMillis
-                                )
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (recorded && !backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATNP / SHORT TATN",
@@ -381,17 +377,9 @@ internal suspend fun MoexScreenState.refreshData(
                             }
 
                             ZStrategySignal.ExitLong -> {
-                                zStrategyPosition = ZStrategyPosition.Flat
-                                saveStrategyPosition(context, zStrategyPosition)
-                                val recorded = recordStrategySignalEvent(
-                                    context = context,
-                                    signalType = StrategySignalType.ExitLong,
-                                    zScore = latestZScore,
-                                    timestampMillis = latestTimestampMillis
-                                )
                                 clearPendingVirtualTradeProposal(context)
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (recorded && !backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATN / SHORT TATNP",
@@ -423,17 +411,9 @@ internal suspend fun MoexScreenState.refreshData(
                             }
 
                             ZStrategySignal.ExitShort -> {
-                                zStrategyPosition = ZStrategyPosition.Flat
-                                saveStrategyPosition(context, zStrategyPosition)
-                                val recorded = recordStrategySignalEvent(
-                                    context = context,
-                                    signalType = StrategySignalType.ExitShort,
-                                    zScore = latestZScore,
-                                    timestampMillis = latestTimestampMillis
-                                )
                                 clearPendingVirtualTradeProposal(context)
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (recorded && !backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATNP / SHORT TATN",
@@ -467,7 +447,14 @@ internal suspend fun MoexScreenState.refreshData(
                             ZStrategySignal.None -> Unit
                             }
                             }
-                            previousZScoreForAlert = latestZScore
+                            if (shouldAdvanceLastProcessed15mBar(m15ForSignal, signalLastProcessed)) {
+                                saveLastProcessed15mBarTimestamp(context, m15ForSignal.last().timestampMillis)
+                            }
+                            if (replayPosition != zStrategyPosition) {
+                                zStrategyPosition = replayPosition
+                                saveStrategyPosition(context, zStrategyPosition)
+                            }
+                            previousZScoreForAlert = m15ForSignal.last().zScore
                         }
                     }
                     signalEvents = loadStrategySignalEvents(context)

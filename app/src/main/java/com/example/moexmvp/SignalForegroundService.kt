@@ -141,206 +141,198 @@ class SignalForegroundService : Service() {
 
         val signalThresholds = loadRealTradeZThresholds(applicationContext, bgSignalFallbackThresholds)
         var dayLimit = loadDailySignalLimit(applicationContext, LocalDate.now())
-        var currentPosition = loadSavedStrategyPosition(applicationContext)
-
-        val edgeSignal = zStrategySignalOnLast15mBar(
+        val initialPosition = loadSavedStrategyPosition(applicationContext)
+        val lastProcessedBarTs = resolveLastProcessed15mBarTimestampForReplay(applicationContext)
+        val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
             points = points,
-            position = currentPosition,
-            thresholds = signalThresholds
+            lastProcessedBarTimestampMillis = lastProcessedBarTs,
+            initialPosition = initialPosition,
+            thresholds = signalThresholds,
         )
-        if (edgeSignal == ZStrategySignal.None) {
+
+        if (signalEdges.isEmpty()) {
+            if (shouldAdvanceLastProcessed15mBar(points, lastProcessedBarTs)) {
+                saveLastProcessed15mBarTimestamp(applicationContext, points.last().timestampMillis)
+            }
+            if (replayPosition != initialPosition) {
+                saveStrategyPosition(applicationContext, replayPosition)
+            }
             if (monitorTickCount <= 3 || monitorTickCount % 20 == 0) {
                 val last = points.last()
                 MoexDiagnostics.log(
                     applicationContext,
                     "monitor",
                     "tick#$monitorTickCount ok bars=${points.size} Z=${String.format(Locale.US, "%.2f", last.zScore)} " +
-                        "pos=$currentPosition thr=${signalThresholds.entry}/${signalThresholds.exit}",
+                        "pos=$replayPosition thr=${signalThresholds.entry}/${signalThresholds.exit}",
                 )
             }
             return@withContext
         }
 
-        val lastPt = points.last()
-        val latestZScore = lastPt.zScore
-        val latestSpreadPercent = lastPt.spreadPercent
-        val latestTimestampMillis = lastPt.timestampMillis
+        var currentPosition = initialPosition
+        for (edge in signalEdges) {
+            val edgeSignal = edge.signal
+            val bar = edge.bar
+            val latestZScore = bar.zScore
+            val latestSpreadPercent = bar.spreadPercent
+            val latestTimestampMillis = bar.timestampMillis
 
-        if (!tryConsume15mStrategySignalEdge(applicationContext, latestTimestampMillis, edgeSignal)) {
+            if (is15mStrategySignalEdgeConsumed(applicationContext, latestTimestampMillis, edgeSignal)) {
+                MoexDiagnostics.log(
+                    applicationContext,
+                    "monitor",
+                    "signal_dedup $edgeSignal bar=$latestTimestampMillis Z=${String.format(Locale.US, "%.2f", latestZScore)}",
+                )
+                currentPosition = edge.positionAfter
+                continue
+            }
+
             MoexDiagnostics.log(
                 applicationContext,
-                "monitor",
-                "signal_dedup $edgeSignal bar=$latestTimestampMillis Z=${String.format(Locale.US, "%.2f", latestZScore)}",
+                "signal",
+                "$edgeSignal bar=$latestTimestampMillis Z=${String.format(Locale.US, "%.2f", latestZScore)} " +
+                    "spread=${String.format(Locale.US, "%.3f", latestSpreadPercent)}% pos=${edge.positionBefore}",
             )
-            return@withContext
+
+            val signalType = zStrategySignalToStrategySignalType(edgeSignal)
+            val recorded = recordStrategySignalEvent(
+                context = applicationContext,
+                signalType = signalType,
+                zScore = latestZScore,
+                timestampMillis = latestTimestampMillis,
+            )
+            mark15mStrategySignalEdgeConsumed(applicationContext, latestTimestampMillis, edgeSignal)
+            currentPosition = edge.positionAfter
+
+            if (!recorded) {
+                MoexDiagnostics.log(
+                    applicationContext,
+                    "signal",
+                    "journal_skip $edgeSignal bar=$latestTimestampMillis",
+                )
+                continue
+            }
+
+            when (edgeSignal) {
+                ZStrategySignal.EnterLong -> {
+                    if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                        val sent = showZStrategySignalPushNotification(
+                            context = applicationContext,
+                            title = "Вход: LONG TATN / SHORT TATNP",
+                            body = String.format(
+                                Locale.US,
+                                "Z <= -%.1f (текущий Z=%.2f)",
+                                signalThresholds.entry,
+                                latestZScore
+                            ),
+                            virtualTradeTap = entryVirtualTradeTapIfManualAccept(
+                                applicationContext,
+                                StrategySignalType.EnterLong,
+                                latestZScore,
+                                latestTimestampMillis
+                            )
+                        )
+                        if (sent) {
+                            dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                        }
+                    }
+                    runSandboxAutoEntryIfNeeded(
+                        applicationContext,
+                        StrategySignalType.EnterLong,
+                        latestZScore,
+                        latestTimestampMillis,
+                        latestSpreadPercent
+                    )
+                }
+
+                ZStrategySignal.EnterShort -> {
+                    if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                        val sent = showZStrategySignalPushNotification(
+                            context = applicationContext,
+                            title = "Вход: LONG TATNP / SHORT TATN",
+                            body = String.format(
+                                Locale.US,
+                                "Z >= +%.1f (текущий Z=%.2f)",
+                                signalThresholds.entry,
+                                latestZScore
+                            ),
+                            virtualTradeTap = entryVirtualTradeTapIfManualAccept(
+                                applicationContext,
+                                StrategySignalType.EnterShort,
+                                latestZScore,
+                                latestTimestampMillis
+                            )
+                        )
+                        if (sent) {
+                            dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                        }
+                    }
+                    runSandboxAutoEntryIfNeeded(
+                        applicationContext,
+                        StrategySignalType.EnterShort,
+                        latestZScore,
+                        latestTimestampMillis,
+                        latestSpreadPercent
+                    )
+                }
+
+                ZStrategySignal.ExitLong -> {
+                    clearPendingVirtualTradeProposal(applicationContext)
+                    if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                        val sent = showZStrategySignalPushNotification(
+                            context = applicationContext,
+                            title = "Выход: закрыть LONG TATN / SHORT TATNP",
+                            body = String.format(
+                                Locale.US,
+                                "Z >= -%.1f (текущий Z=%.2f)",
+                                signalThresholds.exit,
+                                latestZScore
+                            )
+                        )
+                        if (sent) {
+                            dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                        }
+                    }
+                    runSandboxAutoExitIfNeeded(
+                        applicationContext,
+                        StrategySignalType.ExitLong,
+                        latestZScore,
+                        latestTimestampMillis,
+                    )
+                }
+
+                ZStrategySignal.ExitShort -> {
+                    clearPendingVirtualTradeProposal(applicationContext)
+                    if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                        val sent = showZStrategySignalPushNotification(
+                            context = applicationContext,
+                            title = "Выход: закрыть LONG TATNP / SHORT TATN",
+                            body = String.format(
+                                Locale.US,
+                                "Z <= +%.1f (текущий Z=%.2f)",
+                                signalThresholds.exit,
+                                latestZScore
+                            )
+                        )
+                        if (sent) {
+                            dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
+                        }
+                    }
+                    runSandboxAutoExitIfNeeded(
+                        applicationContext,
+                        StrategySignalType.ExitShort,
+                        latestZScore,
+                        latestTimestampMillis,
+                    )
+                }
+
+                ZStrategySignal.None -> Unit
+            }
         }
 
-        MoexDiagnostics.log(
-            applicationContext,
-            "signal",
-            "$edgeSignal bar=$latestTimestampMillis Z=${String.format(Locale.US, "%.2f", latestZScore)} " +
-                "spread=${String.format(Locale.US, "%.3f", latestSpreadPercent)}% pos=$currentPosition",
-        )
-        when (edgeSignal) {
-            ZStrategySignal.EnterLong -> {
-                val recorded = recordStrategySignalEvent(
-                    context = applicationContext,
-                    signalType = StrategySignalType.EnterLong,
-                    zScore = latestZScore,
-                    timestampMillis = latestTimestampMillis
-                )
-                if (!recorded) {
-                    MoexDiagnostics.log(applicationContext, "signal", "journal_skip EnterLong bar=$latestTimestampMillis")
-                    return@withContext
-                }
-                currentPosition = ZStrategyPosition.Long
-                if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
-                    val sent = showZStrategySignalPushNotification(
-                        context = applicationContext,
-                        title = "Вход: LONG TATN / SHORT TATNP",
-                        body = String.format(
-                            Locale.US,
-                            "Z <= -%.1f (текущий Z=%.2f)",
-                            signalThresholds.entry,
-                            latestZScore
-                        ),
-                        virtualTradeTap = entryVirtualTradeTapIfManualAccept(
-                            applicationContext,
-                            StrategySignalType.EnterLong,
-                            latestZScore,
-                            latestTimestampMillis
-                        )
-                    )
-                    if (sent) {
-                        dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
-                    }
-                }
-                runSandboxAutoEntryIfNeeded(
-                    applicationContext,
-                    StrategySignalType.EnterLong,
-                    latestZScore,
-                    latestTimestampMillis,
-                    latestSpreadPercent
-                )
-            }
-
-            ZStrategySignal.EnterShort -> {
-                val recorded = recordStrategySignalEvent(
-                    context = applicationContext,
-                    signalType = StrategySignalType.EnterShort,
-                    zScore = latestZScore,
-                    timestampMillis = latestTimestampMillis
-                )
-                if (!recorded) {
-                    MoexDiagnostics.log(applicationContext, "signal", "journal_skip EnterShort bar=$latestTimestampMillis")
-                    return@withContext
-                }
-                currentPosition = ZStrategyPosition.Short
-                if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
-                    val sent = showZStrategySignalPushNotification(
-                        context = applicationContext,
-                        title = "Вход: LONG TATNP / SHORT TATN",
-                        body = String.format(
-                            Locale.US,
-                            "Z >= +%.1f (текущий Z=%.2f)",
-                            signalThresholds.entry,
-                            latestZScore
-                        ),
-                        virtualTradeTap = entryVirtualTradeTapIfManualAccept(
-                            applicationContext,
-                            StrategySignalType.EnterShort,
-                            latestZScore,
-                            latestTimestampMillis
-                        )
-                    )
-                    if (sent) {
-                        dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
-                    }
-                }
-                runSandboxAutoEntryIfNeeded(
-                    applicationContext,
-                    StrategySignalType.EnterShort,
-                    latestZScore,
-                    latestTimestampMillis,
-                    latestSpreadPercent
-                )
-            }
-
-            ZStrategySignal.ExitLong -> {
-                val recorded = recordStrategySignalEvent(
-                    context = applicationContext,
-                    signalType = StrategySignalType.ExitLong,
-                    zScore = latestZScore,
-                    timestampMillis = latestTimestampMillis
-                )
-                if (!recorded) {
-                    MoexDiagnostics.log(applicationContext, "signal", "journal_skip ExitLong bar=$latestTimestampMillis")
-                    return@withContext
-                }
-                currentPosition = ZStrategyPosition.Flat
-                clearPendingVirtualTradeProposal(applicationContext)
-                if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
-                    val sent = showZStrategySignalPushNotification(
-                        context = applicationContext,
-                        title = "Выход: закрыть LONG TATN / SHORT TATNP",
-                        body = String.format(
-                            Locale.US,
-                            "Z >= -%.1f (текущий Z=%.2f)",
-                            signalThresholds.exit,
-                            latestZScore
-                        )
-                    )
-                    if (sent) {
-                        dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
-                    }
-                }
-                runSandboxAutoExitIfNeeded(
-                    applicationContext,
-                    StrategySignalType.ExitLong,
-                    latestZScore,
-                    latestTimestampMillis,
-                )
-            }
-
-            ZStrategySignal.ExitShort -> {
-                val recorded = recordStrategySignalEvent(
-                    context = applicationContext,
-                    signalType = StrategySignalType.ExitShort,
-                    zScore = latestZScore,
-                    timestampMillis = latestTimestampMillis
-                )
-                if (!recorded) {
-                    MoexDiagnostics.log(applicationContext, "signal", "journal_skip ExitShort bar=$latestTimestampMillis")
-                    return@withContext
-                }
-                currentPosition = ZStrategyPosition.Flat
-                clearPendingVirtualTradeProposal(applicationContext)
-                if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
-                    val sent = showZStrategySignalPushNotification(
-                        context = applicationContext,
-                        title = "Выход: закрыть LONG TATNP / SHORT TATN",
-                        body = String.format(
-                            Locale.US,
-                            "Z <= +%.1f (текущий Z=%.2f)",
-                            signalThresholds.exit,
-                            latestZScore
-                        )
-                    )
-                    if (sent) {
-                        dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
-                    }
-                }
-                runSandboxAutoExitIfNeeded(
-                    applicationContext,
-                    StrategySignalType.ExitShort,
-                    latestZScore,
-                    latestTimestampMillis,
-                )
-            }
-
-            ZStrategySignal.None -> Unit
+        if (shouldAdvanceLastProcessed15mBar(points, lastProcessedBarTs)) {
+            saveLastProcessed15mBarTimestamp(applicationContext, points.last().timestampMillis)
         }
-
         saveDailySignalLimit(applicationContext, dayLimit)
         saveStrategyPosition(applicationContext, currentPosition)
     }

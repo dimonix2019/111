@@ -42,6 +42,8 @@ internal const val PREF_PORTFOLIO_Z_ENTRY_THRESHOLD = "portfolio_z_entry_thresho
 internal const val PREF_PORTFOLIO_Z_EXIT_THRESHOLD = "portfolio_z_exit_threshold"
 /** Один сигнал на пересечение порога на конкретном 15м баре (barTs|EnterLong и т.д.). */
 internal const val PREF_LAST_CONSUMED_15M_SIGNAL_EDGE = "last_consumed_15m_signal_edge"
+/** Последний 15м бар, по которому монитор/UI уже прошли все prev→current переходы. */
+internal const val PREF_LAST_PROCESSED_15M_BAR_UNIX = "last_processed_15m_bar_unix"
 internal const val PREF_Z_DAILY_SIGNAL_DATE = "z_daily_signal_date"
 internal const val PREF_Z_DAILY_SIGNAL_COUNT = "z_daily_signal_count"
 internal const val PREF_Z_DAILY_SIGNAL_ENTRY = "z_daily_signal_entry_legacy"
@@ -117,6 +119,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.122 — Монитор: replay пропущенных 15м баров после пакетной загрузки; fix consume/journal.
 1.7.97 — Fix: MOEX poll только на «Рынок» и при активном экране (не каждые 5с в фоне).
 1.7.96 — Диагностика вылетов: WebView crash, lifecycle, старт на «Журнал», largeHeap.
 1.7.95 — Журнал событий: лог вылетов/мониторинга, экспорт из «О приложении».
