@@ -236,7 +236,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         confirmedPortfolioMetrics,
         strategyTestPortfolioMetrics,
         portfolioLookbackDays,
-        portfolioM15Points.size,
         strategyTestM15SessionCache.size,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
@@ -249,6 +248,8 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         dynamicThresholds.exit,
         dynamicThresholds.calculatedDate,
     ) {
+        if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
+        delay(350)
         if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
         dailyReconciliation = withContext(Dispatchers.Default) {
             val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
@@ -319,23 +320,30 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(selectedTab, portfolioLookbackDays) {
+        if (selectedTab != MainTab.Portfolio) return@LaunchedEffect
+        ensurePortfolioTabLoaded()
+    }
+
     LaunchedEffect(
         selectedTab,
-        portfolioLookbackDays,
+        signalJournalFingerprint,
+        sandboxSpreadExecReload,
         portfolioLeverage,
         portfolioCommissionPercent,
-        signalJournalFingerprint,
-        strategyTestCompoundReturns,
-        sandboxSpreadExecReload,
-        portfolioLedgerIncludeAuto
+        realTradeEntryThreshold,
+        realTradeExitThreshold,
+        portfolioLedgerIncludeAuto,
+        portfolioM15Points.size,
+        strategyTestM15SessionCache.size,
+        dynamicThresholds.calculatedDate,
     ) {
-        if (selectedTab == MainTab.Portfolio) {
-            val mode = when {
-                portfolioM15Points.size >= 2 && !portfolio15mSeriesTailStale(portfolioM15Points) ->
-                    PortfolioM15LoadMode.CACHE_ONLY
-                else -> PortfolioM15LoadMode.INCREMENTAL
-            }
-            refreshPortfolio(mode)
+        if (selectedTab != MainTab.Portfolio) return@LaunchedEffect
+        if (portfolioM15Points.size < 2) return@LaunchedEffect
+        val uiKey = portfolioTabUiSessionKey()
+        if (portfolioTabUiBuiltKey == uiKey) return@LaunchedEffect
+        withContext(Dispatchers.Default) {
+            rebuildPortfolioUiFromPoints(portfolioM15Points)
         }
     }
 
@@ -347,16 +355,10 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         portfolioCommissionPercent,
         sandboxSpreadExecReload,
         portfolioLedgerIncludeAuto,
-        signalJournalFingerprint
+        signalJournalFingerprint,
     ) {
         if (selectedTab != MainTab.Portfolio && selectedTab != MainTab.Markets) return@LaunchedEffect
         syncSandboxExecutionsEnrichment()
-    }
-
-    LaunchedEffect(selectedTab, sandboxSpreadExecReload) {
-        if (selectedTab == MainTab.Portfolio) {
-            syncSandboxExecutionsEnrichment()
-        }
     }
 
     LaunchedEffect(selectedTab) {
@@ -383,15 +385,30 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
-    LaunchedEffect(selectedTab) {
-        if (selectedTab == MainTab.Markets && initialMarketsRefreshDone) {
-            refreshData(showLoading = false, launchScope = scope, selectedPeriod = selectedPeriod)
-        }
-    }
-
     LaunchedEffect(selectedTab, marketsZChartPeriod) {
-        if (selectedTab == MainTab.Markets && initialMarketsRefreshDone) {
-            ensureMarketsM15ForPeriod(marketsZChartPeriod)
+        if (selectedTab != MainTab.Markets || !initialMarketsRefreshDone) return@LaunchedEffect
+        val period = marketsZChartPeriod.coerceToMarketsUiPeriod()
+        if (lastGoodMarkets == null) {
+            refreshData(showLoading = true, launchScope = scope, selectedPeriod = period)
+            return@LaunchedEffect
+        }
+        if (marketsM15CoversPeriod(period) && marketsM15LoadedPeriod == period) {
+            if (portfolio15mSeriesTailStale(marketsM15Source())) {
+                scope.launch {
+                    ensureMarketsM15ForPeriod(period, trackProgress = false)
+                }
+            }
+            return@LaunchedEffect
+        }
+        ensureMarketsM15ForPeriod(
+            period,
+            mode = PortfolioM15LoadMode.CACHE_ONLY,
+            trackProgress = false,
+        )
+        if (portfolio15mSeriesTailStale(marketsM15Source())) {
+            scope.launch {
+                ensureMarketsM15ForPeriod(period, trackProgress = false)
+            }
         }
     }
 

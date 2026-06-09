@@ -69,6 +69,7 @@ internal fun MoexScreenState.trimMemoryCaches(level: Int) {
     memoryPressureLevel = level
     if (level < ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) return
 
+    invalidateTabLoadSessions()
     if (selectedTab != MainTab.StrategyTest) {
         clearStrategyTestSession()
     } else if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
@@ -77,6 +78,9 @@ internal fun MoexScreenState.trimMemoryCaches(level: Int) {
     if (selectedTab != MainTab.Markets && selectedTab != MainTab.Portfolio) {
         if (marketsM15SessionCache.size >= 2) {
             marketsM15Points = emptyList()
+        }
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            portfolioM15Points = emptyList()
         }
     }
     if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
