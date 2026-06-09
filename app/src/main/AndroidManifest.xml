@@ -8,9 +8,11 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
+        android:name=".MoexApplication"
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher_graph_up"
         android:label="MOEX MVP"
+        android:largeHeap="true"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MoexMvp">

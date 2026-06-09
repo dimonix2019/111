@@ -1,14 +1,14 @@
 package com.example.moexmvp
 
+import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -17,16 +17,18 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,12 +74,6 @@ internal fun AboutTabContent(
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 4.dp)
-        )
-        Text(
-            text = "Сборка ${BuildConfig.VERSION_CODE} · ${BuildConfig.APPLICATION_ID}",
-            color = Color(0xFFB3E5FC),
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 6.dp)
         )
         Button(
             onClick = {
@@ -163,49 +159,13 @@ internal fun AboutTabContent(
                     .padding(10.dp)
             )
         }
-        val uriHandler = LocalUriHandler.current
-        Text(
-            text = "Скачать debug APK",
-            color = Color.White,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(top = 18.dp)
-        )
-        Text(
-            text = "Сборки публикуются на GitHub Release moexmvp-debug-latest. " +
-                "«Обновить приложение» проверяет версию и скачивает APK. " +
-                "При установке Android может запросить «неизвестный источник» (один раз) и PIN/отпечаток — это защита Google, не ошибка приложения.",
-            color = Color(0xFF9E9E9E),
-            fontSize = 11.sp,
-            lineHeight = 15.sp,
-            modifier = Modifier.padding(top = 6.dp)
-        )
-        Row(modifier = Modifier.padding(top = 10.dp)) {
-            Text(
-                text = "Прямая ссылка (APK)",
-                color = Color(0xFF81D4FA),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.clickable {
-                    runCatching { uriHandler.openUri(APK_DOWNLOAD_DIRECT_URL) }
-                }
-            )
-            Spacer(Modifier.width(20.dp))
-            Text(
-                text = "Все релизы на GitHub",
-                color = Color(0xFF81D4FA),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.clickable {
-                    runCatching { uriHandler.openUri(APK_GITHUB_RELEASES_PAGE_URL) }
-                }
-            )
-        }
         Text(
             text = "История версий",
             color = Color.White,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(top = 16.dp)
         )
+        EventLogSection(modifier = Modifier.padding(top = 16.dp))
         Column(
             modifier = Modifier
                 .padding(top = 8.dp)
@@ -230,6 +190,123 @@ internal fun AboutTabContent(
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EventLogSection(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var preview by remember { mutableStateOf("Загрузка журнала…") }
+    var lineCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        val (text, count) = withContext(Dispatchers.IO) {
+            MoexDiagnostics.formatForDisplay(context, tail = 12) to MoexDiagnostics.lineCount(context)
+        }
+        preview = text
+        lineCount = count
+    }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+            .padding(10.dp)
+    ) {
+        Text(
+            text = "Журнал событий (отладка вылетов)",
+            color = Color.White,
+            fontWeight = FontWeight.Medium,
+            fontSize = 14.sp
+        )
+        Text(
+            text = "Записей: $lineCount · сохраняется между перезапусками",
+            color = Color(0xFF9E9E9E),
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Text(
+            text = preview,
+            color = Color(0xFFB0BEC5),
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth()
+                .background(Color(0xFF121212), RoundedCornerShape(6.dp))
+                .padding(8.dp)
+        )
+        Row(
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { MoexDiagnostics.shareExport(context) }
+                        Toast.makeText(context, "Отправьте файл/text себе (Telegram, почта…)", Toast.LENGTH_LONG).show()
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text("Экспорт", fontSize = 12.sp)
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) { MoexDiagnostics.copyToClipboard(context) }
+                        Toast.makeText(
+                            context,
+                            if (ok) "Скопировано в буфер" else "Журнал пуст",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA))
+            ) {
+                Text("Копировать", fontSize = 12.sp)
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        val (text, count) = withContext(Dispatchers.IO) {
+                            MoexDiagnostics.formatForDisplay(context, tail = 12) to
+                                MoexDiagnostics.lineCount(context)
+                        }
+                        preview = text
+                        lineCount = count
+                    }
+                }
+            ) {
+                Text("Обновить", color = Color(0xFF90CAF9), fontSize = 11.sp)
+            }
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { MoexDiagnostics.clear(context) }
+                        val (text, count) = withContext(Dispatchers.IO) {
+                            MoexDiagnostics.formatForDisplay(context, tail = 12) to
+                                MoexDiagnostics.lineCount(context)
+                        }
+                        preview = text
+                        lineCount = count
+                        Toast.makeText(context, "Журнал событий очищен", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            ) {
+                Text("Очистить", color = Color(0xFFFFAB91), fontSize = 11.sp)
             }
         }
     }

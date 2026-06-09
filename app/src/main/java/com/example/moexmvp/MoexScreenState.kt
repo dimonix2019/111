@@ -13,12 +13,19 @@ internal class MoexScreenState(val context: Context) {
     val refreshMutex = Mutex()
 
     var pendingAppUpdate by mutableStateOf<AppRemoteUpdate?>(null)
-    var selectedTab by mutableStateOf(MainTab.Markets)
+    var selectedTab by mutableStateOf(
+        if (SignalForegroundService.isBackgroundMonitorEnabled(context)) {
+            MainTab.Journal
+        } else {
+            MainTab.Markets
+        }
+    )
     var confirmedPortfolioMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var confirmedPortfolioTableRows by mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList())
     var strategyTestCompoundReturns by mutableStateOf(false)
     var portfolioLoading by mutableStateOf(false)
     var portfolioError by mutableStateOf<String?>(null)
+    var portfolioLookbackDays by mutableStateOf(loadPortfolioLookbackDays(context))
     var portfolioLeverage by mutableStateOf(7.0)
     var portfolioCommissionPercent by mutableStateOf(0.04)
     var realTradeEntryThreshold by mutableStateOf<Double?>(null)
@@ -28,7 +35,11 @@ internal class MoexScreenState(val context: Context) {
     var selectedPeriod by mutableStateOf(Period.OneDay)
     /** Период 15м Z-графика (портрет/альбом); смена не вызывает refresh MOEX — только фильтр кэша. */
     var marketsZChartPeriod by mutableStateOf(Period.OneDay)
-    var realtimeEnabled by mutableStateOf(false)
+    var realtimeEnabled by mutableStateOf(true)
+    /** ON_RESUME / ON_PAUSE — останавливает авто-опрос «Рынок» в фоне. */
+    var activityResumed by mutableStateOf(false)
+    /** Последний onTrimMemory (ComponentCallbacks2) для адаптивного опроса и сброса кэшей. */
+    var memoryPressureLevel by mutableStateOf(0)
     var isRefreshing by mutableStateOf(false)
     var realtimeError by mutableStateOf<String?>(null)
     var previousZScoreForAlert by mutableStateOf<Double?>(null)
@@ -59,7 +70,6 @@ internal class MoexScreenState(val context: Context) {
     var portfolioPresets by mutableStateOf(loadPortfolioPresets(context))
     var robustCandidate by mutableStateOf<DynamicThresholds?>(null)
     var walkForwardBusy by mutableStateOf(false)
-    var todayPnlHint by mutableStateOf<String?>(null)
     var pendingVirtualTrade by mutableStateOf<PendingVirtualTradeProposal?>(null)
     var sandboxExecState by mutableStateOf(SandboxExecUiState.Off)
     var sandboxTokenInput by mutableStateOf("")
@@ -83,6 +93,14 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestSimComputing by mutableStateOf(false)
     var strategyTestM15Loading by mutableStateOf(false)
     var strategyTestError by mutableStateOf<String?>(null)
+    var strategyTestChartMarkers by mutableStateOf<List<ChartPointMarker>>(emptyList())
+    var strategyTestTradeRiskAssessments by mutableStateOf<List<StrategyTestTradeRiskAssessment>>(emptyList())
+    var strategyTestDurationSummary by mutableStateOf<StrategyTestDurationSummary?>(null)
+    var strategyTestSpreadHourlyVolatility by mutableStateOf<SpreadHourlyVolatilityReport?>(null)
+    var strategyTestLastSimKey: Long = 0L
+    var strategyTestVisibleSessionCache: StrategyTestVisibleSnapshot? = null
+    /** Отмена устаревших загрузок/симуляций при смене вкладки или новом запросе. */
+    var strategyTestWorkGeneration = 0
     var dailyReconciliation by mutableStateOf<DailyPortfolioReconciliation?>(null)
     var marketsZStrategyTapMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var initialMarketsRefreshDone by mutableStateOf(false)

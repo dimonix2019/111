@@ -11,7 +11,7 @@ class MoexSimClosedTradesWindowTest {
     fun filterSimClosedTradesInWindow_usesExitDate() {
         val zone = ZoneId.of("Europe/Moscow")
         val today = LocalDate.of(2026, 5, 16)
-        val windowStart = today.minusDays(PORTFOLIO_TRADES_WINDOW_DAYS)
+        val windowStart = today.minusDays(2)
             .atStartOfDay(zone)
             .toInstant()
             .toEpochMilli()
@@ -26,7 +26,7 @@ class MoexSimClosedTradesWindowTest {
             pnlRubApprox = 90.0
         )
         val recent = old.copy(exitDate = "2026-05-15 12:00")
-        val filtered = filterSimClosedTradesInWindow(listOf(old, recent), windowStart)
+        val filtered = filterSimClosedTradesInWindow(listOf(old, recent), lookbackDays = 3L, windowStartMillis = windowStart)
         assertEquals(1, filtered.size)
         assertEquals(recent.exitDate, filtered.single().exitDate)
     }
