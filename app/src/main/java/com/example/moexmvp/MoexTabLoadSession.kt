@@ -36,8 +36,7 @@ internal fun MoexScreenState.portfolioTabUiSessionKey(): Long {
     key = key * 31 + portfolioLeverage.toBits()
     key = key * 31 + portfolioCommissionPercent.toBits()
     key = key * 31 + if (portfolioLedgerIncludeAuto) 1L else 0L
-    key = key * 31 + signalEvents.size
-    key = key * 31 + signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
+    key = key * 31 + strategySignalJournalFingerprint(signalEvents)
     key = key * 31 + sandboxSpreadExecReload
     key = key * 31 + strategyTestM15SessionCache.size
     return key

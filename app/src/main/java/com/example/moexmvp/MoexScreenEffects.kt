@@ -100,6 +100,8 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                     memoryPressureLevel = 0
                     hydrateVirtualTradeAndSandboxUi()
                     scope.launch {
+                        syncSignalJournalFromDisk()
+                        refreshPortfolioAfterJournalChange(refreshTailIfStale = true)
                         val (t, a) = withContext(Dispatchers.IO) {
                             Pair(
                                 TinkoffSandboxStorage.getToken(context).orEmpty(),
@@ -228,7 +230,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
-    val signalJournalFingerprint = signalEvents.size to signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
+    val signalJournalFingerprint = strategySignalJournalFingerprint(signalEvents)
 
     LaunchedEffect(
         selectedTab,
@@ -326,7 +328,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     }
 
     LaunchedEffect(
-        selectedTab,
         signalJournalFingerprint,
         sandboxSpreadExecReload,
         portfolioLeverage,
@@ -336,14 +337,17 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         portfolioLedgerIncludeAuto,
         portfolioM15Points.size,
         strategyTestM15SessionCache.size,
+        m15SeriesTailFingerprint(portfolioM15Points),
+        m15SeriesTailFingerprint(strategyTestM15SessionCache),
         dynamicThresholds.calculatedDate,
     ) {
-        if (selectedTab != MainTab.Portfolio) return@LaunchedEffect
-        if (portfolioM15Points.size < 2) return@LaunchedEffect
+        if (portfolioExecutionReplayPoints().size < 2) return@LaunchedEffect
         val uiKey = portfolioTabUiSessionKey()
         if (portfolioTabUiBuiltKey == uiKey) return@LaunchedEffect
         withContext(Dispatchers.Default) {
-            rebuildPortfolioUiFromPoints(portfolioM15Points)
+            refreshPortfolioAfterJournalChange(
+                refreshTailIfStale = selectedTab == MainTab.Portfolio || selectedTab == MainTab.Markets,
+            )
         }
     }
 

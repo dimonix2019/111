@@ -9,8 +9,9 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.util.Locale
 
-/** Пересборка таблицы/метрик портфеля из уже загруженного in-memory 15м ряда (без SQLite). */
-internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(points: List<DataPoint>) {
+/** Пересборка таблицы/метрик портфеля из 15м ряда (in-memory / SQLite). */
+internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: List<DataPoint>? = null) {
+    val points = pointsHint?.takeIf { it.size >= 2 } ?: portfolioExecutionReplayPoints()
     if (points.size < 2) return
     val desc =
         "15 мин (ISS 10m→15m) · ${portfolioLookbackPeriodLabel(portfolioLookbackDays)} (${points.first().tradeDate}…${points.last().tradeDate})"
@@ -96,7 +97,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(points: List<D
             journalEvents = eventsAll,
         )
     }
-    portfolioError = if (portfolio15mSeriesTailStale(points)) {
+    portfolioError = if (portfolio15mSeriesTailStale(portfolioM15Points.ifEmpty { points })) {
         val todayMsk = LocalDate.now(moexZoneId)
         "15м ряд обрывается на ${points.last().tradeDate} (сегодня МСК $todayMsk, нужны свежие бары с MOEX). " +
             "Нажмите «Обновить» или «MOEX заново» при сети."
@@ -529,6 +530,10 @@ internal suspend fun MoexScreenState.refreshData(
                         }
                     }
                     signalEvents = loadStrategySignalEvents(context)
+                    portfolioTabUiBuiltKey = 0L
+                    launchScope.launch {
+                        refreshPortfolioAfterJournalChange(refreshTailIfStale = true)
+                    }
                 }
 
                 is UiState.Empty -> {
