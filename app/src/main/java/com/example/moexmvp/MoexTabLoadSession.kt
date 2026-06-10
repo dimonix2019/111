@@ -57,3 +57,14 @@ internal fun MoexScreenState.invalidateTabLoadSessions() {
 
 internal fun MoexScreenState.shouldTrackDataLoadProgress(): Boolean =
     selectedTab != MainTab.Journal
+
+internal fun MoexScreenState.clearStaleDataLoadProgress() {
+    if (dataLoadSessions == 0) {
+        dataLoadProgress = null
+    }
+}
+
+internal fun MoexScreenState.forceResetDataLoadUi() {
+    dataLoadSessions = 0
+    dataLoadProgress = null
+}

@@ -7,11 +7,14 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
 internal suspend fun MoexScreenState.reportDataLoadProgress(progress: DataLoadProgress?) {
-    if (progress?.active == true && !shouldTrackDataLoadProgress()) return
     withContext(Dispatchers.Main.immediate) {
         when {
-            progress?.active == true -> dataLoadProgress = progress
-            progress == null && dataLoadSessions == 0 -> dataLoadProgress = null
+            progress == null -> {
+                if (dataLoadSessions == 0) dataLoadProgress = null
+            }
+            !progress.active -> dataLoadProgress = null
+            !shouldTrackDataLoadProgress() -> Unit
+            else -> dataLoadProgress = progress
         }
     }
 }
