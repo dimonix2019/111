@@ -16,14 +16,21 @@ internal data class PortfolioMarketBarSnapshot(
     val entrySpreadPercent: Double get() = spreadPercent
 }
 
-/** Свежий снимок рынка для тестовых входов (подгрузка MOEX incremental). */
+/**
+ * Снимок последней 15м точки.
+ * @param forTestEntry true — кнопки «Тестовая пара»: принудительный хвост MOEX + текущий 15м слот.
+ */
 internal suspend fun loadCurrentPortfolioMarketSnapshot(
     context: Context,
-    forceNetworkRefresh: Boolean = true
+    forceNetworkRefresh: Boolean = true,
+    forTestEntry: Boolean = false,
 ): PortfolioMarketBarSnapshot {
     val app = context.applicationContext
-    val mode = if (forceNetworkRefresh) PortfolioM15LoadMode.INCREMENTAL else PortfolioM15LoadMode.CACHE_ONLY
-    val points = loadPortfolio15mPointsForSignalMonitor(app, mode)
+    val points = when {
+        forTestEntry -> loadPortfolio15mPointsForTestEntry(app)
+        forceNetworkRefresh -> loadZStrategySignalSeries(app, PortfolioM15LoadMode.INCREMENTAL)
+        else -> loadZStrategySignalSeries(app, PortfolioM15LoadMode.CACHE_ONLY)
+    }
     val last = points.lastOrNull()
     return if (last != null) {
         PortfolioMarketBarSnapshot(
@@ -48,7 +55,7 @@ internal suspend fun resolveSpreadPercentAtBar(
     barTimestampMillis: Long,
     fallback: Double = 0.0
 ): Double {
-    val points = loadPortfolio15mPointsForSignalMonitor(context, PortfolioM15LoadMode.CACHE_ONLY)
+    val points = loadZStrategySignalSeries(context, PortfolioM15LoadMode.CACHE_ONLY)
     if (points.isEmpty()) return fallback
     return points.minByOrNull { abs(it.timestampMillis - barTimestampMillis) }?.spreadPercent ?: fallback
 }

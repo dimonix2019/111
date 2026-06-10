@@ -201,7 +201,15 @@ internal enum class SandboxExecUiState {
 internal enum class MarketsDataSource(val labelRu: String) {
     Network("MOEX (сеть)"),
     FifteenMinuteCache("Кэш 15м"),
-    OfflineStale("Не актуально (последний снимок)")
+    OfflineStale("Не актуально (последний снимок)");
+
+    /** Короткая подпись в сводке «Рынок». */
+    val summaryLabelRu: String
+        get() = when (this) {
+            Network -> "MOEX"
+            FifteenMinuteCache -> "кэш"
+            OfflineStale -> "снимок"
+        }
 }
 
 internal data class PortfolioPreset(

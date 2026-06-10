@@ -5,7 +5,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val messageReceivedAtFormatter: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Europe/Moscow"))
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.of("Europe/Moscow"))
 
 private const val RECEIVED_PREFIX = "Получено: "
 

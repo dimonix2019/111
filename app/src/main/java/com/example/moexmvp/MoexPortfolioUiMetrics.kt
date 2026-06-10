@@ -48,7 +48,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
@@ -60,7 +63,8 @@ internal fun DailyReconciliationSection(rec: DailyPortfolioReconciliation) {
     val dayStr = rec.day.toString()
     PortfolioCollapsibleSection(
         title = "Сверка за день ($dayStr, МСК)",
-        subtitle = "журнал ${rec.journalEnters} вх. / ${rec.journalExits} вых. · подтв. ${rec.confirmedClosedOnDay} · тест ${rec.simClosedOnDay}",
+        subtitle = "откр. ${dirRuShort(rec.journalPositionAtDayOpen)}/${dirRuShort(rec.simPositionAtDayOpen)} · " +
+            "журнал ${rec.journalEnters} вх./${rec.journalExits} вых. · подтв. ${rec.confirmedClosedOnDay} · тест ${rec.simClosedOnDay}",
         defaultExpanded = true
     ) {
         Text(
@@ -313,7 +317,7 @@ internal fun PortfolioParamsControls(
     }
 }
 @Composable
-internal fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
+internal fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade, showTradeDuration: Boolean = false) {
     val dir = when (t.direction) {
         ZStrategyPosition.Long -> "LONG"
         ZStrategyPosition.Short -> "SHORT"
@@ -351,6 +355,25 @@ internal fun PortfolioTradeRow(index: Int, t: PortfolioClosedTrade) {
                     fontSize = 8.sp
                 )
             }
+        }
+        if (showTradeDuration) {
+            val durationLabel = formatSimTradeDurationLabel(t.entryDate, t.exitDate)
+            val durationValueColor = when {
+                isSimTradeDurationUnderDay(t.entryDate, t.exitDate) -> Color(0xFF81C784)
+                isSimTradeDurationOverDay(t.entryDate, t.exitDate) -> Color(0xFFE57373)
+                else -> Color(0xFF9E9E9E)
+            }
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(color = Color(0xFF9E9E9E))) {
+                        append("Длительность сделки: ")
+                    }
+                    withStyle(SpanStyle(color = durationValueColor)) {
+                        append(durationLabel)
+                    }
+                },
+                fontSize = 10.sp
+            )
         }
         Text(
             text = "валовый ${formatRubSigned(t.grossPnlRubApprox)} · комис. ${formatRubExpense(t.commissionRubApprox)} · оверн. ${formatRubExpense(t.overnightRubApprox)}",

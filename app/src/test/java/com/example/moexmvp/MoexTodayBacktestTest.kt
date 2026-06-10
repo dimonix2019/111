@@ -14,6 +14,7 @@ import kotlin.math.roundToInt
  *
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexTodayBacktest_tatnTatnp_threshold08_07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexTodayBacktest_thresholdSweep_today`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_thresholdGapSweep_0_2_5`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_noSignalDayStreaks_threshold08_07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_compare_threshold08_07_vs_08_05_notional50k`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_vs_single100k`
@@ -22,6 +23,7 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_peakTrail_grid`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_report_clearing`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_add_depth_grid`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_normalized_on_capital`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pyramid_depth_gt1`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_zMovementAnalytics`
  */
@@ -389,6 +391,59 @@ class MoexTodayBacktestTest {
     }
 
     @Test
+    fun moexBacktest_255d_pyramid_normalized_on_capital() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val base100 = runBacktest(points, THRESH_08_07, BACKTEST_NOTIONAL_100K_RUB)!!
+        val pyr50 = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = BACKTEST_NOTIONAL_100K_RUB,
+            simOptions = ZStrategySimOptions(
+                pyramidAddNotionalRub = 50_000.0,
+                pyramidZDepth = 1.0
+            )
+        )!!
+        val pyr100 = runBacktest(
+            points = points,
+            thresholds = THRESH_08_07,
+            notionalRub = BACKTEST_NOTIONAL_100K_RUB,
+            simOptions = ZStrategySimOptions(
+                pyramidAddNotionalRub = 100_000.0,
+                pyramidZDepth = 1.0
+            )
+        )!!
+        val flat150 = runBacktest(points, THRESH_08_07, 150_000.0)!!
+        val flat200 = runBacktest(points, THRESH_08_07, 200_000.0)!!
+
+        println("=== MOEX 255д: пирамидинг vs «просто больше номинал» (нормализация на капитал) ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
+        println("Пороги 0.8/0.7 · x1 · комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона")
+        println()
+        printPyramidCapitalCompareHeader()
+        printPyramidCapitalCompareRow("100k база", base100, initialCapitalRub = 100_000.0, peakCapitalRub = 100_000.0)
+        printPyramidCapitalCompareRow(
+            "100k + пир. +50k @ |Z|≥1",
+            pyr50,
+            initialCapitalRub = 100_000.0,
+            peakCapitalRub = 150_000.0
+        )
+        printPyramidCapitalCompareRow(
+            "100k + пир. +100k @ |Z|≥1",
+            pyr100,
+            initialCapitalRub = 100_000.0,
+            peakCapitalRub = 200_000.0
+        )
+        printPyramidCapitalCompareRow("150k без пирамиды", flat150, initialCapitalRub = 150_000.0, peakCapitalRub = 150_000.0)
+        printPyramidCapitalCompareRow("200k без пирамиды", flat200, initialCapitalRub = 200_000.0, peakCapitalRub = 200_000.0)
+        println()
+        println("Δ доходность на пиковый капитал (пир.+50k − flat 150k): " +
+            fmtPct(returnOnCapitalPercent(pyr50, 150_000.0) - returnOnCapitalPercent(flat150, 150_000.0)) + " п.п.")
+        println("Δ доходность на пиковый капитал (пир.+100k − flat 200k): " +
+            fmtPct(returnOnCapitalPercent(pyr100, 200_000.0) - returnOnCapitalPercent(flat200, 200_000.0)) + " п.п.")
+        assertTrue(base100.closedTrades.isNotEmpty())
+    }
+
+    @Test
     fun moexBacktest_255d_zMovementAnalytics() = runBlocking {
         val (_, points) = loadTatn15mPoints()
         val entry = THRESH_08_07.entry
@@ -699,6 +754,33 @@ class MoexTodayBacktestTest {
         println("Комбинаций с активностью сегодня (вход/выход/закрытие): $combosWithActivity")
     }
 
+    @Test
+    fun moexBacktest_255d_thresholdGapSweep_0_2_5() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val steps = thresholdSweepSteps(max = 2.5)
+        val cells = mutableListOf<ThresholdSweepCell>()
+        for (entry in steps) {
+            for (exit in steps) {
+                if (exit >= entry) continue
+                val m = runBacktest(
+                    points = points,
+                    thresholds = DynamicThresholds(entry, exit, null),
+                    notionalRub = BACKTEST_NOTIONAL_100K_RUB,
+                    leverage = BACKTEST_LEVERAGE_X7,
+                    commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE,
+                ) ?: continue
+                cells += ThresholdSweepCell(entry, exit, m)
+            }
+        }
+        assertTrue("Нет результатов сетки", cells.isNotEmpty())
+        printThresholdGapSweepReport(
+            title = "MOEX ISS 255д — сетка порогов 0…2.5",
+            rangeLabel = "${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)",
+            paramsLabel = "100k ₽, x7, комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона, Z rolling 30д",
+            cells = cells,
+        )
+    }
+
     private fun runBacktest(
         points: List<DataPoint>,
         thresholds: DynamicThresholds,
@@ -797,6 +879,56 @@ class MoexTodayBacktestTest {
         val metrics: PortfolioMetrics
     )
 
+    private fun returnOnCapitalPercent(m: PortfolioMetrics, capitalRub: Double): Double =
+        if (capitalRub > 0) m.totalPnlRubApprox / capitalRub * 100.0 else 0.0
+
+    private fun printPyramidCapitalCompareHeader() {
+        println(
+            String.format(
+                Locale.US,
+                "%-26s | %5s | %10s | %8s | %8s | %8s | %8s | %7s",
+                "вариант",
+                "сделок",
+                "PnL ₽",
+                "ret 100k",
+                "ret peak",
+                "DD/100k",
+                "DD/peak",
+                "PnL/DD"
+            )
+        )
+        println("-".repeat(98))
+    }
+
+    private fun printPyramidCapitalCompareRow(
+        label: String,
+        m: PortfolioMetrics,
+        initialCapitalRub: Double,
+        peakCapitalRub: Double,
+    ) {
+        val retInitial = returnOnCapitalPercent(m, initialCapitalRub)
+        val retPeak = returnOnCapitalPercent(m, peakCapitalRub)
+        val ddInitialPct = if (initialCapitalRub > 0) m.maxDrawdownRubApprox / initialCapitalRub * 100.0 else 0.0
+        val ddPeakPct = if (peakCapitalRub > 0) m.maxDrawdownRubApprox / peakCapitalRub * 100.0 else 0.0
+        val pnlPerDd = if (m.maxDrawdownRubApprox > 0) m.totalPnlRubApprox / m.maxDrawdownRubApprox else 0.0
+        println(
+            String.format(
+                Locale.US,
+                "%-26s | %5d | %10.0f | %7.2f%% | %7.2f%% | %6.1f%% | %6.1f%% | %7.2f",
+                label,
+                m.closedTrades.size,
+                m.totalPnlRubApprox,
+                retInitial,
+                retPeak,
+                ddInitialPct,
+                ddPeakPct,
+                pnlPerDd
+            )
+        )
+    }
+
+    private fun fmtPct(v: Double): String = String.format(Locale.US, "%+.2f", v)
+
     private fun printPyramidGridTopHeader() {
         println(
             String.format(
@@ -889,14 +1021,77 @@ class MoexTodayBacktestTest {
             compoundReturns = false
         )
 
-    private fun thresholdSweepSteps(): List<Double> {
+    private fun thresholdSweepSteps(max: Double = SWEEP_MAX): List<Double> {
         val steps = mutableListOf<Double>()
-        var v = SWEEP_STEP
-        while (v <= SWEEP_MAX + 1e-9) {
+        var v = 0.0
+        while (v <= max + 1e-9) {
             steps += (v * 10).roundToInt() / 10.0
             v += SWEEP_STEP
         }
         return steps
+    }
+
+    private data class ThresholdSweepCell(
+        val entry: Double,
+        val exit: Double,
+        val metrics: PortfolioMetrics,
+    ) {
+        val gap: Double = ((entry - exit) * 10).roundToInt() / 10.0
+        val pnl: Double get() = metrics.totalPnlRubApprox
+        val trades: Int get() = metrics.closedTrades.size
+        val maxDd: Double get() = metrics.maxDrawdownRubApprox
+    }
+
+    private fun printThresholdGapSweepReport(
+        title: String,
+        rangeLabel: String,
+        paramsLabel: String,
+        cells: List<ThresholdSweepCell>,
+    ) {
+        println("=== $title ===")
+        println(rangeLabel)
+        println(paramsLabel)
+        println("Валидных комбинаций (exit < entry): ${cells.size}")
+        val best = cells.maxByOrNull { it.pnl }!!
+        println()
+        println("BEST OVERALL: вход ±${fmt(best.entry)} / выход ±${fmt(best.exit)} Δ=${fmt(best.gap)}")
+        println(
+            "  PnL ${fmt(best.pnl)} ₽, сделок ${best.trades}, max DD ${fmt(best.maxDd)} ₽"
+        )
+        val baseline = cells.find { kotlin.math.abs(it.entry - 0.8) < 0.01 && kotlin.math.abs(it.exit - 0.7) < 0.01 }
+        baseline?.let {
+            println(
+                "  baseline 0.8/0.7: PnL ${fmt(it.pnl)} ₽, сделок ${it.trades}"
+            )
+        }
+        println()
+        println("BEST PER GAP (вход − выход):")
+        println(String.format(Locale.US, "%4s %5s %5s %12s %7s %10s", "Δ", "вход", "выход", "PnL ₽", "сделок", "DD ₽"))
+        cells.groupBy { it.gap }
+            .toSortedMap()
+            .forEach { (gap, group) ->
+                val row = group.maxByOrNull { it.pnl }!!
+                println(
+                    String.format(
+                        Locale.US,
+                        "%4s %5s %5s %12s %7d %10s",
+                        fmt(gap),
+                        fmt(row.entry),
+                        fmt(row.exit),
+                        fmt(row.pnl),
+                        row.trades,
+                        fmt(row.maxDd),
+                    )
+                )
+            }
+        println()
+        println("TOP 10:")
+        cells.sortedByDescending { it.pnl }.take(10).forEach { c ->
+            println(
+                "  ±${fmt(c.entry)}/±${fmt(c.exit)} Δ=${fmt(c.gap)} → ${fmt(c.pnl)} ₽ " +
+                    "(${c.trades} сд., DD ${fmt(c.maxDd)})"
+            )
+        }
     }
 
     private fun todaySweepRow(

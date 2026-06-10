@@ -38,11 +38,9 @@ internal fun MarketsSummaryStrip(
     position: ZStrategyPosition,
     signalsToday: Int,
     signalsMax: Int,
-    todayPnlSpreadHint: String?,
     lastLoadedAt: String?,
     dataSource: MarketsDataSource,
     stale: Boolean,
-    sandboxDemoHint: String?,
     onMoexRefresh: () -> Unit
 ) {
     Column(
@@ -52,7 +50,6 @@ internal fun MarketsSummaryStrip(
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        AppVersionBriefCard(tabHint = "Период 1D/1W/… — загрузка дневного ряда MOEX для вкладки «Рынок».")
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -71,16 +68,12 @@ internal fun MarketsSummaryStrip(
                 }
             }
         }
-        if (sandboxDemoHint != null) {
-            Text(
-                text = sandboxDemoHint,
-                color = Color(0xFF81D4FA),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
         Text(
-            text = "Z: ${z?.let { String.format(Locale.US, "%.2f", it) } ?: "—"}   |   Спред: ${spread?.let { String.format(Locale.US, "%.2f%%", it) } ?: "—"}",
+            text = buildString {
+                append("Z: ${z?.let { String.format(Locale.US, "%.2f", it) } ?: "—"}")
+                append("  |  Спред: ${spread?.let { String.format(Locale.US, "%.2f%%", it) } ?: "—"}")
+                append("  |  ${dataSource.summaryLabelRu} ${formatMarketsLoadedAtShort(lastLoadedAt)}")
+            },
             color = Color(0xFFE0E0E0),
             fontSize = 13.sp
         )
@@ -93,18 +86,6 @@ internal fun MarketsSummaryStrip(
             text = "Сигналы сегодня: $signalsToday / $signalsMax",
             color = Color(0xFFFFCC80),
             fontSize = 12.sp
-        )
-        if (todayPnlSpreadHint != null) {
-            Text(
-                text = "Оценка PnL сегодня (журнал): $todayPnlSpreadHint",
-                color = Color(0xFFCE93D8),
-                fontSize = 12.sp
-            )
-        }
-        Text(
-            text = "Данные: ${dataSource.labelRu} · $lastLoadedAt",
-            color = Color(0xFF9E9E9E),
-            fontSize = 11.sp
         )
         if (stale) {
             Text(

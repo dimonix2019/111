@@ -53,6 +53,21 @@ class MoexPortfolioExecLedgerTest {
     }
 
     @Test
+    fun journalEventsForExecutionPortfolioTab_journalPairsDespiteUnrelatedLedger() {
+        val ledger = listOf(
+            PortfolioExecutionLedgerEntry(9_999L, StrategySignalType.EnterLong, PortfolioExecSource.AUTO)
+        )
+        val events = listOf(
+            StrategySignalEvent(1_000L, StrategySignalType.EnterShort, 1.14, 1_000L),
+            StrategySignalEvent(3_000L, StrategySignalType.ExitShort, 0.28, 3_000L)
+        )
+        val filtered = journalEventsForExecutionPortfolioTab(events, ledger, portfolioLedgerIncludeAuto = true)
+        assertEquals(2, filtered.size)
+        assertEquals(StrategySignalType.EnterShort, filtered[0].signalType)
+        assertEquals(StrategySignalType.ExitShort, filtered[1].signalType)
+    }
+
+    @Test
     fun filterSandboxExecutions_showsTestTradesInAutoMode() {
         val testExec = SandboxSpreadExecUi(
             tradeId = "D-001",
@@ -120,9 +135,43 @@ class MoexPortfolioExecLedgerTest {
         val rows = listOf(
             row("ручное · тест"),
             row("ручное"),
-            row("авто")
+            row("авто"),
+            row("сигнал"),
         )
         val autoMode = filterConfirmedTableRowsByPortfolioMode(rows, portfolioLedgerIncludeAuto = true)
-        assertEquals(setOf("ручное · тест", "авто"), autoMode.map { it.confirmLabel }.toSet())
+        assertEquals(setOf("ручное · тест", "авто", "сигнал"), autoMode.map { it.confirmLabel }.toSet())
+
+        val manualMode = filterConfirmedTableRowsByPortfolioMode(rows, portfolioLedgerIncludeAuto = false)
+        assertEquals(setOf("ручное · тест", "ручное", "сигнал"), manualMode.map { it.confirmLabel }.toSet())
+    }
+
+    @Test
+    fun journalEventsForChartTrades_matchesPortfolioJournalPairs() {
+        val ledger = listOf(
+            PortfolioExecutionLedgerEntry(9_999L, StrategySignalType.EnterLong, PortfolioExecSource.AUTO)
+        )
+        val events = listOf(
+            StrategySignalEvent(1_000L, StrategySignalType.EnterShort, 1.14, 1_000L),
+            StrategySignalEvent(3_000L, StrategySignalType.ExitShort, 0.28, 3_000L),
+            StrategySignalEvent(5_000L, StrategySignalType.EnterShort, 0.85, 5_000L),
+        )
+        val chart = journalEventsForChartTrades(events, ledger)
+        val portfolio = journalEventsForExecutionPortfolioTab(events, ledger, portfolioLedgerIncludeAuto = true)
+        assertEquals(portfolio, chart)
+        assertEquals(3, chart.size)
+    }
+
+    @Test
+    fun portfolioTradeSourceTypeLetter_mapsConfirmLabelToSingleLetter() {
+        assertEquals("Р", portfolioTradeSourceTypeLetter("ручное"))
+        assertEquals("Р", portfolioTradeSourceTypeLetter("ручное · тест"))
+        assertEquals("А", portfolioTradeSourceTypeLetter("авто"))
+        assertEquals("—", portfolioTradeSourceTypeLetter(""))
+    }
+
+    @Test
+    fun portfolioTradeChartBadgeText_combinesNumberAndType() {
+        assertEquals("3А", portfolioTradeChartBadgeText("3 long", "авто"))
+        assertEquals("2Р", portfolioTradeChartBadgeText("2 short", "ручное"))
     }
 }

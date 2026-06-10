@@ -2,10 +2,12 @@ package com.example.moexmvp
 
 import android.content.res.Configuration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -25,6 +27,19 @@ internal fun MoexScreen() {
     val context = LocalContext.current
     val screen = remember(context) { MoexScreenState(context) }
     val scope = rememberCoroutineScope()
+
+    DisposableEffect(screen) {
+        MoexMemoryPressure.registerTrimHandler { level ->
+            screen.trimMemoryCaches(level)
+            MoexDiagnostics.log(
+                context,
+                "mem",
+                "trimCaches level=$level tab=${screen.selectedTab.label} usedAfter=${Runtime.getRuntime().let { (it.totalMemory() - it.freeMemory()) / (1024 * 1024) }}MB",
+            )
+        }
+        onDispose { MoexMemoryPressure.unregisterTrimHandler() }
+    }
+
     val configuration = LocalConfiguration.current
     val landscapeZChartFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
@@ -154,31 +169,23 @@ internal fun MoexScreen() {
 
     MoexScreenDialogs(screen, scope)
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .padding(if (landscapeZChartFullscreen) 0.dp else 12.dp)
     ) {
-        if (!landscapeZChartFullscreen) {
-            if (screen.isDataLoadActive) {
-                DataLoadProgressCard(
-                    progress = screen.dataLoadProgress ?: DataLoadProgress(
-                        phase = DataLoadPhase.CacheRead,
-                        detail = "подготовка…",
-                    ),
-                    modifier = Modifier.padding(bottom = 8.dp),
+        Column(Modifier.fillMaxSize()) {
+            if (!landscapeZChartFullscreen) {
+                MainTabSelector(
+                    selected = screen.selectedTab,
+                    onSelect = { screen.selectedTab = it }
                 )
+                if (!screen.sandboxSpreadAutoExecute) {
+                    MoexScreenVirtualTradeCard(screen, scope, Modifier.padding(top = 6.dp))
+                }
             }
-            MainTabSelector(
-                selected = screen.selectedTab,
-                onSelect = { screen.selectedTab = it }
-            )
-            if (!screen.sandboxSpreadAutoExecute) {
-                MoexScreenVirtualTradeCard(screen, scope, Modifier.padding(top = 6.dp))
-            }
-        }
-        when (screen.selectedTab) {
+            when (screen.selectedTab) {
             MainTab.Journal -> MoexScreenTabJournal(screen, scope, Modifier.weight(1f).fillMaxSize())
             MainTab.About -> MoexScreenTabAbout(screen, scope, Modifier.weight(1f).fillMaxSize())
             MainTab.Sandbox -> MoexScreenTabSandbox(screen, scope, Modifier.weight(1f).fillMaxSize())
@@ -204,13 +211,14 @@ internal fun MoexScreen() {
                 landscapeZChartFullscreen = landscapeZChartFullscreen,
                 chartSuccess = chartSuccess,
                 staleMarkets = staleMarkets,
+                marketsM15SourcePoints = marketsM15SimPoints,
                 marketsM15ChartPoints = marketsM15ChartPoints,
                 marketsZScoreCandles = marketsZScoreCandles,
                 marketsChartThresholds = marketsChartThresholds,
                 marketsZStrategyTapMetrics = screen.marketsZStrategyTapMetrics,
                 dataSourceLabel = dataSourceLabel,
-                todayPnlHint = screen.todayPnlHint
             )
+            }
         }
     }
 }

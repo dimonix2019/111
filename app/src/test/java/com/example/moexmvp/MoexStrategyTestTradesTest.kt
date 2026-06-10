@@ -40,4 +40,89 @@ class MoexStrategyTestTradesTest {
         }
         assertEquals(20, buildStrategyTestTradeListFromSimulation(trades).size)
     }
+
+    @Test
+    fun formatSimTradeDurationLabel_formatsMinutesHoursAndDays() {
+        assertEquals("2 ч", formatSimTradeDurationLabel("2026-05-01 10:00", "2026-05-01 12:00"))
+        assertEquals("30 мин", formatSimTradeDurationLabel("2026-05-01 10:00", "2026-05-01 10:30"))
+        assertEquals("2 дн. 4 ч", formatSimTradeDurationLabel("2026-05-01 10:00", "2026-05-03 14:00"))
+        assertEquals("—", formatSimTradeDurationLabel("", "2026-05-01 12:00"))
+    }
+
+    @Test
+    fun isSimTradeDurationOverDay_trueFromTwentyFourHoursAndAbove() {
+        assertEquals(false, isSimTradeDurationOverDay("2026-05-01 10:00", "2026-05-01 12:00"))
+        assertEquals(true, isSimTradeDurationOverDay("2026-05-01 10:00", "2026-05-02 10:00"))
+        assertEquals(true, isSimTradeDurationOverDay("2026-05-01 10:00", "2026-05-02 10:01"))
+        assertEquals(true, isSimTradeDurationOverDay("2026-05-01 10:00", "2026-05-03 14:00"))
+    }
+
+    @Test
+    fun isSimTradeDurationUnderDay_trueOnlyWhenStrictlyUnderTwentyFourHours() {
+        assertEquals(true, isSimTradeDurationUnderDay("2026-05-01 10:00", "2026-05-01 12:00"))
+        assertEquals(true, isSimTradeDurationUnderDay("2026-05-01 10:00", "2026-05-01 23:59"))
+        assertEquals(false, isSimTradeDurationUnderDay("2026-05-01 10:00", "2026-05-02 10:00"))
+        assertEquals(false, isSimTradeDurationUnderDay("2026-05-01 10:00", "2026-05-03 14:00"))
+    }
+
+    @Test
+    fun strategyTestTradesTableColumn_defaultVisibleIncludesAllColumns() {
+        assertEquals(StrategyTestTradesTableColumn.entries.size, StrategyTestTradesTableColumn.defaultVisible.size)
+    }
+
+    @Test
+    fun decodeStrategyTestTradesTableVisibleColumns_roundTripsSubset() {
+        val subset = setOf(
+            StrategyTestTradesTableColumn.Index,
+            StrategyTestTradesTableColumn.Duration,
+            StrategyTestTradesTableColumn.Net,
+        )
+        val encoded = encodeStrategyTestTradesTableVisibleColumns(subset)
+        assertEquals(subset, decodeStrategyTestTradesTableVisibleColumns(encoded))
+    }
+
+    @Test
+    fun decodeStrategyTestTradesTableVisibleColumns_fallsBackWhenEmptyOrUnknown() {
+        assertEquals(
+            StrategyTestTradesTableColumn.defaultVisible,
+            decodeStrategyTestTradesTableVisibleColumns(null),
+        )
+        assertEquals(
+            StrategyTestTradesTableColumn.defaultVisible,
+            decodeStrategyTestTradesTableVisibleColumns("NotAColumn,AlsoBad"),
+        )
+    }
+
+    @Test
+    fun simTradeDurationTone_mapsShortAndLongBuckets() {
+        assertEquals(SimTradeDurationTone.Short, simTradeDurationTone("2026-05-01 10:00", "2026-05-01 12:00"))
+        assertEquals(SimTradeDurationTone.Long, simTradeDurationTone("2026-05-01 10:00", "2026-05-02 10:00"))
+    }
+
+    @Test
+    fun buildStrategyTestDurationSummary_groupsTradesByDuration() {
+        fun trade(entry: String, exit: String, pnl: Double) = PortfolioClosedTrade(
+            direction = ZStrategyPosition.Long,
+            entryDate = entry,
+            exitDate = exit,
+            entrySpreadPercent = 1.0,
+            exitSpreadPercent = 1.1,
+            pnlSpreadPoints = 0.1,
+            grossPnlRubApprox = pnl,
+            pnlRubApprox = pnl,
+        )
+        val trades = listOf(
+            trade("2026-05-01 10:00", "2026-05-01 12:00", 100.0),
+            trade("2026-05-01 10:00", "2026-05-02 09:00", 50.0),
+            trade("2026-05-01 10:00", "2026-05-04 10:00", -200.0),
+        )
+        val summary = buildStrategyTestDurationSummary(trades)!!
+        assertEquals(2, summary.short.tradeCount)
+        assertEquals(1, summary.long.tradeCount)
+        assertEquals(100.0, summary.short.winPercent, 0.01)
+        assertEquals(0.0, summary.long.winPercent, 0.01)
+        assertEquals(150.0, summary.short.totalPnlRub, 0.01)
+        assertEquals(-200.0, summary.long.totalPnlRub, 0.01)
+        assertEquals("< 1 дн.", summary.detailBuckets.first().title)
+    }
 }
