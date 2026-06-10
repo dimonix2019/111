@@ -349,7 +349,13 @@ internal suspend fun loadPortfolio15mDataPoints(
                 detail = "расчёт Z-score",
             )
         )
-        applyZScoresDefault(rows.map { it.toDataPoint() })
+        val points = ArrayList<DataPoint>(rows.size)
+        for (entity in rows) {
+            points.add(entity.toDataPoint())
+        }
+        applyZScoresDefaultInPlace(points)
+        onProgress?.invoke(DataLoadProgress.idle())
+        points
     }
 }
 

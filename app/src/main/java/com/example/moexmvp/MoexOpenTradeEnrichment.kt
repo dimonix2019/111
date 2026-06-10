@@ -90,6 +90,7 @@ internal fun enrichSandboxExecutionsIfNeeded(
 
 internal suspend fun MoexScreenState.resolveEnrichmentPoints(): List<DataPoint> {
     if (portfolioM15Points.isNotEmpty()) return portfolioM15Points
+    if (strategyTestM15SessionCache.sufficientForZSimulation()) return strategyTestM15SessionCache
     if (marketsM15Source().isNotEmpty()) return marketsM15Source()
     val cached = withContext(Dispatchers.IO) {
         loadZStrategySignalSeries(context, PortfolioM15LoadMode.CACHE_ONLY)

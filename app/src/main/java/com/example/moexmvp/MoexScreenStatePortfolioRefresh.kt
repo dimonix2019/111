@@ -9,12 +9,163 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.util.Locale
 
-internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: PortfolioM15LoadMode? = null) {
+/** Пересборка таблицы/метрик портфеля из уже загруженного in-memory 15м ряда (без SQLite). */
+internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(points: List<DataPoint>) {
+    if (points.size < 2) return
+    val desc =
+        "15 мин (ISS 10m→15m) · ${portfolioLookbackPeriodLabel(portfolioLookbackDays)} (${points.first().tradeDate}…${points.last().tradeDate})"
+
+    val entryRt = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val exitRt = (realTradeExitThreshold ?: dynamicThresholds.exit)
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    if (realTradeEntryThreshold == null) realTradeEntryThreshold = entryRt
+    if (realTradeExitThreshold == null) realTradeExitThreshold = exitRt
+
+    val entrySt = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val exitSt = (strategyTestExitThreshold ?: dynamicThresholds.exit)
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    if (strategyTestEntryThreshold == null) strategyTestEntryThreshold = entrySt
+    if (strategyTestExitThreshold == null) strategyTestExitThreshold = exitSt
+
+    val eventsAll = loadStrategySignalEvents(
+        context = context,
+        fromTimestampMillis = points.firstOrNull()?.timestampMillis,
+    )
+    val ledger = loadPortfolioExecutionLedger(context)
+    val ledgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
+    val filteredEvents = journalEventsForExecutionPortfolioTab(
+        allEvents = eventsAll,
+        ledger = ledger,
+        portfolioLedgerIncludeAuto = ledgerIncludeAuto,
+    )
+    val pushLog = withContext(Dispatchers.IO) { loadPushNotificationLog(context) }
+    val executed = withContext(Dispatchers.Default) {
+        buildExecutedPortfolioWithTable(
+            points = points,
+            events = filteredEvents,
+            ledger = ledger,
+            pushLog = pushLog,
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = portfolioLeverage,
+            commissionPercentPerSide = portfolioCommissionPercent,
+            periodDescription = desc,
+        )
+    }
+    confirmedPortfolioMetrics = buildPortfolioTabSimulationMetricsForDisplay(
+        entryThreshold = entryRt,
+        exitThreshold = exitRt,
+        dynamicCalculatedDate = dynamicThresholds.calculatedDate,
+        leverage = portfolioLeverage,
+        commissionPercentPerSide = portfolioCommissionPercent,
+    ) ?: executed.metrics
+    val sandboxRaw = withContext(Dispatchers.IO) {
+        TinkoffSandboxSpreadExecLog.loadRecent(context)
+    }
+    val (closedFromOpens, opensAfterJournalClose) = withContext(Dispatchers.Default) {
+        buildClosedRowsFromSandboxOpensAndJournalExits(
+            openExecutions = sandboxRaw,
+            allJournalEvents = eventsAll,
+            points = points,
+            ledger = ledger,
+            pushLog = pushLog,
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = portfolioLeverage,
+            commissionPercentPerSide = portfolioCommissionPercent,
+            portfolioLedgerIncludeAuto = ledgerIncludeAuto,
+        )
+    }
+    val mergedClosed = mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens)
+    confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
+        mergedClosed,
+        ledgerIncludeAuto,
+    )
+    sandboxSpreadExecutions = withContext(Dispatchers.IO) {
+        val modeFiltered = filterSandboxExecutionsByPortfolioMode(
+            opensAfterJournalClose,
+            ledgerIncludeAuto,
+        )
+        TinkoffSandboxSpreadExecLog.enrichForDisplay(
+            context = context,
+            executions = modeFiltered,
+            points = points,
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = portfolioLeverage,
+            commissionPercentPerSide = portfolioCommissionPercent,
+            journalEvents = eventsAll,
+        )
+    }
+    portfolioError = if (portfolio15mSeriesTailStale(points)) {
+        val todayMsk = LocalDate.now(moexZoneId)
+        "15м ряд обрывается на ${points.last().tradeDate} (сегодня МСК $todayMsk, нужны свежие бары с MOEX). " +
+            "Нажмите «Обновить» или «MOEX заново» при сети."
+    } else {
+        null
+    }
+    portfolioTabUiBuiltKey = portfolioTabUiSessionKey()
+}
+
+/**
+ * Открытие вкладки «Портфель»: in-memory → rebuild; SQLite только если ряда нет;
+ * MOEX INCREMENTAL — только если хвост устарел.
+ */
+internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
+    val uiKey = portfolioTabUiSessionKey()
+    if (portfolioTabUiBuiltKey == uiKey && portfolioM15Points.size >= 2) {
+        if (portfolio15mSeriesTailStale(portfolioM15Points)) {
+            refreshPortfolioM15TailSilent()
+        }
+        return
+    }
+
+    val memoryOk = portfolioM15Points.size >= 2 &&
+        m15PointsCoverPortfolioLookback(portfolioM15Points, portfolioLookbackDays)
+
+    if (memoryOk && !portfolio15mSeriesTailStale(portfolioM15Points)) {
+        rebuildPortfolioUiFromPoints(portfolioM15Points)
+        return
+    }
+
+    if (memoryOk) {
+        refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL, trackProgress = false)
+        return
+    }
+
+    val mode = PortfolioM15LoadMode.CACHE_ONLY
+    refreshPortfolio(mode, trackProgress = false)
+}
+
+/** Фоновая догрузка хвоста 15м для портфеля без progress overlay. */
+internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
+    refreshMutex.withLock {
+        if (portfolioM15Points.size < 2 || !portfolio15mSeriesTailStale(portfolioM15Points)) return@withLock
+        portfolioLoading = true
+        try {
+            val loaded = loadM15SeriesForPortfolio(
+                PortfolioM15LoadMode.INCREMENTAL,
+                trackProgress = false,
+            )
+            if (loaded.size >= 2) {
+                portfolioM15Points = loaded
+                if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
+                rebuildPortfolioUiFromPoints(loaded)
+            }
+        } finally {
+            portfolioLoading = false
+        }
+    }
+}
+
+internal suspend fun MoexScreenState.refreshPortfolioUnlocked(
+    m15LoadHint: PortfolioM15LoadMode? = null,
+    trackProgress: Boolean = shouldTrackDataLoadProgress(),
+) {
         portfolioLoading = true
         portfolioError = null
         try {
             val m15Mode = m15LoadHint ?: resolvePortfolioM15LoadMode(context)
-            val loaded = loadM15SeriesForPortfolio(m15Mode)
+            val loaded = loadM15SeriesForPortfolio(m15Mode, trackProgress = trackProgress)
             if (loaded.size < 2) {
                 confirmedPortfolioMetrics = null
                 confirmedPortfolioTableRows = emptyList()
@@ -29,110 +180,23 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(m15LoadHint: Portf
                     if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
                 }
                 syncSandboxExecutionsEnrichment()
+                portfolioTabUiBuiltKey = 0L
                 return@refreshPortfolioUnlocked
             }
-            val points = loaded
-            portfolioM15Points = points
+            portfolioM15Points = loaded
             if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
-            val desc =
-                "15 мин (ISS 10m→15m) · ${portfolioLookbackPeriodLabel(portfolioLookbackDays)} (${points.first().tradeDate}…${points.last().tradeDate})"
-
-            val entryRt = (realTradeEntryThreshold ?: dynamicThresholds.entry)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-            val exitRt = (realTradeExitThreshold ?: dynamicThresholds.exit)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-            if (realTradeEntryThreshold == null) realTradeEntryThreshold = entryRt
-            if (realTradeExitThreshold == null) realTradeExitThreshold = exitRt
-
-            val entrySt = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-            val exitSt = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-            if (strategyTestEntryThreshold == null) strategyTestEntryThreshold = entrySt
-            if (strategyTestExitThreshold == null) strategyTestExitThreshold = exitSt
-
-            val eventsAll = loadStrategySignalEvents(
-                context = context,
-                fromTimestampMillis = points.firstOrNull()?.timestampMillis
-            )
-            val ledger = loadPortfolioExecutionLedger(context)
-            val ledgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
-            val filteredEvents = journalEventsForExecutionPortfolioTab(
-                allEvents = eventsAll,
-                ledger = ledger,
-                portfolioLedgerIncludeAuto = ledgerIncludeAuto
-            )
-            val pushLog = withContext(Dispatchers.IO) { loadPushNotificationLog(context) }
-            val executed = withContext(Dispatchers.Default) {
-                buildExecutedPortfolioWithTable(
-                    points = points,
-                    events = filteredEvents,
-                    ledger = ledger,
-                    pushLog = pushLog,
-                    notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                    leverage = portfolioLeverage,
-                    commissionPercentPerSide = portfolioCommissionPercent,
-                    periodDescription = desc
-                )
-            }
-            confirmedPortfolioMetrics = buildPortfolioTabSimulationMetricsForDisplay(
-                entryThreshold = entryRt,
-                exitThreshold = exitRt,
-                dynamicCalculatedDate = dynamicThresholds.calculatedDate,
-                leverage = portfolioLeverage,
-                commissionPercentPerSide = portfolioCommissionPercent,
-            ) ?: executed.metrics
-            val sandboxRaw = withContext(Dispatchers.IO) {
-                TinkoffSandboxSpreadExecLog.loadRecent(context)
-            }
-            val (closedFromOpens, opensAfterJournalClose) = withContext(Dispatchers.Default) {
-                buildClosedRowsFromSandboxOpensAndJournalExits(
-                    openExecutions = sandboxRaw,
-                    allJournalEvents = eventsAll,
-                    points = points,
-                    ledger = ledger,
-                    pushLog = pushLog,
-                    notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                    leverage = portfolioLeverage,
-                    commissionPercentPerSide = portfolioCommissionPercent,
-                    portfolioLedgerIncludeAuto = ledgerIncludeAuto
-                )
-            }
-            val mergedClosed = mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens)
-            confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
-                mergedClosed,
-                ledgerIncludeAuto
-            )
-            sandboxSpreadExecutions = withContext(Dispatchers.IO) {
-                val modeFiltered = filterSandboxExecutionsByPortfolioMode(
-                    opensAfterJournalClose,
-                    ledgerIncludeAuto
-                )
-                TinkoffSandboxSpreadExecLog.enrichForDisplay(
-                    context = context,
-                    executions = modeFiltered,
-                    points = points,
-                    notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                    leverage = portfolioLeverage,
-                    commissionPercentPerSide = portfolioCommissionPercent,
-                    journalEvents = eventsAll
-                )
-            }
-            portfolioError = if (portfolio15mSeriesTailStale(points)) {
-                val todayMsk = LocalDate.now(moexZoneId)
-                "15м ряд обрывается на ${points.last().tradeDate} (сегодня МСК $todayMsk, нужны свежие бары с MOEX). " +
-                    "Нажмите «Обновить» или «MOEX заново» при сети."
-            } else {
-                null
-            }
+            rebuildPortfolioUiFromPoints(loaded)
         } finally {
             portfolioLoading = false
         }
     }
 
-internal suspend fun MoexScreenState.refreshPortfolio(m15LoadHint: PortfolioM15LoadMode? = null) {
+internal suspend fun MoexScreenState.refreshPortfolio(
+    m15LoadHint: PortfolioM15LoadMode? = null,
+    trackProgress: Boolean = shouldTrackDataLoadProgress(),
+) {
         refreshMutex.withLock {
-            refreshPortfolioUnlocked(m15LoadHint)
+            refreshPortfolioUnlocked(m15LoadHint, trackProgress)
         }
     }
 
@@ -172,15 +236,17 @@ internal suspend fun MoexScreenState.refreshData(
                             marketsStale = false
                         }
                         if (marketsM15Source().size < 2) {
-                            loadM15ForMarkets(PortfolioM15LoadMode.CACHE_ONLY)
-                                .takeIf { it.size >= 2 }?.let { loaded ->
+                            loadM15ForMarkets(
+                                PortfolioM15LoadMode.CACHE_ONLY,
+                                wrapInSession = false,
+                            ).takeIf { it.size >= 2 }?.let { loaded ->
                                 storeMarketsM15(loaded)
                                 if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
                             }
                         }
                         when {
                             marketsM15Source().size < 2 -> {
-                                val loaded = loadM15ForMarkets()
+                                val loaded = loadM15ForMarkets(wrapInSession = false)
                                 if (loaded.size >= 2) {
                                     storeMarketsM15(loaded)
                                     portfolioM15Points = loaded
@@ -189,7 +255,7 @@ internal suspend fun MoexScreenState.refreshData(
                             portfolio15mSeriesTailStale(marketsM15Source()) -> {
                                 launchScope.launch {
                                     if (!mayRefreshMarkets(MarketsRefreshPolicy.UserInitiated)) return@launch
-                                    val loaded = loadM15ForMarkets()
+                                    val loaded = loadM15ForMarkets(wrapInSession = false)
                                     if (loaded.size >= 2) {
                                         storeMarketsM15(loaded)
                                         if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
@@ -221,7 +287,10 @@ internal suspend fun MoexScreenState.refreshData(
                     suspend fun loadMarketsM15PointsOnce(): List<DataPoint> {
                         val cached = loadedM15ForMarkets
                         if (cached != null) return cached
-                        val loaded = loadM15ForMarkets(mode = PortfolioM15LoadMode.INCREMENTAL)
+                        val loaded = loadM15ForMarkets(
+                            mode = PortfolioM15LoadMode.INCREMENTAL,
+                            wrapInSession = false,
+                        )
                         loadedM15ForMarkets = loaded
                         storeMarketsM15(loaded)
                         portfolioM15Points = loaded
@@ -232,7 +301,7 @@ internal suspend fun MoexScreenState.refreshData(
                     val deferM15Network = preferBackground && m15CachedReady
                     if (deferM15Network) {
                         launchScope.launch {
-                            val loaded = loadM15ForMarkets()
+                            val loaded = loadM15ForMarkets(wrapInSession = false)
                             if (loaded.size >= 2) {
                                 loadedM15ForMarkets = loaded
                                 storeMarketsM15(loaded)

@@ -180,7 +180,10 @@ internal fun MoexScreenTabPortfolio(
                         onLookbackDaysChange = { days ->
                             portfolioLookbackDays = normalizePortfolioLookbackDays(days)
                         },
-                        onRefresh = { scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) } },
+                        onRefresh = {
+                            portfolioTabUiBuiltKey = 0L
+                            scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) }
+                        },
                         onMoex15mFullReload = {
                             scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) }
                         },

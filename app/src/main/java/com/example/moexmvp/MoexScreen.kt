@@ -16,13 +16,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 
 @Composable
 internal fun MoexScreen() {
@@ -221,18 +219,6 @@ internal fun MoexScreen() {
                 dataSourceLabel = dataSourceLabel,
             )
             }
-        }
-        if (!landscapeZChartFullscreen && screen.isDataLoadActive) {
-            DataLoadProgressCard(
-                progress = screen.dataLoadProgress ?: DataLoadProgress(
-                    phase = DataLoadPhase.CacheRead,
-                    detail = "подготовка…",
-                ),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 4.dp)
-                    .zIndex(2f),
-            )
         }
     }
 }

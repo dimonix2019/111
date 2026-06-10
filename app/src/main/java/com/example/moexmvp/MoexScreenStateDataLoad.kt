@@ -9,8 +9,12 @@ import java.time.temporal.ChronoUnit
 internal suspend fun MoexScreenState.reportDataLoadProgress(progress: DataLoadProgress?) {
     withContext(Dispatchers.Main.immediate) {
         when {
-            progress?.active == true -> dataLoadProgress = progress
-            progress == null && dataLoadSessions == 0 -> dataLoadProgress = null
+            progress == null -> {
+                if (dataLoadSessions == 0) dataLoadProgress = null
+            }
+            !progress.active -> dataLoadProgress = null
+            !shouldTrackDataLoadProgress() -> Unit
+            else -> dataLoadProgress = progress
         }
     }
 }
@@ -41,25 +45,32 @@ internal val MoexScreenState.isDataLoadActive: Boolean
 internal suspend fun MoexScreenState.loadM15ForMarkets(
     mode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL,
     chartPeriod: Period = marketsZChartPeriod.coerceToMarketsUiPeriod(),
-): List<DataPoint> = withDataLoadSession {
-    val lookback = marketsM15LookbackDays(chartPeriod)
-    val till = LocalDate.now(moexZoneId)
-    val from = till.minusDays(lookback)
-    withContext(Dispatchers.IO) {
-        loadPortfolio15mSeriesEnsuringRecentTail(
-            context = context,
-            from = from,
-            preferredMode = mode,
-            onProgress = dataLoadProgressSink(),
-            wipeAllOnFullRefresh = false,
-            retentionDays = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
-        )
+    trackProgress: Boolean = shouldTrackDataLoadProgress(),
+    wrapInSession: Boolean? = null,
+): List<DataPoint> {
+    val useSession = wrapInSession ?: trackProgress
+    val loader: suspend () -> List<DataPoint> = {
+        val lookback = marketsM15LookbackDays(chartPeriod)
+        val till = LocalDate.now(moexZoneId)
+        val from = till.minusDays(lookback)
+        withContext(Dispatchers.IO) {
+            loadPortfolio15mSeriesEnsuringRecentTail(
+                context = context,
+                from = from,
+                preferredMode = mode,
+                onProgress = if (trackProgress) dataLoadProgressSink() else null,
+                wipeAllOnFullRefresh = false,
+                retentionDays = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
+            )
+        }
     }
+    return if (useSession) withDataLoadSession { loader() } else loader()
 }
 
 /** 15м для «Тест страт.» — полные 255 дн. симуляции. */
 internal suspend fun MoexScreenState.loadM15ForStrategyTest(
     mode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL,
+    trackProgress: Boolean = shouldTrackDataLoadProgress(),
 ): List<DataPoint> {
     val till = LocalDate.now(moexZoneId)
     val from = till.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
@@ -68,44 +79,51 @@ internal suspend fun MoexScreenState.loadM15ForStrategyTest(
             MoexDiagnostics.log(context, "st_load", "start mode=CACHE_ONLY chunked from=$from till=$till")
             loadStrategyTestM15CacheOnlyChunked(context, from, till)
         }
-        else -> withDataLoadSession {
-            withContext(Dispatchers.IO) {
-                MoexDiagnostics.log(context, "st_load", "start mode=$mode from=$from till=$till")
-                val points = loadPortfolio15mSeriesEnsuringRecentTail(
-                    context = context,
-                    from = from,
-                    preferredMode = mode,
-                    onProgress = dataLoadProgressSink(),
-                    wipeAllOnFullRefresh = false,
-                    retentionDays = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
-                )
-                MoexDiagnostics.log(
-                    context,
-                    "st_load",
-                    "done mode=$mode points=${points.size} spanDays=${points.m15CalendarSpanDays()}",
-                )
-                MoexDiagnostics.logMemory(context, "st_load")
-                points
+        else -> {
+            val loader: suspend () -> List<DataPoint> = {
+                withContext(Dispatchers.IO) {
+                    MoexDiagnostics.log(context, "st_load", "start mode=$mode from=$from till=$till")
+                    val points = loadPortfolio15mSeriesEnsuringRecentTail(
+                        context = context,
+                        from = from,
+                        preferredMode = mode,
+                        onProgress = if (trackProgress) dataLoadProgressSink() else null,
+                        wipeAllOnFullRefresh = false,
+                        retentionDays = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
+                    )
+                    MoexDiagnostics.log(
+                        context,
+                        "st_load",
+                        "done mode=$mode points=${points.size} spanDays=${points.m15CalendarSpanDays()}",
+                    )
+                    MoexDiagnostics.logMemory(context, "st_load")
+                    points
+                }
             }
+            if (trackProgress) withDataLoadSession { loader() } else loader()
         }
     }
 }
 
 internal suspend fun MoexScreenState.loadM15SeriesForPortfolio(
     m15Mode: PortfolioM15LoadMode,
-): List<DataPoint> = withDataLoadSession {
-    val till = LocalDate.now(moexZoneId)
-    val from = till.minusDays(portfolioLookbackDays)
-    withContext(Dispatchers.IO) {
-        loadPortfolio15mSeriesEnsuringRecentTail(
-            context = context,
-            from = from,
-            preferredMode = m15Mode,
-            onProgress = dataLoadProgressSink(),
-            wipeAllOnFullRefresh = false,
-            retentionDays = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
-        )
+    trackProgress: Boolean = shouldTrackDataLoadProgress(),
+): List<DataPoint> {
+    val loader: suspend () -> List<DataPoint> = {
+        val till = LocalDate.now(moexZoneId)
+        val from = till.minusDays(portfolioLookbackDays)
+        withContext(Dispatchers.IO) {
+            loadPortfolio15mSeriesEnsuringRecentTail(
+                context = context,
+                from = from,
+                preferredMode = m15Mode,
+                onProgress = if (trackProgress) dataLoadProgressSink() else null,
+                wipeAllOnFullRefresh = false,
+                retentionDays = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
+            )
+        }
     }
+    return if (trackProgress) withDataLoadSession { loader() } else loader()
 }
 
 internal fun MoexScreenState.marketsM15SpanDays(): Long {
@@ -123,21 +141,22 @@ internal fun MoexScreenState.marketsM15SpanDays(): Long {
 internal suspend fun MoexScreenState.ensureMarketsM15ForPeriod(
     period: Period,
     mode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL,
+    trackProgress: Boolean = shouldTrackDataLoadProgress(),
 ) {
     val uiPeriod = period.coerceToMarketsUiPeriod()
     if (uiPeriod != marketsZChartPeriod) marketsZChartPeriod = uiPeriod
-    val needed = marketsM15LookbackDays(uiPeriod)
-    val src = marketsM15Source()
-    if (marketsM15SpanDays() + 3 >= needed && src.size >= 2 &&
-        !portfolio15mSeriesTailStale(src)
-    ) {
+    if (marketsM15CoversPeriod(uiPeriod) && marketsM15LoadedPeriod == uiPeriod) {
         return
     }
     refreshMutex.withLock {
-        val loaded = loadM15ForMarkets(mode, period)
+        if (marketsM15CoversPeriod(uiPeriod) && marketsM15LoadedPeriod == uiPeriod) {
+            return@withLock
+        }
+        val loaded = loadM15ForMarkets(mode, uiPeriod, trackProgress = trackProgress)
         if (loaded.size >= 2) {
             storeMarketsM15(loaded)
             if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
+            marketsM15LoadedPeriod = uiPeriod
         }
     }
 }
