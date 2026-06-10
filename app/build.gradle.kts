@@ -24,7 +24,7 @@ android {
         applicationId = "com.example.moexmvp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 246
+        versionCode = 247
         versionName = "1.7.129"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
