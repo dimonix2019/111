@@ -287,6 +287,17 @@ internal fun buildStrategyTestTradeRiskAssessmentsForItems(
 internal fun strategyTestTradeRiskIsFlagged(assessment: StrategyTestTradeRiskAssessment): Boolean =
     assessment.level >= StrategyTestTradeRiskLevel.Elevated
 
+/** Значок слева от ID в таблице открытых сделок. */
+internal fun shouldShowOpenTradeRiskIcon(
+    group: PortfolioTradeGroupRow,
+    assessment: StrategyTestTradeRiskAssessment?,
+): Boolean =
+    group.isOpen &&
+        assessment != null &&
+        strategyTestTradeRiskIsFlagged(assessment)
+
+internal const val OPEN_TRADE_RISK_ICON_COL_WIDTH_DP = 20
+
 internal fun buildStrategyTestTradeRiskSummary(
     trades: List<PortfolioClosedTrade>,
     assessments: List<StrategyTestTradeRiskAssessment>,

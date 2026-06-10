@@ -85,6 +85,22 @@ class MoexPortfolioTradeRiskTest {
         assertFalse(strategyTestTradeRiskIsFlagged(assessments[1]))
     }
 
+    @Test
+    fun shouldShowOpenTradeRiskIcon_onlyForFlaggedOpenGroups() {
+        val open = closedGroup("2026-05-17 10:00", "—", -0.85, 120.0).copy(isOpen = true)
+        val flagged = buildPortfolioTradeGroupRiskAssessment(open, entryThreshold = 0.8, zoneId = zone)
+        val safe = StrategyTestTradeRiskAssessment(
+            flags = emptyList(),
+            level = StrategyTestTradeRiskLevel.None,
+            score = 0,
+            entryZ = -1.5,
+            breakdown = TradeRiskScoreBreakdown(),
+        )
+        assertTrue(shouldShowOpenTradeRiskIcon(open, flagged))
+        assertFalse(shouldShowOpenTradeRiskIcon(open, safe))
+        assertFalse(shouldShowOpenTradeRiskIcon(open.copy(isOpen = false), flagged))
+    }
+
     private fun closedGroup(
         entry: String,
         exit: String,

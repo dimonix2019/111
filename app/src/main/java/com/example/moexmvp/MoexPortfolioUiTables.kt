@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -26,7 +27,7 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -113,6 +114,31 @@ private fun PortfolioTradeGroupSpacerCells(widths: List<Int>) {
 }
 
 @Composable
+private fun PortfolioOpenTradeRiskIconCell(
+    group: PortfolioTradeGroupRow,
+    assessment: StrategyTestTradeRiskAssessment?,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .widthIn(min = OPEN_TRADE_RISK_ICON_COL_WIDTH_DP.dp)
+            .width(OPEN_TRADE_RISK_ICON_COL_WIDTH_DP.dp)
+            .padding(horizontal = 1.dp, vertical = 1.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        val flagged = assessment?.takeIf { strategyTestTradeRiskIsFlagged(it) && group.isOpen }
+        if (flagged != null) {
+            Icon(
+                imageVector = Icons.Filled.Warning,
+                contentDescription = "Сделка под риском",
+                tint = strategyTestTradeRiskLevelColor(flagged.level),
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
+
+@Composable
 internal fun PortfolioTradeOrdersGroupedTable(
     groups: List<PortfolioTradeGroupRow>,
     caption: String,
@@ -121,6 +147,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
     closingTradeId: String? = null,
     riskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
     showRiskScoreBreakdown: Boolean = false,
+    showLeadingOpenRiskIcon: Boolean = false,
 ) {
     if (groups.isEmpty()) return
     val scroll = rememberScrollState()
@@ -145,24 +172,31 @@ internal fun PortfolioTradeOrdersGroupedTable(
         } else {
             emptyList()
         }
-        val groupCols = listOf(
-            PortfolioTradeGroupColumn("ID", 40),
-            PortfolioTradeGroupColumn("Сигн.", 46),
-            PortfolioTradeGroupColumn("Бар", 44),
-            PortfolioTradeGroupColumn("Получ.", 44),
-            PortfolioTradeGroupColumn("Вход", 44),
-            PortfolioTradeGroupColumn("Выход", 44),
-            PortfolioTradeGroupColumn("Подтв.", 40),
-            PortfolioTradeGroupColumn("Zвх", 30),
-            PortfolioTradeGroupColumn(exitZColumnTitle, 30),
-            PortfolioTradeGroupColumn("PnL L", 44),
-            PortfolioTradeGroupColumn("PnL S", 44),
-            PortfolioTradeGroupColumn("Чист.", 48),
-            PortfolioTradeGroupColumn("Ком.", 42),
-            PortfolioTradeGroupColumn("Овн.", 42),
-        ) + riskBreakdownCols + listOf(
-            PortfolioTradeGroupColumn("Риск", if (showRiskScoreBreakdown) 28 else 72),
-        )
+        val groupCols = buildList {
+            if (showLeadingOpenRiskIcon) {
+                add(PortfolioTradeGroupColumn("", OPEN_TRADE_RISK_ICON_COL_WIDTH_DP))
+            }
+            addAll(
+                listOf(
+                    PortfolioTradeGroupColumn("ID", 40),
+                    PortfolioTradeGroupColumn("Сигн.", 46),
+                    PortfolioTradeGroupColumn("Бар", 44),
+                    PortfolioTradeGroupColumn("Получ.", 44),
+                    PortfolioTradeGroupColumn("Вход", 44),
+                    PortfolioTradeGroupColumn("Выход", 44),
+                    PortfolioTradeGroupColumn("Подтв.", 40),
+                    PortfolioTradeGroupColumn("Zвх", 30),
+                    PortfolioTradeGroupColumn(exitZColumnTitle, 30),
+                    PortfolioTradeGroupColumn("PnL L", 44),
+                    PortfolioTradeGroupColumn("PnL S", 44),
+                    PortfolioTradeGroupColumn("Чист.", 48),
+                    PortfolioTradeGroupColumn("Ком.", 42),
+                    PortfolioTradeGroupColumn("Овн.", 42),
+                ),
+            )
+            addAll(riskBreakdownCols)
+            add(PortfolioTradeGroupColumn("Риск", if (showRiskScoreBreakdown) 28 else 72))
+        }
         val orderCols = listOf(
             PortfolioTradeGroupColumn("№", 18),
             PortfolioTradeGroupColumn("Нога", 28),
@@ -281,8 +315,18 @@ internal fun PortfolioTradeOrdersGroupedTable(
                             ) + breakdownCells + listOf(
                                 riskText to riskColor,
                             )
+                            var cellIndex = 0
+                            if (showLeadingOpenRiskIcon) {
+                                PortfolioOpenTradeRiskIconCell(
+                                    group = group,
+                                    assessment = risk,
+                                    modifier = Modifier.widthIn(min = groupWidths[cellIndex].dp)
+                                        .width(groupWidths[cellIndex].dp),
+                                )
+                                cellIndex += 1
+                            }
                             cells.forEachIndexed { index, (text, color) ->
-                                val w = groupWidths[index]
+                                val w = groupWidths[cellIndex + index]
                                 PortfolioTradeTableCell(
                                     text,
                                     Modifier.widthIn(min = w.dp).width(w.dp),
@@ -621,6 +665,7 @@ internal fun PortfolioTradesWindowSection(
                     closingTradeId = closingTradeId,
                     riskAssessments = openRiskAssessments,
                     showRiskScoreBreakdown = true,
+                    showLeadingOpenRiskIcon = true,
                 )
             }
         }
