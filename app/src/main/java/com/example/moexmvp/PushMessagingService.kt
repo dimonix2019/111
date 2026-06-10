@@ -92,12 +92,13 @@ internal fun strategySignalDisplay(
     journalEvents: List<StrategySignalEvent> = listOf(event),
     weeklyIndex: Map<StrategySignalKey, Int>? = null,
 ): StrategySignalDisplay {
-    val index = weeklyIndex ?: buildWeeklySignalNumberIndex(journalEvents)
-    val weeklyLabel = weeklyStrategySignalLabel(index, event)
+    val signalIndex = weeklyIndex ?: buildWeeklySignalNumberIndex(journalEvents)
+    val tradeEntryIndex = buildWeeklyTradeEntryNumberIndex(journalEvents)
+    val weeklyLabel = weeklyStrategySignalLabel(signalIndex, event)
     val weeklyTradeId = if (event.signalType == StrategySignalType.EnterLong ||
         event.signalType == StrategySignalType.EnterShort
     ) {
-        weeklyTradeDisplayId(index, event.timestampMillis, event.signalType)
+        weeklyTradeDisplayId(tradeEntryIndex, event.timestampMillis, event.signalType)
     } else {
         null
     }

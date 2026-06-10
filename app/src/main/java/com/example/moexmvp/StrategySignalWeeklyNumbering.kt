@@ -24,18 +24,15 @@ private fun strategySignalWeekKey(epochMillis: Long): String {
     return "$year-W$week"
 }
 
-/**
- * Порядковый номер сигнала внутри ISO-недели (МСК), с 1.
- * Учитываются только события не раньше [STRATEGY_SIGNAL_WEEKLY_NUMBER_EPOCH].
- */
-internal fun buildWeeklySignalNumberIndex(
+private fun weeklyNumberIndexFromEvents(
     events: List<StrategySignalEvent>,
+    includeEvent: (StrategySignalEvent) -> Boolean = { true },
 ): Map<StrategySignalKey, Int> {
     val epochStart = STRATEGY_SIGNAL_WEEKLY_NUMBER_EPOCH
         .atStartOfDay(moexZoneId)
         .toInstant()
         .toEpochMilli()
-    val eligible = events.filter { it.receivedAtMillis >= epochStart }
+    val eligible = events.filter { it.receivedAtMillis >= epochStart && includeEvent(it) }
     if (eligible.isEmpty()) return emptyMap()
     return eligible
         .groupBy { strategySignalWeekKey(it.receivedAtMillis) }
@@ -54,6 +51,24 @@ internal fun buildWeeklySignalNumberIndex(
         }
         .toMap()
 }
+
+/**
+ * Порядковый номер сигнала внутри ISO-недели (МСК), с 1.
+ * Учитываются все события журнала (вход и выход) не раньше [STRATEGY_SIGNAL_WEEKLY_NUMBER_EPOCH].
+ */
+internal fun buildWeeklySignalNumberIndex(
+    events: List<StrategySignalEvent>,
+): Map<StrategySignalKey, Int> = weeklyNumberIndexFromEvents(events)
+
+/**
+ * Порядковый номер сделки (только входы Enter*) внутри ISO-недели — для «1 short», «2 short» на портфеле/графике.
+ */
+internal fun buildWeeklyTradeEntryNumberIndex(
+    events: List<StrategySignalEvent>,
+): Map<StrategySignalKey, Int> =
+    weeklyNumberIndexFromEvents(events) {
+        it.signalType == StrategySignalType.EnterLong || it.signalType == StrategySignalType.EnterShort
+    }
 
 /** Полный ID сигнала: «3 long 2026-06-01 14:30». */
 internal fun weeklyStrategySignalLabel(

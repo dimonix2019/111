@@ -67,6 +67,65 @@ class StrategySignalDisplayTest {
     }
 
     @Test
+    fun buildWeeklyTradeEntryNumberIndex_countsEntriesOnly() {
+        val day = LocalDate.of(2026, 6, 10)
+        val enter1 = StrategySignalEvent(
+            timestampMillis = mskMillis(day, 6, 45),
+            signalType = StrategySignalType.EnterShort,
+            zScore = 1.14,
+            receivedAtMillis = mskMillis(day, 7, 19),
+        )
+        val exit1 = StrategySignalEvent(
+            timestampMillis = mskMillis(day, 10, 0),
+            signalType = StrategySignalType.ExitShort,
+            zScore = 0.28,
+            receivedAtMillis = mskMillis(day, 10, 25),
+        )
+        val enter2 = StrategySignalEvent(
+            timestampMillis = mskMillis(day, 14, 30),
+            signalType = StrategySignalType.EnterShort,
+            zScore = 0.85,
+            receivedAtMillis = mskMillis(day, 14, 35),
+        )
+        val events = listOf(enter1, exit1, enter2)
+        val signalIndex = buildWeeklySignalNumberIndex(events)
+        val tradeIndex = buildWeeklyTradeEntryNumberIndex(events)
+        assertEquals(1, signalIndex[StrategySignalKey(enter1.timestampMillis, enter1.signalType)])
+        assertEquals(2, signalIndex[StrategySignalKey(exit1.timestampMillis, exit1.signalType)])
+        assertEquals(3, signalIndex[StrategySignalKey(enter2.timestampMillis, enter2.signalType)])
+        assertEquals(1, tradeIndex[StrategySignalKey(enter1.timestampMillis, enter1.signalType)])
+        assertEquals(null, tradeIndex[StrategySignalKey(exit1.timestampMillis, exit1.signalType)])
+        assertEquals(2, tradeIndex[StrategySignalKey(enter2.timestampMillis, enter2.signalType)])
+    }
+
+    @Test
+    fun tradeDisplayId_usesEntrySequenceNotSignalSequence() {
+        val day = LocalDate.of(2026, 6, 10)
+        val enter1 = StrategySignalEvent(
+            timestampMillis = mskMillis(day, 6, 45),
+            signalType = StrategySignalType.EnterShort,
+            zScore = 1.14,
+            receivedAtMillis = mskMillis(day, 7, 19),
+        )
+        val exit1 = StrategySignalEvent(
+            timestampMillis = mskMillis(day, 10, 0),
+            signalType = StrategySignalType.ExitShort,
+            zScore = 0.28,
+            receivedAtMillis = mskMillis(day, 10, 25),
+        )
+        val enter2 = StrategySignalEvent(
+            timestampMillis = mskMillis(day, 14, 30),
+            signalType = StrategySignalType.EnterShort,
+            zScore = 0.85,
+            receivedAtMillis = mskMillis(day, 14, 35),
+        )
+        val events = listOf(enter1, exit1, enter2)
+        assertEquals("1 short", strategySignalDisplay(enter1, events).tradeDisplayId)
+        assertEquals("2 short", strategySignalDisplay(enter2, events).tradeDisplayId)
+        assertEquals("2 short 2026-06-10 10:00", strategySignalDisplay(exit1, events).signalId)
+    }
+
+    @Test
     fun entrySignalDisplayFields_usesJournalReceivedTime() {
         val monday = LocalDate.of(2026, 6, 1)
         val barTs = mskMillis(monday, 10, 15)
