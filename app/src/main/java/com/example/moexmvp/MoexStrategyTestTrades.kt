@@ -106,13 +106,13 @@ internal enum class StrategyTestTradesTableColumn(
     Entry("Вход", 44),
     Exit("Выход", 44),
     Duration("Длит.", 38),
+    Net("Чист.", 46),
     SpreadEntry("S%вх", 30),
     SpreadExit("S%вых", 30),
     SpreadDelta("Δпп", 28),
     Gross("Вал.", 42),
     Commission("Ком.", 38),
     Overnight("Овн.", 38),
-    Net("Чист.", 46),
     Risk("Риск", 58),
     ;
 
