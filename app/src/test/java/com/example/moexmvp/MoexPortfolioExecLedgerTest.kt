@@ -146,6 +146,22 @@ class MoexPortfolioExecLedgerTest {
     }
 
     @Test
+    fun journalEventsForChartTrades_matchesPortfolioJournalPairs() {
+        val ledger = listOf(
+            PortfolioExecutionLedgerEntry(9_999L, StrategySignalType.EnterLong, PortfolioExecSource.AUTO)
+        )
+        val events = listOf(
+            StrategySignalEvent(1_000L, StrategySignalType.EnterShort, 1.14, 1_000L),
+            StrategySignalEvent(3_000L, StrategySignalType.ExitShort, 0.28, 3_000L),
+            StrategySignalEvent(5_000L, StrategySignalType.EnterShort, 0.85, 5_000L),
+        )
+        val chart = journalEventsForChartTrades(events, ledger)
+        val portfolio = journalEventsForExecutionPortfolioTab(events, ledger, portfolioLedgerIncludeAuto = true)
+        assertEquals(portfolio, chart)
+        assertEquals(3, chart.size)
+    }
+
+    @Test
     fun portfolioTradeSourceTypeLetter_mapsConfirmLabelToSingleLetter() {
         assertEquals("Р", portfolioTradeSourceTypeLetter("ручное"))
         assertEquals("Р", portfolioTradeSourceTypeLetter("ручное · тест"))

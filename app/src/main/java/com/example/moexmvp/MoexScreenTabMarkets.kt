@@ -77,6 +77,8 @@ internal fun MoexScreenTabMarkets(
     Column(modifier) {
     with(screen) {
         val markerSourcePoints = marketsM15SourcePoints.ifEmpty { marketsM15ChartPoints }
+        val signalJournalKey = signalEvents.size to
+            signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
         val zChartOverlay by produceState(
             initialValue = ZChartPortfolioOverlay(emptyList(), emptyList()),
             markerSourcePoints,
@@ -84,6 +86,7 @@ internal fun MoexScreenTabMarkets(
             sandboxSpreadExecReload,
             portfolioLeverage,
             portfolioCommissionPercent,
+            signalJournalKey,
         ) {
             if (markerSourcePoints.size < 2) {
                 value = ZChartPortfolioOverlay(emptyList(), emptyList())
