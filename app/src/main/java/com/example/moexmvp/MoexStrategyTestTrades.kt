@@ -1,5 +1,7 @@
 package com.example.moexmvp
 
+import android.content.Context
+
 /** Сделка в списке «Тест страт.» (только симуляция на 15м ряду). */
 internal data class StrategyTestTradeItem(
     val trade: PortfolioClosedTrade,
@@ -119,4 +121,46 @@ internal enum class StrategyTestTradesTableColumn(
     companion object {
         val defaultVisible: Set<StrategyTestTradesTableColumn> = entries.toSet()
     }
+}
+
+private const val STRATEGY_TEST_TABLE_PREFS = "moex_strategy_test_table_prefs"
+private const val PREF_VISIBLE_COLUMNS = "visible_columns"
+
+internal fun encodeStrategyTestTradesTableVisibleColumns(
+    columns: Set<StrategyTestTradesTableColumn>,
+): String =
+    columns.intersect(StrategyTestTradesTableColumn.entries.toSet())
+        .ifEmpty { StrategyTestTradesTableColumn.defaultVisible }
+        .joinToString(",") { it.name }
+
+internal fun decodeStrategyTestTradesTableVisibleColumns(
+    raw: String?,
+): Set<StrategyTestTradesTableColumn> {
+    if (raw.isNullOrBlank()) return StrategyTestTradesTableColumn.defaultVisible
+    val valid = StrategyTestTradesTableColumn.entries.toSet()
+    val loaded = raw.split(',')
+        .mapNotNull { token ->
+            runCatching { StrategyTestTradesTableColumn.valueOf(token.trim()) }.getOrNull()
+        }
+        .filter { it in valid }
+        .toSet()
+    return loaded.ifEmpty { StrategyTestTradesTableColumn.defaultVisible }
+}
+
+internal fun loadStrategyTestTradesTableVisibleColumns(context: Context): Set<StrategyTestTradesTableColumn> =
+    decodeStrategyTestTradesTableVisibleColumns(
+        context.applicationContext
+            .getSharedPreferences(STRATEGY_TEST_TABLE_PREFS, Context.MODE_PRIVATE)
+            .getString(PREF_VISIBLE_COLUMNS, null),
+    )
+
+internal fun saveStrategyTestTradesTableVisibleColumns(
+    context: Context,
+    columns: Set<StrategyTestTradesTableColumn>,
+) {
+    context.applicationContext
+        .getSharedPreferences(STRATEGY_TEST_TABLE_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(PREF_VISIBLE_COLUMNS, encodeStrategyTestTradesTableVisibleColumns(columns))
+        .apply()
 }

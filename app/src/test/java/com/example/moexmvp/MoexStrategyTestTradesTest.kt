@@ -71,6 +71,29 @@ class MoexStrategyTestTradesTest {
     }
 
     @Test
+    fun decodeStrategyTestTradesTableVisibleColumns_roundTripsSubset() {
+        val subset = setOf(
+            StrategyTestTradesTableColumn.Index,
+            StrategyTestTradesTableColumn.Duration,
+            StrategyTestTradesTableColumn.Net,
+        )
+        val encoded = encodeStrategyTestTradesTableVisibleColumns(subset)
+        assertEquals(subset, decodeStrategyTestTradesTableVisibleColumns(encoded))
+    }
+
+    @Test
+    fun decodeStrategyTestTradesTableVisibleColumns_fallsBackWhenEmptyOrUnknown() {
+        assertEquals(
+            StrategyTestTradesTableColumn.defaultVisible,
+            decodeStrategyTestTradesTableVisibleColumns(null),
+        )
+        assertEquals(
+            StrategyTestTradesTableColumn.defaultVisible,
+            decodeStrategyTestTradesTableVisibleColumns("NotAColumn,AlsoBad"),
+        )
+    }
+
+    @Test
     fun simTradeDurationTone_mapsShortAndLongBuckets() {
         assertEquals(SimTradeDurationTone.Short, simTradeDurationTone("2026-05-01 10:00", "2026-05-01 12:00"))
         assertEquals(SimTradeDurationTone.Long, simTradeDurationTone("2026-05-01 10:00", "2026-05-02 10:00"))

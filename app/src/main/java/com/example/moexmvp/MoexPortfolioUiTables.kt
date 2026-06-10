@@ -364,8 +364,13 @@ internal fun StrategyTestTradesTable(
     riskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
 ) {
     if (tradeItems.isEmpty()) return
+    val context = LocalContext.current.applicationContext
     var visibleColumns by remember {
-        mutableStateOf(StrategyTestTradesTableColumn.defaultVisible)
+        mutableStateOf(loadStrategyTestTradesTableVisibleColumns(context))
+    }
+    fun updateVisibleColumns(next: Set<StrategyTestTradesTableColumn>) {
+        visibleColumns = next
+        saveStrategyTestTradesTableVisibleColumns(context, next)
     }
     val scroll = rememberScrollState()
     val filterScroll = rememberScrollState()
@@ -395,19 +400,21 @@ internal fun StrategyTestTradesTable(
                     label = "Все",
                     selected = visibleColumns.size == StrategyTestTradesTableColumn.entries.size,
                 ) {
-                    visibleColumns = StrategyTestTradesTableColumn.defaultVisible
+                    updateVisibleColumns(StrategyTestTradesTableColumn.defaultVisible)
                 }
                 StrategyTestTradesTableColumn.entries.forEach { column ->
                     StrategyTestTableColumnFilterChip(
                         label = column.title,
                         selected = column in visibleColumns,
                     ) {
-                        visibleColumns = if (column in visibleColumns) {
-                            val next = visibleColumns - column
-                            if (next.isEmpty()) visibleColumns else next
-                        } else {
-                            visibleColumns + column
-                        }
+                        updateVisibleColumns(
+                            if (column in visibleColumns) {
+                                val next = visibleColumns - column
+                                if (next.isEmpty()) visibleColumns else next
+                            } else {
+                                visibleColumns + column
+                            },
+                        )
                     }
                 }
             }
