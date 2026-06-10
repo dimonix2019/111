@@ -196,9 +196,11 @@ private fun ledgerConfirmLabel(
     entryType: StrategySignalType,
     entryBarTs: Long
 ): String {
-    val src = ledger.firstOrNull { it.signalType == entryType && it.barTimestampMillis == entryBarTs }?.source
-        ?: return "—"
-    return when (src) {
+    val entry = ledger.firstOrNull {
+        it.signalType == entryType &&
+            abs(it.barTimestampMillis - entryBarTs) <= PORTFOLIO_LEDGER_BAR_MATCH_TOLERANCE_MS
+    } ?: return "сигнал"
+    return when (entry.source) {
         PortfolioExecSource.AUTO -> "авто"
         PortfolioExecSource.MANUAL -> "ручное"
     }
