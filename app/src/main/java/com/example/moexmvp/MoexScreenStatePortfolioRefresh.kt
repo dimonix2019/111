@@ -236,15 +236,17 @@ internal suspend fun MoexScreenState.refreshData(
                             marketsStale = false
                         }
                         if (marketsM15Source().size < 2) {
-                            loadM15ForMarkets(PortfolioM15LoadMode.CACHE_ONLY)
-                                .takeIf { it.size >= 2 }?.let { loaded ->
+                            loadM15ForMarkets(
+                                PortfolioM15LoadMode.CACHE_ONLY,
+                                wrapInSession = false,
+                            ).takeIf { it.size >= 2 }?.let { loaded ->
                                 storeMarketsM15(loaded)
                                 if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
                             }
                         }
                         when {
                             marketsM15Source().size < 2 -> {
-                                val loaded = loadM15ForMarkets()
+                                val loaded = loadM15ForMarkets(wrapInSession = false)
                                 if (loaded.size >= 2) {
                                     storeMarketsM15(loaded)
                                     portfolioM15Points = loaded
@@ -253,7 +255,7 @@ internal suspend fun MoexScreenState.refreshData(
                             portfolio15mSeriesTailStale(marketsM15Source()) -> {
                                 launchScope.launch {
                                     if (!mayRefreshMarkets(MarketsRefreshPolicy.UserInitiated)) return@launch
-                                    val loaded = loadM15ForMarkets()
+                                    val loaded = loadM15ForMarkets(wrapInSession = false)
                                     if (loaded.size >= 2) {
                                         storeMarketsM15(loaded)
                                         if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
@@ -285,7 +287,10 @@ internal suspend fun MoexScreenState.refreshData(
                     suspend fun loadMarketsM15PointsOnce(): List<DataPoint> {
                         val cached = loadedM15ForMarkets
                         if (cached != null) return cached
-                        val loaded = loadM15ForMarkets(mode = PortfolioM15LoadMode.INCREMENTAL)
+                        val loaded = loadM15ForMarkets(
+                            mode = PortfolioM15LoadMode.INCREMENTAL,
+                            wrapInSession = false,
+                        )
                         loadedM15ForMarkets = loaded
                         storeMarketsM15(loaded)
                         portfolioM15Points = loaded
@@ -296,7 +301,7 @@ internal suspend fun MoexScreenState.refreshData(
                     val deferM15Network = preferBackground && m15CachedReady
                     if (deferM15Network) {
                         launchScope.launch {
-                            val loaded = loadM15ForMarkets()
+                            val loaded = loadM15ForMarkets(wrapInSession = false)
                             if (loaded.size >= 2) {
                                 loadedM15ForMarkets = loaded
                                 storeMarketsM15(loaded)

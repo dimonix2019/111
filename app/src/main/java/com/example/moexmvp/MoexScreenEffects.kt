@@ -363,20 +363,27 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
 
     LaunchedEffect(selectedTab) {
         MoexDiagnostics.log(context, "ui", "tab=${selectedTab.label}")
-        if (selectedTab != MainTab.Markets && selectedTab != MainTab.Portfolio && selectedTab != MainTab.StrategyTest) {
-            clearStaleDataLoadProgress()
+        if (selectedTab != MainTab.Markets) {
+            forceResetDataLoadUi()
         }
     }
 
-    LaunchedEffect(dataLoadSessions, dataLoadProgress?.phase) {
+    LaunchedEffect(dataLoadSessions, dataLoadProgress?.phase, selectedTab) {
+        if (selectedTab != MainTab.Markets) return@LaunchedEffect
         if (dataLoadSessions == 0 && dataLoadProgress?.active == true) {
             dataLoadProgress = null
             return@LaunchedEffect
         }
         if (dataLoadSessions <= 0 && dataLoadProgress?.active != true) return@LaunchedEffect
-        delay(90_000)
-        if (dataLoadSessions > 0 || dataLoadProgress?.active == true) {
-            MoexDiagnostics.log(context, "ui", "data_load_watchdog reset sessions=$dataLoadSessions phase=${dataLoadProgress?.phase}")
+        delay(45_000)
+        if (selectedTab == MainTab.Markets &&
+            (dataLoadSessions > 0 || dataLoadProgress?.active == true)
+        ) {
+            MoexDiagnostics.log(
+                context,
+                "ui",
+                "data_load_watchdog reset sessions=$dataLoadSessions phase=${dataLoadProgress?.phase}",
+            )
             forceResetDataLoadUi()
         }
     }

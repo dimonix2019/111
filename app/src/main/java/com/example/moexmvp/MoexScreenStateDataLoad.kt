@@ -46,7 +46,9 @@ internal suspend fun MoexScreenState.loadM15ForMarkets(
     mode: PortfolioM15LoadMode = PortfolioM15LoadMode.INCREMENTAL,
     chartPeriod: Period = marketsZChartPeriod.coerceToMarketsUiPeriod(),
     trackProgress: Boolean = shouldTrackDataLoadProgress(),
+    wrapInSession: Boolean? = null,
 ): List<DataPoint> {
+    val useSession = wrapInSession ?: trackProgress
     val loader: suspend () -> List<DataPoint> = {
         val lookback = marketsM15LookbackDays(chartPeriod)
         val till = LocalDate.now(moexZoneId)
@@ -62,7 +64,7 @@ internal suspend fun MoexScreenState.loadM15ForMarkets(
             )
         }
     }
-    return if (trackProgress) withDataLoadSession { loader() } else loader()
+    return if (useSession) withDataLoadSession { loader() } else loader()
 }
 
 /** 15м для «Тест страт.» — полные 255 дн. симуляции. */

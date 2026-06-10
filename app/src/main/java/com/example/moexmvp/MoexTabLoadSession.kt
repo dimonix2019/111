@@ -55,8 +55,13 @@ internal fun MoexScreenState.invalidateTabLoadSessions() {
     marketsM15LoadedPeriod = null
 }
 
+/** Прогресс 15м/MOEX — только на вкладке «Рынок» (не блокирует остальные табы). */
 internal fun MoexScreenState.shouldTrackDataLoadProgress(): Boolean =
-    selectedTab != MainTab.Journal
+    selectedTab == MainTab.Markets
+
+internal val MoexScreenState.isMarketsDataLoadActive: Boolean
+    get() = selectedTab == MainTab.Markets &&
+        (dataLoadSessions > 0 || dataLoadProgress?.active == true)
 
 internal fun MoexScreenState.clearStaleDataLoadProgress() {
     if (dataLoadSessions == 0) {

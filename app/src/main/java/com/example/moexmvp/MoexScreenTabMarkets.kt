@@ -193,7 +193,7 @@ internal fun MoexScreenTabMarkets(
                                 emptyContent = {
                                     when {
                                         marketsZScoreCandles.isNotEmpty() -> Unit
-                                        isRefreshing || chartSuccess != null || isDataLoadActive -> LoadingStateWithProgress(
+                                        isRefreshing || chartSuccess != null || isMarketsDataLoadActive -> LoadingStateWithProgress(
                                             progress = dataLoadProgress,
                                             dataLoadSessions = dataLoadSessions,
                                             statusText = "Загрузка 15м для графика Z…",
@@ -334,7 +334,7 @@ internal fun MoexScreenTabMarkets(
                             )
                         }
                         val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()
-                        val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isDataLoadActive)
+                        val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isMarketsDataLoadActive)
                         if (showZCharts) {
                             item {
                                 TradingViewZScoreChartCard(
