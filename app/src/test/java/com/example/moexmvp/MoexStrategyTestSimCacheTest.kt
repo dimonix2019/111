@@ -82,8 +82,8 @@ class MoexStrategyTestSimCacheTest {
         )
         val segments = buildTradingViewTradeSegmentsFromStrategyTest(tradeItems, points)
         assertEquals(2, segments.size)
-        assertEquals("#1", segments[0].id)
-        assertEquals("#2", segments[1].id)
+        assertEquals("1A", segments[0].id)
+        assertEquals("2R", segments[1].id)
     }
 
     private fun point(label: String, z: Double = 0.0): DataPoint =

@@ -75,6 +75,8 @@ internal fun buildTradingViewTradeSegmentsFromStrategyTest(
     val segments = mutableListOf<TradingViewTradeSegment>()
     for ((listIndex, item) in tradeItems.withIndex()) {
         val trade = item.trade
+        val badge = strategyTestTradeChartBadge(listIndex, trade.direction)
+        val tradeId = tradingViewMarkerDisplayText(badge)
         val entryTime = portfolioTableTimeToUnixSec(trade.entryDate) ?: continue
         val exitTime = portfolioTableTimeToUnixSec(trade.exitDate)
         val entryZ = barIndex[trade.entryDate]?.let { displayPoints[it].zScore }
@@ -82,7 +84,7 @@ internal fun buildTradingViewTradeSegmentsFromStrategyTest(
             ?: 0.0
         val exitZ = barIndex[trade.exitDate]?.let { displayPoints[it].zScore } ?: 0.0
         segments += TradingViewTradeSegment(
-            id = tradingViewMarkerDisplayText("#${listIndex + 1}"),
+            id = tradeId,
             entryTimeSec = entryTime,
             exitTimeSec = exitTime,
             entryZ = entryZ,
@@ -206,19 +208,18 @@ internal fun buildTradingViewChartPayloadJson(
     }
     val markers = JSONArray()
     for (m in pointMarkers.filter { !it.badgeText.isNullOrBlank() }) {
-        val barTimeSec = displayPoints.getOrNull(m.index)?.let { it.timestampMillis / 1000L }
-            ?: candles.getOrNull(m.index)?.let { m15CandleLabelToUnixSec(it.label) }
-            ?: continue
+        val barTimeSec = resolveTradingViewMarkerBarTimeSec(m, displayPoints, candles) ?: continue
         val tv = tradingViewMarkerFromChartMarker(m, barTimeSec)
+        val tradeId = tradingViewMarkerDisplayText(m.badgeText.orEmpty())
         markers.put(
             JSONObject()
                 .put("time", tv.time)
                 .put("position", tv.position)
                 .put("color", tv.color)
                 .put("shape", tv.shape)
-                .put("text", tv.text)
+                .put("text", tradeId)
                 .put("size", tv.size)
-                .put("tradeId", tv.text)
+                .put("tradeId", tradeId)
                 .put("isEntry", m.label.startsWith("Вх", ignoreCase = true))
         )
     }
@@ -304,6 +305,17 @@ internal fun tradingViewMarkerDisplayText(text: String): String =
         .replace('а', 'a')
         .replace('Р', 'R')
         .replace('р', 'r')
+
+/** Время бара для маркера TradingView по индексу display-ряда или свечей. */
+internal fun resolveTradingViewMarkerBarTimeSec(
+    marker: ChartPointMarker,
+    displayPoints: List<DataPoint>,
+    candles: List<CandlePoint>,
+): Long? {
+    displayPoints.getOrNull(marker.index)?.let { return it.timestampMillis / 1000L }
+    candles.getOrNull(marker.index)?.let { return m15CandleLabelToUnixSec(it.label) }
+    return null
+}
 
 internal fun loadTradingViewChartHtml(context: Context): String {
     val template = context.assets.open("tradingview/z_chart.html").bufferedReader().use { it.readText() }

@@ -74,6 +74,89 @@ class MoexTradingViewChartTest {
     }
 
     @Test
+    fun buildTradingViewChartPayloadJson_markerTradeIdMatchesTradeSegment() {
+        val candles = listOf(
+            CandlePoint("2026-05-19 10:00", open = 0.0, high = 0.1, low = -0.1, close = 0.05),
+            CandlePoint("2026-05-19 10:15", open = 0.05, high = 0.2, low = 0.0, close = 0.1),
+        )
+        val points = candles.map { c ->
+            val ts = LocalDateTime.parse(c.label, portfolio15mLabelFormatter)
+                .atZone(ZoneId.of("Europe/Moscow")).toInstant().toEpochMilli()
+            DataPoint(ts, c.label, 100.0, 90.0, 10.0, 10.0, c.close)
+        }
+        val markers = listOf(
+            ChartPointMarker(
+                index = 0,
+                value = 0.0,
+                color = Color(0xFF69F0AE),
+                label = "Вх 1А",
+                shape = ChartMarkerShape.TriangleUp,
+                badgeText = "1А",
+            ),
+            ChartPointMarker(
+                index = 1,
+                value = 0.1,
+                color = Color(0xFFFFCC80),
+                label = "Вых 1А",
+                shape = ChartMarkerShape.Diamond,
+                badgeText = "1А",
+            ),
+        )
+        val segments = listOf(
+            TradingViewTradeSegment(
+                id = "1A",
+                entryTimeSec = m15CandleLabelToUnixSec("2026-05-19 10:00"),
+                exitTimeSec = m15CandleLabelToUnixSec("2026-05-19 10:15"),
+                entryZ = 0.0,
+                exitZ = 0.1,
+                isOpen = false,
+            ),
+        )
+        val json = JSONObject(
+            buildTradingViewChartPayloadJson(
+                candles = candles,
+                displayPoints = points,
+                referenceLines = emptyList(),
+                pointMarkers = markers,
+                tradeSegments = segments,
+            )
+        )
+        val marker0 = json.getJSONArray("markers").getJSONObject(0)
+        assertEquals("1A", marker0.getString("tradeId"))
+        assertEquals("1A", json.getJSONArray("trades").getJSONObject(0).getString("id"))
+    }
+
+    @Test
+    fun remapChartMarkersToDisplaySeries_keepsStrategyTestMarkersAfterDownsample() {
+        val source = (0 until 20).map { i ->
+            val label = LocalDateTime.of(2026, 5, 19, 10, 0).plusMinutes(i * 15L)
+                .format(portfolio15mLabelFormatter)
+            point(label, z = i * 0.01)
+        }
+        val display = source.filterIndexed { index, _ -> index % 2 == 0 }
+        val markers = buildZScoreMarkersFromStrategyTestTrades(
+            source,
+            listOf(
+                StrategyTestTradeItem(
+                    trade = PortfolioClosedTrade(
+                        direction = ZStrategyPosition.Long,
+                        entryDate = source[2].tradeDate,
+                        exitDate = source[4].tradeDate,
+                        entrySpreadPercent = 10.0,
+                        exitSpreadPercent = 10.4,
+                        pnlSpreadPoints = 0.4,
+                        grossPnlRubApprox = 100.0,
+                        pnlRubApprox = 90.0,
+                    ),
+                ),
+            ),
+        )
+        val remapped = remapChartMarkersToDisplaySeries(source, display, markers)
+        assertEquals(2, remapped.size)
+        assertTrue(remapped.all { it.index in display.indices })
+    }
+
+    @Test
     fun m15CandleLabelToUnixSec_matchesMoscowWallClock() {
         val sec = m15CandleLabelToUnixSec("2026-05-19 10:00")
         assertTrue(sec > 1_700_000_000L)

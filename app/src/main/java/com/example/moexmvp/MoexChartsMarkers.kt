@@ -241,7 +241,18 @@ internal fun remapChartMarkersToDisplaySeries(
     }
 }
 
-/** Маркеры входа/выхода симуляции «Тест страт.»; [badgeText] = номер как в списке (#1 — свежая). */
+/** Подпись маркера симуляции «Тест страт.» — как на «Рынок» (1А / 2Р). */
+internal fun strategyTestTradeChartBadge(listIndex: Int, direction: ZStrategyPosition): String {
+    val num = (listIndex + 1).toString()
+    val confirm = when (direction) {
+        ZStrategyPosition.Long -> "авто"
+        ZStrategyPosition.Short -> "ручное"
+        ZStrategyPosition.Flat -> "сигнал"
+    }
+    return portfolioTradeChartBadgeText("$num x", confirm)
+}
+
+/** Маркеры входа/выхода симуляции «Тест страт.»; badge как на «Рынок» (1А / 2Р). */
 internal fun buildZScoreMarkersFromStrategyTestTrades(
     points: List<DataPoint>,
     tradeItems: List<StrategyTestTradeItem>
@@ -249,31 +260,31 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
     if (points.isEmpty() || tradeItems.isEmpty()) return emptyList()
     val markers = mutableListOf<ChartPointMarker>()
     tradeItems.forEachIndexed { listIndex, item ->
-        val num = "#${listIndex + 1}"
+        val badge = strategyTestTradeChartBadge(listIndex, item.trade.direction)
         val t = item.trade
         val (enterShape, enterColor) = when (t.direction) {
             ZStrategyPosition.Long -> ChartMarkerShape.TriangleUp to Color(0xFF69F0AE)
             ZStrategyPosition.Short -> ChartMarkerShape.TriangleDown to Color(0xFFFF8A80)
             ZStrategyPosition.Flat -> ChartMarkerShape.Circle to Color(0xFFB0BEC5)
         }
-        indexForTradeDateLabel(points, t.entryDate)?.let { idx ->
+        indexForChartTradeLabel(points, t.entryDate)?.let { idx ->
             markers += ChartPointMarker(
                 index = idx,
                 value = points[idx].zScore,
                 color = enterColor,
-                label = "Вх #$num",
+                label = "Вх $badge",
                 shape = enterShape,
-                badgeText = num
+                badgeText = badge,
             )
         }
-        indexForTradeDateLabel(points, t.exitDate)?.let { idx ->
+        indexForChartTradeLabel(points, t.exitDate)?.let { idx ->
             markers += ChartPointMarker(
                 index = idx,
                 value = points[idx].zScore,
                 color = Color(0xFFFFCC80),
-                label = "Вых #$num",
+                label = "Вых $badge",
                 shape = ChartMarkerShape.Diamond,
-                badgeText = num
+                badgeText = badge,
             )
         }
     }

@@ -23,8 +23,10 @@ internal fun MoexScreenTabStrategyTest(
     strategyTestM15ChartPoints: List<DataPoint>,
     strategyTestZScoreCandles: List<CandlePoint>,
     strategyTestChartThresholds: DynamicThresholds,
+    strategyTestChartMarkers: List<ChartPointMarker>,
     strategyTestZInitialWindow: Pair<Float, Float>,
 ) {
+    val displayChartMarkers = strategyTestChartMarkers
     Column(modifier.fillMaxSize()) {
         with(screen) {
             LazyColumn(
@@ -41,7 +43,7 @@ internal fun MoexScreenTabStrategyTest(
                         m15ChartPoints = strategyTestM15ChartPoints,
                         zScoreCandles = strategyTestZScoreCandles,
                         chartThresholds = strategyTestChartThresholds,
-                        chartMarkers = strategyTestChartMarkers,
+                        chartMarkers = displayChartMarkers,
                         chartTradeSegments = strategyTestChartTradeSegments,
                         zInitialWindow = strategyTestZInitialWindow,
                         durationSummary = strategyTestDurationSummary,

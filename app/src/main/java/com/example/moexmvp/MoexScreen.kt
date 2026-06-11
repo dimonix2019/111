@@ -110,6 +110,21 @@ internal fun MoexScreen() {
             visibleDays = STRATEGY_TEST_Z_CHART_VISIBLE_DAYS
         )
     }
+    val strategyTestChartMarkersForDisplay = remember(
+        strategyTestM15SimPoints,
+        strategyTestM15ChartPoints,
+        screen.strategyTestChartMarkers,
+    ) {
+        if (strategyTestM15SimPoints.size < 2 || strategyTestM15ChartPoints.size < 2) {
+            emptyList()
+        } else {
+            remapChartMarkersToDisplaySeries(
+                sourcePoints = strategyTestM15SimPoints,
+                displayPoints = strategyTestM15ChartPoints,
+                markers = screen.strategyTestChartMarkers,
+            )
+        }
+    }
 
     val strategyTestTradeItems = remember(screen.strategyTestPortfolioMetrics) {
         buildStrategyTestTradeListFromSimulation(
@@ -207,6 +222,7 @@ internal fun MoexScreen() {
                 strategyTestM15ChartPoints = strategyTestM15ChartPoints,
                 strategyTestZScoreCandles = strategyTestZScoreCandles,
                 strategyTestChartThresholds = strategyTestChartThresholds,
+                strategyTestChartMarkers = strategyTestChartMarkersForDisplay,
                 strategyTestZInitialWindow = strategyTestZInitialWindow
             )
             MainTab.Markets -> MoexScreenTabMarkets(
