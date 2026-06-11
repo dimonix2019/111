@@ -85,7 +85,7 @@ internal const val CHART_Z_INTRABAR_WICK_MAX = 0.22
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 
 /** Заливка под Z на графике «Тест страт.» (TradingView Area). */
-internal const val STRATEGY_TEST_Z_CHART_AREA_FILL_HEX = "#15254D"
+internal const val STRATEGY_TEST_Z_CHART_AREA_FILL_HEX = "#14532D"
 internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
 /** Откат Z от экстремума для отложенного входа (0 = сразу на пересечении порога). */
 internal const val DEFAULT_STRATEGY_ENTRY_PULLBACK_Z = 0.07

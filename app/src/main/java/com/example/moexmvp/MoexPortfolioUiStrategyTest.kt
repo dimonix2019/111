@@ -2,7 +2,6 @@ package com.example.moexmvp
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,32 +12,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
-import androidx.compose.material.icons.automirrored.filled.ShowChart
-import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.AutoGraph
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Savings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,8 +32,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.max
 
 /** Симуляция Z на полном 15м ряду (~255 дн.); без графика Z и без трейлинга выхода. */
 @Composable
@@ -70,7 +49,6 @@ internal fun StrategyTestTabContent(
     zInitialWindow: Pair<Float, Float> = 1f to 0f,
     durationSummary: StrategyTestDurationSummary? = null,
     tradeRiskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
-    spreadHourlyVolatility: SpreadHourlyVolatilityReport? = null,
     onRefresh: () -> Unit,
     onMoex15mFullReload: () -> Unit,
     leverage: Double,
@@ -83,17 +61,8 @@ internal fun StrategyTestTabContent(
     onCommissionChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
     onExitThresholdChange: (Double) -> Unit,
-    presets: List<PortfolioPreset>,
-    onApplyPreset: (PortfolioPreset) -> Unit,
-    onDeletePreset: (String) -> Unit,
-    onWalkForward: () -> Unit,
-    walkForwardBusy: Boolean,
     dailyReconciliation: DailyPortfolioReconciliation? = null,
-    portfolioEntryThreshold: Double? = null,
-    portfolioExitThreshold: Double? = null,
 ) {
-    val exitRuleNote =
-        "выход по фиксированному порогу ±${String.format(Locale.US, "%.2f", exitThreshold)}"
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
@@ -161,9 +130,6 @@ internal fun StrategyTestTabContent(
                     )
                 }
             }
-            spreadHourlyVolatility?.let { hourlyVolatility ->
-                SpreadHourlyVolatilityChartCard(report = hourlyVolatility)
-            }
         }
         Row(
             modifier = Modifier
@@ -183,79 +149,15 @@ internal fun StrategyTestTabContent(
                 onCheckedChange = onCompoundReturnsChange
             )
         }
-        Text(
-            text = "Сделки ниже — все закрытые круги симуляции на 15м ряду за ${PORTFOLIO_M15_LOOKBACK_DAYS} дн. " +
-                "до сегодня включительно ($exitRuleNote, не журнал и не демо).",
-            color = Color(0xFF757575),
-            fontSize = 10.sp,
-            maxLines = 3
-        )
-        if (portfolioEntryThreshold != null && portfolioExitThreshold != null) {
-            val entryDiffers = kotlin.math.abs(entryThreshold - portfolioEntryThreshold) > 0.009
-            val exitDiffers = kotlin.math.abs(exitThreshold - portfolioExitThreshold) > 0.009
-            if (entryDiffers || exitDiffers) {
-                Text(
-                    text = "Пороги «Тест страт.» (вход ±${String.format(Locale.US, "%.2f", entryThreshold)} / выход ±${String.format(Locale.US, "%.2f", exitThreshold)}) " +
-                        "не совпадают с розовыми на «Портфеле» (±${String.format(Locale.US, "%.2f", portfolioEntryThreshold)} / ±${String.format(Locale.US, "%.2f", portfolioExitThreshold)}). " +
-                        "Сделки на вкладках будут различаться.",
-                    color = Color(0xFFFFCC80),
-                    fontSize = 10.sp,
-                    maxLines = 4
-                )
-            } else if (!compoundReturns) {
-                Text(
-                    text = "Пороги совпадают с «Портфелем» и режим «Фикс. номинал» — закрытые сделки в списке должны совпасть со сводкой портфеля (после «Обновить» на обеих вкладках).",
-                    color = Color(0xFFA5D6A7),
-                    fontSize = 10.sp,
-                    maxLines = 4
-                )
-            }
-        }
         PortfolioCollapsibleSection(
             title = "Сводка: Итого PnL и просадка",
             subtitle = metrics?.let { m ->
                 "${formatRubSigned(m.totalPnlRubApprox)} · просадка ${formatRubSigned(-m.maxDrawdownRubApprox)}"
             },
-            defaultExpanded = false
+            defaultExpanded = false,
+            compactHeader = true,
         ) {
             PortfolioHeroMetricsRow(metrics = metrics)
-        }
-        PortfolioPresetSection(
-            presets = presets,
-            onApply = onApplyPreset,
-            onDelete = onDeletePreset,
-            onSave = {},
-            showSaveButton = false
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedButton(
-                onClick = onWalkForward,
-                enabled = !walkForwardBusy,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.AutoGraph, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFFFCC80))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Walk-forward", fontSize = 10.sp, color = Color(0xFFFFCC80))
-                }
-            }
-            if (walkForwardBusy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    color = Color(0xFF64B5F6),
-                    strokeWidth = 2.dp
-                )
-            }
-            Text(
-                text = "OOS по кварталам, штраф за сделки",
-                color = Color(0xFF616161),
-                fontSize = 9.sp,
-                modifier = Modifier.weight(1f)
-            )
         }
 
         val dataTailWarning = m15Error
@@ -275,7 +177,8 @@ internal fun StrategyTestTabContent(
                 PortfolioCollapsibleSection(
                     title = "Детальные показатели симуляции",
                     subtitle = "таблица метрик",
-                    defaultExpanded = false
+                    defaultExpanded = false,
+                    compactHeader = true,
                 ) {
                     Text(
                         text = m.periodDescription,
@@ -291,15 +194,6 @@ internal fun StrategyTestTabContent(
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(top = 4.dp)
                 )
-                durationSummary?.let { summary ->
-                    StrategyTestDurationSummarySection(summary = summary)
-                }
-                buildStrategyTestTradeRiskSummary(
-                    trades = tradeItems.map { it.trade },
-                    assessments = tradeRiskAssessments,
-                )?.let { riskSummary ->
-                    StrategyTestTradeRiskSection(summary = riskSummary)
-                }
                 if (!dataTailWarning.isNullOrBlank()) {
                     Text(
                         text = dataTailWarning,
@@ -321,6 +215,15 @@ internal fun StrategyTestTabContent(
                         caption = "Сделок: ${tradeItems.size}. Прокрутка вправо — все столбцы.",
                         riskAssessments = tradeRiskAssessments,
                     )
+                }
+                durationSummary?.let { summary ->
+                    StrategyTestDurationSummarySection(summary = summary)
+                }
+                buildStrategyTestTradeRiskSummary(
+                    trades = tradeItems.map { it.trade },
+                    assessments = tradeRiskAssessments,
+                )?.let { riskSummary ->
+                    StrategyTestTradeRiskSection(summary = riskSummary)
                 }
             }
         }
@@ -346,7 +249,8 @@ internal fun StrategyTestDurationSummarySection(summary: StrategyTestDurationSum
     PortfolioCollapsibleSection(
         title = "Сводка по длительности сделок",
         subtitle = subtitle,
-        defaultExpanded = true,
+        defaultExpanded = false,
+        compactHeader = true,
     ) {
         Column(
             modifier = Modifier
@@ -389,7 +293,8 @@ internal fun StrategyTestTradeRiskSection(summary: StrategyTestTradeRiskSummary)
     PortfolioCollapsibleSection(
         title = "Факторы риска сделок",
         subtitle = formatStrategyTestTradeRiskSummarySubtitle(summary),
-        defaultExpanded = true,
+        defaultExpanded = false,
+        compactHeader = true,
     ) {
         Column(
             modifier = Modifier

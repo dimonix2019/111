@@ -197,16 +197,18 @@ internal fun PortfolioCollapsibleSection(
     title: String,
     subtitle: String? = null,
     defaultExpanded: Boolean = false,
+    compactHeader: Boolean = false,
     content: @Composable () -> Unit
 ) {
     var expanded by remember { mutableStateOf(defaultExpanded) }
+    val headerVPad = if (compactHeader) 5.dp else 10.dp
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { expanded = !expanded }
                 .background(Color(0xFF2C2C2C), RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 10.dp),
+                .padding(horizontal = 10.dp, vertical = headerVPad),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {

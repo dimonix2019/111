@@ -81,15 +81,19 @@ internal fun LandscapeZScoreFullscreenPane(
     displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
     showPlotlyToolbar: Boolean = true,
     trackpadGestures: Boolean = true,
+    showPeriodSelector: Boolean = true,
+    areaFillColor: String? = null,
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        MarketsPeriodSelector(
-            selected = selectedPeriod,
-            onSelect = onPeriodSelect,
-        )
+        if (showPeriodSelector) {
+            MarketsPeriodSelector(
+                selected = selectedPeriod,
+                onSelect = onPeriodSelect,
+            )
+        }
         BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
@@ -112,6 +116,7 @@ internal fun LandscapeZScoreFullscreenPane(
                     landscapeMinimal = true,
                     initialWindowWidth = initialWindowWidth,
                     initialWindowStart = initialWindowStart,
+                    areaFillColor = areaFillColor,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {

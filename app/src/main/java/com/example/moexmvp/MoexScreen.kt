@@ -43,7 +43,7 @@ internal fun MoexScreen() {
     val configuration = LocalConfiguration.current
     val landscapeZChartFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-            screen.selectedTab == MainTab.Markets
+            (screen.selectedTab == MainTab.Markets || screen.selectedTab == MainTab.StrategyTest)
 
     val chartSuccess = (screen.state as? UiState.Success) ?: screen.lastGoodMarkets
     val staleMarkets = screen.marketsStale || (screen.realtimeError != null && chartSuccess != null)
@@ -230,6 +230,7 @@ internal fun MoexScreen() {
                 screen = screen,
                 scope = scope,
                 modifier = Modifier.weight(1f).fillMaxSize(),
+                landscapeZChartFullscreen = landscapeZChartFullscreen,
                 strategyTestTradeItems = strategyTestTradeItems,
                 strategyTestM15ChartPoints = strategyTestM15ChartPoints,
                 strategyTestZScoreCandles = strategyTestZScoreCandles,

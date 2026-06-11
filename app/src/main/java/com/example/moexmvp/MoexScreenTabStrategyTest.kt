@@ -1,17 +1,18 @@
 package com.example.moexmvp
 
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 
 @Composable
@@ -19,6 +20,7 @@ internal fun MoexScreenTabStrategyTest(
     screen: MoexScreenState,
     scope: CoroutineScope,
     modifier: Modifier,
+    landscapeZChartFullscreen: Boolean,
     strategyTestTradeItems: List<StrategyTestTradeItem>,
     strategyTestM15ChartPoints: List<DataPoint>,
     strategyTestZScoreCandles: List<CandlePoint>,
@@ -27,7 +29,47 @@ internal fun MoexScreenTabStrategyTest(
     strategyTestChartTradeSegments: List<TradingViewTradeSegment>,
     strategyTestZInitialWindow: Pair<Float, Float>,
 ) {
-    val displayChartMarkers = strategyTestChartMarkers
+    val zReferenceLines = remember(strategyTestChartThresholds) {
+        buildZScoreReferenceLines(strategyTestChartThresholds, desktopStyle = true)
+    }
+    if (landscapeZChartFullscreen) {
+        with(screen) {
+            LandscapeZScoreFullscreenPane(
+                modifier = modifier.fillMaxSize(),
+                selectedPeriod = Period.OneMonth,
+                onPeriodSelect = {},
+                showPeriodSelector = false,
+                candles = strategyTestZScoreCandles,
+                displayPoints = strategyTestM15ChartPoints,
+                referenceLines = zReferenceLines,
+                pointMarkers = strategyTestChartMarkers,
+                tradeSegments = strategyTestChartTradeSegments,
+                initialWindowWidth = strategyTestZInitialWindow.first,
+                initialWindowStart = strategyTestZInitialWindow.second,
+                areaFillColor = STRATEGY_TEST_Z_CHART_AREA_FILL_HEX,
+                emptyContent = {
+                    when {
+                        strategyTestM15Loading || strategyTestSimComputing -> {
+                            Text(
+                                text = "Загрузка 15м для графика Z…",
+                                color = Color(0xFFBDBDBD),
+                                fontSize = 11.sp,
+                            )
+                        }
+                        strategyTestError != null -> {
+                            Text(
+                                text = strategyTestError.orEmpty(),
+                                color = Color(0xFFEF9A9A),
+                                fontSize = 11.sp,
+                            )
+                        }
+                        else -> EmptyState()
+                    }
+                },
+            )
+        }
+        return
+    }
     Column(modifier.fillMaxSize()) {
         with(screen) {
             LazyColumn(
@@ -44,12 +86,11 @@ internal fun MoexScreenTabStrategyTest(
                         m15ChartPoints = strategyTestM15ChartPoints,
                         zScoreCandles = strategyTestZScoreCandles,
                         chartThresholds = strategyTestChartThresholds,
-                        chartMarkers = displayChartMarkers,
+                        chartMarkers = strategyTestChartMarkers,
                         chartTradeSegments = strategyTestChartTradeSegments,
                         zInitialWindow = strategyTestZInitialWindow,
                         durationSummary = strategyTestDurationSummary,
                         tradeRiskAssessments = strategyTestTradeRiskAssessments,
-                        spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
                         onRefresh = {
                             scope.launch {
                                 ensureM15PointsForStrategyTest(preferNetwork = true)
@@ -85,50 +126,7 @@ internal fun MoexScreenTabStrategyTest(
                                 PORTFOLIO_Z_THRESHOLD_MAX
                             )
                         },
-                        presets = portfolioPresets,
-                        onApplyPreset = { p ->
-                            portfolioLeverage = p.leverage
-                            portfolioCommissionPercent = p.commissionPercentPerSide
-                            strategyTestEntryThreshold = p.entryThreshold
-                            strategyTestExitThreshold = p.exitThreshold
-                        },
-                        onDeletePreset = { id ->
-                            portfolioPresets = deletePortfolioPreset(context, id)
-                        },
-                        onWalkForward = {
-                            scope.launch {
-                                walkForwardBusy = true
-                                try {
-                                    val pts = loadM15ForStrategyTest(
-                                        PortfolioM15LoadMode.INCREMENTAL,
-                                    )
-                                    val th = if (pts.size >= 80) {
-                                        withContext(Dispatchers.Default) {
-                                            calculateWalkForwardRobustThresholds(pts)
-                                        }
-                                    } else {
-                                        null
-                                    }
-                                    if (th == null) {
-                                        Toast.makeText(
-                                            context,
-                                            "Недостаточно данных для walk-forward.",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else {
-                                        robustCandidate = th
-                                    }
-                                } finally {
-                                    walkForwardBusy = false
-                                }
-                            }
-                        },
-                        walkForwardBusy = walkForwardBusy,
                         dailyReconciliation = dailyReconciliation,
-                        portfolioEntryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
-                            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                        portfolioExitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
-                            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                     )
                 }
             }
