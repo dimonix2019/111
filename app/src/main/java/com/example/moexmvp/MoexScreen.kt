@@ -130,6 +130,7 @@ internal fun MoexScreen() {
     }
     val strategyTestChartTradeSegmentsForDisplay = remember(
         strategyTestM15ChartPoints,
+        strategyTestZScoreCandles,
         strategyTestTradeItems,
         screen.strategyTestPortfolioMetrics?.openPosition,
     ) {
@@ -139,6 +140,7 @@ internal fun MoexScreen() {
             buildTradingViewTradeSegmentsFromStrategyTest(
                 tradeItems = strategyTestTradeItems,
                 displayPoints = strategyTestM15ChartPoints,
+                candles = strategyTestZScoreCandles,
                 openPosition = screen.strategyTestPortfolioMetrics?.openPosition,
             )
         }

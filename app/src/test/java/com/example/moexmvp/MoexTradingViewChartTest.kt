@@ -191,14 +191,54 @@ class MoexTradingViewChartTest {
                 displayPoints = display,
                 referenceLines = emptyList(),
                 pointMarkers = markers,
-                tradeSegments = buildTradingViewTradeSegmentsFromStrategyTest(tradeItems, display),
+                tradeSegments = buildTradingViewTradeSegmentsFromStrategyTest(
+                    tradeItems,
+                    display,
+                    displayCandles,
+                ),
             ),
         )
-        assertEquals(2, payload.getJSONArray("markers").length())
+        assertTrue(payload.getJSONArray("markers").length() >= 2)
         assertEquals(1, payload.getJSONArray("trades").length())
         for (i in 0 until payload.getJSONArray("markers").length()) {
             val t = payload.getJSONArray("markers").getJSONObject(i).getLong("time")
             assertTrue("marker time $t must match a candle", candleTimes.contains(t))
+        }
+        val tradeEntry = payload.getJSONArray("trades").getJSONObject(0).getLong("entryTime")
+        assertTrue(candleTimes.contains(tradeEntry))
+    }
+
+    @Test
+    fun buildTradingViewChartPayloadJson_tradeSegmentMarkers_snapToCandleTimes() {
+        val candles = listOf(
+            CandlePoint("2026-05-19 10:00", open = 0.0, high = 0.1, low = -0.1, close = 0.05),
+            CandlePoint("2026-05-19 10:15", open = 0.05, high = 0.2, low = 0.0, close = 0.1),
+        )
+        val points = candles.map { point(it.label, z = it.close) }
+        val candleTimes = candles.map { m15CandleLabelToUnixSec(it.label) }.toSet()
+        val segments = listOf(
+            TradingViewTradeSegment(
+                id = "1A",
+                entryTimeSec = candleTimes.min() + 60L,
+                exitTimeSec = candleTimes.max() + 120L,
+                entryZ = 0.05,
+                exitZ = 0.1,
+                isOpen = false,
+            ),
+        )
+        val json = JSONObject(
+            buildTradingViewChartPayloadJson(
+                candles = candles,
+                displayPoints = points,
+                referenceLines = emptyList(),
+                pointMarkers = emptyList(),
+                tradeSegments = segments,
+            ),
+        )
+        assertEquals(2, json.getJSONArray("markers").length())
+        for (i in 0 until 2) {
+            val t = json.getJSONArray("markers").getJSONObject(i).getLong("time")
+            assertTrue(t in candleTimes)
         }
     }
 

@@ -66,10 +66,12 @@ internal fun portfolioTableTimeToUnixSec(timeMsk: String): Long? {
 internal fun buildTradingViewTradeSegmentsFromStrategyTest(
     tradeItems: List<StrategyTestTradeItem>,
     displayPoints: List<DataPoint>,
+    candles: List<CandlePoint> = emptyList(),
     openPosition: PortfolioOpenPosition? = null,
 ): List<TradingViewTradeSegment> {
     val last = displayPoints.lastOrNull()
-    val lastTimeSec = last?.timestampMillis?.div(1000L)
+    val lastTimeSec = chartBarTimeSecForIndex(displayPoints.lastIndex, candles, displayPoints)
+        ?: last?.tradeDate?.let { snapTradeLabelToDisplayBarTimeSec(it, displayPoints, candles) }
     val lastZ = last?.zScore
     val barIndex = buildM15BarIndexByLabel(displayPoints)
     val segments = mutableListOf<TradingViewTradeSegment>()
@@ -77,8 +79,8 @@ internal fun buildTradingViewTradeSegmentsFromStrategyTest(
         val trade = item.trade
         val badge = strategyTestTradeChartBadge(listIndex, trade.direction)
         val tradeId = tradingViewMarkerDisplayText(badge)
-        val entryTime = snapTradeLabelToDisplayBarTimeSec(trade.entryDate, displayPoints) ?: continue
-        val exitTime = snapTradeLabelToDisplayBarTimeSec(trade.exitDate, displayPoints)
+        val entryTime = snapTradeLabelToDisplayBarTimeSec(trade.entryDate, displayPoints, candles) ?: continue
+        val exitTime = snapTradeLabelToDisplayBarTimeSec(trade.exitDate, displayPoints, candles)
         val entryZ = barIndex[trade.entryDate]?.let { displayPoints[it].zScore }
             ?: lookupSimTradeEntryZ(trade, displayPoints, barIndex)
             ?: displayPoints.getOrNull(indexForNearestChartBar(displayPoints, trade.entryDate) ?: -1)?.zScore
@@ -96,7 +98,7 @@ internal fun buildTradingViewTradeSegmentsFromStrategyTest(
         )
     }
     openPosition?.let { open ->
-        val entryTime = snapTradeLabelToDisplayBarTimeSec(open.entryDate, displayPoints) ?: return@let
+        val entryTime = snapTradeLabelToDisplayBarTimeSec(open.entryDate, displayPoints, candles) ?: return@let
         val entryZ = barIndex[open.entryDate]?.let { displayPoints[it].zScore }
             ?: displayPoints.getOrNull(indexForNearestChartBar(displayPoints, open.entryDate) ?: -1)?.zScore
             ?: lastZ ?: 0.0
@@ -212,21 +214,78 @@ internal fun buildTradingViewChartPayloadJson(
         )
     }
     val markers = JSONArray()
+    val markerKeys = linkedSetOf<String>()
+    val candleTimesSec = candles.map { m15CandleLabelToUnixSec(it.label) }
+    val candleTimeSet = candleTimesSec.toSet()
+    fun snapToCandleTimeSec(timeSec: Long): Long? {
+        if (timeSec in candleTimeSet) return timeSec
+        if (candleTimesSec.isEmpty()) return null
+        return candleTimesSec.minByOrNull { kotlin.math.abs(it - timeSec) }
+    }
+    fun putMarker(
+        timeSec: Long,
+        position: String,
+        color: String,
+        shape: String,
+        tradeId: String,
+        isEntry: Boolean,
+        size: Double,
+        markerKeys: MutableSet<String>,
+    ) {
+        val snapped = snapToCandleTimeSec(timeSec) ?: return
+        val key = "$tradeId:${if (isEntry) "e" else "x"}:$snapped"
+        if (!markerKeys.add(key)) return
+        markers.put(
+            JSONObject()
+                .put("time", snapped)
+                .put("position", position)
+                .put("color", color)
+                .put("shape", shape)
+                .put("text", tradeId)
+                .put("size", size)
+                .put("tradeId", tradeId)
+                .put("isEntry", isEntry)
+        )
+    }
     for (m in pointMarkers.filter { !it.badgeText.isNullOrBlank() }) {
         val barTimeSec = resolveTradingViewMarkerBarTimeSec(m, displayPoints, candles) ?: continue
         val tv = tradingViewMarkerFromChartMarker(m, barTimeSec)
         val tradeId = tradingViewMarkerDisplayText(m.badgeText.orEmpty())
-        markers.put(
-            JSONObject()
-                .put("time", tv.time)
-                .put("position", tv.position)
-                .put("color", tv.color)
-                .put("shape", tv.shape)
-                .put("text", tradeId)
-                .put("size", tv.size)
-                .put("tradeId", tradeId)
-                .put("isEntry", m.label.startsWith("Вх", ignoreCase = true))
+        putMarker(
+            timeSec = tv.time,
+            position = tv.position,
+            color = tv.color,
+            shape = tv.shape,
+            tradeId = tradeId,
+            isEntry = m.label.startsWith("Вх", ignoreCase = true),
+            size = tv.size,
+            markerKeys = markerKeys,
         )
+    }
+    for (t in tradeSegments) {
+        val tradeId = t.id
+        putMarker(
+            timeSec = t.entryTimeSec,
+            position = "belowBar",
+            color = "#69F0AE",
+            shape = "arrowUp",
+            tradeId = tradeId,
+            isEntry = true,
+            size = 2.0,
+            markerKeys = markerKeys,
+        )
+        t.exitTimeSec?.let { exitTime ->
+            putMarker(
+                timeSec = exitTime,
+                position = "inBar",
+                color = "#FFCC80",
+                shape = "circle",
+                tradeId = tradeId,
+                isEntry = false,
+                size = 2.0,
+                markerKeys = markerKeys,
+            )
+        }
     }
     val trades = JSONArray()
     for (t in tradeSegments) {
@@ -296,7 +355,7 @@ internal fun tradingViewMarkerFromChartMarker(
         color = composeColorToHex(marker.color),
         shape = shape,
         text = text,
-        size = 1.2,
+        size = 2.0,
     )
 }
 
@@ -317,18 +376,11 @@ internal fun resolveTradingViewMarkerBarTimeSec(
     displayPoints: List<DataPoint>,
     candles: List<CandlePoint>,
 ): Long? {
+    chartBarTimeSecForIndex(marker.index, candles, displayPoints)?.let { return it }
     marker.barDateLabel?.let { label ->
-        val idx = indexForNearestChartBar(displayPoints, label)
-        if (idx != null) {
-            candles.getOrNull(idx)?.let { return m15CandleLabelToUnixSec(it.label) }
-            displayPoints.getOrNull(idx)?.let { return it.timestampMillis / 1000L }
-        }
+        val idx = indexForNearestChartBar(displayPoints, label) ?: return@let null
+        return chartBarTimeSecForIndex(idx, candles, displayPoints)
     }
-    displayPoints.getOrNull(marker.index)?.let { point ->
-        candles.getOrNull(marker.index)?.let { return m15CandleLabelToUnixSec(it.label) }
-        return point.timestampMillis / 1000L
-    }
-    candles.getOrNull(marker.index)?.let { return m15CandleLabelToUnixSec(it.label) }
     return null
 }
 

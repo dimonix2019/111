@@ -219,9 +219,28 @@ internal fun indexForNearestChartBar(points: List<DataPoint>, label: String): In
     return points.indices.minByOrNull { kotlin.math.abs(points[it].timestampMillis - targetTs) }
 }
 
-internal fun snapTradeLabelToDisplayBarTimeSec(label: String, displayPoints: List<DataPoint>): Long? {
+/** Время бара для TradingView — из label свечи (должно совпадать с time в payload candles). */
+internal fun chartBarTimeSecForIndex(
+    idx: Int,
+    candles: List<CandlePoint>,
+    displayPoints: List<DataPoint>,
+): Long? {
+    candles.getOrNull(idx)?.label?.let { label ->
+        return runCatching { m15CandleLabelToUnixSec(label) }.getOrNull()
+    }
+    displayPoints.getOrNull(idx)?.tradeDate?.let { label ->
+        return runCatching { m15CandleLabelToUnixSec(label) }.getOrNull()
+    }
+    return null
+}
+
+internal fun snapTradeLabelToDisplayBarTimeSec(
+    label: String,
+    displayPoints: List<DataPoint>,
+    candles: List<CandlePoint> = emptyList(),
+): Long? {
     val idx = indexForNearestChartBar(displayPoints, label) ?: return null
-    return displayPoints[idx].timestampMillis / 1000L
+    return chartBarTimeSecForIndex(idx, candles, displayPoints)
 }
 
 internal fun portfolioChartEntryTimeLabel(
