@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import android.app.Activity
+import android.content.Intent
 import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -58,6 +59,10 @@ internal fun MoexScreenTabJournal(
                 JournalTabContent(
                     events = signalEvents,
                     pushNotifications = pushNotificationLog,
+                    entryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                    exitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
+                        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                     modifier = modifier.fillMaxWidth(),
                     onClearHistoryRequest = {
                         clearStrategySignalJournalAndLocalStrategyState(context)
@@ -79,6 +84,28 @@ internal fun MoexScreenTabJournal(
                             "Журнал уведомлений (push) очищен.",
                             Toast.LENGTH_SHORT
                         ).show()
+                    },
+                    onExportRequest = {
+                        val entry = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+                            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+                        val exit = (realTradeExitThreshold ?: dynamicThresholds.exit)
+                            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+                        val json = exportStrategySignalJournalJson(
+                            context = context,
+                            entryThreshold = entry,
+                            exitThreshold = exit,
+                            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                            leverage = portfolioLeverage,
+                            commissionPercentPerSide = portfolioCommissionPercent,
+                        )
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/json"
+                            putExtra(Intent.EXTRA_TEXT, json)
+                            putExtra(Intent.EXTRA_SUBJECT, "moex-parity-journal.json")
+                        }
+                        context.startActivity(
+                            Intent.createChooser(send, "Экспорт журнала для parity")
+                        )
                     }
                 )
     }

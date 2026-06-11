@@ -36,6 +36,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MoexDiagnostics.log(
+            applicationContext,
+            "lifecycle",
+            "activity_onCreate version=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+        )
+        MoexDiagnostics.logMemory(applicationContext, "activity_onCreate")
         createPushNotificationChannel(this)
         requestPushPermissionIfNeeded()
         initPushMessaging()
@@ -59,6 +65,28 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        MoexDiagnostics.log(applicationContext, "lifecycle", "activity_onStart")
+    }
+
+    override fun onStop() {
+        MoexDiagnostics.log(applicationContext, "lifecycle", "activity_onStop")
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        MoexDiagnostics.log(applicationContext, "lifecycle", "activity_onDestroy")
+        super.onDestroy()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        MoexMemoryPressure.onTrimMemory(level)
+        MoexDiagnostics.log(applicationContext, "lifecycle", "onTrimMemory level=$level")
+        MoexDiagnostics.logMemory(applicationContext, "onTrimMemory")
     }
 
     private fun requestPushPermissionIfNeeded() {
@@ -92,5 +120,13 @@ class MainActivity : ComponentActivity() {
             .addOnFailureListener { error ->
                 Log.e(PUSH_LOG_TAG, "Failed to get FCM token", error)
             }
+    }
+}
+
+internal fun installMoexDiagnosticsCrashHandler(appContext: android.content.Context) {
+    val prior = Thread.getDefaultUncaughtExceptionHandler()
+    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+        runCatching { MoexDiagnostics.logUncaught(appContext, thread, throwable) }
+        prior?.uncaughtException(thread, throwable)
     }
 }

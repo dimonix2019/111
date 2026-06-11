@@ -15,6 +15,8 @@ import androidx.compose.ui.unit.sp
 
 internal data class ChangelogEntry(val version: String, val summary: String)
 
+internal const val APP_CHANGELOG_HISTORY_MAX = 5
+
 internal fun parseAppChangelog(raw: String = APP_CHANGELOG): List<ChangelogEntry> =
     raw.trim().lines().mapNotNull { line ->
         val trimmed = line.trim()
@@ -25,7 +27,7 @@ internal fun parseAppChangelog(raw: String = APP_CHANGELOG): List<ChangelogEntry
             version = trimmed.substring(0, sep).trim(),
             summary = trimmed.substring(sep + 3).trim()
         )
-    }
+    }.take(APP_CHANGELOG_HISTORY_MAX)
 
 internal fun changelogSummaryForBuild(versionName: String = BuildConfig.VERSION_NAME): String? =
     parseAppChangelog().firstOrNull { it.version == versionName }?.summary
