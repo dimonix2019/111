@@ -64,6 +64,8 @@
     let selectedTradeId = null;
     let selectedMarkerKey = null;
     let clickBound = false;
+    let viewportBound = false;
+    let refreshMarkersRaf = 0;
 
     function showError(msg) {
       const el = document.getElementById('err');
@@ -241,21 +243,54 @@
       });
     }
 
-    function refreshMarkers() {
-      if (!series) return;
-      if (markersPlugin) {
-        try { markersPlugin.detach(); } catch (e) {}
-        markersPlugin = null;
+    function scheduleRefreshMarkers() {
+      if (refreshMarkersRaf) return;
+      refreshMarkersRaf = requestAnimationFrame(() => {
+        refreshMarkersRaf = 0;
+        refreshMarkers();
+      });
+    }
+
+    function bindViewportMarkerRefresh() {
+      if (!chart || viewportBound) return;
+      viewportBound = true;
+      const ts = chart.timeScale();
+      ts.subscribeVisibleLogicalRangeChange(scheduleRefreshMarkers);
+      if (typeof ts.subscribeVisibleTimeRangeChange === 'function') {
+        ts.subscribeVisibleTimeRangeChange(scheduleRefreshMarkers);
       }
+    }
+
+    function refreshMarkers(forceRecreate) {
+      if (!series) return;
       const markerData = buildMarkerRenderData(
         snapMarkersToCandles(lastMarkers),
         selectedMarkerKey,
       );
-      if (markerData.length && LightweightCharts.createSeriesMarkers) {
+      if (!markerData.length) {
+        if (markersPlugin) {
+          try { markersPlugin.detach(); } catch (e) {}
+          markersPlugin = null;
+        }
+        return;
+      }
+      if (!LightweightCharts.createSeriesMarkers) return;
+      try {
+        if (!forceRecreate && markersPlugin && typeof markersPlugin.setMarkers === 'function') {
+          markersPlugin.setMarkers(markerData);
+          return;
+        }
+        if (markersPlugin) {
+          try { markersPlugin.detach(); } catch (e) {}
+          markersPlugin = null;
+        }
+        markersPlugin = LightweightCharts.createSeriesMarkers(series, markerData);
+      } catch (e) {
+        console.error('markers', e);
         try {
           markersPlugin = LightweightCharts.createSeriesMarkers(series, markerData);
-        } catch (e) {
-          console.error('markers', e);
+        } catch (e2) {
+          console.error('markers recreate', e2);
         }
       }
     }
@@ -388,9 +423,12 @@
         clickBound = true;
       }
 
+      bindViewportMarkerRefresh();
+
       const ro = new ResizeObserver(() => {
         const { w: rw, h: rh } = chartSize();
         if (rw > 0 && rh > 0) chart.resize(rw, rh);
+        scheduleRefreshMarkers();
       });
       ro.observe(el);
       return true;
@@ -466,6 +504,11 @@
 
       series.setData(candles);
       lastCandleTimes = candles.map((c) => c.time);
+      if (markersPlugin) {
+        try { markersPlugin.detach(); } catch (e) {}
+        markersPlugin = null;
+      }
+      bindViewportMarkerRefresh();
 
       if (areaSeries) {
         if (data.areaFillColor) {
@@ -507,7 +550,7 @@
       }
       lastPayloadKey = key;
 
-      refreshMarkers();
+      refreshMarkers(true);
       updateHighlightLine();
     }
 
