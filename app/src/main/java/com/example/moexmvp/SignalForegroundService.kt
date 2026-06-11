@@ -138,6 +138,15 @@ class SignalForegroundService : Service() {
         }
 
         val signalThresholds = loadRealTradeZThresholds(applicationContext, bgSignalFallbackThresholds)
+        runCatching {
+            processOpenTradeRedRiskNotifications(
+                context = applicationContext,
+                points = points,
+                entryThreshold = signalThresholds.entry,
+            )
+        }.onFailure { e ->
+            MoexDiagnostics.logError(applicationContext, "monitor", e, "open_trade_red_risk_notify")
+        }
         var dayLimit = loadDailySignalLimit(applicationContext, LocalDate.now())
         val initialPosition = loadSavedStrategyPosition(applicationContext)
         val lastProcessedBarTs = resolveLastProcessed15mBarTimestampForReplay(applicationContext)
