@@ -190,12 +190,13 @@ class MoexTradingViewChartTest {
                 candles = displayCandles,
                 displayPoints = display,
                 referenceLines = emptyList(),
-                pointMarkers = markers,
+                pointMarkers = emptyList(),
                 tradeSegments = buildTradingViewTradeSegmentsFromStrategyTest(
                     tradeItems,
                     display,
                     displayCandles,
                 ),
+                strategyTestTradeItems = tradeItems,
             ),
         )
         assertTrue(payload.getJSONArray("markers").length() >= 2)
@@ -209,22 +210,66 @@ class MoexTradingViewChartTest {
     }
 
     @Test
-    fun buildTradingViewChartPayloadJson_tradeSegmentMarkers_snapToCandleTimes() {
+    fun buildStrategyTestTradingViewMarkerBuckets_snapsAndMergesOnDownsampledSeries() {
+        val full = (0 until 200).map { i ->
+            val label = LocalDateTime.of(2026, 1, 2, 10, 0).plusMinutes(i * 15L)
+                .format(portfolio15mLabelFormatter)
+            val ts = LocalDateTime.parse(label, portfolio15mLabelFormatter)
+                .atZone(ZoneId.of("Europe/Moscow")).toInstant().toEpochMilli()
+            DataPoint(ts, label, 100.0, 90.0, 10.0, 10.0, zScore = i * 0.01)
+        }
+        val (display, candles) = downsampleM15ChartSeries(
+            full,
+            buildZScoreCandlesFromM15Points(full),
+            maxBars = 40,
+        )
+        val tradeItems = (0 until 12).map { i ->
+            StrategyTestTradeItem(
+                trade = PortfolioClosedTrade(
+                    direction = if (i % 2 == 0) ZStrategyPosition.Long else ZStrategyPosition.Short,
+                    entryDate = full[20 + i * 12].tradeDate,
+                    exitDate = full[24 + i * 12].tradeDate,
+                    entrySpreadPercent = 10.0,
+                    exitSpreadPercent = 10.4,
+                    pnlSpreadPoints = 0.4,
+                    grossPnlRubApprox = 100.0,
+                    pnlRubApprox = 90.0,
+                ),
+            )
+        }
+        val candleTimes = candles.map { m15CandleLabelToUnixSec(it.label) }.toSet()
+        val json = JSONObject(
+            buildTradingViewChartPayloadJson(
+                candles = candles,
+                displayPoints = display,
+                referenceLines = emptyList(),
+                pointMarkers = emptyList(),
+                tradeSegments = buildTradingViewTradeSegmentsFromStrategyTest(tradeItems, display, candles),
+                strategyTestTradeItems = tradeItems,
+            ),
+        )
+        val markerCount = json.getJSONArray("markers").length()
+        assertTrue("expected many markers, got $markerCount", markerCount >= 12)
+        for (i in 0 until markerCount) {
+            val t = json.getJSONArray("markers").getJSONObject(i).getLong("time")
+            assertTrue(t in candleTimes)
+        }
+    }
+
+    @Test
+    fun buildStrategyTestTradingViewMarkerBuckets_openPositionHasEntryOnly() {
         val candles = listOf(
             CandlePoint("2026-05-19 10:00", open = 0.0, high = 0.1, low = -0.1, close = 0.05),
             CandlePoint("2026-05-19 10:15", open = 0.05, high = 0.2, low = 0.0, close = 0.1),
         )
         val points = candles.map { point(it.label, z = it.close) }
-        val candleTimes = candles.map { m15CandleLabelToUnixSec(it.label) }.toSet()
-        val segments = listOf(
-            TradingViewTradeSegment(
-                id = "1A",
-                entryTimeSec = candleTimes.min() + 60L,
-                exitTimeSec = candleTimes.max() + 120L,
-                entryZ = 0.05,
-                exitZ = 0.1,
-                isOpen = false,
-            ),
+        val open = PortfolioOpenPosition(
+            direction = ZStrategyPosition.Long,
+            entryDate = "2026-05-19 10:00",
+            entrySpreadPercent = 10.0,
+            lastSpreadPercent = 10.2,
+            unrealizedPnlSpread = 0.2,
+            unrealizedRubApprox = 50.0,
         )
         val json = JSONObject(
             buildTradingViewChartPayloadJson(
@@ -232,14 +277,15 @@ class MoexTradingViewChartTest {
                 displayPoints = points,
                 referenceLines = emptyList(),
                 pointMarkers = emptyList(),
-                tradeSegments = segments,
+                tradeSegments = buildTradingViewTradeSegmentsFromStrategyTest(emptyList(), points, candles, open),
+                strategyTestTradeItems = emptyList(),
+                openPosition = open,
             ),
         )
-        assertEquals(2, json.getJSONArray("markers").length())
-        for (i in 0 until 2) {
-            val t = json.getJSONArray("markers").getJSONObject(i).getLong("time")
-            assertTrue(t in candleTimes)
-        }
+        assertEquals(1, json.getJSONArray("markers").length())
+        val marker = json.getJSONArray("markers").getJSONObject(0)
+        assertEquals("1A", marker.getString("text"))
+        assertEquals(true, marker.getBoolean("isEntry"))
     }
 
     @Test

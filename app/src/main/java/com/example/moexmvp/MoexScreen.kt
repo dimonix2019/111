@@ -104,29 +104,12 @@ internal fun MoexScreen() {
             calculatedDate = screen.dynamicThresholds.calculatedDate
         )
     }
-    val strategyTestZInitialWindow = remember(strategyTestM15ChartPoints) {
-        chartInitialWindowForLastCalendarDays(
-            strategyTestM15ChartPoints,
-            visibleDays = STRATEGY_TEST_Z_CHART_VISIBLE_DAYS
-        )
-    }
+    // Весь downsample-ряд (~255 дн.) — иначе маркеры старых сделок вне окна 30 дн.
+    val strategyTestZInitialWindow = 1f to 0f
     val strategyTestTradeItems = remember(screen.strategyTestPortfolioMetrics) {
         buildStrategyTestTradeListFromSimulation(
             screen.strategyTestPortfolioMetrics?.closedTrades.orEmpty()
         )
-    }
-    val strategyTestChartMarkersForDisplay = remember(
-        strategyTestM15ChartPoints,
-        strategyTestTradeItems,
-    ) {
-        if (strategyTestM15ChartPoints.size < 2 || strategyTestTradeItems.isEmpty()) {
-            emptyList()
-        } else {
-            buildZScoreMarkersFromStrategyTestTrades(
-                strategyTestM15ChartPoints,
-                strategyTestTradeItems,
-            )
-        }
     }
     val strategyTestChartTradeSegmentsForDisplay = remember(
         strategyTestM15ChartPoints,
@@ -237,8 +220,8 @@ internal fun MoexScreen() {
                 strategyTestM15ChartPoints = strategyTestM15ChartPoints,
                 strategyTestZScoreCandles = strategyTestZScoreCandles,
                 strategyTestChartThresholds = strategyTestChartThresholds,
-                strategyTestChartMarkers = strategyTestChartMarkersForDisplay,
                 strategyTestChartTradeSegments = strategyTestChartTradeSegmentsForDisplay,
+                strategyTestOpenPosition = screen.strategyTestPortfolioMetrics?.openPosition,
                 strategyTestZInitialWindow = strategyTestZInitialWindow
             )
             MainTab.Markets -> MoexScreenTabMarkets(

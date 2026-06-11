@@ -83,6 +83,8 @@ internal fun LandscapeZScoreFullscreenPane(
     trackpadGestures: Boolean = true,
     showPeriodSelector: Boolean = true,
     areaFillColor: String? = null,
+    strategyTestTradeItems: List<StrategyTestTradeItem> = emptyList(),
+    openPosition: PortfolioOpenPosition? = null,
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
@@ -117,6 +119,8 @@ internal fun LandscapeZScoreFullscreenPane(
                     initialWindowWidth = initialWindowWidth,
                     initialWindowStart = initialWindowStart,
                     areaFillColor = areaFillColor,
+                    strategyTestTradeItems = strategyTestTradeItems,
+                    openPosition = openPosition,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {

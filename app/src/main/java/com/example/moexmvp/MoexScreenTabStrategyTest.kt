@@ -25,8 +25,8 @@ internal fun MoexScreenTabStrategyTest(
     strategyTestM15ChartPoints: List<DataPoint>,
     strategyTestZScoreCandles: List<CandlePoint>,
     strategyTestChartThresholds: DynamicThresholds,
-    strategyTestChartMarkers: List<ChartPointMarker>,
     strategyTestChartTradeSegments: List<TradingViewTradeSegment>,
+    strategyTestOpenPosition: PortfolioOpenPosition?,
     strategyTestZInitialWindow: Pair<Float, Float>,
 ) {
     val zReferenceLines = remember(strategyTestChartThresholds) {
@@ -42,11 +42,13 @@ internal fun MoexScreenTabStrategyTest(
                 candles = strategyTestZScoreCandles,
                 displayPoints = strategyTestM15ChartPoints,
                 referenceLines = zReferenceLines,
-                pointMarkers = strategyTestChartMarkers,
+                pointMarkers = emptyList(),
                 tradeSegments = strategyTestChartTradeSegments,
                 initialWindowWidth = strategyTestZInitialWindow.first,
                 initialWindowStart = strategyTestZInitialWindow.second,
                 areaFillColor = STRATEGY_TEST_Z_CHART_AREA_FILL_HEX,
+                strategyTestTradeItems = strategyTestTradeItems,
+                openPosition = strategyTestOpenPosition,
                 emptyContent = {
                     when {
                         strategyTestM15Loading || strategyTestSimComputing -> {
@@ -86,8 +88,8 @@ internal fun MoexScreenTabStrategyTest(
                         m15ChartPoints = strategyTestM15ChartPoints,
                         zScoreCandles = strategyTestZScoreCandles,
                         chartThresholds = strategyTestChartThresholds,
-                        chartMarkers = strategyTestChartMarkers,
                         chartTradeSegments = strategyTestChartTradeSegments,
+                        openPosition = strategyTestOpenPosition,
                         zInitialWindow = strategyTestZInitialWindow,
                         durationSummary = strategyTestDurationSummary,
                         tradeRiskAssessments = strategyTestTradeRiskAssessments,

@@ -102,8 +102,9 @@ internal fun buildTradingViewTradeSegmentsFromStrategyTest(
         val entryZ = barIndex[open.entryDate]?.let { displayPoints[it].zScore }
             ?: displayPoints.getOrNull(indexForNearestChartBar(displayPoints, open.entryDate) ?: -1)?.zScore
             ?: lastZ ?: 0.0
+        val openBadge = strategyTestTradeChartBadge(tradeItems.size, open.direction)
         segments += TradingViewTradeSegment(
-            id = "open",
+            id = tradingViewMarkerDisplayText(openBadge),
             entryTimeSec = entryTime,
             exitTimeSec = lastTimeSec,
             entryZ = entryZ,
@@ -112,6 +113,86 @@ internal fun buildTradingViewTradeSegmentsFromStrategyTest(
         )
     }
     return segments
+}
+
+internal data class StrategyTestTvMarkerBucket(
+    val timeSec: Long,
+    val position: String,
+    val color: String,
+    val shape: String,
+    val isEntry: Boolean,
+    val tradeIds: MutableList<String> = mutableListOf(),
+)
+
+private fun strategyTestEntryMarkerStyle(direction: ZStrategyPosition): Triple<String, String, String> =
+    when (direction) {
+        ZStrategyPosition.Short -> Triple("aboveBar", "#FF8A80", "arrowDown")
+        ZStrategyPosition.Long -> Triple("belowBar", "#69F0AE", "arrowUp")
+        ZStrategyPosition.Flat -> Triple("inBar", "#B0BEC5", "circle")
+    }
+
+/** Маркеры симуляции «Тест страт.» с объединением подписей на одном баре. */
+internal fun buildStrategyTestTradingViewMarkerBuckets(
+    tradeItems: List<StrategyTestTradeItem>,
+    displayPoints: List<DataPoint>,
+    candles: List<CandlePoint>,
+    openPosition: PortfolioOpenPosition? = null,
+    snapToCandleTimeSec: (Long) -> Long?,
+): List<StrategyTestTvMarkerBucket> {
+    val buckets = linkedMapOf<String, StrategyTestTvMarkerBucket>()
+    fun add(
+        timeSec: Long?,
+        direction: ZStrategyPosition,
+        tradeId: String,
+        isEntry: Boolean,
+    ) {
+        val raw = timeSec ?: return
+        val snapped = snapToCandleTimeSec(raw) ?: return
+        val (position, color, shape) = if (isEntry) {
+            strategyTestEntryMarkerStyle(direction)
+        } else {
+            Triple("inBar", "#FFCC80", "circle")
+        }
+        val key = "$snapped:$isEntry:$position:$shape"
+        val bucket = buckets.getOrPut(key) {
+            StrategyTestTvMarkerBucket(
+                timeSec = snapped,
+                position = position,
+                color = color,
+                shape = shape,
+                isEntry = isEntry,
+            )
+        }
+        if (tradeId !in bucket.tradeIds) bucket.tradeIds += tradeId
+    }
+    for ((listIndex, item) in tradeItems.withIndex()) {
+        val trade = item.trade
+        val tradeId = tradingViewMarkerDisplayText(strategyTestTradeChartBadge(listIndex, trade.direction))
+        add(
+            timeSec = snapTradeLabelToDisplayBarTimeSec(trade.entryDate, displayPoints, candles),
+            direction = trade.direction,
+            tradeId = tradeId,
+            isEntry = true,
+        )
+        add(
+            timeSec = snapTradeLabelToDisplayBarTimeSec(trade.exitDate, displayPoints, candles),
+            direction = trade.direction,
+            tradeId = tradeId,
+            isEntry = false,
+        )
+    }
+    openPosition?.let { open ->
+        val tradeId = tradingViewMarkerDisplayText(
+            strategyTestTradeChartBadge(tradeItems.size, open.direction)
+        )
+        add(
+            timeSec = snapTradeLabelToDisplayBarTimeSec(open.entryDate, displayPoints, candles),
+            direction = open.direction,
+            tradeId = tradeId,
+            isEntry = true,
+        )
+    }
+    return buckets.values.toList()
 }
 
 private fun lookupSimTradeEntryZ(
@@ -186,6 +267,8 @@ internal fun buildTradingViewChartPayloadJson(
     referenceLines: List<ChartReferenceLine>,
     pointMarkers: List<ChartPointMarker>,
     tradeSegments: List<TradingViewTradeSegment> = emptyList(),
+    strategyTestTradeItems: List<StrategyTestTradeItem> = emptyList(),
+    openPosition: PortfolioOpenPosition? = null,
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
@@ -247,42 +330,43 @@ internal fun buildTradingViewChartPayloadJson(
                 .put("isEntry", isEntry)
         )
     }
-    for (m in pointMarkers.filter { !it.badgeText.isNullOrBlank() }) {
-        val barTimeSec = resolveTradingViewMarkerBarTimeSec(m, displayPoints, candles) ?: continue
-        val tv = tradingViewMarkerFromChartMarker(m, barTimeSec)
-        val tradeId = tradingViewMarkerDisplayText(m.badgeText.orEmpty())
-        putMarker(
-            timeSec = tv.time,
-            position = tv.position,
-            color = tv.color,
-            shape = tv.shape,
-            tradeId = tradeId,
-            isEntry = m.label.startsWith("Вх", ignoreCase = true),
-            size = tv.size,
-            markerKeys = markerKeys,
+    val useStrategyTestMarkers = strategyTestTradeItems.isNotEmpty() || openPosition != null
+    if (useStrategyTestMarkers) {
+        val buckets = buildStrategyTestTradingViewMarkerBuckets(
+            tradeItems = strategyTestTradeItems,
+            displayPoints = displayPoints,
+            candles = candles,
+            openPosition = openPosition,
+            snapToCandleTimeSec = ::snapToCandleTimeSec,
         )
-    }
-    for (t in tradeSegments) {
-        val tradeId = t.id
-        putMarker(
-            timeSec = t.entryTimeSec,
-            position = "belowBar",
-            color = "#69F0AE",
-            shape = "arrowUp",
-            tradeId = tradeId,
-            isEntry = true,
-            size = 2.0,
-            markerKeys = markerKeys,
-        )
-        t.exitTimeSec?.let { exitTime ->
+        for (bucket in buckets) {
+            val label = bucket.tradeIds.joinToString(" ")
+            val tradeId = bucket.tradeIds.first()
+            markers.put(
+                JSONObject()
+                    .put("time", bucket.timeSec)
+                    .put("position", bucket.position)
+                    .put("color", bucket.color)
+                    .put("shape", bucket.shape)
+                    .put("text", label)
+                    .put("size", 2.0)
+                    .put("tradeId", tradeId)
+                    .put("isEntry", bucket.isEntry)
+            )
+        }
+    } else {
+        for (m in pointMarkers.filter { !it.badgeText.isNullOrBlank() }) {
+            val barTimeSec = resolveTradingViewMarkerBarTimeSec(m, displayPoints, candles) ?: continue
+            val tv = tradingViewMarkerFromChartMarker(m, barTimeSec)
+            val tradeId = tradingViewMarkerDisplayText(m.badgeText.orEmpty())
             putMarker(
-                timeSec = exitTime,
-                position = "inBar",
-                color = "#FFCC80",
-                shape = "circle",
+                timeSec = tv.time,
+                position = tv.position,
+                color = tv.color,
+                shape = tv.shape,
                 tradeId = tradeId,
-                isEntry = false,
-                size = 2.0,
+                isEntry = m.label.startsWith("Вх", ignoreCase = true),
+                size = tv.size,
                 markerKeys = markerKeys,
             )
         }
@@ -486,6 +570,8 @@ internal fun TradingViewZScoreChartCard(
     referenceLines: List<ChartReferenceLine>,
     pointMarkers: List<ChartPointMarker>,
     tradeSegments: List<TradingViewTradeSegment> = emptyList(),
+    strategyTestTradeItems: List<StrategyTestTradeItem> = emptyList(),
+    openPosition: PortfolioOpenPosition? = null,
     modifier: Modifier = Modifier,
     landscapeMinimal: Boolean = false,
     initialWindowWidth: Float = 1f,
@@ -499,6 +585,8 @@ internal fun TradingViewZScoreChartCard(
         referenceLines,
         pointMarkers,
         tradeSegments,
+        strategyTestTradeItems,
+        openPosition,
         initialWindowWidth,
         initialWindowStart,
         areaFillColor,
@@ -509,6 +597,8 @@ internal fun TradingViewZScoreChartCard(
             referenceLines = referenceLines,
             pointMarkers = pointMarkers,
             tradeSegments = tradeSegments,
+            strategyTestTradeItems = strategyTestTradeItems,
+            openPosition = openPosition,
             initialWindowWidth = initialWindowWidth,
             initialWindowStart = initialWindowStart,
             areaFillColor = areaFillColor,
