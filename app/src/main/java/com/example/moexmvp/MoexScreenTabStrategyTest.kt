@@ -24,6 +24,7 @@ internal fun MoexScreenTabStrategyTest(
     strategyTestZScoreCandles: List<CandlePoint>,
     strategyTestChartThresholds: DynamicThresholds,
     strategyTestChartMarkers: List<ChartPointMarker>,
+    strategyTestChartTradeSegments: List<TradingViewTradeSegment>,
     strategyTestZInitialWindow: Pair<Float, Float>,
 ) {
     val displayChartMarkers = strategyTestChartMarkers

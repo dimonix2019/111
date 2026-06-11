@@ -51,7 +51,9 @@ internal data class ChartPointMarker(
     val label: String,
     val shape: ChartMarkerShape,
     /** Номер сделки у маркера (мелкий текст рядом с иконкой). */
-    val badgeText: String? = null
+    val badgeText: String? = null,
+    /** Время входа/выхода сделки (MSK) для привязки к downsample-ряду. */
+    val barDateLabel: String? = null,
 )
 
 internal enum class ChartMarkerShape {

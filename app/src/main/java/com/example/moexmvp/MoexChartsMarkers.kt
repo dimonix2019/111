@@ -209,6 +209,21 @@ internal fun indexForChartTradeLabel(points: List<DataPoint>, label: String): In
     return if (diff <= chartSnapToleranceMs(points, idx)) idx else null
 }
 
+/** Ближайший бар без отсечения по tolerance — для downsample и TradingView (time = candle). */
+internal fun indexForNearestChartBar(points: List<DataPoint>, label: String): Int? {
+    if (points.isEmpty() || label.isBlank() || label == "—") return null
+    indexForTradeDateLabel(points, label)?.let { return it }
+    val targetTs = parsePortfolioExecutionTableMsk(label)
+        ?: runCatching { m15CandleLabelToUnixSec(label.trim()) * 1000L }.getOrNull()
+        ?: return null
+    return points.indices.minByOrNull { kotlin.math.abs(points[it].timestampMillis - targetTs) }
+}
+
+internal fun snapTradeLabelToDisplayBarTimeSec(label: String, displayPoints: List<DataPoint>): Long? {
+    val idx = indexForNearestChartBar(displayPoints, label) ?: return null
+    return displayPoints[idx].timestampMillis / 1000L
+}
+
 internal fun portfolioChartEntryTimeLabel(
     entryTimeMsk: String,
     entrySignalBarTimeMsk: String,
@@ -231,13 +246,12 @@ internal fun remapChartMarkersToDisplaySeries(
         return markers
     }
     return markers.mapNotNull { marker ->
-        val ts = sourcePoints.getOrNull(marker.index)?.timestampMillis ?: return@mapNotNull null
-        val displayIdx = indexForChartTradeLabel(
-            displayPoints,
-            formatPortfolioExecutionTableMsk(ts),
-        ) ?: return@mapNotNull null
+        val timeLabel = marker.barDateLabel
+            ?: sourcePoints.getOrNull(marker.index)?.let { formatPortfolioExecutionTableMsk(it.timestampMillis) }
+            ?: return@mapNotNull null
+        val displayIdx = indexForNearestChartBar(displayPoints, timeLabel) ?: return@mapNotNull null
         val z = if (marker.value.isNaN()) displayPoints[displayIdx].zScore else marker.value
-        marker.copy(index = displayIdx, value = z)
+        marker.copy(index = displayIdx, value = z, barDateLabel = timeLabel)
     }
 }
 
@@ -267,7 +281,7 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
             ZStrategyPosition.Short -> ChartMarkerShape.TriangleDown to Color(0xFFFF8A80)
             ZStrategyPosition.Flat -> ChartMarkerShape.Circle to Color(0xFFB0BEC5)
         }
-        indexForChartTradeLabel(points, t.entryDate)?.let { idx ->
+        indexForNearestChartBar(points, t.entryDate)?.let { idx ->
             markers += ChartPointMarker(
                 index = idx,
                 value = points[idx].zScore,
@@ -275,9 +289,10 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
                 label = "Вх $badge",
                 shape = enterShape,
                 badgeText = badge,
+                barDateLabel = t.entryDate,
             )
         }
-        indexForChartTradeLabel(points, t.exitDate)?.let { idx ->
+        indexForNearestChartBar(points, t.exitDate)?.let { idx ->
             markers += ChartPointMarker(
                 index = idx,
                 value = points[idx].zScore,
@@ -285,6 +300,7 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
                 label = "Вых $badge",
                 shape = ChartMarkerShape.Diamond,
                 badgeText = badge,
+                barDateLabel = t.exitDate,
             )
         }
     }

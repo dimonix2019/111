@@ -157,6 +157,52 @@ class MoexTradingViewChartTest {
     }
 
     @Test
+    fun buildZScoreMarkersFromStrategyTestTrades_onDownsampledDisplaySeries() {
+        val full = (0 until 120).map { i ->
+            val label = LocalDateTime.of(2026, 1, 2, 10, 0).plusMinutes(i * 15L)
+                .format(portfolio15mLabelFormatter)
+            point(label, z = i * 0.01)
+        }
+        val (display, displayCandles) = downsampleM15ChartSeries(
+            full,
+            buildZScoreCandlesFromM15Points(full),
+            maxBars = 12,
+        )
+        val tradeItems = listOf(
+            StrategyTestTradeItem(
+                trade = PortfolioClosedTrade(
+                    direction = ZStrategyPosition.Long,
+                    entryDate = full[15].tradeDate,
+                    exitDate = full[45].tradeDate,
+                    entrySpreadPercent = 10.0,
+                    exitSpreadPercent = 10.4,
+                    pnlSpreadPoints = 0.4,
+                    grossPnlRubApprox = 100.0,
+                    pnlRubApprox = 90.0,
+                ),
+            ),
+        )
+        val markers = buildZScoreMarkersFromStrategyTestTrades(display, tradeItems)
+        assertEquals(2, markers.size)
+        val candleTimes = displayCandles.map { m15CandleLabelToUnixSec(it.label) }.toSet()
+        val payload = JSONObject(
+            buildTradingViewChartPayloadJson(
+                candles = displayCandles,
+                displayPoints = display,
+                referenceLines = emptyList(),
+                pointMarkers = markers,
+                tradeSegments = buildTradingViewTradeSegmentsFromStrategyTest(tradeItems, display),
+            ),
+        )
+        assertEquals(2, payload.getJSONArray("markers").length())
+        assertEquals(1, payload.getJSONArray("trades").length())
+        for (i in 0 until payload.getJSONArray("markers").length()) {
+            val t = payload.getJSONArray("markers").getJSONObject(i).getLong("time")
+            assertTrue("marker time $t must match a candle", candleTimes.contains(t))
+        }
+    }
+
+    @Test
     fun m15CandleLabelToUnixSec_matchesMoscowWallClock() {
         val sec = m15CandleLabelToUnixSec("2026-05-19 10:00")
         assertTrue(sec > 1_700_000_000L)

@@ -110,26 +110,38 @@ internal fun MoexScreen() {
             visibleDays = STRATEGY_TEST_Z_CHART_VISIBLE_DAYS
         )
     }
-    val strategyTestChartMarkersForDisplay = remember(
-        strategyTestM15SimPoints,
-        strategyTestM15ChartPoints,
-        screen.strategyTestChartMarkers,
-    ) {
-        if (strategyTestM15SimPoints.size < 2 || strategyTestM15ChartPoints.size < 2) {
-            emptyList()
-        } else {
-            remapChartMarkersToDisplaySeries(
-                sourcePoints = strategyTestM15SimPoints,
-                displayPoints = strategyTestM15ChartPoints,
-                markers = screen.strategyTestChartMarkers,
-            )
-        }
-    }
-
     val strategyTestTradeItems = remember(screen.strategyTestPortfolioMetrics) {
         buildStrategyTestTradeListFromSimulation(
             screen.strategyTestPortfolioMetrics?.closedTrades.orEmpty()
         )
+    }
+    val strategyTestChartMarkersForDisplay = remember(
+        strategyTestM15ChartPoints,
+        strategyTestTradeItems,
+    ) {
+        if (strategyTestM15ChartPoints.size < 2 || strategyTestTradeItems.isEmpty()) {
+            emptyList()
+        } else {
+            buildZScoreMarkersFromStrategyTestTrades(
+                strategyTestM15ChartPoints,
+                strategyTestTradeItems,
+            )
+        }
+    }
+    val strategyTestChartTradeSegmentsForDisplay = remember(
+        strategyTestM15ChartPoints,
+        strategyTestTradeItems,
+        screen.strategyTestPortfolioMetrics?.openPosition,
+    ) {
+        if (strategyTestM15ChartPoints.size < 2) {
+            emptyList()
+        } else {
+            buildTradingViewTradeSegmentsFromStrategyTest(
+                tradeItems = strategyTestTradeItems,
+                displayPoints = strategyTestM15ChartPoints,
+                openPosition = screen.strategyTestPortfolioMetrics?.openPosition,
+            )
+        }
     }
     val marketsChartThresholds = remember(
         screen.realTradeEntryThreshold,
@@ -223,6 +235,7 @@ internal fun MoexScreen() {
                 strategyTestZScoreCandles = strategyTestZScoreCandles,
                 strategyTestChartThresholds = strategyTestChartThresholds,
                 strategyTestChartMarkers = strategyTestChartMarkersForDisplay,
+                strategyTestChartTradeSegments = strategyTestChartTradeSegmentsForDisplay,
                 strategyTestZInitialWindow = strategyTestZInitialWindow
             )
             MainTab.Markets -> MoexScreenTabMarkets(

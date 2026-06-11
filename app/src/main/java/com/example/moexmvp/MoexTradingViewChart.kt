@@ -77,12 +77,15 @@ internal fun buildTradingViewTradeSegmentsFromStrategyTest(
         val trade = item.trade
         val badge = strategyTestTradeChartBadge(listIndex, trade.direction)
         val tradeId = tradingViewMarkerDisplayText(badge)
-        val entryTime = portfolioTableTimeToUnixSec(trade.entryDate) ?: continue
-        val exitTime = portfolioTableTimeToUnixSec(trade.exitDate)
+        val entryTime = snapTradeLabelToDisplayBarTimeSec(trade.entryDate, displayPoints) ?: continue
+        val exitTime = snapTradeLabelToDisplayBarTimeSec(trade.exitDate, displayPoints)
         val entryZ = barIndex[trade.entryDate]?.let { displayPoints[it].zScore }
             ?: lookupSimTradeEntryZ(trade, displayPoints, barIndex)
+            ?: displayPoints.getOrNull(indexForNearestChartBar(displayPoints, trade.entryDate) ?: -1)?.zScore
             ?: 0.0
-        val exitZ = barIndex[trade.exitDate]?.let { displayPoints[it].zScore } ?: 0.0
+        val exitZ = barIndex[trade.exitDate]?.let { displayPoints[it].zScore }
+            ?: displayPoints.getOrNull(indexForNearestChartBar(displayPoints, trade.exitDate) ?: -1)?.zScore
+            ?: 0.0
         segments += TradingViewTradeSegment(
             id = tradeId,
             entryTimeSec = entryTime,
@@ -93,8 +96,10 @@ internal fun buildTradingViewTradeSegmentsFromStrategyTest(
         )
     }
     openPosition?.let { open ->
-        val entryTime = portfolioTableTimeToUnixSec(open.entryDate) ?: return@let
-        val entryZ = barIndex[open.entryDate]?.let { displayPoints[it].zScore } ?: lastZ ?: 0.0
+        val entryTime = snapTradeLabelToDisplayBarTimeSec(open.entryDate, displayPoints) ?: return@let
+        val entryZ = barIndex[open.entryDate]?.let { displayPoints[it].zScore }
+            ?: displayPoints.getOrNull(indexForNearestChartBar(displayPoints, open.entryDate) ?: -1)?.zScore
+            ?: lastZ ?: 0.0
         segments += TradingViewTradeSegment(
             id = "open",
             entryTimeSec = entryTime,
@@ -306,13 +311,23 @@ internal fun tradingViewMarkerDisplayText(text: String): String =
         .replace('Р', 'R')
         .replace('р', 'r')
 
-/** Время бара для маркера TradingView по индексу display-ряда или свечей. */
+/** Время бара для маркера TradingView — должно совпадать с time свечи в payload. */
 internal fun resolveTradingViewMarkerBarTimeSec(
     marker: ChartPointMarker,
     displayPoints: List<DataPoint>,
     candles: List<CandlePoint>,
 ): Long? {
-    displayPoints.getOrNull(marker.index)?.let { return it.timestampMillis / 1000L }
+    marker.barDateLabel?.let { label ->
+        val idx = indexForNearestChartBar(displayPoints, label)
+        if (idx != null) {
+            candles.getOrNull(idx)?.let { return m15CandleLabelToUnixSec(it.label) }
+            displayPoints.getOrNull(idx)?.let { return it.timestampMillis / 1000L }
+        }
+    }
+    displayPoints.getOrNull(marker.index)?.let { point ->
+        candles.getOrNull(marker.index)?.let { return m15CandleLabelToUnixSec(it.label) }
+        return point.timestampMillis / 1000L
+    }
     candles.getOrNull(marker.index)?.let { return m15CandleLabelToUnixSec(it.label) }
     return null
 }
