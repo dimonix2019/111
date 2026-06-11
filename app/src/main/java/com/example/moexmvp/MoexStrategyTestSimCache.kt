@@ -6,6 +6,7 @@ internal data class StrategyTestVisibleSnapshot(
     val metrics: PortfolioMetrics,
     val chartTail: List<DataPoint>,
     val chartMarkers: List<ChartPointMarker>,
+    val chartTradeSegments: List<TradingViewTradeSegment> = emptyList(),
     val tradeRiskAssessments: List<StrategyTestTradeRiskAssessment>,
     val durationSummary: StrategyTestDurationSummary?,
     val spreadHourlyVolatility: SpreadHourlyVolatilityReport?,
@@ -49,6 +50,7 @@ internal fun MoexScreenState.detachStrategyTestVisibleState() {
             metrics = strategyTestPortfolioMetrics!!,
             chartTail = strategyTestM15ChartTail,
             chartMarkers = strategyTestChartMarkers,
+            chartTradeSegments = strategyTestChartTradeSegments,
             tradeRiskAssessments = strategyTestTradeRiskAssessments,
             durationSummary = strategyTestDurationSummary,
             spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
@@ -57,6 +59,7 @@ internal fun MoexScreenState.detachStrategyTestVisibleState() {
     strategyTestPortfolioMetrics = null
     strategyTestM15ChartTail = emptyList()
     strategyTestChartMarkers = emptyList()
+    strategyTestChartTradeSegments = emptyList()
     strategyTestTradeRiskAssessments = emptyList()
     strategyTestDurationSummary = null
     strategyTestSpreadHourlyVolatility = null
@@ -70,6 +73,7 @@ internal fun MoexScreenState.applyStrategyTestVisibleSnapshot(snapshot: Strategy
     strategyTestPortfolioMetrics = snapshot.metrics
     strategyTestM15ChartTail = snapshot.chartTail
     strategyTestChartMarkers = snapshot.chartMarkers
+    strategyTestChartTradeSegments = snapshot.chartTradeSegments
     strategyTestTradeRiskAssessments = snapshot.tradeRiskAssessments
     strategyTestDurationSummary = snapshot.durationSummary
     strategyTestSpreadHourlyVolatility = snapshot.spreadHourlyVolatility
@@ -77,27 +81,32 @@ internal fun MoexScreenState.applyStrategyTestVisibleSnapshot(snapshot: Strategy
 
 internal fun buildStrategyTestVisibleAnalytics(
     metrics: PortfolioMetrics,
-    chartTail: List<DataPoint>,
+    chartPoints: List<DataPoint>,
     m15PointsForRisk: List<DataPoint>,
     entryThreshold: Double,
 ): StrategyTestVisibleAnalytics {
     val closedTrades = metrics.closedTrades
     val tradeItems = buildStrategyTestTradeListFromSimulation(closedTrades)
-    val chartTrades = filterStrategyTestTradesForChart(chartTail, tradeItems)
     return StrategyTestVisibleAnalytics(
-        chartMarkers = buildZScoreMarkersFromStrategyTestTrades(chartTail, chartTrades),
+        chartMarkers = buildZScoreMarkersFromStrategyTestTrades(chartPoints, tradeItems),
+        chartTradeSegments = buildTradingViewTradeSegmentsFromStrategyTest(
+            tradeItems = tradeItems,
+            displayPoints = chartPoints,
+            openPosition = metrics.openPosition,
+        ),
         tradeRiskAssessments = buildStrategyTestTradeRiskAssessmentsForItems(
             tradeItems = tradeItems,
             m15Points = m15PointsForRisk,
             entryThreshold = entryThreshold,
         ),
         durationSummary = buildStrategyTestDurationSummary(closedTrades),
-        spreadHourlyVolatility = buildSpreadHourlyVolatilityReport(chartTail),
+        spreadHourlyVolatility = buildSpreadHourlyVolatilityReport(chartPoints),
     )
 }
 
 internal data class StrategyTestVisibleAnalytics(
     val chartMarkers: List<ChartPointMarker>,
+    val chartTradeSegments: List<TradingViewTradeSegment>,
     val tradeRiskAssessments: List<StrategyTestTradeRiskAssessment>,
     val durationSummary: StrategyTestDurationSummary?,
     val spreadHourlyVolatility: SpreadHourlyVolatilityReport?,

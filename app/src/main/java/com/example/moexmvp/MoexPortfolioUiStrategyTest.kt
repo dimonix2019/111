@@ -66,6 +66,7 @@ internal fun StrategyTestTabContent(
     zScoreCandles: List<CandlePoint> = emptyList(),
     chartThresholds: DynamicThresholds? = null,
     chartMarkers: List<ChartPointMarker> = emptyList(),
+    chartTradeSegments: List<TradingViewTradeSegment> = emptyList(),
     zInitialWindow: Pair<Float, Float> = 1f to 0f,
     durationSummary: StrategyTestDurationSummary? = null,
     tradeRiskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
@@ -138,25 +139,17 @@ internal fun StrategyTestTabContent(
             val zReferenceLines = remember(chartThresholds) {
                 buildZScoreReferenceLines(chartThresholds, desktopStyle = true)
             }
-            CandlestickChartCard(
-                title = "Z-score · 15м (тот же ряд, что симуляция)",
+            TradingViewZScoreChartCard(
+                title = "Z-score · 15м (TradingView · все сделки симуляции)",
                 candles = zScoreCandles,
-                chartHeightDp = 260,
+                displayPoints = m15ChartPoints,
+                chartHeightDp = 320,
                 referenceLines = zReferenceLines,
                 pointMarkers = chartMarkers,
-                showLegend = false,
-                showMinMax = false,
-                enableZoomPan = true,
-                markerScale = 1.25f,
-                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-                showZoomHint = false,
-                compactLayout = true,
-                trackpadGestures = false,
+                tradeSegments = chartTradeSegments,
                 initialWindowWidth = zInitialWindow.first,
                 initialWindowStart = zInitialWindow.second,
-                useDesktopStyle = true,
-                displayMode = ChartDisplayMode.Candles,
-                showPlotlyToolbar = true,
+                areaFillColor = STRATEGY_TEST_Z_CHART_AREA_FILL_HEX,
             )
             metrics?.let { m ->
                 if (m.equityCurveRub.isNotEmpty() && m.drawdownCurveRub.isNotEmpty()) {

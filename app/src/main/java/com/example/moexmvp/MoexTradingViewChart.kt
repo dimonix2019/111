@@ -62,6 +62,58 @@ internal fun portfolioTableTimeToUnixSec(timeMsk: String): Long? {
     return runCatching { m15CandleLabelToUnixSec(trimmed) }.getOrNull()
 }
 
+/** Все закрытые (и опционально открытая) сделки симуляции «Тест страт.» для TradingView. */
+internal fun buildTradingViewTradeSegmentsFromStrategyTest(
+    tradeItems: List<StrategyTestTradeItem>,
+    displayPoints: List<DataPoint>,
+    openPosition: PortfolioOpenPosition? = null,
+): List<TradingViewTradeSegment> {
+    val last = displayPoints.lastOrNull()
+    val lastTimeSec = last?.timestampMillis?.div(1000L)
+    val lastZ = last?.zScore
+    val barIndex = buildM15BarIndexByLabel(displayPoints)
+    val segments = mutableListOf<TradingViewTradeSegment>()
+    for ((listIndex, item) in tradeItems.withIndex()) {
+        val trade = item.trade
+        val entryTime = portfolioTableTimeToUnixSec(trade.entryDate) ?: continue
+        val exitTime = portfolioTableTimeToUnixSec(trade.exitDate)
+        val entryZ = barIndex[trade.entryDate]?.let { displayPoints[it].zScore }
+            ?: lookupSimTradeEntryZ(trade, displayPoints, barIndex)
+            ?: 0.0
+        val exitZ = barIndex[trade.exitDate]?.let { displayPoints[it].zScore } ?: 0.0
+        segments += TradingViewTradeSegment(
+            id = tradingViewMarkerDisplayText("#${listIndex + 1}"),
+            entryTimeSec = entryTime,
+            exitTimeSec = exitTime,
+            entryZ = entryZ,
+            exitZ = exitZ,
+            isOpen = false,
+        )
+    }
+    openPosition?.let { open ->
+        val entryTime = portfolioTableTimeToUnixSec(open.entryDate) ?: return@let
+        val entryZ = barIndex[open.entryDate]?.let { displayPoints[it].zScore } ?: lastZ ?: 0.0
+        segments += TradingViewTradeSegment(
+            id = "open",
+            entryTimeSec = entryTime,
+            exitTimeSec = lastTimeSec,
+            entryZ = entryZ,
+            exitZ = lastZ,
+            isOpen = true,
+        )
+    }
+    return segments
+}
+
+private fun lookupSimTradeEntryZ(
+    trade: PortfolioClosedTrade,
+    points: List<DataPoint>,
+    barIndex: Map<String, Int>,
+): Double? {
+    val idx = barIndex[trade.entryDate] ?: indexForTradeDateLabel(points, trade.entryDate) ?: return null
+    return points[idx].zScore
+}
+
 internal fun buildTradingViewTradeSegments(
     opens: List<SandboxSpreadExecUi>,
     closed: List<PortfolioConfirmedTradeTableRow>,
@@ -127,6 +179,7 @@ internal fun buildTradingViewChartPayloadJson(
     tradeSegments: List<TradingViewTradeSegment> = emptyList(),
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
+    areaFillColor: String? = null,
 ): String {
     val candleArr = JSONArray()
     val seenTimes = linkedSetOf<Long>()
@@ -181,7 +234,7 @@ internal fun buildTradingViewChartPayloadJson(
                 .put("exitZ", t.exitZ ?: JSONObject.NULL)
         )
     }
-    return JSONObject()
+    val root = JSONObject()
         .put("candles", candleArr)
         .put("hlines", hlines)
         .put("markers", markers)
@@ -192,7 +245,10 @@ internal fun buildTradingViewChartPayloadJson(
                 .put("start", initialWindowStart.toDouble())
                 .put("width", initialWindowWidth.toDouble())
         )
-        .toString()
+    if (!areaFillColor.isNullOrBlank()) {
+        root.put("areaFillColor", areaFillColor)
+    }
+    return root.toString()
 }
 
 internal fun m15CandleLabelToUnixSec(label: String): Long {
@@ -355,6 +411,7 @@ internal fun TradingViewZScoreChartCard(
     landscapeMinimal: Boolean = false,
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
+    areaFillColor: String? = null,
 ) {
     if (candles.isEmpty()) return
     val payload = remember(
@@ -365,6 +422,7 @@ internal fun TradingViewZScoreChartCard(
         tradeSegments,
         initialWindowWidth,
         initialWindowStart,
+        areaFillColor,
     ) {
         buildTradingViewChartPayloadJson(
             candles = candles,
@@ -374,6 +432,7 @@ internal fun TradingViewZScoreChartCard(
             tradeSegments = tradeSegments,
             initialWindowWidth = initialWindowWidth,
             initialWindowStart = initialWindowStart,
+            areaFillColor = areaFillColor,
         )
     }
     Column(

@@ -32,6 +32,7 @@ internal fun MoexScreenState.clearStrategyTestVisibleState() {
     strategyTestM15ChartTail = emptyList()
     strategyTestPortfolioMetrics = null
     strategyTestChartMarkers = emptyList()
+    strategyTestChartTradeSegments = emptyList()
     strategyTestTradeRiskAssessments = emptyList()
     strategyTestDurationSummary = null
     strategyTestSpreadHourlyVolatility = null
@@ -87,11 +88,11 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
             )
         }
         if (!isStrategyTestWorkCurrent(workId)) return
-        val analytics = if (metrics != null && chartTail.size >= 2) {
+        val analytics = if (metrics != null && points.size >= 2) {
             withContext(Dispatchers.Default) {
                 buildStrategyTestVisibleAnalytics(
                     metrics = metrics,
-                    chartTail = chartTail,
+                    chartPoints = points,
                     m15PointsForRisk = points,
                     entryThreshold = entry,
                 )
@@ -104,6 +105,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
         strategyTestLastSimKey = simKey
         strategyTestPortfolioMetrics = metrics
         strategyTestChartMarkers = analytics?.chartMarkers.orEmpty()
+        strategyTestChartTradeSegments = analytics?.chartTradeSegments.orEmpty()
         strategyTestTradeRiskAssessments = analytics?.tradeRiskAssessments.orEmpty()
         strategyTestDurationSummary = analytics?.durationSummary
         strategyTestSpreadHourlyVolatility = analytics?.spreadHourlyVolatility
@@ -113,6 +115,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 metrics = metrics,
                 chartTail = chartTail,
                 chartMarkers = strategyTestChartMarkers,
+                chartTradeSegments = strategyTestChartTradeSegments,
                 tradeRiskAssessments = strategyTestTradeRiskAssessments,
                 durationSummary = strategyTestDurationSummary,
                 spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,

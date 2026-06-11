@@ -83,6 +83,9 @@ internal const val CHART_X_LABEL_ROTATION_DEG = -42f
 internal const val CHART_Z_INTRABAR_WICK_MAX = 0.22
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
+
+/** Заливка под Z на графике «Тест страт.» (TradingView Area). */
+internal const val STRATEGY_TEST_Z_CHART_AREA_FILL_HEX = "#15254D"
 internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
 /** Откат Z от экстремума для отложенного входа (0 = сразу на пересечении порога). */
 internal const val DEFAULT_STRATEGY_ENTRY_PULLBACK_Z = 0.07
@@ -119,6 +122,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.138 — Тест страт.: график Z на TradingView как на «Рынок», все сделки симуляции, тёмно-синяя заливка.
 1.7.137 — Push: вход/выход из красной зоны риска открытой сделки + напоминание каждые 15 мин.
 1.7.136 — Портфель: значок риска слева от ID у открытых сделок под риском.
 1.7.135 — Тест страт.: сохранение фильтра столбцов таблицы между запусками приложения.

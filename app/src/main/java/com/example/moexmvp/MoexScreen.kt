@@ -75,9 +75,14 @@ internal fun MoexScreen() {
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second
 
-    val strategyTestM15SimPoints = remember(screen.strategyTestM15ChartTail, onStrategyTestTab) {
+    val strategyTestM15SimPoints = remember(
+        screen.strategyTestM15ChartTail,
+        screen.strategyTestLastSimKey,
+        onStrategyTestTab,
+    ) {
         if (!onStrategyTestTab) return@remember emptyList()
-        screen.strategyTestM15ChartTail
+        val full = screen.strategyTestM15SessionCache
+        if (full.size >= 2) full else screen.strategyTestM15ChartTail
     }
     val strategyTestChartSeries = if (onStrategyTestTab) {
         rememberM15ZChartSeries(strategyTestM15SimPoints)

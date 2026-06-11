@@ -56,6 +56,24 @@ class MoexTradingViewChartTest {
     }
 
     @Test
+    fun buildTradingViewChartPayloadJson_includesOptionalAreaFillColor() {
+        val candles = listOf(
+            CandlePoint("2026-05-19 10:00", open = 0.0, high = 0.1, low = -0.1, close = 0.05),
+        )
+        val points = listOf(point("2026-05-19 10:00", z = 0.05))
+        val json = JSONObject(
+            buildTradingViewChartPayloadJson(
+                candles = candles,
+                displayPoints = points,
+                referenceLines = emptyList(),
+                pointMarkers = emptyList(),
+                areaFillColor = STRATEGY_TEST_Z_CHART_AREA_FILL_HEX,
+            )
+        )
+        assertEquals(STRATEGY_TEST_Z_CHART_AREA_FILL_HEX, json.getString("areaFillColor"))
+    }
+
+    @Test
     fun m15CandleLabelToUnixSec_matchesMoscowWallClock() {
         val sec = m15CandleLabelToUnixSec("2026-05-19 10:00")
         assertTrue(sec > 1_700_000_000L)

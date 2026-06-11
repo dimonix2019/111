@@ -42,6 +42,7 @@ internal fun MoexScreenTabStrategyTest(
                         zScoreCandles = strategyTestZScoreCandles,
                         chartThresholds = strategyTestChartThresholds,
                         chartMarkers = strategyTestChartMarkers,
+                        chartTradeSegments = strategyTestChartTradeSegments,
                         zInitialWindow = strategyTestZInitialWindow,
                         durationSummary = strategyTestDurationSummary,
                         tradeRiskAssessments = strategyTestTradeRiskAssessments,

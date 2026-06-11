@@ -37,12 +37,53 @@ class MoexStrategyTestSimCacheTest {
         ) ?: error("expected metrics")
         val analytics = buildStrategyTestVisibleAnalytics(
             metrics = metrics,
-            chartTail = chartTail,
+            chartPoints = chartTail,
             m15PointsForRisk = chartTail,
             entryThreshold = 0.8,
         )
         assertEquals(metrics.closedTrades.size, analytics.tradeRiskAssessments.size)
+        assertEquals(metrics.closedTrades.size, analytics.chartTradeSegments.size)
         assertNotNull(analytics.spreadHourlyVolatility)
+    }
+
+    @Test
+    fun buildTradingViewTradeSegmentsFromStrategyTest_includesAllClosedTrades() {
+        val points = listOf(
+            point("2026-05-19 10:00", z = -1.1),
+            point("2026-05-19 10:15", z = -0.6),
+            point("2026-05-20 10:00", z = 0.9),
+            point("2026-05-20 10:15", z = 0.5),
+        )
+        val tradeItems = listOf(
+            StrategyTestTradeItem(
+                trade = PortfolioClosedTrade(
+                    direction = ZStrategyPosition.Long,
+                    entryDate = "2026-05-19 10:00",
+                    exitDate = "2026-05-19 10:15",
+                    entrySpreadPercent = 10.0,
+                    exitSpreadPercent = 10.4,
+                    pnlSpreadPoints = 0.4,
+                    grossPnlRubApprox = 100.0,
+                    pnlRubApprox = 90.0,
+                ),
+            ),
+            StrategyTestTradeItem(
+                trade = PortfolioClosedTrade(
+                    direction = ZStrategyPosition.Short,
+                    entryDate = "2026-05-20 10:00",
+                    exitDate = "2026-05-20 10:15",
+                    entrySpreadPercent = 10.0,
+                    exitSpreadPercent = 9.6,
+                    pnlSpreadPoints = 0.4,
+                    grossPnlRubApprox = 80.0,
+                    pnlRubApprox = 70.0,
+                ),
+            ),
+        )
+        val segments = buildTradingViewTradeSegmentsFromStrategyTest(tradeItems, points)
+        assertEquals(2, segments.size)
+        assertEquals("#1", segments[0].id)
+        assertEquals("#2", segments[1].id)
     }
 
     private fun point(label: String, z: Double = 0.0): DataPoint =

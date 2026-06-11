@@ -37,6 +37,9 @@
       up: '#089981',
       down: '#f23645',
       selected: '#FACC15',
+      /** Заливка под Z (Тест страт.) */
+      areaFillTop: 'rgba(21, 37, 94, 0.45)',
+      areaFillBottom: 'rgba(21, 37, 94, 0.02)',
     };
     const MSK = 'Europe/Moscow';
     const RIGHT_OFFSET_BARS = 18;
@@ -48,6 +51,7 @@
 
     let chart = null;
     let series = null;
+    let areaSeries = null;
     let highlightSeries = null;
     let markersPlugin = null;
     let priceLines = [];
@@ -321,6 +325,17 @@
         },
       });
 
+      areaSeries = chart.addSeries(LightweightCharts.AreaSeries, {
+        lineColor: 'rgba(96, 165, 250, 0.35)',
+        topColor: TV.areaFillTop,
+        bottomColor: TV.areaFillBottom,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      areaSeries.setData([]);
+
       series = chart.addSeries(LightweightCharts.CandlestickSeries, {
         upColor: TV.up,
         downColor: TV.down,
@@ -365,6 +380,15 @@
         if (c && typeof c.time === 'number') byTime.set(c.time, c);
       }
       return [...byTime.entries()].sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+    }
+
+    function hexToRgba(hex, alpha) {
+      const h = String(hex || '').replace('#', '');
+      if (h.length !== 6) return `rgba(21, 37, 94, ${alpha})`;
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
     function applyInitialWindow(n, startFrac, widthFrac) {
@@ -419,6 +443,20 @@
       }
 
       series.setData(candles);
+
+      if (areaSeries) {
+        if (data.areaFillColor) {
+          const top = data.areaFillColor;
+          areaSeries.applyOptions({
+            topColor: hexToRgba(top, 0.42),
+            bottomColor: hexToRgba(top, 0.04),
+            lineColor: hexToRgba(top, 0.55),
+          });
+          areaSeries.setData(candles.map((c) => ({ time: c.time, value: c.close })));
+        } else {
+          areaSeries.setData([]);
+        }
+      }
 
       for (const pl of priceLines) series.removePriceLine(pl);
       priceLines = [];
