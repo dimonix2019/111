@@ -53,6 +53,8 @@
     let series = null;
     let areaSeries = null;
     let highlightSeries = null;
+    /** Отдельная серия для маркеров — поверх area/candles, не теряется при pinch-zoom. */
+    let markerHostSeries = null;
     let markersPlugin = null;
     let priceLines = [];
     let fitted = false;
@@ -66,6 +68,7 @@
     let clickBound = false;
     let viewportBound = false;
     let refreshMarkersRaf = 0;
+    let refreshMarkersDebounce = 0;
 
     function showError(msg) {
       const el = document.getElementById('err');
@@ -122,7 +125,6 @@
     function findNearestMarkerAtPoint(point, timeSec) {
       if (!lastMarkers.length) return null;
       let bestPixel = null;
-      let bestTime = null;
 
       for (const m of lastMarkers) {
         const pos = markerScreenPosition(m);
@@ -147,19 +149,10 @@
         if (pixelHit && (!bestPixel || pixelScore < bestPixel.score)) {
           bestPixel = { marker: m, score: pixelScore };
         }
-
-        if (timeSec != null) {
-          const delta = Math.abs(m.time - timeSec);
-          if (delta <= MARKER_NEAR_SEC && (!bestTime || delta < bestTime.score)) {
-            bestTime = { marker: m, score: delta };
-          }
-        }
       }
 
-      if (bestPixel && bestTime) {
-        return bestPixel.score <= bestTime.score * 4 ? bestPixel.marker : bestTime.marker;
-      }
-      return bestPixel?.marker ?? bestTime?.marker ?? null;
+      // Только попадание по пикселям — иначе любой тап рисует жёлтую линию по ближайшему бару.
+      return bestPixel?.marker ?? null;
     }
 
     function crosshairTimeSec(param) {
@@ -222,7 +215,7 @@
         selectedMarkerKey = markerPersistKey(marker);
       }
       updateHighlightLine();
-      refreshMarkers();
+      refreshMarkers(true);
     }
 
     function snapMarkersToCandles(markers) {
@@ -244,13 +237,26 @@
     }
 
     function scheduleRefreshMarkers() {
-      if (refreshMarkersRaf) return;
-      refreshMarkersRaf = requestAnimationFrame(() => {
-        refreshMarkersRaf = 0;
-        // setMarkers() теряет маркеры после pinch-zoom — только полный recreate.
-        refreshMarkers(true);
-        updateHighlightLine();
-      });
+      if (refreshMarkersDebounce) {
+        clearTimeout(refreshMarkersDebounce);
+      }
+      refreshMarkersDebounce = setTimeout(() => {
+        refreshMarkersDebounce = 0;
+        if (refreshMarkersRaf) {
+          cancelAnimationFrame(refreshMarkersRaf);
+        }
+        refreshMarkersRaf = requestAnimationFrame(() => {
+          refreshMarkersRaf = requestAnimationFrame(() => {
+            refreshMarkersRaf = 0;
+            if (!chart || !series) return;
+            const range = chart.timeScale().getVisibleLogicalRange();
+            if (!range) return;
+            // setMarkers() теряет маркеры после pinch-zoom — только полный recreate.
+            refreshMarkers(true);
+            updateHighlightLine();
+          });
+        });
+      }, 80);
     }
 
     function bindViewportMarkerRefresh() {
@@ -263,8 +269,18 @@
       }
     }
 
+    function markerHostSeriesReady() {
+      return markerHostSeries || series;
+    }
+
+    function syncMarkerHostSeriesData(candles) {
+      if (!markerHostSeries || !candles.length) return;
+      markerHostSeries.setData(candles.map((c) => ({ time: c.time, value: c.close })));
+    }
+
     function refreshMarkers(forceRecreate) {
-      if (!series) return;
+      const host = markerHostSeriesReady();
+      if (!host) return;
       const markerData = buildMarkerRenderData(
         snapMarkersToCandles(lastMarkers),
         selectedMarkerKey,
@@ -278,19 +294,15 @@
       }
       if (!LightweightCharts.createSeriesMarkers) return;
       try {
-        if (!forceRecreate && markersPlugin && typeof markersPlugin.setMarkers === 'function') {
-          markersPlugin.setMarkers(markerData);
-          return;
-        }
         if (markersPlugin) {
           try { markersPlugin.detach(); } catch (e) {}
           markersPlugin = null;
         }
-        markersPlugin = LightweightCharts.createSeriesMarkers(series, markerData);
+        markersPlugin = LightweightCharts.createSeriesMarkers(host, markerData);
       } catch (e) {
         console.error('markers', e);
         try {
-          markersPlugin = LightweightCharts.createSeriesMarkers(series, markerData);
+          markersPlugin = LightweightCharts.createSeriesMarkers(host, markerData);
         } catch (e2) {
           console.error('markers recreate', e2);
         }
@@ -420,6 +432,15 @@
       });
       highlightSeries.setData([]);
 
+      markerHostSeries = chart.addSeries(LightweightCharts.LineSeries, {
+        color: 'rgba(0,0,0,0)',
+        lineWidth: 0,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      markerHostSeries.setData([]);
+
       if (!clickBound) {
         chart.subscribeClick(onChartClick);
         clickBound = true;
@@ -506,6 +527,7 @@
 
       series.setData(candles);
       lastCandleTimes = candles.map((c) => c.time);
+      syncMarkerHostSeriesData(candles);
       if (markersPlugin) {
         try { markersPlugin.detach(); } catch (e) {}
         markersPlugin = null;
