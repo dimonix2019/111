@@ -35,6 +35,7 @@ internal fun MoexScreenState.clearStrategyTestVisibleState() {
     strategyTestChartTradeSegments = emptyList()
     strategyTestTradeRiskAssessments = emptyList()
     strategyTestDurationSummary = null
+    strategyTestMonthlyReturnSummary = null
     strategyTestSpreadHourlyVolatility = null
     strategyTestSimComputing = false
     strategyTestM15Loading = false
@@ -115,6 +116,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
         strategyTestChartTradeSegments = analytics?.chartTradeSegments.orEmpty()
         strategyTestTradeRiskAssessments = analytics?.tradeRiskAssessments.orEmpty()
         strategyTestDurationSummary = analytics?.durationSummary
+        strategyTestMonthlyReturnSummary = analytics?.monthlyReturnSummary
         strategyTestSpreadHourlyVolatility = analytics?.spreadHourlyVolatility
         if (metrics != null && chartTail.size >= 2) {
             strategyTestVisibleSessionCache = StrategyTestVisibleSnapshot(
@@ -125,6 +127,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 chartTradeSegments = strategyTestChartTradeSegments,
                 tradeRiskAssessments = strategyTestTradeRiskAssessments,
                 durationSummary = strategyTestDurationSummary,
+                monthlyReturnSummary = strategyTestMonthlyReturnSummary,
                 spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
             )
         }

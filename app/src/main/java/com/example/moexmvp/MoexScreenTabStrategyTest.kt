@@ -92,6 +92,7 @@ internal fun MoexScreenTabStrategyTest(
                         openPosition = strategyTestOpenPosition,
                         zInitialWindow = strategyTestZInitialWindow,
                         durationSummary = strategyTestDurationSummary,
+                        monthlyReturnSummary = strategyTestMonthlyReturnSummary,
                         tradeRiskAssessments = strategyTestTradeRiskAssessments,
                         onRefresh = {
                             scope.launch {

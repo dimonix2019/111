@@ -97,6 +97,7 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestChartTradeSegments by mutableStateOf<List<TradingViewTradeSegment>>(emptyList())
     var strategyTestTradeRiskAssessments by mutableStateOf<List<StrategyTestTradeRiskAssessment>>(emptyList())
     var strategyTestDurationSummary by mutableStateOf<StrategyTestDurationSummary?>(null)
+    var strategyTestMonthlyReturnSummary by mutableStateOf<StrategyTestMonthlyReturnSummary?>(null)
     var strategyTestSpreadHourlyVolatility by mutableStateOf<SpreadHourlyVolatilityReport?>(null)
     var strategyTestLastSimKey: Long = 0L
     var strategyTestVisibleSessionCache: StrategyTestVisibleSnapshot? = null

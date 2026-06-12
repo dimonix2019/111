@@ -98,6 +98,84 @@ internal fun buildStrategyTestDurationSummary(
     )
 }
 
+/** Срез доходности по закрытым сделкам симуляции. */
+internal data class StrategyTestReturnSlice(
+    val tradeCount: Int,
+    val totalPnlRub: Double,
+    val totalReturnPercent: Double,
+    val avgMonthlyReturnPercent: Double,
+    val monthCount: Int,
+)
+
+/** Среднемесячная доходность и сценарий без сделок в красной зоне (High/Critical). */
+internal data class StrategyTestMonthlyReturnSummary(
+    val notionalRub: Double,
+    val allTrades: StrategyTestReturnSlice,
+    val withoutRedZone: StrategyTestReturnSlice,
+    val redZoneTradeCount: Int,
+)
+
+private fun yearMonthFromSimExit(exitDate: String, zone: java.time.ZoneId = moexZoneId): java.time.YearMonth? {
+    val ms = parseSimTradeExitMillis(exitDate) ?: return null
+    return java.time.YearMonth.from(java.time.Instant.ofEpochMilli(ms).atZone(zone))
+}
+
+private fun buildStrategyTestReturnSlice(
+    trades: List<PortfolioClosedTrade>,
+    notionalRub: Double,
+): StrategyTestReturnSlice {
+    if (trades.isEmpty() || notionalRub <= 0.0) {
+        return StrategyTestReturnSlice(
+            tradeCount = 0,
+            totalPnlRub = 0.0,
+            totalReturnPercent = 0.0,
+            avgMonthlyReturnPercent = 0.0,
+            monthCount = 0,
+        )
+    }
+    val totalPnl = trades.sumOf { it.pnlRubApprox }
+    val monthlyReturns = trades
+        .groupBy { yearMonthFromSimExit(it.exitDate) }
+        .mapNotNull { (month, monthTrades) ->
+            month?.let { monthTrades.sumOf { t -> t.pnlRubApprox } / notionalRub * 100.0 }
+        }
+    return StrategyTestReturnSlice(
+        tradeCount = trades.size,
+        totalPnlRub = totalPnl,
+        totalReturnPercent = totalPnl / notionalRub * 100.0,
+        avgMonthlyReturnPercent = if (monthlyReturns.isEmpty()) 0.0 else monthlyReturns.average(),
+        monthCount = monthlyReturns.size,
+    )
+}
+
+/** Доходность по месяцам выхода; «красная зона» = [isOpenTradeRedRiskZone] (≥4 балла). */
+internal fun buildStrategyTestMonthlyReturnSummary(
+    tradeItems: List<StrategyTestTradeItem>,
+    notionalRub: Double,
+    tradeRiskAssessments: List<StrategyTestTradeRiskAssessment>,
+): StrategyTestMonthlyReturnSummary? {
+    if (tradeItems.isEmpty() || notionalRub <= 0.0) return null
+    val allTrades = tradeItems.map { it.trade }
+    val safeTrades = tradeItems.mapIndexedNotNull { index, item ->
+        val risk = tradeRiskAssessments.getOrNull(index)
+        if (risk != null && isOpenTradeRedRiskZone(risk)) null else item.trade
+    }
+    return StrategyTestMonthlyReturnSummary(
+        notionalRub = notionalRub,
+        allTrades = buildStrategyTestReturnSlice(allTrades, notionalRub),
+        withoutRedZone = buildStrategyTestReturnSlice(safeTrades, notionalRub),
+        redZoneTradeCount = allTrades.size - safeTrades.size,
+    )
+}
+
+internal fun formatStrategyTestMonthlyReturnSubtitle(summary: StrategyTestMonthlyReturnSummary): String =
+    buildString {
+        append("ср. ")
+        append(formatPercentSigned(summary.allTrades.avgMonthlyReturnPercent))
+        append("/мес · без красной: ")
+        append(formatPercentSigned(summary.withoutRedZone.avgMonthlyReturnPercent))
+    }
+
 /** Столбцы таблицы сделок на вкладке «Тест страт.». */
 internal enum class StrategyTestTradesTableColumn(
     val title: String,

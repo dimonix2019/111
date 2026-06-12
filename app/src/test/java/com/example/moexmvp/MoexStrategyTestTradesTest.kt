@@ -125,4 +125,70 @@ class MoexStrategyTestTradesTest {
         assertEquals(-200.0, summary.long.totalPnlRub, 0.01)
         assertEquals("< 1 дн.", summary.detailBuckets.first().title)
     }
+
+    @Test
+    fun buildStrategyTestMonthlyReturnSummary_averagesMonthlyReturns() {
+        fun trade(exit: String, pnl: Double) = PortfolioClosedTrade(
+            direction = ZStrategyPosition.Long,
+            entryDate = exit.replace(Regex("(\\d{2}:\\d{2})$"), "10:00"),
+            exitDate = exit,
+            entrySpreadPercent = 1.0,
+            exitSpreadPercent = 1.1,
+            pnlSpreadPoints = 0.1,
+            grossPnlRubApprox = pnl,
+            pnlRubApprox = pnl,
+        )
+        val items = buildStrategyTestTradeListFromSimulation(
+            listOf(
+                trade("2026-01-15 12:00", 1000.0),
+                trade("2026-01-20 12:00", 500.0),
+                trade("2026-02-10 12:00", -300.0),
+            ),
+        )
+        val summary = buildStrategyTestMonthlyReturnSummary(items, notionalRub = 100_000.0, emptyList())!!
+        assertEquals(3, summary.allTrades.tradeCount)
+        assertEquals(2, summary.allTrades.monthCount)
+        assertEquals(0.6, summary.allTrades.avgMonthlyReturnPercent, 0.01) // Jan 1.5%, Feb -0.3% → avg 0.6%
+        assertEquals(1.2, summary.allTrades.totalReturnPercent, 0.01)
+        assertEquals(0, summary.redZoneTradeCount)
+    }
+
+    @Test
+    fun buildStrategyTestMonthlyReturnSummary_excludesRedZoneTrades() {
+        fun trade(exit: String, pnl: Double) = PortfolioClosedTrade(
+            direction = ZStrategyPosition.Long,
+            entryDate = "2026-03-01 10:00",
+            exitDate = exit,
+            entrySpreadPercent = 1.0,
+            exitSpreadPercent = 1.1,
+            pnlSpreadPoints = 0.1,
+            grossPnlRubApprox = pnl,
+            pnlRubApprox = pnl,
+        )
+        val items = buildStrategyTestTradeListFromSimulation(
+            listOf(
+                trade("2026-03-05 12:00", 1000.0),
+                trade("2026-03-10 12:00", -2000.0),
+            ),
+        )
+        val assessments = listOf(
+            StrategyTestTradeRiskAssessment(
+                flags = listOf(StrategyTestTradeRiskFlag.LongHold),
+                level = StrategyTestTradeRiskLevel.High,
+                score = 4,
+                entryZ = 0.5,
+            ),
+            StrategyTestTradeRiskAssessment(
+                flags = emptyList(),
+                level = StrategyTestTradeRiskLevel.None,
+                score = 0,
+                entryZ = null,
+            ),
+        )
+        val summary = buildStrategyTestMonthlyReturnSummary(items, 100_000.0, assessments)!!
+        assertEquals(1, summary.redZoneTradeCount)
+        assertEquals(-1.0, summary.allTrades.totalReturnPercent, 0.01)
+        assertEquals(1.0, summary.withoutRedZone.totalReturnPercent, 0.01)
+        assertEquals(1.0, summary.withoutRedZone.avgMonthlyReturnPercent, 0.01)
+    }
 }

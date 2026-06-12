@@ -48,6 +48,7 @@ internal fun StrategyTestTabContent(
     openPosition: PortfolioOpenPosition? = null,
     zInitialWindow: Pair<Float, Float> = 1f to 0f,
     durationSummary: StrategyTestDurationSummary? = null,
+    monthlyReturnSummary: StrategyTestMonthlyReturnSummary? = null,
     tradeRiskAssessments: List<StrategyTestTradeRiskAssessment> = emptyList(),
     onRefresh: () -> Unit,
     onMoex15mFullReload: () -> Unit,
@@ -221,6 +222,9 @@ internal fun StrategyTestTabContent(
                 durationSummary?.let { summary ->
                     StrategyTestDurationSummarySection(summary = summary)
                 }
+                monthlyReturnSummary?.let { summary ->
+                    StrategyTestMonthlyReturnSection(summary = summary)
+                }
                 buildStrategyTestTradeRiskSummary(
                     trades = tradeItems.map { it.trade },
                     assessments = tradeRiskAssessments,
@@ -235,6 +239,95 @@ internal fun StrategyTestTabContent(
     }
 }
 
+
+@Composable
+internal fun StrategyTestMonthlyReturnSection(summary: StrategyTestMonthlyReturnSummary) {
+    PortfolioCollapsibleSection(
+        title = "Среднемесячная доходность",
+        subtitle = formatStrategyTestMonthlyReturnSubtitle(summary),
+        defaultExpanded = true,
+        compactHeader = true,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF252525), RoundedCornerShape(6.dp))
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "По месяцу выхода сделки, % от номинала ${"%.0f".format(Locale.US, summary.notionalRub)} ₽.",
+                color = Color(0xFF757575),
+                fontSize = 9.sp,
+                maxLines = 2,
+            )
+            Text(
+                text = "Красная зона: высокий/критический риск (≥4 балла) — тёмно-красная подсветка строки.",
+                color = Color(0xFF757575),
+                fontSize = 9.sp,
+                maxLines = 2,
+            )
+            StrategyTestMonthlyReturnRow(
+                label = "Все сделки",
+                slice = summary.allTrades,
+                valueColor = if (summary.allTrades.totalPnlRub >= 0) Color(0xFF81C784) else Color(0xFFE57373),
+            )
+            StrategyTestMonthlyReturnRow(
+                label = "Без красной зоны",
+                slice = summary.withoutRedZone,
+                excludedCount = summary.redZoneTradeCount,
+                valueColor = if (summary.withoutRedZone.totalPnlRub >= 0) Color(0xFF81C784) else Color(0xFFE57373),
+                emphasize = summary.redZoneTradeCount > 0,
+            )
+        }
+    }
+}
+
+@Composable
+private fun StrategyTestMonthlyReturnRow(
+    label: String,
+    slice: StrategyTestReturnSlice,
+    valueColor: Color,
+    excludedCount: Int = 0,
+    emphasize: Boolean = false,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                color = if (emphasize) Color(0xFFFFAB91) else Color(0xFFE0E0E0),
+                fontSize = 11.sp,
+                fontWeight = if (emphasize) FontWeight.Medium else FontWeight.Normal,
+            )
+            Text(
+                text = buildString {
+                    append("n=${slice.tradeCount}")
+                    if (excludedCount > 0) append(" · искл. $excludedCount")
+                    append(" · ${slice.monthCount} мес.")
+                },
+                color = Color(0xFF9E9E9E),
+                fontSize = 9.sp,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = "${formatPercentSigned(slice.avgMonthlyReturnPercent)}/мес",
+                color = valueColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "${formatRubSigned(slice.totalPnlRub)} · ${formatPercentSigned(slice.totalReturnPercent)}",
+                color = Color(0xFF9E9E9E),
+                fontSize = 10.sp,
+            )
+        }
+    }
+}
 
 @Composable
 internal fun StrategyTestDurationSummarySection(summary: StrategyTestDurationSummary) {
