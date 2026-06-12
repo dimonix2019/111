@@ -176,7 +176,7 @@ def main() -> None:
 
     fig = plt.figure(figsize=(11, 8.5), dpi=120)
     fig.patch.set_facecolor("#fafafa")
-    gs = fig.add_gridspec(4, 1, height_ratios=[0.5, 1.15, 1.15, 1.05], hspace=0.38)
+    gs = fig.add_gridspec(4, 1, height_ratios=[0.5, 1.15, 1.15, 1.05], hspace=0.38, top=0.90)
 
     ax_idea = fig.add_subplot(gs[0])
     ax_tatn = fig.add_subplot(gs[1])
@@ -228,8 +228,8 @@ def main() -> None:
 
     status = fig.text(0.5, 0.01, "", ha="center", fontsize=9, color="#374151")
     pnl_box = fig.text(
-        0.98, 0.48, "", ha="right", va="top", fontsize=9, family="monospace",
-        bbox=dict(boxstyle="round,pad=0.55", facecolor="#fffbeb", edgecolor="#d97706", alpha=0.97),
+        0.99, 0.935, "", ha="right", va="top", fontsize=8.5, family="monospace",
+        bbox=dict(boxstyle="round,pad=0.45", facecolor="#fffbeb", edgecolor="#d97706", alpha=0.97),
         visible=False,
     )
 
@@ -333,7 +333,7 @@ def main() -> None:
         frames.extend([i] * hold)
 
     anim = FuncAnimation(fig, update, frames=frames, interval=200, blit=False, repeat=True)
-    fig.suptitle("LONG TATN/TATNP: PnL на каждой свече сделки", fontsize=13, fontweight="bold", y=0.98)
+    fig.suptitle("LONG TATN/TATNP: PnL на каждой свече сделки", fontsize=13, fontweight="bold", y=0.97)
     writer = FFMpegWriter(
         fps=10,
         codec="libx264",
