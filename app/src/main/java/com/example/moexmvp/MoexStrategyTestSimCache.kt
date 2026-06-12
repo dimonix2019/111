@@ -26,6 +26,9 @@ internal fun MoexScreenState.strategyTestSimulationKey(): Long {
     hash = 31 * hash + strategyTestM15SessionCache.size
     hash = 31 * hash + (strategyTestM15SessionCache.firstOrNull()?.timestampMillis ?: 0L)
     hash = 31 * hash + (strategyTestM15SessionCache.lastOrNull()?.timestampMillis ?: 0L)
+    if (strategyTestUsesJournalReplay()) {
+        hash = 31 * hash + strategySignalJournalFingerprint(signalEvents)
+    }
     return hash
 }
 

@@ -4,6 +4,8 @@ import kotlin.math.abs
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Сверка «Портфель» ↔ «Тест страт.»: полный 15м ряд (до 255д в кэше теста) для корректного Z,
@@ -139,3 +141,88 @@ internal fun portfolioThresholdsMatchStrategyTest(
 ): Boolean =
     kotlin.math.abs(portfolioEntry - testEntry) <= 0.009 &&
         kotlin.math.abs(portfolioExit - testExit) <= 0.009
+
+/** При тех же порогах, что розовые на «Портфеле», сделки «Тест страт.» = журнал (авто), не offline Z-sim. */
+internal fun MoexScreenState.strategyTestUsesJournalReplay(): Boolean {
+    val portfolioEntry = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val portfolioExit = (realTradeExitThreshold ?: dynamicThresholds.exit)
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
+        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    return portfolioThresholdsMatchStrategyTest(portfolioEntry, portfolioExit, entry, exit)
+}
+
+/** Метрики «Тест страт.» из пар вход/выход журнала (как таблица «Портфель»). */
+internal fun buildStrategyTestMetricsFromJournalEvents(
+    points: List<DataPoint>,
+    events: List<StrategySignalEvent>,
+    notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+    leverage: Double,
+    commissionPercentPerSide: Double,
+    ledger: List<PortfolioExecutionLedgerEntry> = emptyList(),
+    pushLog: List<PushNotificationLogEntry> = emptyList(),
+    portfolioLedgerIncludeAuto: Boolean = true,
+): PortfolioMetrics? {
+    if (points.size < 2) return null
+    val filteredEvents = journalEventsForExecutionPortfolioTab(
+        allEvents = events,
+        ledger = ledger,
+        portfolioLedgerIncludeAuto = portfolioLedgerIncludeAuto,
+    )
+    return buildExecutedPortfolioWithTable(
+        points = points,
+        events = filteredEvents,
+        ledger = ledger,
+        pushLog = pushLog,
+        notionalRub = notionalRub,
+        leverage = leverage,
+        commissionPercentPerSide = commissionPercentPerSide,
+        periodDescription = "Тест страт. · журнал · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+    ).metrics
+}
+
+/** Журнал при совпадении порогов с «Портфелем»; иначе offline Z-sim для what-if. */
+internal suspend fun MoexScreenState.buildStrategyTestPortfolioMetrics(
+    points: List<DataPoint>,
+    entryThreshold: Double,
+    exitThreshold: Double,
+): PortfolioMetrics? {
+    if (points.size < 2) return null
+    if (strategyTestUsesJournalReplay()) {
+        val eventsAll = withContext(Dispatchers.IO) {
+            loadStrategySignalEvents(
+                context = context,
+                fromTimestampMillis = points.firstOrNull()?.timestampMillis,
+            )
+        }
+        val ledger = withContext(Dispatchers.IO) { loadPortfolioExecutionLedger(context) }
+        val pushLog = withContext(Dispatchers.IO) { loadPushNotificationLog(context) }
+        return withContext(Dispatchers.Default) {
+            buildStrategyTestMetricsFromJournalEvents(
+                points = points,
+                events = eventsAll,
+                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                leverage = portfolioLeverage,
+                commissionPercentPerSide = portfolioCommissionPercent,
+                ledger = ledger,
+                pushLog = pushLog,
+                portfolioLedgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context),
+            )
+        }
+    }
+    val entry = entryThreshold.coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val exit = exitThreshold.coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    return buildZStrategyPortfolioMetrics(
+        points = points,
+        thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
+        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+        leverage = portfolioLeverage,
+        commissionPercentPerSide = portfolioCommissionPercent,
+        periodDescription = "Тест страт. · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+        compoundReturns = strategyTestCompoundReturns,
+        exitMode = ZStrategyExitMode.FixedThreshold,
+    )
+}

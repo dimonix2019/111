@@ -72,19 +72,15 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
         strategyTestM15ChartTail = chartTail
         val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
             .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-        val metrics = withContext(Dispatchers.Default) {
-            if (!points.sufficientForStrategyTestSimulation()) return@withContext null
-            val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-            buildZStrategyPortfolioMetrics(
+        val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
+            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+        val metrics = if (!points.sufficientForStrategyTestSimulation()) {
+            null
+        } else {
+            buildStrategyTestPortfolioMetrics(
                 points = points,
-                thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                leverage = portfolioLeverage,
-                commissionPercentPerSide = portfolioCommissionPercent,
-                periodDescription = "Тест страт. · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
-                compoundReturns = strategyTestCompoundReturns,
-                exitMode = ZStrategyExitMode.FixedThreshold,
+                entryThreshold = entry,
+                exitThreshold = exit,
             )
         }
         if (!isStrategyTestWorkCurrent(workId)) return
