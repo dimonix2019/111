@@ -118,7 +118,7 @@ internal suspend fun loadPortfolio15mPointsForTestEntry(
         val rows = dao.getSince(queryCutoffMillis)
         if (rows.isEmpty()) return@withPortfolioM15LoadLock emptyList()
         val points = ArrayList(rows.map { it.toDataPoint() })
-        ensureM15PointsZScoresInPlace(points, rows)
+        fillM15ZScoresInPlace(points, rows)
         persistM15ZScoreSnapshots(dao, rows, points)
         val bucketStart = currentM15BucketStartMillis()
         val lastTs = points.last().timestampMillis
@@ -131,7 +131,7 @@ internal suspend fun loadPortfolio15mPointsForTestEntry(
             val refreshed = dao.getSince(queryCutoffMillis)
             if (refreshed.isNotEmpty()) {
                 val refreshedPoints = ArrayList(refreshed.map { it.toDataPoint() })
-                ensureM15PointsZScoresInPlace(refreshedPoints, refreshed)
+                fillM15ZScoresInPlace(refreshedPoints, refreshed)
                 persistM15ZScoreSnapshots(dao, refreshed, refreshedPoints)
                 return@withPortfolioM15LoadLock refreshedPoints
             }
@@ -358,7 +358,7 @@ internal suspend fun loadPortfolio15mDataPoints(
         for (entity in rows) {
             points.add(entity.toDataPoint())
         }
-        val recalculated = ensureM15PointsZScoresInPlace(points, rows)
+        val recalculated = fillM15ZScoresInPlace(points, rows)
         persistM15ZScoreSnapshots(dao, rows, points)
         if (!recalculated) {
             MoexDiagnostics.log(

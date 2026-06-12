@@ -56,10 +56,7 @@ internal suspend fun insertPortfolio15mEntitiesBatched(
     dao: PortfolioM15Dao,
     entities: List<PortfolioM15SpreadEntity>
 ) {
-    if (entities.isEmpty()) return
-    entities.chunked(PORTFOLIO_M15_ROOM_INSERT_BATCH).forEach { batch ->
-        dao.insertAll(batch)
-    }
+    mergePortfolioM15InsertPreservingSnapshots(dao, entities)
 }
 
 /** Полная перезагрузка окна: каждый чанк сразу в SQLite (не держим год в памяти). */

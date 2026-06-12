@@ -20,8 +20,10 @@ internal data class PortfolioM15SpreadEntity(
     val tatnpClose: Double,
     val spreadPercent: Double,
     val diff: Double,
-    /** Rolling-Z на момент обработки монитором / загрузки; null — пересчитать. */
+    /** Rolling-Z на момент обработки монитором; null — пересчитать. */
     val persistedZScore: Double? = null,
+    /** Spread на момент снимка Z (не пересмотренный MOEX close). */
+    val spreadAtZSnapshot: Double? = null,
 )
 
 @Dao
@@ -51,6 +53,9 @@ internal interface PortfolioM15Dao {
     @Query("SELECT MAX(tsMillis) FROM portfolio_m15_spread")
     suspend fun maxTsMillis(): Long?
 
+    @Query("SELECT * FROM portfolio_m15_spread WHERE tsMillis IN (:tsMillisList)")
+    suspend fun getByTsMillis(tsMillisList: List<Long>): List<PortfolioM15SpreadEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(rows: List<PortfolioM15SpreadEntity>)
 
@@ -61,7 +66,7 @@ internal interface PortfolioM15Dao {
     suspend fun deleteOlderThan(cutoffMillis: Long)
 }
 
-@Database(entities = [PortfolioM15SpreadEntity::class], version = 2, exportSchema = false)
+@Database(entities = [PortfolioM15SpreadEntity::class], version = 3, exportSchema = false)
 internal abstract class PortfolioM15Database : RoomDatabase() {
     abstract fun dao(): PortfolioM15Dao
 

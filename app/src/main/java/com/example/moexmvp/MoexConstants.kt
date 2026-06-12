@@ -122,6 +122,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.151 — Fix фантом ~19ч: guard скачка spread MOEX + снимок Z/spread с монитора.
 1.7.150 — Fix CI: тесты с соседними 15м барами (публикация APK).
 1.7.149 — SQLite: снимок rolling-Z на 15м баре (live → «Тест страт.» без полного пересчёта).
 1.7.148 — Откат re-arm; пересечения Z только на соседних 15м барах (sim = live replay).

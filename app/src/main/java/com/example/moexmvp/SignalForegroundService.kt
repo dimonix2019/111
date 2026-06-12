@@ -156,6 +156,9 @@ class SignalForegroundService : Service() {
             initialPosition = initialPosition,
             thresholds = signalThresholds,
         )
+        zStrategyReplayBarIndexRange(points, lastProcessedBarTs)?.let { range ->
+            persistM15LiveBarSnapshots(applicationContext, range.map { points[it] })
+        }
 
         if (signalEdges.isEmpty()) {
             if (shouldAdvanceLastProcessed15mBar(points, lastProcessedBarTs)) {

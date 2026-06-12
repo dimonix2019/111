@@ -78,8 +78,12 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
             if (!points.sufficientForStrategyTestSimulation()) return@withContext null
             val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
                 .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-            buildZStrategyPortfolioMetrics(
+            val simPoints = prepareM15PointsForZStrategySim(
                 points = points,
+                journalEvents = signalEvents,
+            )
+            buildZStrategyPortfolioMetrics(
+                points = simPoints,
                 thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
                 notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
                 leverage = portfolioLeverage,

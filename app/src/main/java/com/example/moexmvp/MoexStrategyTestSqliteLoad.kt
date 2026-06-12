@@ -55,7 +55,7 @@ internal suspend fun loadStrategyTestM15CacheOnlyChunked(
         return@withContext emptyList()
     }
 
-    val recalculated = ensureM15PointsZScoresInPlace(merged, entities)
+    val recalculated = fillM15ZScoresInPlace(merged, entities)
     if (recalculated) {
         MoexDiagnostics.log(app, "st_sqlite", "apply_z rows=${merged.size}")
         persistM15ZScoreSnapshots(dao, entities, merged)

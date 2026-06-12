@@ -38,6 +38,10 @@ internal suspend fun MoexScreenState.syncSignalJournalFromDisk(): Boolean {
     }
     signalEvents = loaded
     portfolioTabUiBuiltKey = 0L
+    val replay = portfolioExecutionReplayPoints()
+    if (replay.size >= 2) {
+        backfillPersistedZFromJournal(context, loaded, replay)
+    }
     return true
 }
 

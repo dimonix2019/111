@@ -344,6 +344,12 @@ internal suspend fun MoexScreenState.refreshData(
                                 initialPosition = zStrategyPosition,
                                 thresholds = signalThresholds,
                             )
+                            zStrategyReplayBarIndexRange(m15ForSignal, signalLastProcessed)?.let { range ->
+                                persistM15LiveBarSnapshots(
+                                    context,
+                                    range.map { m15ForSignal[it] },
+                                )
+                            }
                             for (edge in signalEdges) {
                                 val edgeSignal = edge.signal
                                 val bar = edge.bar

@@ -56,6 +56,24 @@ internal fun collectZStrategy15mSignalEdgesSinceProcessedBar(
     return edges to position
 }
 
+/** Индексы баров, обработанных replay с [lastProcessedBarTimestampMillis]. */
+internal fun zStrategyReplayBarIndexRange(
+    points: List<DataPoint>,
+    lastProcessedBarTimestampMillis: Long?,
+): IntRange? {
+    if (points.size < 2) return null
+    val startIndex = when {
+        lastProcessedBarTimestampMillis == null || lastProcessedBarTimestampMillis <= 0L ->
+            points.size - 1
+        else -> {
+            val idx = points.indexOfFirst { it.timestampMillis > lastProcessedBarTimestampMillis }
+            if (idx < 0) return null
+            maxOf(idx, 1)
+        }
+    }
+    return startIndex until points.size
+}
+
 /** Полный replay пересечений Z на закрытых барах (бэктест / «Тест страт.»). */
 internal fun collectZStrategy15mSignalEdgesFull(
     points: List<DataPoint>,
