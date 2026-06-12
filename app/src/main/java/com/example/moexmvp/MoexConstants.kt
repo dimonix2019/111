@@ -126,6 +126,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.153 — Spread-guard: Z только на хвосте spike, без сдвига 17:45; parity 10–11.06 SHORT #2–#4.
 1.7.152 — Автообновление 15м: устаревание 20 мин (было до 40 ч в UI / 6 ч в SQLite).
 1.7.151 — Fix фантом ~19ч: guard скачка spread MOEX + снимок Z/spread с монитора.
 1.7.150 — Fix CI: тесты с соседними 15м барами (публикация APK).

@@ -82,5 +82,7 @@ class MoexPortfolioM15ZPersistTest {
         assertTrue("naive Z should cross entry: $naive", naive >= 0.7)
         assertTrue("guarded Z should stay below entry: $z1800", z1800 < 0.7)
         assertEquals(ZStrategySignal.None, sig)
+        val raw1745 = applyZScoresDefault(points.map { it.copy(zScore = 0.0) })[points.size - 2].zScore
+        assertEquals("Z before spike bar must not shift", raw1745, bar1745.zScore, 1e-9)
     }
 }

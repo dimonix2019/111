@@ -3,6 +3,7 @@ package com.example.moexmvp
 import android.content.Context
 import java.time.Instant
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 /**
  * Снимок rolling-Z и spread на закрытом 15м баре (parity live-монитор ↔ «Тест страт.»).
@@ -11,6 +12,12 @@ import java.time.ZoneId
 
 /** Подозрительный скачок spread за один 15м бар (пересмотр MOEX / артефакт). */
 internal const val M15_SPREAD_REVISION_JUMP_PP = 0.35
+
+/** Календарных дней от spike до последнего бара: guard только у хвоста (не вся история). */
+internal const val M15_SPREAD_GUARD_RECENT_DAYS = 3L
+
+internal fun isSameM15TradeDateDay(a: DataPoint, b: DataPoint): Boolean =
+    a.tradeDate.take(10) == b.tradeDate.take(10)
 
 internal fun PortfolioM15SpreadEntity.toDataPointWithPersistedZ(): DataPoint {
     val zone = ZoneId.of("Europe/Moscow")
@@ -26,6 +33,11 @@ internal fun PortfolioM15SpreadEntity.toDataPointWithPersistedZ(): DataPoint {
     )
 }
 
+internal fun isM15SpreadRevisionSpikeAt(index: Int, points: List<DataPoint>): Boolean {
+    if (index <= 0) return false
+    return points[index].spreadPercent - points[index - 1].spreadPercent > M15_SPREAD_REVISION_JUMP_PP
+}
+
 internal fun isM15SpreadRevisionSpike(
     index: Int,
     points: List<DataPoint>,
@@ -35,6 +47,42 @@ internal fun isM15SpreadRevisionSpike(
     val prevSpread = entities.getOrNull(index - 1)?.spreadAtZSnapshot
         ?: points[index - 1].spreadPercent
     return points[index].spreadPercent - prevSpread > M15_SPREAD_REVISION_JUMP_PP
+}
+
+internal fun isRecentM15SpreadRevisionSpike(index: Int, points: List<DataPoint>): Boolean {
+    if (!isM15SpreadRevisionSpikeAt(index, points)) return false
+    val zone = ZoneId.of("Europe/Moscow")
+    val spikeDay = Instant.ofEpochMilli(barMillisAt(points[index])).atZone(zone).toLocalDate()
+    val lastDay = Instant.ofEpochMilli(barMillisAt(points.last())).atZone(zone).toLocalDate()
+    return ChronoUnit.DAYS.between(spikeDay, lastDay) <= M15_SPREAD_GUARD_RECENT_DAYS
+}
+
+/** Пересчёт Z с демпфированным spread на spike и вперёд (μ/σ по ряду с guard только на spike). */
+internal fun recomputeZForwardFromRecentSpikes(
+    points: MutableList<DataPoint>,
+    spikeIndices: List<Int>,
+) {
+    if (spikeIndices.isEmpty()) return
+    val spikeSet = spikeIndices.toSet()
+    val firstSpike = spikeIndices.min()
+    val guardedSpreads = points.mapIndexed { j, p ->
+        if (j in spikeSet) points[j - 1].spreadPercent else p.spreadPercent
+    }
+    val cache = RollingSpreadStatsCache.from(
+        points.mapIndexed { j, p -> p.copy(spreadPercent = guardedSpreads[j]) },
+    )
+    for (i in firstSpike until points.size) {
+        val refSpike = spikeSet.filter { s ->
+            i > s && isSameM15TradeDateDay(points[s], points[i])
+        }.maxOrNull()
+        val spreadForZ = when {
+            i in spikeSet -> points[i - 1].spreadPercent
+            refSpike != null && refSpike >= 1 -> points[refSpike - 1].spreadPercent
+            else -> points[i].spreadPercent
+        }
+        val stats = cache.at(i) ?: continue
+        points[i] = points[i].copy(zScore = zScoreAtSpread(spreadForZ, stats))
+    }
 }
 
 internal fun spreadForRollingZAt(
@@ -55,31 +103,43 @@ internal fun spreadForRollingZAt(
     return current
 }
 
-/** Rolling-Z: снимки spread/Z не перезаписываются; без снимка — spread с guard от скачков. */
+/** Rolling-Z: снимки spread/Z не перезаписываются; без снимка — spread guard на хвосте. */
 internal fun fillM15ZScoresInPlace(
     points: MutableList<DataPoint>,
     entities: List<PortfolioM15SpreadEntity>,
 ): Boolean {
     if (entities.size != points.size || points.isEmpty()) return false
-    val spreads = DoubleArray(points.size) { i -> spreadForRollingZAt(i, points, entities) }
-    val cache = RollingSpreadStatsCache.from(
-        points.mapIndexed { i, p -> p.copy(spreadPercent = spreads[i]) },
-    )
-    var recalculated = false
+    val beforeZ = points.map { it.zScore }
+    applyZScoresDefaultInPlace(points)
+    val keepPersisted = BooleanArray(points.size) { i ->
+        entities[i].persistedZScore != null && !isM15SpreadRevisionSpike(i, points, entities)
+    }
+    val keptZ = DoubleArray(points.size) { points[it].zScore }
     for (i in points.indices) {
         val snapZ = entities[i].persistedZScore
         if (snapZ != null && !isM15SpreadRevisionSpike(i, points, entities)) {
-            if (points[i].zScore != snapZ) {
-                points[i] = points[i].copy(zScore = snapZ)
-            }
-            continue
+            points[i] = points[i].copy(zScore = snapZ)
+            keptZ[i] = snapZ
         }
-        val stats = cache.at(i)
-        val z = if (stats == null) 0.0 else zScoreAtSpread(spreads[i], stats)
-        points[i] = points[i].copy(zScore = z)
-        recalculated = true
     }
-    return recalculated
+    val latestRecentSpike = (1 until points.size)
+        .filter { isRecentM15SpreadRevisionSpike(it, points) }
+        .maxOrNull()
+    if (latestRecentSpike != null) {
+        recomputeZForwardFromRecentSpikes(points, listOf(latestRecentSpike))
+        for (i in points.indices) {
+            if (keepPersisted[i]) points[i] = points[i].copy(zScore = keptZ[i])
+        }
+    } else {
+        val cache = RollingSpreadStatsCache.from(points)
+        for (i in points.indices) {
+            if (keepPersisted[i]) continue
+            val spreadForZ = spreadForRollingZAt(i, points, entities)
+            val stats = cache.at(i) ?: continue
+            points[i] = points[i].copy(zScore = zScoreAtSpread(spreadForZ, stats))
+        }
+    }
+    return points.map { it.zScore } != beforeZ
 }
 
 internal fun applyJournalObservedZOverlay(
@@ -182,25 +242,18 @@ internal suspend fun mergePortfolioM15InsertPreservingSnapshots(
     }
 }
 
-/** Rolling-Z без снимков SQLite: spread guard + пересчёт. */
+/**
+ * Rolling-Z без снимков SQLite: guard скачков spread (>0.35 pp) на хвосте ряда.
+ * Бары до первого недавнего spike — сырой rolling-Z; с spike — демпфированный spread в окне.
+ */
 internal fun applySpreadGuardZScoresInPlace(points: MutableList<DataPoint>) {
     if (points.isEmpty()) return
-    val spreads = DoubleArray(points.size) { i ->
-        if (i <= 0) points[i].spreadPercent
-        else {
-            val jump = points[i].spreadPercent - points[i - 1].spreadPercent
-            if (jump > M15_SPREAD_REVISION_JUMP_PP) points[i - 1].spreadPercent
-            else points[i].spreadPercent
-        }
-    }
-    val forCache = points.mapIndexed { i, p -> p.copy(spreadPercent = spreads[i]) }
-    val cache = RollingSpreadStatsCache.from(forCache)
-    for (i in points.indices) {
-        val stats = cache.at(i)
-        points[i] = points[i].copy(
-            zScore = if (stats == null) 0.0 else zScoreAtSpread(spreads[i], stats),
-        )
-    }
+    applyZScoresDefaultInPlace(points)
+    if (points.size < 2) return
+    val latestRecentSpike = (1 until points.size)
+        .filter { isRecentM15SpreadRevisionSpike(it, points) }
+        .maxOrNull() ?: return
+    recomputeZForwardFromRecentSpikes(points, listOf(latestRecentSpike))
 }
 
 /** Точки для симуляции «Тест страт.»: Z из SQLite + журнал + guard spread. */
