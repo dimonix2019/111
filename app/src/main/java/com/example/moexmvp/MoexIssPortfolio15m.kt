@@ -90,6 +90,56 @@ internal fun appendFormingPortfolio15mBar(
 internal fun portfolioM15MoexFetchTillDate(): LocalDate =
     LocalDate.now(moexZoneId).plusDays(1)
 
+/** Начало текущего 15м слота (МСК), как в [appendFormingPortfolio15mBar]. */
+internal fun currentM15BucketStartMillis(
+    now: Instant = Instant.now(),
+    zone: ZoneId = moexZoneId,
+): Long {
+    val zdt = now.atZone(zone)
+    val bucket = zdt.withMinute((zdt.minute / 15) * 15).withSecond(0).withNano(0)
+    return bucket.toInstant().toEpochMilli()
+}
+
+/**
+ * 15м ряд для кнопок «Тестовая пара»: всегда догружаем хвост MOEX (включая формирующийся бар),
+ * без ожидания [PORTFOLIO_M15_TAIL_MAX_AGE_MS].
+ */
+internal suspend fun loadPortfolio15mPointsForTestEntry(
+    context: Context,
+    lookbackDays: Long = marketsM15LookbackDays(Period.OneDay),
+): List<DataPoint> = withContext(Dispatchers.IO) {
+    withPortfolioM15LoadLock {
+        val app = context.applicationContext
+        val dao = PortfolioM15Database.get(app).dao()
+        mergePortfolio15mRecentTailFromMoex(dao)
+        val till = LocalDate.now(moexZoneId)
+        val from = till.minusDays(lookbackDays)
+        val queryCutoffMillis = from.atStartOfDay(moexZoneId).toInstant().toEpochMilli()
+        val rows = dao.getSince(queryCutoffMillis)
+        if (rows.isEmpty()) return@withPortfolioM15LoadLock emptyList()
+        val points = ArrayList(rows.map { it.toDataPoint() })
+        fillM15ZScoresInPlace(points, rows)
+        persistM15ZScoreSnapshots(dao, rows, points)
+        val bucketStart = currentM15BucketStartMillis()
+        val lastTs = points.last().timestampMillis
+        if (lastTs >= bucketStart) return@withPortfolioM15LoadLock points
+        val today = till
+        val refreshFrom = today.minusDays(2)
+        val fresh = fetchPortfolio15mSpreadEntities(refreshFrom, portfolioM15MoexFetchTillDate())
+        if (fresh.isNotEmpty()) {
+            insertPortfolio15mEntitiesBatched(dao, fresh)
+            val refreshed = dao.getSince(queryCutoffMillis)
+            if (refreshed.isNotEmpty()) {
+                val refreshedPoints = ArrayList(refreshed.map { it.toDataPoint() })
+                fillM15ZScoresInPlace(refreshedPoints, refreshed)
+                persistM15ZScoreSnapshots(dao, refreshed, refreshedPoints)
+                return@withPortfolioM15LoadLock refreshedPoints
+            }
+        }
+        points
+    }
+}
+
 internal fun portfolio15mSeriesTailStale(points: List<DataPoint>): Boolean {
     val lastTs = points.lastOrNull()?.timestampMillis ?: return true
     return System.currentTimeMillis() - lastTs > PORTFOLIO_M15_TAIL_MAX_AGE_MS
@@ -146,8 +196,8 @@ internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
 }
 
 /**
- * 15м ряд и Z для фонового монитора, UI-сигналов и тестовых входов —
- * тот же кэш ISS 10m→15m и lookback, что вкладка «Портфель».
+ * 15м ряд и Z для короткого окна «Рынок» / legacy.
+ * Для live-сигналов и parity с «Тест страт.» используйте [loadZStrategySignalSeries].
  */
 internal suspend fun loadPortfolio15mPointsForSignalMonitor(
     context: Context,
@@ -184,6 +234,8 @@ internal suspend fun loadPortfolio15mDataPoints(
     onProgress: DataLoadProgressCallback = null,
     wipeAllOnFullRefresh: Boolean = true,
     retentionDays: Long = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
+    /** true для «Тест страт.» при открытии вкладки — только SQLite, без догрузки хвоста с MOEX. */
+    skipMoexTailMerge: Boolean = false,
 ): List<DataPoint> = withContext(Dispatchers.IO) {
     withPortfolioM15LoadLock {
         val dao = PortfolioM15Database.get(context).dao()
@@ -274,7 +326,7 @@ internal suspend fun loadPortfolio15mDataPoints(
 
         val lastTsAfterLoad = dao.maxTsMillis() ?: 0L
         val tailStillStale = System.currentTimeMillis() - lastTsAfterLoad > PORTFOLIO_M15_TAIL_MAX_AGE_MS
-        if (mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
+        if (!skipMoexTailMerge && mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
             mergePortfolio15mRecentTailFromMoex(dao, onProgress)
         }
 
@@ -302,7 +354,21 @@ internal suspend fun loadPortfolio15mDataPoints(
                 detail = "расчёт Z-score",
             )
         )
-        applyZScoresDefault(rows.map { it.toDataPoint() })
+        val points = ArrayList<DataPoint>(rows.size)
+        for (entity in rows) {
+            points.add(entity.toDataPoint())
+        }
+        val recalculated = fillM15ZScoresInPlace(points, rows)
+        persistM15ZScoreSnapshots(dao, rows, points)
+        if (!recalculated) {
+            MoexDiagnostics.log(
+                context.applicationContext,
+                "m15_z",
+                "cache_hit persisted_z rows=${rows.size}",
+            )
+        }
+        onProgress?.invoke(DataLoadProgress.idle())
+        points
     }
 }
 

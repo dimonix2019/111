@@ -150,7 +150,6 @@ internal fun RealtimeControls(
                 }
             }
         }
-        Text("Interval: 5s (fixed)", color = Color(0xFFB3E5FC), fontSize = 12.sp)
         Text(
             text = if (isRefreshing) "Status: updating..." else "Status: up to date",
             fontSize = 12.sp,

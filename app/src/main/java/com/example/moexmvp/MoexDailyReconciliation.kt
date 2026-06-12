@@ -32,6 +32,9 @@ internal data class DailyPortfolioReconciliation(
     val simClosedOnDay: Int,
     val confirmedPnlRubOnDay: Double,
     val simPnlRubOnDay: Double,
+    val journalPositionAtDayOpen: ZStrategyPosition,
+    val simPositionAtDayOpen: ZStrategyPosition,
+    val simSignalsToday: Int,
     val simThresholdsNote: String,
     val rows: List<DailyReconciliationRow>
 )
@@ -46,6 +49,9 @@ internal fun buildDailyPortfolioReconciliation(
     simulation: PortfolioMetrics?,
     simEntryThreshold: Double,
     simExitThreshold: Double,
+    journalPositionAtDayOpen: ZStrategyPosition = ZStrategyPosition.Flat,
+    simPositionAtDayOpen: ZStrategyPosition = ZStrategyPosition.Flat,
+    simSignalsToday: Int = 0,
     simExitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
     simZPeakTrailZ: Double = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL
 ): DailyPortfolioReconciliation {
@@ -68,6 +74,36 @@ internal fun buildDailyPortfolioReconciliation(
     val exitRuleText = when (simExitMode) {
         ZStrategyExitMode.FixedThreshold -> "выход ±${fmt(simExitThreshold)}"
         ZStrategyExitMode.ZPeakTrailing -> "трейл от пика Z ${fmt(simZPeakTrailZ)}"
+    }
+
+    if (journalPositionAtDayOpen != simPositionAtDayOpen) {
+        rows += DailyReconciliationRow(
+            headline = "Позиция на открытие дня: журнал ${dirRu(journalPositionAtDayOpen)} · sim ${dirRu(simPositionAtDayOpen)}",
+            detail = "Sim replay 255д до первого 15м бара $day. Если журнал ≠ sim — расхождение до сегодня (пропущенный сигнал, другие пороги при записи, старый баг batch/consume).",
+            isOk = false
+        )
+    } else if (journalPositionAtDayOpen != ZStrategyPosition.Flat) {
+        rows += DailyReconciliationRow(
+            headline = "На открытие дня: ${dirRu(journalPositionAtDayOpen)} (журнал = sim)",
+            detail = "Carry-in совпадает — сегодняшние сигналы сравниваются с одной стартовой позиции.",
+            isOk = true
+        )
+    }
+
+    val journalSignalsToday = enters + exits
+    if (journalSignalsToday != simSignalsToday) {
+        rows += DailyReconciliationRow(
+            headline = "Сигналов за день: журнал $journalSignalsToday · sim $simSignalsToday",
+            detail = "Sim — пересечения Z на 15м барах $day с позицией ${dirRu(simPositionAtDayOpen)} на открытие. " +
+                "Журнал — фактические push/записи. Пороги теста: вход ±${fmt(simEntryThreshold)}, $exitRuleText.",
+            isOk = false
+        )
+    } else if (journalSignalsToday > 0) {
+        rows += DailyReconciliationRow(
+            headline = "Сигналов за день: $journalSignalsToday (журнал = sim)",
+            detail = "Пересечения Z на сегодня совпали с журналом.",
+            isOk = true
+        )
     }
 
     fun tradeKey(t: PortfolioClosedTrade): String {
@@ -113,9 +149,9 @@ internal fun buildDailyPortfolioReconciliation(
                 )
             } else {
                 rows += DailyReconciliationRow(
-                    headline = "Только подтверждённые (журнал): ${dirRu(c.direction)}",
-                    detail = "${c.entryDate} → ${c.exitDate}, ${formatRub(c.pnlRubApprox)}. В симуляции за день такого закрытого круга нет — " +
-                        "проверьте пороги на «Тест страт.» или что сигнал выхода не попал в журнал.",
+                    headline = "Только портфель (симуляция Z): ${dirRu(c.direction)}",
+                    detail = "${c.entryDate} → ${c.exitDate}, ${formatRub(c.pnlRubApprox)}. В «Тест страт.» за день такого круга нет — " +
+                        "сверьте пороги (розовые vs степперы теста), режим «Фикс./Капитализация» и нажмите «Обновить» на обеих вкладках.",
                     isOk = false
                 )
             }
@@ -198,8 +234,8 @@ internal fun buildDailyPortfolioReconciliation(
     }
 
     val thresholdsNote =
-        "Тест страт.: вход ±${fmt(simEntryThreshold)}, $exitRuleText (текущие степперы). " +
-            "Подтв.: фактические записи журнала на 15м барах."
+        "Sim с открытия дня (255д carry-in). Тест: вход ±${fmt(simEntryThreshold)}, $exitRuleText. " +
+            "Подтв.: розовые пороги портфеля на том же ряду."
 
     return DailyPortfolioReconciliation(
         day = day,
@@ -209,6 +245,9 @@ internal fun buildDailyPortfolioReconciliation(
         simClosedOnDay = simClosed.size,
         confirmedPnlRubOnDay = confirmedPnl,
         simPnlRubOnDay = simPnl,
+        journalPositionAtDayOpen = journalPositionAtDayOpen,
+        simPositionAtDayOpen = simPositionAtDayOpen,
+        simSignalsToday = simSignalsToday,
         simThresholdsNote = thresholdsNote,
         rows = rows
     )
@@ -231,6 +270,12 @@ private fun dirRu(d: ZStrategyPosition): String = when (d) {
     ZStrategyPosition.Long -> "LONG"
     ZStrategyPosition.Short -> "SHORT"
     ZStrategyPosition.Flat -> "FLAT"
+}
+
+internal fun dirRuShort(d: ZStrategyPosition): String = when (d) {
+    ZStrategyPosition.Long -> "L"
+    ZStrategyPosition.Short -> "S"
+    ZStrategyPosition.Flat -> "—"
 }
 
 private fun fmt(v: Double): String = String.format(Locale.US, "%.2f", v)

@@ -80,6 +80,7 @@ internal fun CandlestickChart(
     displayMode: ChartDisplayMode = ChartDisplayMode.Candles,
     useDesktopStyle: Boolean = false,
     trackpadGestures: Boolean = true,
+    xLabelStyle: ChartXLabelStyle = ChartXLabelStyleTilted,
 ) {
     if (candles.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -115,7 +116,7 @@ internal fun CandlestickChart(
         val range = (visMax - visMin).takeIf { it > 0.0 } ?: 1.0
         val leftPadding = 16f
         val topPadding = 12f
-        val bottomPadding = CHART_BOTTOM_PADDING_PX
+        val bottomPadding = xLabelStyle.bottomPaddingPx
         val maxIndex = candles.lastIndex.coerceAtLeast(0)
 
         var windowStart by remember(candles) { mutableFloatStateOf(0f) }
@@ -124,7 +125,7 @@ internal fun CandlestickChart(
             if (viewport != null) return@LaunchedEffect
             if (enableZoomPan) {
                 windowWidth = initialWindowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
-                windowStart = initialWindowStart.coerceIn(0f, 1f - windowWidth)
+                windowStart = coerceChartWindowStart(initialWindowStart, windowWidth)
             } else {
                 windowStart = 0f
                 windowWidth = 1f
@@ -200,8 +201,10 @@ internal fun CandlestickChart(
                                 val centroidRel =
                                     ((centroid.x - leftPadding) / chartWidthPx).coerceIn(0f, 1f)
                                 val dataFracUnderCentroid = windowStart + centroidRel * windowWidth
-                                var newStart = dataFracUnderCentroid - centroidRel * newW
-                                newStart = newStart.coerceIn(0f, 1f - newW)
+                                val newStart = coerceChartWindowStart(
+                                    dataFracUnderCentroid - centroidRel * newW,
+                                    newW,
+                                )
                                 windowWidth = newW
                                 windowStart = newStart
                                 if (onYViewChange != null) {
@@ -220,7 +223,7 @@ internal fun CandlestickChart(
                             } else if (pan.x != 0f || pan.y != 0f) {
                                 if (pan.x != 0f) {
                                     val panFrac = -pan.x / chartWidthPx * windowWidth
-                                    windowStart = (windowStart + panFrac).coerceIn(0f, 1f - windowWidth)
+                                    windowStart = coerceChartWindowStart(windowStart + panFrac, windowWidth)
                                 }
                                 if (pan.y != 0f && onYViewChange != null) {
                                     val fullSpan = (baseMax - baseMin).coerceAtLeast(1e-9)
@@ -434,15 +437,19 @@ internal fun CandlestickChart(
             yForValue = ::yForValue
         )
 
-        pointMarkers.forEach { marker ->
-            if (marker.index < 0 || marker.index > maxIndex) return@forEach
+        val badgeStackByMarker = pointMarkers.mapIndexedNotNull { listIdx, marker ->
+            marker.badgeText?.let { listIdx to marker }
+        }.groupBy({ it.second.index }, { it.first })
+        pointMarkers.forEachIndexed { listIdx, marker ->
+            if (marker.index < 0 || marker.index > maxIndex) return@forEachIndexed
             val frac = fracForIndex(marker.index)
-            if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEach
+            if (frac < wStart - 0.001f || frac > wStart + wWidth + 0.001f) return@forEachIndexed
             val x = xForIndexDraw(marker.index)
             val y = yForValue(marker.value)
             val markerCenter = Offset(x, y)
             marker.badgeText?.let { badge ->
-                drawMarkerBadge(markerCenter, badge, markerScale)
+                val stackIdx = badgeStackByMarker[marker.index]?.indexOf(listIdx) ?: 0
+                drawMarkerBadge(markerCenter, badge, markerScale, stackIdx)
             }
         }
 
@@ -461,19 +468,22 @@ internal fun CandlestickChart(
             val labelPaint = Paint().apply {
                 isAntiAlias = true
                 color = axisColor.toArgb()
-                textSize = 10.sp.toPx()
-                // RIGHT + наклон: текст уходит влево от бара, подписи не «меняются местами» (CENTER давал 31.05 левее 30.05).
-                textAlign = Paint.Align.RIGHT
+                textSize = (if (xLabelStyle.horizontal) 9f else 10f).sp.toPx()
+                textAlign = if (xLabelStyle.horizontal) Paint.Align.CENTER else Paint.Align.RIGHT
             }
-            val labelBaselineY = size.height - CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX
+            val labelBaselineY = size.height - xLabelStyle.baselineFromBottomPx
             xTicks.forEach { tick ->
                 val frac = fracForIndex(tick.index)
                 if (frac < wStart - 0.02f || frac > wStart + wWidth + 0.02f) return@forEach
                 val x = xForIndexDraw(tick.index)
-                drawContext.canvas.nativeCanvas.save()
-                drawContext.canvas.nativeCanvas.rotate(CHART_X_LABEL_ROTATION_DEG, x, labelBaselineY)
-                drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
-                drawContext.canvas.nativeCanvas.restore()
+                if (xLabelStyle.rotationDeg == 0f) {
+                    drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
+                } else {
+                    drawContext.canvas.nativeCanvas.save()
+                    drawContext.canvas.nativeCanvas.rotate(xLabelStyle.rotationDeg, x, labelBaselineY)
+                    drawContext.canvas.nativeCanvas.drawText(tick.label, x, labelBaselineY, labelPaint)
+                    drawContext.canvas.nativeCanvas.restore()
+                }
             }
         }
         }
@@ -483,11 +493,12 @@ internal fun CandlestickChart(
 private fun DrawScope.drawMarkerBadge(
     markerCenter: Offset,
     text: String,
-    scale: Float
+    scale: Float,
+    stackIndex: Int = 0,
 ) {
     val textSizePx = (11f * scale).coerceIn(9f, 15f)
     val x = markerCenter.x + 11f * scale
-    val y = markerCenter.y - 12f * scale
+    val y = markerCenter.y - 12f * scale - stackIndex * 11f * scale
     val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = textSizePx
         textAlign = Paint.Align.LEFT

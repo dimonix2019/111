@@ -163,3 +163,24 @@ internal fun determineZStrategySignal(
         }
     }
 }
+
+/** Соседние закрытые 15м бары (ровно +15 мин MSK). Без этого prev→current через пропуски даёт ложные пересечения. */
+internal fun isConsecutiveM15Bar(previous: DataPoint, current: DataPoint): Boolean {
+    val prevMs = barMillisAt(previous)
+    val curMs = barMillisAt(current)
+    if (prevMs <= 0L || curMs <= 0L) return false
+    val prev = Instant.ofEpochMilli(prevMs).atZone(moexZoneId).toLocalDateTime()
+    val cur = Instant.ofEpochMilli(curMs).atZone(moexZoneId).toLocalDateTime()
+    return ChronoUnit.MINUTES.between(prev, cur) == 15L
+}
+
+/** [determineZStrategySignal] только на соседней паре 15м баров (parity sim / live replay). */
+internal fun determineZStrategySignalBetweenBars(
+    previous: DataPoint,
+    current: DataPoint,
+    position: ZStrategyPosition,
+    thresholds: DynamicThresholds,
+): ZStrategySignal {
+    if (!isConsecutiveM15Bar(previous, current)) return ZStrategySignal.None
+    return determineZStrategySignal(previous.zScore, current.zScore, position, thresholds)
+}

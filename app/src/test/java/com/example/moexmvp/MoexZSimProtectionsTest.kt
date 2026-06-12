@@ -138,13 +138,5 @@ class MoexZSimProtectionsTest {
     }
 
     private fun point(index: Int, z: Double, spread: Double, date: String): DataPoint =
-        DataPoint(
-            timestampMillis = index.toLong(),
-            tradeDate = date,
-            tatnClose = 100.0,
-            tatnpClose = 90.0,
-            spreadPercent = spread,
-            diff = 0.0,
-            zScore = z
-        )
+        testM15Bar(date, z, spread)
 }

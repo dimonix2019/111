@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -31,7 +32,8 @@ import androidx.compose.ui.unit.sp
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val JOURNAL_SECTION_SIGNALS = 0
 private const val JOURNAL_SECTION_NOTIFICATIONS = 1
@@ -40,9 +42,12 @@ private const val JOURNAL_SECTION_NOTIFICATIONS = 1
 internal fun JournalTabContent(
     events: List<StrategySignalEvent>,
     pushNotifications: List<PushNotificationLogEntry>,
+    entryThreshold: Double,
+    exitThreshold: Double,
     modifier: Modifier = Modifier,
     onClearHistoryRequest: () -> Unit = {},
-    onClearPushLogRequest: () -> Unit = {}
+    onClearPushLogRequest: () -> Unit = {},
+    onExportRequest: () -> Unit = {}
 ) {
     var journalSection by remember { mutableIntStateOf(JOURNAL_SECTION_SIGNALS) }
     var typeFilter by remember { mutableIntStateOf(0) }
@@ -50,6 +55,11 @@ internal fun JournalTabContent(
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearPushDialog by remember { mutableStateOf(false) }
     val zone = ZoneId.of("Europe/Moscow")
+    val weeklyIndex by produceState<Map<StrategySignalKey, Int>>(emptyMap(), events) {
+        value = withContext(Dispatchers.Default) {
+            buildWeeklySignalNumberIndex(events)
+        }
+    }
     val filtered = remember(events, typeFilter, dayFilter) {
         events.asSequence().filter { ev ->
             when (typeFilter) {
@@ -81,10 +91,6 @@ internal fun JournalTabContent(
             .asReversed()
     }
     Column(modifier) {
-        AppVersionBriefCard(
-            modifier = Modifier.padding(bottom = 8.dp),
-            tabHint = "Журнал сигналов и push не зависит от периода графика."
-        )
         if (showClearPushDialog) {
             AlertDialog(
                 onDismissRequest = { showClearPushDialog = false },
@@ -166,23 +172,34 @@ internal fun JournalTabContent(
                     color = Color.White,
                     fontWeight = FontWeight.Bold
                 )
-                Button(
-                    onClick = {
-                        if (journalSection == JOURNAL_SECTION_NOTIFICATIONS) {
-                            showClearPushDialog = true
-                        } else {
-                            showClearDialog = true
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (journalSection == JOURNAL_SECTION_SIGNALS) {
+                        Button(
+                            onClick = onExportRequest,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text("Экспорт", fontSize = 11.sp, color = Color.White)
                         }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        if (journalSection == JOURNAL_SECTION_NOTIFICATIONS) "Очистить push"
-                        else "Очистить историю",
-                        fontSize = 11.sp,
-                        color = Color.White
-                    )
+                    }
+                    Button(
+                        onClick = {
+                            if (journalSection == JOURNAL_SECTION_NOTIFICATIONS) {
+                                showClearPushDialog = true
+                            } else {
+                                showClearDialog = true
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D4037)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            if (journalSection == JOURNAL_SECTION_NOTIFICATIONS) "Очистить push"
+                            else "Очистить историю",
+                            fontSize = 11.sp,
+                            color = Color.White
+                        )
+                    }
                 }
             }
         }
@@ -218,39 +235,25 @@ internal fun JournalTabContent(
                 items = filtered,
                 key = { index, ev -> "sig_${index}_${ev.timestampMillis}_${ev.signalType.name}" }
             ) { _, ev ->
-                val barTs = Instant.ofEpochMilli(ev.timestampMillis).atZone(zone)
-                val receivedLine = formatMessageReceivedLine(ev.receivedAtMillis)
-                val sigDisplay = strategySignalDisplay(ev)
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-                        .padding(10.dp)
-                ) {
-                    Text(
-                        receivedLine,
-                        color = Color(0xFF81D4FA),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        "ID сигнала: ${sigDisplay.signalId}",
-                        color = Color(0xFFCE93D8),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        "Бар 15м: ${barTs.toLocalDate()} ${barTs.toLocalTime()} · ${ev.signalType.name}",
-                        color = Color(0xFFE0E0E0),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        String.format(Locale.US, "Z = %.2f", ev.zScore),
-                        color = Color(0xFF9E9E9E),
-                        fontSize = 12.sp
+                val view = remember(ev, weeklyIndex, pushNotifications, entryThreshold, exitThreshold) {
+                    buildStrategySignalJournalPushView(
+                        event = ev,
+                        pushLog = pushNotifications,
+                        entryThreshold = entryThreshold,
+                        exitThreshold = exitThreshold,
+                        allJournalEvents = events,
+                        weeklyIndex = weeklyIndex,
                     )
                 }
+                JournalSignalOrPushCard(
+                    receivedAtMillis = view.receivedAtMillis,
+                    signalId = view.signalId,
+                    pushIdText = view.pushIdText,
+                    title = view.title,
+                    messageBody = view.messageBody,
+                    pushStatusText = view.pushStatusText,
+                    pushPosted = view.pushPosted,
+                )
             }
         } else {
             if (filteredPush.isEmpty()) {
@@ -266,62 +269,111 @@ internal fun JournalTabContent(
                 items = filteredPush,
                 key = { index, entry -> "push_${index}_${entry.wallTimestampMillis}_${entry.title.hashCode()}" }
             ) { _, entry ->
-                val pushIdText = formatPushNotificationIdDisplay(entry)
-                val statusText = when {
-                    entry.posted -> "Показано в шторке"
-                    entry.skipReason == PushNotificationLogSkipReason.DUPLICATE_WITHIN_WINDOW ->
-                        "Пропущено (дубликат)"
-                    entry.skipReason == PushNotificationLogSkipReason.POST_NOTIFICATIONS_DENIED ->
-                        "Пропущено (нет разрешения)"
-                    entry.skipReason != null -> "Пропущено (${entry.skipReason})"
-                    else -> "Не показано"
-                }
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-                        .padding(10.dp)
-                ) {
-                    Text(
-                        formatMessageReceivedLine(entry.wallTimestampMillis),
-                        color = Color(0xFF81D4FA),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        "Push ID: $pushIdText",
-                        color = Color(0xFFB3E5FC),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        entry.title,
-                        color = Color(0xFFE0E0E0),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        statusText,
-                        color = if (entry.posted) Color(0xFF81C784) else Color(0xFFFFAB91),
-                        fontSize = 11.sp
-                    )
-                    if (!entry.correlationTag.isNullOrBlank()) {
-                        Text(
-                            "Тег: ${entry.correlationTag}",
-                            color = Color(0xFF757575),
-                            fontSize = 10.sp,
-                            maxLines = 2
-                        )
+                val signalId = entry.virtualTapBarTimestampMillis?.let { barTs ->
+                    entry.virtualTapSignalType?.let { typeName ->
+                        runCatching { StrategySignalType.valueOf(typeName) }.getOrNull()?.let { type ->
+                            strategySignalDisplay(
+                                barTimestampMillis = barTs,
+                                signalType = type,
+                                receivedAtMillis = entry.wallTimestampMillis,
+                                journalEvents = events,
+                            ).signalId
+                        }
                     }
-                    Text(
-                        entry.body.lineSequence().take(4).joinToString("\n"),
-                        color = Color(0xFF9E9E9E),
-                        fontSize = 11.sp,
-                        maxLines = 4
-                    )
-                }
+                } ?: "—"
+                JournalSignalOrPushCard(
+                    receivedAtMillis = entry.wallTimestampMillis,
+                    signalId = signalId,
+                    pushIdText = formatPushNotificationIdDisplay(entry),
+                    title = entry.title,
+                    messageBody = strategySignalPushBodyForDisplay(entry.body),
+                    pushStatusText = pushLogStatusText(entry),
+                    pushPosted = entry.posted,
+                    correlationTag = entry.correlationTag,
+                )
             }
         }
+        }
+    }
+}
+
+private fun pushLogStatusText(entry: PushNotificationLogEntry): String = when {
+    entry.posted -> "Показано в шторке"
+    entry.skipReason == PushNotificationLogSkipReason.DUPLICATE_WITHIN_WINDOW ->
+        "Пропущено (дубликат)"
+    entry.skipReason == PushNotificationLogSkipReason.POST_NOTIFICATIONS_DENIED ->
+        "Пропущено (нет разрешения)"
+    entry.skipReason != null -> "Пропущено (${entry.skipReason})"
+    else -> "Не показано"
+}
+
+@Composable
+private fun JournalSignalOrPushCard(
+    receivedAtMillis: Long,
+    signalId: String,
+    pushIdText: String,
+    title: String,
+    messageBody: String,
+    pushStatusText: String?,
+    pushPosted: Boolean?,
+    correlationTag: String? = null,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+            .padding(10.dp)
+    ) {
+        Text(
+            formatMessageReceivedLine(receivedAtMillis),
+            color = Color(0xFF81D4FA),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            "Push ID: $pushIdText",
+            color = Color(0xFFB3E5FC),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            "ID сигнала: $signalId",
+            color = Color(0xFFCE93D8),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            title,
+            color = Color(0xFFE0E0E0),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+        if (pushStatusText != null) {
+            Text(
+                pushStatusText,
+                color = when (pushPosted) {
+                    true -> Color(0xFF81C784)
+                    false -> Color(0xFFFFAB91)
+                    null -> Color(0xFF9E9E9E)
+                },
+                fontSize = 11.sp
+            )
+        }
+        if (!correlationTag.isNullOrBlank()) {
+            Text(
+                "Тег: $correlationTag",
+                color = Color(0xFF757575),
+                fontSize = 10.sp,
+                maxLines = 2
+            )
+        }
+        if (messageBody.isNotBlank()) {
+            Text(
+                messageBody,
+                color = Color(0xFF9E9E9E),
+                fontSize = 11.sp,
+                maxLines = 6
+            )
         }
     }
 }
