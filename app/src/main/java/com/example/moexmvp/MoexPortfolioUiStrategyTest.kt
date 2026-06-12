@@ -87,7 +87,7 @@ internal fun StrategyTestTabContent(
             maxLines = 2
         )
         Text(
-            text = "Пороги ниже — только «Тест страт.». Симуляция: одно пересечение Z на бар (как live-монитор), без входа в тот же бар после выхода.",
+            text = "Симуляция: одно пересечение Z на бар; после выхода — новый вход только после возврата Z за полосу exit (re-arm).",
             color = Color(0xFFF48FB1),
             fontSize = 10.sp,
             maxLines = 3

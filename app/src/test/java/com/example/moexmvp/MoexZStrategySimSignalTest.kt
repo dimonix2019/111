@@ -11,7 +11,7 @@ import java.time.ZoneId
  * Симуляция «Тест страт.» следует тем же правилам, что live-монитор:
  * [determineZStrategySignal], одно действие на бар.
  */
-class MoexStrategyTestJournalParityTest {
+class MoexZStrategySimSignalTest {
 
     private val zone = ZoneId.of("Europe/Moscow")
     private val thresholds = DynamicThresholds(entry = 0.7, exit = 0.5, calculatedDate = null)
@@ -56,7 +56,37 @@ class MoexStrategyTestJournalParityTest {
         }
     }
 
-    /** 4 SHORT round-trip на 10–11.06: после 17:45 flat до 12:00 (Z=0.68 на 18:00 не пересекает 0.7). */
+    /** После exit 17:45 re-entry только после Z < exit (перезарядка). */
+    @Test
+    fun buildZStrategyPortfolioMetrics_noReentryAfterExitUntilZBelowExitBand() {
+        val d10 = LocalDate.of(2026, 6, 10)
+        val d11 = LocalDate.of(2026, 6, 11)
+        val points = listOf(
+            bar(d10, 6, 30, 0.40),
+            bar(d10, 6, 45, 1.14),
+            bar(d10, 10, 0, 0.28),
+            bar(d10, 10, 15, 0.35),
+            bar(d10, 11, 45, 0.84),
+            bar(d10, 17, 45, 0.50),
+            bar(d10, 18, 0, 0.72),
+            bar(d10, 22, 0, 0.45),
+            bar(d11, 11, 45, 0.55),
+            bar(d11, 12, 0, 0.87),
+            bar(d11, 13, 15, 0.44),
+            bar(d11, 13, 30, 0.45),
+            bar(d11, 14, 0, 0.79),
+            bar(d11, 23, 15, 0.49),
+        )
+        val trades = simTrades(points)
+        assertFalse(trades.any { it.entryDate == "2026-06-10 18:00" })
+        val longHold = trades.firstOrNull {
+            val h = simTradeDurationMillis(it.entryDate, it.exitDate)?.toDouble()?.div(3_600_000.0)
+            h != null && h >= 18.0 && h <= 20.0
+        }
+        assertTrue("unexpected ~19h round-trip: $longHold", longHold == null)
+    }
+
+    /** 4 SHORT round-trip на 10–11.06: после 17:45 flat до 12:00 (re-arm после Z<0.5). */
     @Test
     fun buildZStrategyPortfolioMetrics_fourShortTradesWhenFlatBetweenSessions() {
         val d10 = LocalDate.of(2026, 6, 10)
@@ -69,10 +99,11 @@ class MoexStrategyTestJournalParityTest {
             bar(d10, 11, 45, 0.84),
             bar(d10, 17, 45, 0.50),
             bar(d10, 18, 0, 0.68),
+            bar(d10, 22, 0, 0.45),
             bar(d11, 11, 45, 0.55),
             bar(d11, 12, 0, 0.87),
             bar(d11, 13, 15, 0.44),
-            bar(d11, 13, 30, 0.60),
+            bar(d11, 13, 30, 0.45),
             bar(d11, 14, 0, 0.79),
             bar(d11, 23, 15, 0.49),
         )
@@ -112,10 +143,11 @@ class MoexStrategyTestJournalParityTest {
             bar(d10, 11, 45, 0.84),
             bar(d10, 17, 45, 0.50),
             bar(d10, 18, 0, 0.68),
+            bar(d10, 22, 0, 0.45),
             bar(d11, 11, 45, 0.55),
             bar(d11, 12, 0, 0.87),
             bar(d11, 13, 15, 0.44),
-            bar(d11, 13, 30, 0.60),
+            bar(d11, 13, 30, 0.45),
             bar(d11, 14, 0, 0.79),
             bar(d11, 23, 15, 0.49),
         )
