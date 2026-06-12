@@ -25,7 +25,7 @@ internal fun filterStrategyTestTradesForChart(
 }
 
 /**
- * Закрытые сделки «Тест страт.»: журнал (при тех же порогах, что «Портфель») или offline Z-sim.
+ * Все закрытые сделки полной симуляции [buildZStrategyPortfolioMetrics] за период 15м ряда
  * (сейчас [PORTFOLIO_M15_LOOKBACK_DAYS] дн.), новые сверху.
  */
 internal fun buildStrategyTestTradeListFromSimulation(

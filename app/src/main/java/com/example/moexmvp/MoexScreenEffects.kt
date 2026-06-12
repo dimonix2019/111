@@ -120,19 +120,14 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val signalJournalFingerprint = strategySignalJournalFingerprint(signalEvents)
-
     LaunchedEffect(
         selectedTab,
         activityResumed,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
-        realTradeEntryThreshold,
-        realTradeExitThreshold,
         portfolioLeverage,
         portfolioCommissionPercent,
         strategyTestCompoundReturns,
-        signalJournalFingerprint,
     ) {
         if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
         if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
@@ -234,6 +229,8 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             saveStrategyTestZThresholds(context, entry, exit)
         }
     }
+
+    val signalJournalFingerprint = strategySignalJournalFingerprint(signalEvents)
 
     LaunchedEffect(
         selectedTab,

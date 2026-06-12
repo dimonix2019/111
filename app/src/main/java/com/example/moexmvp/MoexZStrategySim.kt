@@ -266,6 +266,7 @@ internal fun buildZStrategyPortfolioMetrics(
     for (index in loopStart until points.size) {
         val prev = points[index - 1]
         val current = points[index]
+        var closedThisBar = false
         when (position) {
             ZStrategyPosition.Long -> {
                 zBestSinceEntry = updateZBestForLong(zBestSinceEntry, current.zScore)
@@ -275,16 +276,30 @@ internal fun buildZStrategyPortfolioMetrics(
                     addPyramidLeg(current)
                 }
                 when {
-                    stopLossHit(current) -> closeLongAt(current)
-                    forceSessionExit(current) || forceReportExit(current) -> closeLongAt(current)
+                    stopLossHit(current) -> {
+                        closeLongAt(current)
+                        closedThisBar = true
+                    }
+                    forceSessionExit(current) || forceReportExit(current) -> {
+                        closeLongAt(current)
+                        closedThisBar = true
+                    }
                     else -> {
                         val ruleExit = when (exitMode) {
                             ZStrategyExitMode.FixedThreshold ->
-                                fixedThresholdExitLong(prev.zScore, current.zScore, exit)
+                                determineZStrategySignal(
+                                    prev.zScore,
+                                    current.zScore,
+                                    ZStrategyPosition.Long,
+                                    thresholds,
+                                ) == ZStrategySignal.ExitLong
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
                         }
-                        if (ruleExit) closeLongAt(current)
+                        if (ruleExit) {
+                            closeLongAt(current)
+                            closedThisBar = true
+                        }
                     }
                 }
             }
@@ -297,32 +312,56 @@ internal fun buildZStrategyPortfolioMetrics(
                     addPyramidLeg(current)
                 }
                 when {
-                    stopLossHit(current) -> closeShortAt(current)
-                    forceSessionExit(current) || forceReportExit(current) -> closeShortAt(current)
+                    stopLossHit(current) -> {
+                        closeShortAt(current)
+                        closedThisBar = true
+                    }
+                    forceSessionExit(current) || forceReportExit(current) -> {
+                        closeShortAt(current)
+                        closedThisBar = true
+                    }
                     else -> {
                         val ruleExit = when (exitMode) {
                             ZStrategyExitMode.FixedThreshold ->
-                                fixedThresholdExitShort(prev.zScore, current.zScore, exit)
+                                determineZStrategySignal(
+                                    prev.zScore,
+                                    current.zScore,
+                                    ZStrategyPosition.Short,
+                                    thresholds,
+                                ) == ZStrategySignal.ExitShort
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
                         }
-                        if (ruleExit) closeShortAt(current)
+                        if (ruleExit) {
+                            closeShortAt(current)
+                            closedThisBar = true
+                        }
                     }
                 }
             }
 
             ZStrategyPosition.Flat -> Unit
         }
-        if (position == ZStrategyPosition.Flat && !tradingHalted && !blockNewEntries(current)) {
+        // Live-монитор: максимум одно действие на бар — без входа в тот же бар после выхода.
+        if (!closedThisBar && position == ZStrategyPosition.Flat && !tradingHalted && !blockNewEntries(current)) {
             if (entryPullbackZ <= 0.0) {
-                if (prev.zScore > -entry && current.zScore <= -entry &&
-                    spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Long)
+                when (
+                    determineZStrategySignal(
+                        prev.zScore,
+                        current.zScore,
+                        ZStrategyPosition.Flat,
+                        thresholds,
+                    )
                 ) {
-                    enterLongAtBar(current)
-                } else if (prev.zScore < entry && current.zScore >= entry &&
-                    spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Short)
-                ) {
-                    enterShortAtBar(current)
+                    ZStrategySignal.EnterLong ->
+                        if (spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Long)) {
+                            enterLongAtBar(current)
+                        }
+                    ZStrategySignal.EnterShort ->
+                        if (spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Short)) {
+                            enterShortAtBar(current)
+                        }
+                    else -> Unit
                 }
             } else {
                 when (entryPendingArm) {

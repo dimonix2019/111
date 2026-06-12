@@ -87,7 +87,7 @@ internal fun StrategyTestTabContent(
             maxLines = 2
         )
         Text(
-            text = "При тех же порогах ±, что розовые на «Портфеле», сделки из журнала (авто). Другие пороги — offline Z-sim.",
+            text = "Пороги ниже — только «Тест страт.». Симуляция: одно пересечение Z на бар (как live-монитор), без входа в тот же бар после выхода.",
             color = Color(0xFFF48FB1),
             fontSize = 10.sp,
             maxLines = 3
