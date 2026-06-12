@@ -26,6 +26,7 @@ internal fun MoexScreenTabStrategyTest(
     strategyTestZScoreCandles: List<CandlePoint>,
     strategyTestChartThresholds: DynamicThresholds,
     strategyTestChartTradeSegments: List<TradingViewTradeSegment>,
+    strategyTestChartMarkers: List<ChartPointMarker> = emptyList(),
     strategyTestOpenPosition: PortfolioOpenPosition?,
     strategyTestZInitialWindow: Pair<Float, Float>,
 ) {
@@ -42,13 +43,10 @@ internal fun MoexScreenTabStrategyTest(
                 candles = strategyTestZScoreCandles,
                 displayPoints = strategyTestM15ChartPoints,
                 referenceLines = zReferenceLines,
-                pointMarkers = emptyList(),
+                pointMarkers = strategyTestChartMarkers,
                 tradeSegments = strategyTestChartTradeSegments,
                 initialWindowWidth = strategyTestZInitialWindow.first,
                 initialWindowStart = strategyTestZInitialWindow.second,
-                areaFillColor = STRATEGY_TEST_Z_CHART_AREA_FILL_HEX,
-                strategyTestTradeItems = strategyTestTradeItems,
-                openPosition = strategyTestOpenPosition,
                 emptyContent = {
                     when {
                         strategyTestM15Loading || strategyTestSimComputing -> {
@@ -89,7 +87,7 @@ internal fun MoexScreenTabStrategyTest(
                         zScoreCandles = strategyTestZScoreCandles,
                         chartThresholds = strategyTestChartThresholds,
                         chartTradeSegments = strategyTestChartTradeSegments,
-                        openPosition = strategyTestOpenPosition,
+                        chartPointMarkers = strategyTestChartMarkers,
                         zInitialWindow = strategyTestZInitialWindow,
                         durationSummary = strategyTestDurationSummary,
                         monthlyReturnSummary = strategyTestMonthlyReturnSummary,

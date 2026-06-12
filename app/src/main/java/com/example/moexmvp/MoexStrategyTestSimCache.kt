@@ -97,7 +97,11 @@ internal fun buildStrategyTestVisibleAnalytics(
         entryThreshold = entryThreshold,
     )
     return StrategyTestVisibleAnalytics(
-        chartMarkers = buildZScoreMarkersFromStrategyTestTrades(chartPoints, tradeItems),
+        chartMarkers = buildZScoreMarkersFromStrategyTestTrades(
+            chartPoints,
+            tradeItems,
+            openPosition = metrics.openPosition,
+        ),
         chartTradeSegments = buildTradingViewTradeSegmentsFromStrategyTest(
             tradeItems = tradeItems,
             displayPoints = chartPoints,
