@@ -19,7 +19,9 @@ internal data class PortfolioM15SpreadEntity(
     val tatnClose: Double,
     val tatnpClose: Double,
     val spreadPercent: Double,
-    val diff: Double
+    val diff: Double,
+    /** Rolling-Z на момент обработки монитором / загрузки; null — пересчитать. */
+    val persistedZScore: Double? = null,
 )
 
 @Dao
@@ -59,7 +61,7 @@ internal interface PortfolioM15Dao {
     suspend fun deleteOlderThan(cutoffMillis: Long)
 }
 
-@Database(entities = [PortfolioM15SpreadEntity::class], version = 1, exportSchema = false)
+@Database(entities = [PortfolioM15SpreadEntity::class], version = 2, exportSchema = false)
 internal abstract class PortfolioM15Database : RoomDatabase() {
     abstract fun dao(): PortfolioM15Dao
 
@@ -82,16 +84,4 @@ internal abstract class PortfolioM15Database : RoomDatabase() {
     }
 }
 
-internal fun PortfolioM15SpreadEntity.toDataPoint(): DataPoint {
-    val zone = ZoneId.of("Europe/Moscow")
-    val ldt = Instant.ofEpochMilli(tsMillis).atZone(zone).toLocalDateTime()
-    return DataPoint(
-        timestampMillis = tsMillis,
-        tradeDate = ldt.format(portfolio15mLabelFormatter),
-        tatnClose = tatnClose,
-        tatnpClose = tatnpClose,
-        spreadPercent = spreadPercent,
-        diff = diff,
-        zScore = 0.0
-    )
-}
+internal fun PortfolioM15SpreadEntity.toDataPoint(): DataPoint = toDataPointWithPersistedZ()

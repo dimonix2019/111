@@ -10,7 +10,8 @@ import java.time.LocalDate
 internal const val STRATEGY_TEST_SQLITE_CHUNK_ROWS = 2_500
 
 /**
- * Только SQLite: чанками + Z in-place. Без MOEX и без глобального DataLoadProgressCard.
+ * Только SQLite: чанками + Z из снимков (persistedZScore) или rolling-пересчёт при пробелах.
+ * Без MOEX и без глобального DataLoadProgressCard.
  */
 internal suspend fun loadStrategyTestM15CacheOnlyChunked(
     context: Context,
@@ -27,6 +28,9 @@ internal suspend fun loadStrategyTestM15CacheOnlyChunked(
     MoexDiagnostics.logMemory(app, "st_sqlite_start")
 
     val merged = ArrayList<DataPoint>((estimated.coerceAtMost(25_000) * 1.05).toInt().coerceAtLeast(256))
+    val entities = ArrayList<PortfolioM15SpreadEntity>(
+        (estimated.coerceAtMost(25_000) * 1.05).toInt().coerceAtLeast(256),
+    )
     var cursor = cutoffMillis
     var chunkIndex = 0
     while (cursor < endMillis) {
@@ -34,6 +38,7 @@ internal suspend fun loadStrategyTestM15CacheOnlyChunked(
         if (rows.isEmpty()) break
         chunkIndex++
         for (entity in rows) {
+            entities += entity
             merged.add(entity.toDataPoint())
         }
         cursor = rows.last().tsMillis + 1L
@@ -50,8 +55,13 @@ internal suspend fun loadStrategyTestM15CacheOnlyChunked(
         return@withContext emptyList()
     }
 
-    MoexDiagnostics.log(app, "st_sqlite", "apply_z rows=${merged.size}")
-    applyZScoresDefaultInPlace(merged)
+    val recalculated = ensureM15PointsZScoresInPlace(merged, entities)
+    if (recalculated) {
+        MoexDiagnostics.log(app, "st_sqlite", "apply_z rows=${merged.size}")
+        persistM15ZScoreSnapshots(dao, entities, merged)
+    } else {
+        MoexDiagnostics.log(app, "st_sqlite", "skip apply_z persisted rows=${merged.size}")
+    }
     MoexDiagnostics.log(
         app,
         "st_sqlite",
