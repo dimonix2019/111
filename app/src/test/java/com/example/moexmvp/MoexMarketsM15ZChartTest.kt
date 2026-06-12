@@ -198,7 +198,7 @@ class MoexMarketsM15ZChartTest {
         }
         val (width, start) = chartInitialWindowForLastCalendarDays(points, visibleDays = 30L)
         assertTrue(width in CHART_ZOOM_MIN_WINDOW..1f)
-        assertTrue(start in 0f..(1f - width + 1e-6f))
+        assertTrue(start in 0f..(chartWindowStartMax(width) + 1e-6f))
     }
 
     @Test
@@ -210,7 +210,7 @@ class MoexMarketsM15ZChartTest {
         val (width, start) = chartInitialWindowForLastCalendarDays(points, visibleDays = 30L)
         assertTrue(width < 1f)
         assertTrue(start > 0f)
-        assertTrue(start + width <= 1.02f)
+        assertTrue(start + width <= chartWindowStartMax(width) + width + 0.02f)
     }
 
     @Test
@@ -223,7 +223,12 @@ class MoexMarketsM15ZChartTest {
 
     @Test
     fun formatM15ChartXAxisLabel_usesDayMonthTime() {
-        assertEquals("31.05 10:15", formatM15ChartXAxisLabel("2026-05-31 10:15"))
+        assertEquals("31.05.26 10:15", formatM15ChartXAxisLabel("2026-05-31 10:15"))
+    }
+
+    @Test
+    fun formatMarketsLoadedAtShort_stripsSeconds() {
+        assertEquals("13.05.26 12:00", formatMarketsLoadedAtShort("2026-05-13 12:00:00"))
     }
 
     @Test
@@ -235,8 +240,8 @@ class MoexMarketsM15ZChartTest {
         )
         val ticks = buildXTicksForM15Candles(candles, desiredCount = 3)
         assertTrue(ticks.map { it.index }.zipWithNext().all { (a, b) -> a < b })
-        assertEquals("30.05 10:00", ticks.first().label)
-        assertEquals("31.05 10:00", ticks.last().label)
+        assertEquals("30.05.26 10:00", ticks.first().label)
+        assertEquals("31.05.26 10:00", ticks.last().label)
     }
 
     @Test
@@ -271,8 +276,7 @@ class MoexMarketsM15ZChartTest {
             visibleDays = calendarDaysForMarketsZChartPeriod(Period.ThreeMonths),
         )
         assertTrue(width in CHART_ZOOM_MIN_WINDOW..1f)
-        assertTrue(start in 0f..(1f - width + 1e-6f))
-        assertTrue(start + width <= 1.02f)
+        assertTrue(start in 0f..(chartWindowStartMax(width) + 1e-6f))
     }
 
     @Test
@@ -358,6 +362,12 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun chartCandleBodyWidthPx_manyVisibleCandles_doesNotThrow() {
+        val w = chartCandleBodyWidthPx(plotWidthPx = 400f, visibleCandleCount = 1200f)
+        assertEquals(2f, w, 0.01f)
+    }
+
+    @Test
     fun visibleCandleYRange_allowsViewCenterOutsideData() {
         val (visMin, visMax) = visibleCandleYRange(0.0, 2.0, yZoom = 1f, viewCenter = 5.0)
         assertTrue(visMin > 2.0)
@@ -387,7 +397,170 @@ class MoexMarketsM15ZChartTest {
         )
         val markers = buildZScoreMarkersFromStrategyTestTrades(points, trades)
         assertEquals(2, markers.size)
-        assertEquals(listOf("#1", "#1"), markers.map { it.badgeText })
+        assertEquals(listOf("1А", "1А"), markers.map { it.badgeText })
+    }
+
+    @Test
+    fun buildZScoreMarkersFromPortfolioTrades_showsTradeNumberAndTypeLetter() {
+        val points = listOf(
+            point("2026-05-19 10:00", z = 1.0),
+            point("2026-05-19 10:15", z = 0.5),
+        )
+        val autoOpen = SandboxSpreadExecUi(
+            tradeId = "D-A",
+            signalType = StrategySignalType.EnterLong,
+            zScore = 1.0,
+            barTimestampMillis = points[0].timestampMillis,
+            executedAtMillis = points[0].timestampMillis,
+            entrySpreadPercent = 10.0,
+            source = PortfolioExecSource.AUTO,
+            directionLabel = "long",
+            entryTimeMsk = "2026-05-19 10:00",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "L",
+            shortLegSideRu = "S",
+            volumeText = "1+1",
+            confirmLabel = "авто",
+            correlationTag = "t",
+            notificationIdsText = "—",
+            legs = emptyList(),
+            tradeDisplayId = "1 long",
+        )
+        val manualClosed = PortfolioConfirmedTradeTableRow(
+            tradeId = "T-M",
+            tradeDisplayId = "2 short",
+            directionLabel = "short",
+            entryTimeMsk = "2026-05-19 10:00",
+            exitTimeMsk = "2026-05-19 10:15",
+            longLegTicker = "TATNP",
+            shortLegTicker = "TATN",
+            longLegSideRu = "L",
+            shortLegSideRu = "S",
+            volumeText = "1+1",
+            confirmLabel = "ручное",
+            entryZ = 1.0,
+            exitZ = 0.5,
+            notificationIdsText = "—",
+            legLongPnlSplitRubApprox = 0.0,
+            legShortPnlSplitRubApprox = 0.0,
+            grossPnlRubApprox = 0.0,
+            netPnlRubApprox = 0.0,
+        )
+        val markers = buildZScoreMarkersFromPortfolioTrades(
+            points = points,
+            openExecutions = listOf(autoOpen),
+            closedRows = listOf(manualClosed),
+        )
+        assertEquals(setOf("1А", "2Р"), markers.mapNotNull { it.badgeText }.toSet())
+        assertEquals(3, markers.size)
+    }
+
+    @Test
+    fun indexForChartTradeLabel_snapsToDownsampledBar() {
+        val full = listOf(
+            point("2026-05-19 10:00", z = 0.0),
+            point("2026-05-19 10:15", z = 0.1),
+            point("2026-05-19 10:30", z = 0.2),
+            point("2026-05-19 10:45", z = 0.3),
+            point("2026-05-19 11:00", z = 0.4),
+            point("2026-05-19 11:15", z = 0.5),
+            point("2026-05-19 11:30", z = 0.6),
+            point("2026-05-19 11:45", z = 0.7),
+        )
+        val (display, _) = downsampleM15ChartSeries(full, buildZScoreCandlesFromM15Points(full), maxBars = 2)
+        val entryLabel = full[0].tradeDate
+        assertEquals(null, indexForTradeDateLabel(display, entryLabel))
+        assertNotNull(indexForChartTradeLabel(display, entryLabel))
+    }
+
+    @Test
+    fun remapChartMarkersToDisplaySeries_preservesBadgeAfterDownsample() {
+        val full = listOf(
+            point("2026-05-19 10:00", z = 1.0),
+            point("2026-05-19 10:15", z = 0.8),
+            point("2026-05-19 10:30", z = 0.5),
+            point("2026-05-19 10:45", z = 0.2),
+        )
+        val (display, _) = downsampleM15ChartSeries(full, buildZScoreCandlesFromM15Points(full), maxBars = 2)
+        val sourceMarkers = buildZScoreMarkersFromPortfolioTrades(
+            points = full,
+            openExecutions = listOf(
+                SandboxSpreadExecUi(
+                    tradeId = "D-2",
+                    signalType = StrategySignalType.EnterLong,
+                    zScore = 0.8,
+                    barTimestampMillis = full[1].timestampMillis,
+                    executedAtMillis = full[1].timestampMillis,
+                    entrySpreadPercent = 10.0,
+                    source = PortfolioExecSource.AUTO,
+                    directionLabel = "long",
+                    entryTimeMsk = "2026-05-19 10:15",
+                    longLegTicker = "TATN",
+                    shortLegTicker = "TATNP",
+                    longLegSideRu = "L",
+                    shortLegSideRu = "S",
+                    volumeText = "1+1",
+                    confirmLabel = "авто",
+                    correlationTag = "t",
+                    notificationIdsText = "—",
+                    legs = emptyList(),
+                    tradeDisplayId = "2 long",
+                    entrySignalBarTimeMsk = "2026-05-19 10:15",
+                )
+            ),
+            closedRows = emptyList(),
+        )
+        val remapped = remapChartMarkersToDisplaySeries(full, display, sourceMarkers)
+        assertEquals(1, remapped.size)
+        assertEquals("2А", remapped.single().badgeText)
+        assertTrue(remapped.single().index in display.indices)
+    }
+
+    @Test
+    fun spreadPercentAtTradingDayOpen_uses0730Bar() {
+        val points = listOf(
+            point("2026-05-19 07:00", z = 0.0, spread = 4.70),
+            point("2026-05-19 07:15", z = 0.0, spread = 4.74),
+            point("2026-05-19 07:30", z = 0.0, spread = 4.78),
+            point("2026-05-19 10:00", z = 0.0, spread = 5.00),
+        )
+        assertEquals(
+            4.78,
+            spreadPercentAtTradingDayOpen(points, java.time.LocalDate.of(2026, 5, 19))!!,
+            1e-9
+        )
+        assertEquals(4.78, spreadPercentBaseForChartRightAxis(points)!!, 1e-9)
+    }
+
+    @Test
+    fun spreadPercentAtTradingDayOpen_fallsBackToFirstBarWhenNo0730() {
+        val points = listOf(
+            point("2026-05-19 10:00", z = 0.0, spread = 5.00),
+            point("2026-05-19 10:15", z = 0.0, spread = 5.10),
+        )
+        assertEquals(
+            5.00,
+            spreadPercentAtTradingDayOpen(points, java.time.LocalDate.of(2026, 5, 19))!!,
+            1e-9
+        )
+    }
+
+    @Test
+    fun spreadPercentBaseForChartRightAxis_usesLastCalendarDay() {
+        val points = listOf(
+            point("2026-05-18 07:30", z = 0.0, spread = 4.50),
+            point("2026-05-18 18:00", z = 0.0, spread = 5.00),
+            point("2026-05-19 07:30", z = 0.0, spread = 4.80),
+            point("2026-05-19 12:00", z = 0.0, spread = 5.20),
+        )
+        assertEquals(4.80, spreadPercentBaseForChartRightAxis(points)!!, 1e-9)
+    }
+
+    @Test
+    fun formatPercentDeltaFromBase_zeroAtTradingDayOpen() {
+        assertEquals("0.00%", formatPercentDeltaFromBase(4.78, 4.78))
+        assertEquals("+4.60%", formatPercentDeltaFromBase(5.00, 4.78))
     }
 
     @Test

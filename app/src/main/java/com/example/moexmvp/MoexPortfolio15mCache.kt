@@ -16,7 +16,7 @@ internal const val PORTFOLIO_M15_FETCH_CHUNK_DAYS = 21L
 internal const val PORTFOLIO_M15_TAIL_REFETCH_DAYS = 7L
 
 /** Если последний бар в кэше старше — не CACHE_ONLY, а догрузка с MOEX. */
-internal const val PORTFOLIO_M15_CACHE_STALE_MS = 6L * 60L * 60L * 1000L
+internal const val PORTFOLIO_M15_CACHE_STALE_MS = PORTFOLIO_M15_INTRADAY_STALE_MS
 
 private val portfolioM15LoadMutex = Mutex()
 
@@ -56,10 +56,7 @@ internal suspend fun insertPortfolio15mEntitiesBatched(
     dao: PortfolioM15Dao,
     entities: List<PortfolioM15SpreadEntity>
 ) {
-    if (entities.isEmpty()) return
-    entities.chunked(PORTFOLIO_M15_ROOM_INSERT_BATCH).forEach { batch ->
-        dao.insertAll(batch)
-    }
+    mergePortfolioM15InsertPreservingSnapshots(dao, entities)
 }
 
 /** Полная перезагрузка окна: каждый чанк сразу в SQLite (не держим год в памяти). */

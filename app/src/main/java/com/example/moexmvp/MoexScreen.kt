@@ -2,10 +2,12 @@ package com.example.moexmvp
 
 import android.content.res.Configuration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -25,10 +27,23 @@ internal fun MoexScreen() {
     val context = LocalContext.current
     val screen = remember(context) { MoexScreenState(context) }
     val scope = rememberCoroutineScope()
+
+    DisposableEffect(screen) {
+        MoexMemoryPressure.registerTrimHandler { level ->
+            screen.trimMemoryCaches(level)
+            MoexDiagnostics.log(
+                context,
+                "mem",
+                "trimCaches level=$level tab=${screen.selectedTab.label} usedAfter=${Runtime.getRuntime().let { (it.totalMemory() - it.freeMemory()) / (1024 * 1024) }}MB",
+            )
+        }
+        onDispose { MoexMemoryPressure.unregisterTrimHandler() }
+    }
+
     val configuration = LocalConfiguration.current
     val landscapeZChartFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-            screen.selectedTab == MainTab.Markets
+            (screen.selectedTab == MainTab.Markets || screen.selectedTab == MainTab.StrategyTest)
 
     val chartSuccess = (screen.state as? UiState.Success) ?: screen.lastGoodMarkets
     val staleMarkets = screen.marketsStale || (screen.realtimeError != null && chartSuccess != null)
@@ -60,9 +75,14 @@ internal fun MoexScreen() {
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second
 
-    val strategyTestM15SimPoints = remember(screen.strategyTestM15ChartTail, onStrategyTestTab) {
+    val strategyTestM15SimPoints = remember(
+        screen.strategyTestM15ChartTail,
+        screen.strategyTestLastSimKey,
+        onStrategyTestTab,
+    ) {
         if (!onStrategyTestTab) return@remember emptyList()
-        screen.strategyTestM15ChartTail
+        val full = screen.strategyTestM15SessionCache
+        if (full.size >= 2) full else screen.strategyTestM15ChartTail
     }
     val strategyTestChartSeries = if (onStrategyTestTab) {
         rememberM15ZChartSeries(strategyTestM15SimPoints)
@@ -84,17 +104,29 @@ internal fun MoexScreen() {
             calculatedDate = screen.dynamicThresholds.calculatedDate
         )
     }
-    val strategyTestZInitialWindow = remember(strategyTestM15ChartPoints) {
-        chartInitialWindowForLastCalendarDays(
-            strategyTestM15ChartPoints,
-            visibleDays = STRATEGY_TEST_Z_CHART_VISIBLE_DAYS
-        )
-    }
-
+    // Весь downsample-ряд (~255 дн.) — иначе маркеры старых сделок вне окна 30 дн.
+    val strategyTestZInitialWindow = 1f to 0f
     val strategyTestTradeItems = remember(screen.strategyTestPortfolioMetrics) {
         buildStrategyTestTradeListFromSimulation(
             screen.strategyTestPortfolioMetrics?.closedTrades.orEmpty()
         )
+    }
+    val strategyTestChartTradeSegmentsForDisplay = remember(
+        strategyTestM15ChartPoints,
+        strategyTestZScoreCandles,
+        strategyTestTradeItems,
+        screen.strategyTestPortfolioMetrics?.openPosition,
+    ) {
+        if (strategyTestM15ChartPoints.size < 2) {
+            emptyList()
+        } else {
+            buildTradingViewTradeSegmentsFromStrategyTest(
+                tradeItems = strategyTestTradeItems,
+                displayPoints = strategyTestM15ChartPoints,
+                candles = strategyTestZScoreCandles,
+                openPosition = screen.strategyTestPortfolioMetrics?.openPosition,
+            )
+        }
     }
     val marketsChartThresholds = remember(
         screen.realTradeEntryThreshold,
@@ -154,31 +186,23 @@ internal fun MoexScreen() {
 
     MoexScreenDialogs(screen, scope)
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .padding(if (landscapeZChartFullscreen) 0.dp else 12.dp)
     ) {
-        if (!landscapeZChartFullscreen) {
-            if (screen.isDataLoadActive) {
-                DataLoadProgressCard(
-                    progress = screen.dataLoadProgress ?: DataLoadProgress(
-                        phase = DataLoadPhase.CacheRead,
-                        detail = "подготовка…",
-                    ),
-                    modifier = Modifier.padding(bottom = 8.dp),
+        Column(Modifier.fillMaxSize()) {
+            if (!landscapeZChartFullscreen) {
+                MainTabSelector(
+                    selected = screen.selectedTab,
+                    onSelect = { screen.selectedTab = it }
                 )
+                if (!screen.sandboxSpreadAutoExecute) {
+                    MoexScreenVirtualTradeCard(screen, scope, Modifier.padding(top = 6.dp))
+                }
             }
-            MainTabSelector(
-                selected = screen.selectedTab,
-                onSelect = { screen.selectedTab = it }
-            )
-            if (!screen.sandboxSpreadAutoExecute) {
-                MoexScreenVirtualTradeCard(screen, scope, Modifier.padding(top = 6.dp))
-            }
-        }
-        when (screen.selectedTab) {
+            when (screen.selectedTab) {
             MainTab.Journal -> MoexScreenTabJournal(screen, scope, Modifier.weight(1f).fillMaxSize())
             MainTab.About -> MoexScreenTabAbout(screen, scope, Modifier.weight(1f).fillMaxSize())
             MainTab.Sandbox -> MoexScreenTabSandbox(screen, scope, Modifier.weight(1f).fillMaxSize())
@@ -191,10 +215,13 @@ internal fun MoexScreen() {
                 screen = screen,
                 scope = scope,
                 modifier = Modifier.weight(1f).fillMaxSize(),
+                landscapeZChartFullscreen = landscapeZChartFullscreen,
                 strategyTestTradeItems = strategyTestTradeItems,
                 strategyTestM15ChartPoints = strategyTestM15ChartPoints,
                 strategyTestZScoreCandles = strategyTestZScoreCandles,
                 strategyTestChartThresholds = strategyTestChartThresholds,
+                strategyTestChartTradeSegments = strategyTestChartTradeSegmentsForDisplay,
+                strategyTestOpenPosition = screen.strategyTestPortfolioMetrics?.openPosition,
                 strategyTestZInitialWindow = strategyTestZInitialWindow
             )
             MainTab.Markets -> MoexScreenTabMarkets(
@@ -204,13 +231,14 @@ internal fun MoexScreen() {
                 landscapeZChartFullscreen = landscapeZChartFullscreen,
                 chartSuccess = chartSuccess,
                 staleMarkets = staleMarkets,
+                marketsM15SourcePoints = marketsM15SimPoints,
                 marketsM15ChartPoints = marketsM15ChartPoints,
                 marketsZScoreCandles = marketsZScoreCandles,
                 marketsChartThresholds = marketsChartThresholds,
                 marketsZStrategyTapMetrics = screen.marketsZStrategyTapMetrics,
                 dataSourceLabel = dataSourceLabel,
-                todayPnlHint = screen.todayPnlHint
             )
+            }
         }
     }
 }

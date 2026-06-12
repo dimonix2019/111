@@ -19,7 +19,11 @@ internal data class PortfolioM15SpreadEntity(
     val tatnClose: Double,
     val tatnpClose: Double,
     val spreadPercent: Double,
-    val diff: Double
+    val diff: Double,
+    /** Rolling-Z на момент обработки монитором; null — пересчитать. */
+    val persistedZScore: Double? = null,
+    /** Spread на момент снимка Z (не пересмотренный MOEX close). */
+    val spreadAtZSnapshot: Double? = null,
 )
 
 @Dao
@@ -30,6 +34,16 @@ internal interface PortfolioM15Dao {
     @Query("SELECT * FROM portfolio_m15_spread WHERE tsMillis >= :cutoffMillis ORDER BY tsMillis ASC")
     suspend fun getSince(cutoffMillis: Long): List<PortfolioM15SpreadEntity>
 
+    @Query(
+        "SELECT * FROM portfolio_m15_spread WHERE tsMillis >= :fromMillis AND tsMillis < :toMillis " +
+            "ORDER BY tsMillis ASC LIMIT :limit"
+    )
+    suspend fun getRangeLimited(
+        fromMillis: Long,
+        toMillis: Long,
+        limit: Int,
+    ): List<PortfolioM15SpreadEntity>
+
     @Query("SELECT COUNT(*) FROM portfolio_m15_spread")
     suspend fun count(): Int
 
@@ -38,6 +52,9 @@ internal interface PortfolioM15Dao {
 
     @Query("SELECT MAX(tsMillis) FROM portfolio_m15_spread")
     suspend fun maxTsMillis(): Long?
+
+    @Query("SELECT * FROM portfolio_m15_spread WHERE tsMillis IN (:tsMillisList)")
+    suspend fun getByTsMillis(tsMillisList: List<Long>): List<PortfolioM15SpreadEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(rows: List<PortfolioM15SpreadEntity>)
@@ -49,7 +66,7 @@ internal interface PortfolioM15Dao {
     suspend fun deleteOlderThan(cutoffMillis: Long)
 }
 
-@Database(entities = [PortfolioM15SpreadEntity::class], version = 1, exportSchema = false)
+@Database(entities = [PortfolioM15SpreadEntity::class], version = 3, exportSchema = false)
 internal abstract class PortfolioM15Database : RoomDatabase() {
     abstract fun dao(): PortfolioM15Dao
 
@@ -72,16 +89,4 @@ internal abstract class PortfolioM15Database : RoomDatabase() {
     }
 }
 
-internal fun PortfolioM15SpreadEntity.toDataPoint(): DataPoint {
-    val zone = ZoneId.of("Europe/Moscow")
-    val ldt = Instant.ofEpochMilli(tsMillis).atZone(zone).toLocalDateTime()
-    return DataPoint(
-        timestampMillis = tsMillis,
-        tradeDate = ldt.format(portfolio15mLabelFormatter),
-        tatnClose = tatnClose,
-        tatnpClose = tatnpClose,
-        spreadPercent = spreadPercent,
-        diff = diff,
-        zScore = 0.0
-    )
-}
+internal fun PortfolioM15SpreadEntity.toDataPoint(): DataPoint = toDataPointWithPersistedZ()

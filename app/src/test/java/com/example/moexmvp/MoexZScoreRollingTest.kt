@@ -64,4 +64,17 @@ class MoexZScoreRollingTest {
             default.map { it.zScore }
         )
     }
+
+    @Test
+    fun applyZScoresRolling_largeSeries_completesQuickly() {
+        val points = (0 until 8_000).map { i ->
+            point(i / 96, i % 96, 1.0 + (i % 17) * 0.01)
+        }
+        val start = System.nanoTime()
+        val scored = applyZScoresRolling(points)
+        val elapsedMs = (System.nanoTime() - start) / 1_000_000
+        assertEquals(8_000, scored.size)
+        assertTrue("Z rolling took ${elapsedMs}ms", elapsedMs < 5_000)
+        assertNotEquals(0.0, scored.last().zScore)
+    }
 }

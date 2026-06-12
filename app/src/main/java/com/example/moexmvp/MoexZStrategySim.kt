@@ -21,9 +21,14 @@ internal fun buildZStrategyPortfolioMetrics(
     exitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
     zPeakTrailZ: Double = 0.2,
     entryPullbackZ: Double = 0.0,
-    simOptions: ZStrategySimOptions = ZStrategySimOptions()
+    simOptions: ZStrategySimOptions = ZStrategySimOptions(),
+    simLoopStartIndex: Int = 1,
+    initialCarryOpen: PortfolioOpenPosition? = null,
+    todaySliceOnly: Boolean = false,
 ): PortfolioMetrics? {
     if (points.size < 2) return null
+    val loopStart = simLoopStartIndex.coerceIn(1, points.lastIndex)
+    if (loopStart > points.lastIndex) return null
 
     val entry = thresholds.entry
     val exit = thresholds.exit
@@ -38,6 +43,13 @@ internal fun buildZStrategyPortfolioMetrics(
     var totalOvernightRub = 0.0
     val closed = mutableListOf<PortfolioClosedTrade>()
     val equityRubSeries = mutableListOf<Double>()
+
+    if (todaySliceOnly && loopStart > 1) {
+        realizedSpread = 0.0
+        realizedRub = 0.0
+        totalCommissionRub = 0.0
+        totalOvernightRub = 0.0
+    }
 
     var positionNotionalRub = notionalRub
     var tradeEffNotionalRub = notionalRub * leverage
@@ -69,6 +81,23 @@ internal fun buildZStrategyPortfolioMetrics(
     var pyramidAdded = false
     var tradingHalted = false
     var peakEquityRub = 0.0
+
+    initialCarryOpen?.let { carry ->
+        position = carry.direction
+        entrySpread = carry.entrySpreadPercent
+        entryDate = carry.entryDate
+        refreshTradeFeesFromPositionNotional()
+        entryCommissionRub = tradeCommissionPerSideRub
+        val entryIdx = points.indexOfFirst { it.tradeDate == carry.entryDate }
+            .takeIf { it >= 0 } ?: (loopStart - 1).coerceAtLeast(0)
+        for (scanIdx in entryIdx until loopStart) {
+            zBestSinceEntry = when (position) {
+                ZStrategyPosition.Long -> updateZBestForLong(zBestSinceEntry, points[scanIdx].zScore)
+                ZStrategyPosition.Short -> updateZBestForShort(zBestSinceEntry, points[scanIdx].zScore)
+                ZStrategyPosition.Flat -> 0.0
+            }
+        }
+    }
 
     fun resetFlatState() {
         entryCommissionRub = 0.0
@@ -234,9 +263,10 @@ internal fun buildZStrategyPortfolioMetrics(
         pyramidAdded = false
     }
 
-    for (index in 1 until points.size) {
+    for (index in loopStart until points.size) {
         val prev = points[index - 1]
         val current = points[index]
+        var closedThisBar = false
         when (position) {
             ZStrategyPosition.Long -> {
                 zBestSinceEntry = updateZBestForLong(zBestSinceEntry, current.zScore)
@@ -246,16 +276,30 @@ internal fun buildZStrategyPortfolioMetrics(
                     addPyramidLeg(current)
                 }
                 when {
-                    stopLossHit(current) -> closeLongAt(current)
-                    forceSessionExit(current) || forceReportExit(current) -> closeLongAt(current)
+                    stopLossHit(current) -> {
+                        closeLongAt(current)
+                        closedThisBar = true
+                    }
+                    forceSessionExit(current) || forceReportExit(current) -> {
+                        closeLongAt(current)
+                        closedThisBar = true
+                    }
                     else -> {
                         val ruleExit = when (exitMode) {
                             ZStrategyExitMode.FixedThreshold ->
-                                fixedThresholdExitLong(prev.zScore, current.zScore, exit)
+                                determineZStrategySignalBetweenBars(
+                                    prev,
+                                    current,
+                                    ZStrategyPosition.Long,
+                                    thresholds,
+                                ) == ZStrategySignal.ExitLong
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
                         }
-                        if (ruleExit) closeLongAt(current)
+                        if (ruleExit) {
+                            closeLongAt(current)
+                            closedThisBar = true
+                        }
                     }
                 }
             }
@@ -268,32 +312,56 @@ internal fun buildZStrategyPortfolioMetrics(
                     addPyramidLeg(current)
                 }
                 when {
-                    stopLossHit(current) -> closeShortAt(current)
-                    forceSessionExit(current) || forceReportExit(current) -> closeShortAt(current)
+                    stopLossHit(current) -> {
+                        closeShortAt(current)
+                        closedThisBar = true
+                    }
+                    forceSessionExit(current) || forceReportExit(current) -> {
+                        closeShortAt(current)
+                        closedThisBar = true
+                    }
                     else -> {
                         val ruleExit = when (exitMode) {
                             ZStrategyExitMode.FixedThreshold ->
-                                fixedThresholdExitShort(prev.zScore, current.zScore, exit)
+                                determineZStrategySignalBetweenBars(
+                                    prev,
+                                    current,
+                                    ZStrategyPosition.Short,
+                                    thresholds,
+                                ) == ZStrategySignal.ExitShort
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
                         }
-                        if (ruleExit) closeShortAt(current)
+                        if (ruleExit) {
+                            closeShortAt(current)
+                            closedThisBar = true
+                        }
                     }
                 }
             }
 
             ZStrategyPosition.Flat -> Unit
         }
-        if (position == ZStrategyPosition.Flat && !tradingHalted && !blockNewEntries(current)) {
+        // Live-монитор: максимум одно действие на бар — без входа в тот же бар после выхода.
+        if (!closedThisBar && position == ZStrategyPosition.Flat && !tradingHalted && !blockNewEntries(current)) {
             if (entryPullbackZ <= 0.0) {
-                if (prev.zScore > -entry && current.zScore <= -entry &&
-                    spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Long)
+                when (
+                    determineZStrategySignalBetweenBars(
+                        prev,
+                        current,
+                        ZStrategyPosition.Flat,
+                        thresholds,
+                    )
                 ) {
-                    enterLongAtBar(current)
-                } else if (prev.zScore < entry && current.zScore >= entry &&
-                    spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Short)
-                ) {
-                    enterShortAtBar(current)
+                    ZStrategySignal.EnterLong ->
+                        if (spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Long)) {
+                            enterLongAtBar(current)
+                        }
+                    ZStrategySignal.EnterShort ->
+                        if (spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Short)) {
+                            enterShortAtBar(current)
+                        }
+                    else -> Unit
                 }
             } else {
                 when (entryPendingArm) {
@@ -411,7 +479,7 @@ internal fun buildZStrategyPortfolioMetrics(
     val fullDescription =
         "$periodDescription · Z-вход ±${String.format(Locale.US, "%.1f", entry)}$entryNote, $exitNote$capNote" +
             describeSimOptions(simOptions)
-    val barLabels = points.drop(1).map { it.tradeDate }
+    val barLabels = points.drop(loopStart).map { it.tradeDate }
     val (curveLabels, curveEquity, curveDrawdown) = equityCurveDailyForChart(barLabels, equityRubSeries)
     return PortfolioMetrics(
         periodDescription = fullDescription,

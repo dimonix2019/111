@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; background: #131722; overflow: hidden; }
+    #chart { width: 100%; height: 100%; min-height: 120px; }
+    #err {
+      display: none;
+      position: absolute;
+      inset: 0;
+      padding: 12px;
+      color: #f23645;
+      font: 12px sans-serif;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+  </style>
+  <!-- INJECT_LIGHTWEIGHT_CHARTS -->
+</head>
+<body>
+  <div id="chart"></div>
+  <div id="err"></div>
+  <script>
+    const TV = {
+      bg: '#131722',
+      grid: '#2a2e39',
+      text: '#d1d4dc',
+      border: '#2a2e39',
+      crosshair: '#758696',
+      crosshairLabel: '#2962FF',
+      /** Текущий Z на шкале и пунктирная price line — синие, не сливаются с порогами (зелёный exit). */
+      currentZ: '#60A5FA',
+      up: '#089981',
+      down: '#f23645',
+      selected: '#FACC15',
+      /** Заливка под Z (Тест страт.) */
+      areaFillTop: 'rgba(21, 37, 94, 0.45)',
+      areaFillBottom: 'rgba(21, 37, 94, 0.02)',
+    };
+    const MSK = 'Europe/Moscow';
+    const RIGHT_OFFSET_BARS = 18;
+    const BAR_15M_SEC = 15 * 60;
+    const MARKER_NEAR_SEC = BAR_15M_SEC / 2;
+    const MARKER_HIT_RADIUS_PX = 48;
+    const MARKER_HIT_RADIUS_X_PX = 44;
+    const MARKER_ENTRY_HIT_RADIUS_X_PX = 56;
+
+    let chart = null;
+    let series = null;
+    let areaSeries = null;
+    let highlightSeries = null;
+    let markersPlugin = null;
+    let priceLines = [];
+    let fitted = false;
+    let lastPayloadKey = '';
+    let pendingPayload = null;
+    let lastMarkers = [];
+    let lastTrades = [];
+    let lastCandleTimes = [];
+    let selectedTradeId = null;
+    let selectedMarkerKey = null;
+    let clickBound = false;
+    let viewportBound = false;
+    let refreshMarkersRaf = 0;
+
+    function showError(msg) {
+      const el = document.getElementById('err');
+      el.style.display = 'flex';
+      el.textContent = msg;
+      console.error(msg);
+    }
+
+    function formatTick(time) {
+      if (typeof time !== 'number') return '';
+      return new Date(time * 1000).toLocaleString('ru-RU', {
+        timeZone: MSK,
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    }
+
+    function chartSize() {
+      const el = document.getElementById('chart');
+      const w = Math.max(el.clientWidth, el.offsetWidth, window.innerWidth || 0, 100);
+      const h = Math.max(el.clientHeight, el.offsetHeight, window.innerHeight || 0, 200);
+      return { w, h };
+    }
+
+    function markerPersistKey(m) {
+      const id = m.tradeId || m.text || '';
+      return `${id}:${m.isEntry ? 'e' : 'x'}:${m.time}`;
+    }
+
+    function tradeById(id) {
+      return lastTrades.find((t) => t.id === id) || null;
+    }
+
+    function markerChartPrice(m) {
+      const trade = tradeById(m.tradeId || m.text);
+      if (!trade) return 0;
+      return m.isEntry ? trade.entryZ : (trade.exitZ ?? trade.entryZ);
+    }
+
+    function markerScreenPosition(m) {
+      if (!chart || !series) return null;
+      const x = chart.timeScale().timeToCoordinate(m.time);
+      if (x == null) return null;
+      const price = markerChartPrice(m);
+      let y = series.priceToCoordinate(price);
+      if (y == null) return null;
+      const yOffset = m.isEntry ? (m.position === 'belowBar' ? 18 : -18) : 0;
+      return { x, y: y + yOffset };
+    }
+
+    function findNearestMarkerAtPoint(point, timeSec) {
+      if (!lastMarkers.length) return null;
+      let bestPixel = null;
+      let bestTime = null;
+
+      for (const m of lastMarkers) {
+        const pos = markerScreenPosition(m);
+        const x = pos?.x ?? chart.timeScale().timeToCoordinate(m.time);
+        if (x == null) continue;
+
+        const dx = Math.abs(point.x - x);
+        const hitRadiusXPx = m.isEntry ? MARKER_ENTRY_HIT_RADIUS_X_PX : MARKER_HIT_RADIUS_X_PX;
+        let pixelHit = false;
+        let pixelScore = Number.POSITIVE_INFINITY;
+
+        if (pos) {
+          const dy = Math.abs(point.y - pos.y);
+          const dist = Math.hypot(dx, dy);
+          pixelHit = dist <= MARKER_HIT_RADIUS_PX || dx <= hitRadiusXPx;
+          pixelScore = dx * 1.5 + dy;
+        } else {
+          pixelHit = dx <= hitRadiusXPx;
+          pixelScore = dx;
+        }
+
+        if (pixelHit && (!bestPixel || pixelScore < bestPixel.score)) {
+          bestPixel = { marker: m, score: pixelScore };
+        }
+
+        if (timeSec != null) {
+          const delta = Math.abs(m.time - timeSec);
+          if (delta <= MARKER_NEAR_SEC && (!bestTime || delta < bestTime.score)) {
+            bestTime = { marker: m, score: delta };
+          }
+        }
+      }
+
+      if (bestPixel && bestTime) {
+        return bestPixel.score <= bestTime.score * 4 ? bestPixel.marker : bestTime.marker;
+      }
+      return bestPixel?.marker ?? bestTime?.marker ?? null;
+    }
+
+    function crosshairTimeSec(param) {
+      if (param.point) {
+        const fromX = chart.timeScale().coordinateToTime(param.point.x);
+        if (typeof fromX === 'number' && Number.isFinite(fromX)) return fromX;
+      }
+      const t = param.time;
+      if (typeof t === 'number' && Number.isFinite(t)) return t;
+      if (!param.point) return null;
+      const fromX = chart.timeScale().coordinateToTime(param.point.x);
+      if (typeof fromX === 'number' && Number.isFinite(fromX)) return fromX;
+      return null;
+    }
+
+    function buildMarkerRenderData(markers, selectedKey) {
+      return markers.map((m) => {
+        const key = markerPersistKey(m);
+        const isSelected =
+          !!selectedKey &&
+          (key === selectedKey ||
+            (!!m.tradeId && m.tradeId === selectedTradeId));
+        return {
+          time: m.time,
+          position: m.position,
+          color: isSelected ? TV.selected : m.color,
+          shape: isSelected && !m.isEntry ? 'square' : m.shape,
+          text: m.text || '',
+          size: isSelected ? 2.2 : (m.size || 1),
+        };
+      });
+    }
+
+    function updateHighlightLine() {
+      if (!highlightSeries) return;
+      if (!selectedTradeId) {
+        highlightSeries.setData([]);
+        return;
+      }
+      const trade = tradeById(selectedTradeId);
+      if (!trade) {
+        highlightSeries.setData([]);
+        return;
+      }
+      const exitTime = trade.exitTime ?? trade.entryTime;
+      const exitZ = trade.exitZ ?? trade.entryZ;
+      const data = [
+        { time: trade.entryTime, value: trade.entryZ },
+        { time: exitTime, value: exitZ },
+      ].sort((a, b) => a.time - b.time);
+      highlightSeries.setData(data);
+    }
+
+    function applyMarkerSelection(marker) {
+      if (!marker) {
+        selectedTradeId = null;
+        selectedMarkerKey = null;
+      } else {
+        selectedTradeId = marker.tradeId || marker.text || null;
+        selectedMarkerKey = markerPersistKey(marker);
+      }
+      updateHighlightLine();
+      refreshMarkers();
+    }
+
+    function snapMarkersToCandles(markers) {
+      if (!lastCandleTimes.length || !markers.length) return markers;
+      const set = new Set(lastCandleTimes);
+      return markers.map((m) => {
+        if (set.has(m.time)) return m;
+        let best = lastCandleTimes[0];
+        let bestD = Math.abs(best - m.time);
+        for (const t of lastCandleTimes) {
+          const d = Math.abs(t - m.time);
+          if (d < bestD) {
+            best = t;
+            bestD = d;
+          }
+        }
+        return { ...m, time: best };
+      });
+    }
+
+    function scheduleRefreshMarkers() {
+      if (refreshMarkersRaf) return;
+      refreshMarkersRaf = requestAnimationFrame(() => {
+        refreshMarkersRaf = 0;
+        refreshMarkers();
+      });
+    }
+
+    function bindViewportMarkerRefresh() {
+      if (!chart || viewportBound) return;
+      viewportBound = true;
+      const ts = chart.timeScale();
+      ts.subscribeVisibleLogicalRangeChange(scheduleRefreshMarkers);
+      if (typeof ts.subscribeVisibleTimeRangeChange === 'function') {
+        ts.subscribeVisibleTimeRangeChange(scheduleRefreshMarkers);
+      }
+    }
+
+    function refreshMarkers(forceRecreate) {
+      if (!series) return;
+      const markerData = buildMarkerRenderData(
+        snapMarkersToCandles(lastMarkers),
+        selectedMarkerKey,
+      );
+      if (!markerData.length) {
+        if (markersPlugin) {
+          try { markersPlugin.detach(); } catch (e) {}
+          markersPlugin = null;
+        }
+        return;
+      }
+      if (!LightweightCharts.createSeriesMarkers) return;
+      try {
+        if (!forceRecreate && markersPlugin && typeof markersPlugin.setMarkers === 'function') {
+          markersPlugin.setMarkers(markerData);
+          return;
+        }
+        if (markersPlugin) {
+          try { markersPlugin.detach(); } catch (e) {}
+          markersPlugin = null;
+        }
+        markersPlugin = LightweightCharts.createSeriesMarkers(series, markerData);
+      } catch (e) {
+        console.error('markers', e);
+        try {
+          markersPlugin = LightweightCharts.createSeriesMarkers(series, markerData);
+        } catch (e2) {
+          console.error('markers recreate', e2);
+        }
+      }
+    }
+
+    function onChartClick(param) {
+      if (!param.point || param.point.x < 0 || param.point.y < 0) {
+        applyMarkerSelection(null);
+        return;
+      }
+      const timeSec = crosshairTimeSec(param);
+      const marker = findNearestMarkerAtPoint(param.point, timeSec);
+      if (!marker) {
+        applyMarkerSelection(null);
+        return;
+      }
+      const tradeId = marker.tradeId || marker.text;
+      if (!tradeById(tradeId)) {
+        applyMarkerSelection(null);
+        return;
+      }
+      applyMarkerSelection(marker);
+    }
+
+    function ensureChart() {
+      if (chart) return true;
+      if (typeof LightweightCharts === 'undefined') {
+        showError('lightweight-charts не загружен');
+        return false;
+      }
+      const el = document.getElementById('chart');
+      const { w, h } = chartSize();
+      if (w < 10 || h < 10) return false;
+
+      chart = LightweightCharts.createChart(el, {
+        width: w,
+        height: h,
+        layout: {
+          background: { type: LightweightCharts.ColorType.Solid, color: TV.bg },
+          textColor: TV.text,
+          fontFamily: 'Roboto, "Noto Sans", sans-serif',
+          fontSize: 12,
+          attributionLogo: false,
+        },
+        grid: {
+          vertLines: { color: TV.grid },
+          horzLines: { color: TV.grid },
+        },
+        crosshair: {
+          mode: LightweightCharts.CrosshairMode.Normal,
+          vertLine: {
+            color: TV.crosshair,
+            width: 1,
+            style: LightweightCharts.LineStyle.LargeDashed,
+            labelBackgroundColor: TV.crosshairLabel,
+          },
+          horzLine: {
+            color: TV.crosshair,
+            width: 1,
+            style: LightweightCharts.LineStyle.LargeDashed,
+            labelBackgroundColor: TV.crosshairLabel,
+          },
+        },
+        handleScroll: {
+          mouseWheel: false,
+          pressedMouseMove: true,
+          horzTouchDrag: true,
+          vertTouchDrag: false,
+        },
+        handleScale: {
+          axisPressedMouseMove: { time: true, price: true },
+          mouseWheel: false,
+          pinch: true,
+        },
+        rightPriceScale: {
+          borderColor: TV.border,
+          minimumWidth: 72,
+          scaleMargins: { top: 0.1, bottom: 0.1 },
+        },
+        timeScale: {
+          borderColor: TV.border,
+          timeVisible: true,
+          secondsVisible: false,
+          rightOffset: RIGHT_OFFSET_BARS,
+          tickMarkFormatter: formatTick,
+        },
+        localization: {
+          locale: 'ru-RU',
+          timeFormatter: formatTick,
+        },
+      });
+
+      areaSeries = chart.addSeries(LightweightCharts.AreaSeries, {
+        lineColor: 'rgba(96, 165, 250, 0.35)',
+        topColor: TV.areaFillTop,
+        bottomColor: TV.areaFillBottom,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      areaSeries.setData([]);
+
+      series = chart.addSeries(LightweightCharts.CandlestickSeries, {
+        upColor: TV.up,
+        downColor: TV.down,
+        borderUpColor: TV.up,
+        borderDownColor: TV.down,
+        borderVisible: true,
+        wickUpColor: TV.up,
+        wickDownColor: TV.down,
+        wickVisible: true,
+        lastValueVisible: true,
+        priceLineVisible: true,
+        priceLineWidth: 1,
+        priceLineColor: TV.currentZ,
+        priceLineStyle: LightweightCharts.LineStyle.Dashed,
+      });
+
+      highlightSeries = chart.addSeries(LightweightCharts.LineSeries, {
+        color: TV.selected,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      highlightSeries.setData([]);
+
+      if (!clickBound) {
+        chart.subscribeClick(onChartClick);
+        clickBound = true;
+      }
+
+      bindViewportMarkerRefresh();
+
+      const ro = new ResizeObserver(() => {
+        const { w: rw, h: rh } = chartSize();
+        if (rw > 0 && rh > 0) chart.resize(rw, rh);
+        scheduleRefreshMarkers();
+      });
+      ro.observe(el);
+      return true;
+    }
+
+    function dedupeCandles(candles) {
+      const byTime = new Map();
+      for (const c of candles) {
+        if (c && typeof c.time === 'number') byTime.set(c.time, c);
+      }
+      return [...byTime.entries()].sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+    }
+
+    function hexToRgba(hex, alpha) {
+      const h = String(hex || '').replace('#', '');
+      if (h.length !== 6) return `rgba(21, 37, 94, ${alpha})`;
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    function applyInitialWindow(n, startFrac, widthFrac) {
+      if (!chart || n < 2) return;
+      const startIdx = Math.floor((startFrac || 0) * (n - 1));
+      const visibleBars = Math.max(2, Math.ceil((widthFrac || 1) * n));
+      const from = Math.max(0, startIdx);
+      const to = Math.min(n - 1, from + visibleBars - 1);
+      chart.timeScale().setVisibleLogicalRange({ from, to });
+    }
+
+    function renderPayload(data) {
+      const candles = dedupeCandles(data.candles || []);
+      if (!candles.length) return;
+
+      const key = JSON.stringify({
+        n: candles.length,
+        last: candles[candles.length - 1].time,
+      });
+
+      if (!ensureChart()) {
+        pendingPayload = data;
+        requestAnimationFrame(() => renderPayload(data));
+        return;
+      }
+      pendingPayload = null;
+      document.getElementById('err').style.display = 'none';
+
+      const prevTradeId = selectedTradeId;
+      lastMarkers = (data.markers || []).map((m) => ({
+        time: m.time,
+        position: m.position,
+        color: m.color,
+        shape: m.shape,
+        text: m.text || '',
+        size: m.size || 1,
+        tradeId: m.tradeId || m.text || '',
+        isEntry: !!m.isEntry,
+      }));
+      lastTrades = (data.trades || []).map((t) => ({
+        id: t.id,
+        entryTime: t.entryTime,
+        entryZ: t.entryZ,
+        exitTime: t.exitTime === null || t.exitTime === undefined ? null : t.exitTime,
+        exitZ: t.exitZ === null || t.exitZ === undefined ? null : t.exitZ,
+        open: !!t.open,
+      }));
+
+      if (prevTradeId && !tradeById(prevTradeId)) {
+        selectedTradeId = null;
+        selectedMarkerKey = null;
+      }
+
+      series.setData(candles);
+      lastCandleTimes = candles.map((c) => c.time);
+      if (markersPlugin) {
+        try { markersPlugin.detach(); } catch (e) {}
+        markersPlugin = null;
+      }
+      bindViewportMarkerRefresh();
+
+      if (areaSeries) {
+        if (data.areaFillColor) {
+          const top = data.areaFillColor;
+          areaSeries.applyOptions({
+            topColor: hexToRgba(top, 0.42),
+            bottomColor: hexToRgba(top, 0.04),
+            lineColor: hexToRgba(top, 0.55),
+          });
+          areaSeries.setData(candles.map((c) => ({ time: c.time, value: c.close })));
+        } else {
+          areaSeries.setData([]);
+        }
+      }
+
+      for (const pl of priceLines) series.removePriceLine(pl);
+      priceLines = [];
+      for (const hl of data.hlines || []) {
+        priceLines.push(series.createPriceLine({
+          price: hl.value,
+          color: hl.color,
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: hl.title || '',
+        }));
+      }
+
+      if (!fitted || key !== lastPayloadKey) {
+        if (data.window && data.window.width < 0.999) {
+          applyInitialWindow(candles.length, data.window.start, data.window.width);
+        } else {
+          chart.timeScale().fitContent();
+        }
+        chart.timeScale().applyOptions({ rightOffset: RIGHT_OFFSET_BARS });
+        const { w, h } = chartSize();
+        if (w > 0 && h > 0) chart.resize(w, h);
+        fitted = true;
+      }
+      lastPayloadKey = key;
+
+      refreshMarkers(true);
+      updateHighlightLine();
+    }
+
+    /** atob() alone breaks UTF-8 (кириллица «А» → «Ð» на canvas). */
+    function parseUtf8Base64Json(b64) {
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+    }
+
+    window.updateMoexChartFromBase64 = function (b64) {
+      try {
+        window.updateMoexChart(parseUtf8Base64Json(b64));
+      } catch (e) {
+        showError('base64 decode: ' + e.message);
+      }
+    };
+
+    window.updateMoexChart = function (payload) {
+      try {
+        const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        renderPayload(data);
+      } catch (e) {
+        showError('updateMoexChart: ' + e.message);
+      }
+    };
+
+    window.moexChartPageReady = function () {
+      if (pendingPayload) renderPayload(pendingPayload);
+      if (window.MoexChartBridge && MoexChartBridge.onReady) MoexChartBridge.onReady();
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', window.moexChartPageReady);
+    } else {
+      window.moexChartPageReady();
+    }
+  </script>
+</body>
+</html>

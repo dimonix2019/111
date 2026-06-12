@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "exportedAtMillis": 1781290908837,
+  "thresholds": {
+    "entry": 0.6999999284744263,
+    "exit": 0.5000000596046448
+  },
+  "simParams": {
+    "notionalRub": 100000,
+    "leverage": 7,
+    "commissionPercentPerSide": 0.04,
+    "zMode": "rolling30",
+    "compoundReturns": false
+  },
+  "events": [
+    {
+      "timestampMillis": 1781063100000,
+      "signalType": "EnterShort",
+      "zScore": 1.14465485715062,
+      "receivedAtMillis": 1781065143939
+    },
+    {
+      "timestampMillis": 1781074800000,
+      "signalType": "ExitShort",
+      "zScore": 0.2830124335473463,
+      "receivedAtMillis": 1781076313384
+    },
+    {
+      "timestampMillis": 1781081100000,
+      "signalType": "EnterShort",
+      "zScore": 0.8440498518465939,
+      "receivedAtMillis": 1781082915705
+    },
+    {
+      "timestampMillis": 1781102700000,
+      "signalType": "ExitShort",
+      "zScore": 0.49929779926259726,
+      "receivedAtMillis": 1781104505777
+    },
+    {
+      "timestampMillis": 1781168400000,
+      "signalType": "EnterShort",
+      "zScore": 0.8672176147272954,
+      "receivedAtMillis": 1781169901801
+    },
+    {
+      "timestampMillis": 1781172900000,
+      "signalType": "ExitShort",
+      "zScore": 0.43892869073481866,
+      "receivedAtMillis": 1781174708891
+    },
+    {
+      "timestampMillis": 1781175600000,
+      "signalType": "EnterShort",
+      "zScore": 0.7853387260868664,
+      "receivedAtMillis": 1781177109134
+    },
+    {
+      "timestampMillis": 1781208900000,
+      "signalType": "ExitShort",
+      "zScore": 0.4902303765152839,
+      "receivedAtMillis": 1781210761123
+    }
+  ]
+}

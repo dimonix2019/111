@@ -107,41 +107,45 @@ internal fun rollingSpreadStatsAt(
     minBarsInWindow: Int = Z_SCORE_ROLLING_MIN_BARS,
 ): RollingSpreadStats? {
     if (points.isEmpty() || index !in points.indices) return null
-    return rollingSpreadStatsAtArrays(
-        spreads = DoubleArray(points.size) { points[it].spreadPercent },
-        millisList = LongArray(points.size) { barMillisAt(points[it]) },
-        index = index,
-        lookbackDays = lookbackDays,
-        minBarsInWindow = minBarsInWindow,
-    )
+    return RollingSpreadStatsCache.from(points, lookbackDays, minBarsInWindow).at(index)
 }
 
 internal fun zScoreAtSpread(spread: Double, stats: RollingSpreadStats): Double =
     (spread - stats.mean) / stats.stdDev
 
 /** μ/σ только за последние [lookbackDays] календарных дней (MSK, без look-ahead). Parity с strategy-web/zsim.py. */
+internal fun applyZScoresRollingInPlace(
+    points: MutableList<DataPoint>,
+    lookbackDays: Int = Z_SCORE_ROLLING_LOOKBACK_DAYS,
+    minBarsInWindow: Int = Z_SCORE_ROLLING_MIN_BARS,
+) {
+    if (points.isEmpty()) return
+    if (lookbackDays <= 0) {
+        val scored = applyZScores(points)
+        for (i in points.indices) {
+            points[i] = scored[i]
+        }
+        return
+    }
+    if (points.size < 2) return
+    val cache = RollingSpreadStatsCache.from(points, lookbackDays, minBarsInWindow)
+    for (i in points.indices) {
+        val stats = cache.at(i)
+        points[i] = points[i].copy(
+            zScore = if (stats == null) 0.0 else zScoreAtSpread(points[i].spreadPercent, stats),
+        )
+    }
+}
+
 internal fun applyZScoresRolling(
     points: List<DataPoint>,
     lookbackDays: Int = Z_SCORE_ROLLING_LOOKBACK_DAYS,
     minBarsInWindow: Int = Z_SCORE_ROLLING_MIN_BARS,
 ): List<DataPoint> {
     if (points.isEmpty()) return points
-    if (lookbackDays <= 0) return applyZScores(points)
-
-    val spreads = points.map { it.spreadPercent }
-    val n = points.size
-    val zScores = DoubleArray(n)
-
-    for (i in 0 until n) {
-        val stats = rollingSpreadStatsAt(points, i, lookbackDays, minBarsInWindow)
-        zScores[i] = if (stats == null) {
-            0.0
-        } else {
-            zScoreAtSpread(spreads[i], stats)
-        }
-    }
-
-    return points.mapIndexed { idx, pt -> pt.copy(zScore = zScores[idx]) }
+    val mutable = points.toMutableList()
+    applyZScoresRollingInPlace(mutable, lookbackDays, minBarsInWindow)
+    return mutable
 }
 
 internal fun applyZScoresForMode(points: List<DataPoint>, mode: ZScoreMode): List<DataPoint> =
@@ -153,6 +157,19 @@ internal fun applyZScoresForMode(points: List<DataPoint>, mode: ZScoreMode): Lis
 /** Default Z mode — rolling 30d (parity с strategy-web). */
 internal fun applyZScoresDefault(points: List<DataPoint>): List<DataPoint> =
     applyZScoresForMode(points, ZScoreMode.Rolling30)
+
+/** Rolling Z для нативного 10м ряда (тот же 30d календарный lookback, плотнее min bars). */
+internal fun applyZScoresFor10mBars(points: List<DataPoint>): List<DataPoint> =
+    applyZScoresRolling(
+        points = points,
+        lookbackDays = Z_SCORE_ROLLING_LOOKBACK_DAYS,
+        minBarsInWindow = Z_SCORE_ROLLING_MIN_BARS_10M,
+    )
+
+/** Как [applyZScoresDefault], но без второго полного списка (меньше пиков RAM на 255д). */
+internal fun applyZScoresDefaultInPlace(points: MutableList<DataPoint>) {
+    applyZScoresRollingInPlace(points)
+}
 
 internal fun barMillisAt(point: DataPoint): Long {
     if (point.timestampMillis > 0L) return point.timestampMillis

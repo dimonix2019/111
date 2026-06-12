@@ -51,7 +51,9 @@ internal data class ChartPointMarker(
     val label: String,
     val shape: ChartMarkerShape,
     /** Номер сделки у маркера (мелкий текст рядом с иконкой). */
-    val badgeText: String? = null
+    val badgeText: String? = null,
+    /** Время входа/выхода сделки (MSK) для привязки к downsample-ряду. */
+    val barDateLabel: String? = null,
 )
 
 internal enum class ChartMarkerShape {
@@ -201,7 +203,15 @@ internal enum class SandboxExecUiState {
 internal enum class MarketsDataSource(val labelRu: String) {
     Network("MOEX (сеть)"),
     FifteenMinuteCache("Кэш 15м"),
-    OfflineStale("Не актуально (последний снимок)")
+    OfflineStale("Не актуально (последний снимок)");
+
+    /** Короткая подпись в сводке «Рынок». */
+    val summaryLabelRu: String
+        get() = when (this) {
+            Network -> "MOEX"
+            FifteenMinuteCache -> "кэш"
+            OfflineStale -> "снимок"
+        }
 }
 
 internal data class PortfolioPreset(

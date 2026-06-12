@@ -38,4 +38,15 @@ class MoexPortfolioM15LoadModeTest {
         )
         assertEquals(PortfolioM15LoadMode.CACHE_ONLY, mode)
     }
+
+    @Test
+    fun resolveMode_incrementalWhenLastBarTodayButIntradayStale() {
+        val today = LocalDate.of(2026, 5, 17)
+        val mode = resolvePortfolioM15LoadModeForLastBar(
+            lastBarDay = today,
+            todayMoscow = today,
+            lastTsAgeMs = 90L * 60L * 1000L,
+        )
+        assertEquals(PortfolioM15LoadMode.INCREMENTAL, mode)
+    }
 }
