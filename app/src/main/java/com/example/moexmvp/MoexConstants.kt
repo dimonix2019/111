@@ -126,6 +126,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.156 — Fix: маркеры сделок на Z-графике не пропадают при pinch-zoom (альбом / Тест страт.).
 1.7.155 — Тест страт.: среднемесячная доходность + сценарий без сделок в красной зоне (≥4 балла).
 1.7.154 — Parity sim: prevZ на баре перед сигналом журнала + синт. 06:30 при разрыве сессии (fix 10.06 06:45→10:00).
 1.7.153 — Spread-guard: Z только на хвосте spike, без сдвига 17:45; parity 10–11.06 SHORT #2–#4.

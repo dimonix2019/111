@@ -247,7 +247,9 @@
       if (refreshMarkersRaf) return;
       refreshMarkersRaf = requestAnimationFrame(() => {
         refreshMarkersRaf = 0;
-        refreshMarkers();
+        // setMarkers() теряет маркеры после pinch-zoom — только полный recreate.
+        refreshMarkers(true);
+        updateHighlightLine();
       });
     }
 

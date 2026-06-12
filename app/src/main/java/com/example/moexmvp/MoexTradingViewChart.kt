@@ -550,13 +550,12 @@ internal fun TradingViewZScoreChart(
         },
         update = { webView ->
             webViewRef = webView
-            deliverPayload()
         },
         modifier = modifier,
     )
 
     LaunchedEffect(pageReady, payloadJson) {
-        deliverPayload()
+        if (pageReady) deliverPayload()
     }
 }
 
