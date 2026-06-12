@@ -9,7 +9,7 @@ import java.time.ZoneId
 
 /**
  * Симуляция «Тест страт.» следует тем же правилам, что live-монитор:
- * [determineZStrategySignal], одно действие на бар.
+ * [determineZStrategySignalBetweenBars], одно действие на бар.
  */
 class MoexZStrategySimSignalTest {
 
@@ -30,6 +30,56 @@ class MoexZStrategySimSignalTest {
             diff = 50.0,
             zScore = z,
         )
+    }
+
+    /** Заполнение каждых 15м между from…to включительно (для parity соседних баров). */
+    private fun fillM15(
+        date: LocalDate,
+        fromHour: Int,
+        fromMinute: Int,
+        toHour: Int,
+        toMinute: Int,
+        z: Double,
+    ): List<DataPoint> {
+        var hour = fromHour
+        var minute = fromMinute
+        val out = mutableListOf<DataPoint>()
+        while (hour < toHour || (hour == toHour && minute <= toMinute)) {
+            out += bar(date, hour, minute, z)
+            minute += 15
+            if (minute >= 60) {
+                minute -= 60
+                hour += 1
+            }
+        }
+        return out
+    }
+
+    /** Сценарий 4 SHORT round-trip 10–11.06 с соседними 15м барами. */
+    private fun june1011FourShortPoints(): List<DataPoint> {
+        val d10 = LocalDate.of(2026, 6, 10)
+        val d11 = LocalDate.of(2026, 6, 11)
+        return buildList {
+            add(bar(d10, 6, 30, 0.40))
+            add(bar(d10, 6, 45, 1.14))
+            addAll(fillM15(d10, 7, 0, 9, 45, 0.85))
+            add(bar(d10, 10, 0, 0.28))
+            addAll(fillM15(d10, 10, 15, 11, 30, 0.35))
+            add(bar(d10, 11, 45, 0.84))
+            addAll(fillM15(d10, 12, 0, 17, 30, 0.85))
+            add(bar(d10, 17, 45, 0.50))
+            add(bar(d10, 18, 0, 0.68))
+            addAll(fillM15(d10, 18, 15, 23, 45, 0.45))
+            add(bar(d11, 11, 45, 0.55))
+            add(bar(d11, 12, 0, 0.87))
+            addAll(fillM15(d11, 12, 15, 13, 0, 0.70))
+            add(bar(d11, 13, 15, 0.44))
+            add(bar(d11, 13, 30, 0.45))
+            add(bar(d11, 13, 45, 0.45))
+            add(bar(d11, 14, 0, 0.79))
+            addAll(fillM15(d11, 14, 15, 23, 0, 0.85))
+            add(bar(d11, 23, 15, 0.49))
+        }
     }
 
     private fun simTrades(points: List<DataPoint>): List<PortfolioClosedTrade> =
@@ -56,28 +106,10 @@ class MoexZStrategySimSignalTest {
         }
     }
 
-    /** После exit 17:45 re-entry только после Z < exit (перезарядка). */
+    /** Z=0.68 после exit не пересекает entry 0.7 — без re-arm и без ложного входа. */
     @Test
-    fun buildZStrategyPortfolioMetrics_noReentryAfterExitUntilZBelowExitBand() {
-        val d10 = LocalDate.of(2026, 6, 10)
-        val d11 = LocalDate.of(2026, 6, 11)
-        val points = listOf(
-            bar(d10, 6, 30, 0.40),
-            bar(d10, 6, 45, 1.14),
-            bar(d10, 10, 0, 0.28),
-            bar(d10, 10, 15, 0.35),
-            bar(d10, 11, 45, 0.84),
-            bar(d10, 17, 45, 0.50),
-            bar(d10, 18, 0, 0.72),
-            bar(d10, 22, 0, 0.45),
-            bar(d11, 11, 45, 0.55),
-            bar(d11, 12, 0, 0.87),
-            bar(d11, 13, 15, 0.44),
-            bar(d11, 13, 30, 0.45),
-            bar(d11, 14, 0, 0.79),
-            bar(d11, 23, 15, 0.49),
-        )
-        val trades = simTrades(points)
+    fun buildZStrategyPortfolioMetrics_noEntryWhenZBelowEntryAfterExit() {
+        val trades = simTrades(june1011FourShortPoints())
         assertFalse(trades.any { it.entryDate == "2026-06-10 18:00" })
         val longHold = trades.firstOrNull {
             val h = simTradeDurationMillis(it.entryDate, it.exitDate)?.toDouble()?.div(3_600_000.0)
@@ -86,27 +118,10 @@ class MoexZStrategySimSignalTest {
         assertTrue("unexpected ~19h round-trip: $longHold", longHold == null)
     }
 
-    /** 4 SHORT round-trip на 10–11.06: после 17:45 flat до 12:00 (re-arm после Z<0.5). */
+    /** 4 SHORT round-trip на 10–11.06 при Z ниже entry между сессиями. */
     @Test
     fun buildZStrategyPortfolioMetrics_fourShortTradesWhenFlatBetweenSessions() {
-        val d10 = LocalDate.of(2026, 6, 10)
-        val d11 = LocalDate.of(2026, 6, 11)
-        val points = listOf(
-            bar(d10, 6, 30, 0.40),
-            bar(d10, 6, 45, 1.14),
-            bar(d10, 10, 0, 0.28),
-            bar(d10, 10, 15, 0.35),
-            bar(d10, 11, 45, 0.84),
-            bar(d10, 17, 45, 0.50),
-            bar(d10, 18, 0, 0.68),
-            bar(d10, 22, 0, 0.45),
-            bar(d11, 11, 45, 0.55),
-            bar(d11, 12, 0, 0.87),
-            bar(d11, 13, 15, 0.44),
-            bar(d11, 13, 30, 0.45),
-            bar(d11, 14, 0, 0.79),
-            bar(d11, 23, 15, 0.49),
-        )
+        val points = june1011FourShortPoints()
         val trades = simTrades(points)
         assertEquals(4, trades.size)
         assertEquals(
@@ -132,25 +147,20 @@ class MoexZStrategySimSignalTest {
     }
 
     @Test
-    fun buildZStrategyPortfolioMetrics_tradeCountMatchesFullSignalReplay() {
-        val d10 = LocalDate.of(2026, 6, 10)
-        val d11 = LocalDate.of(2026, 6, 11)
-        val points = listOf(
-            bar(d10, 6, 30, 0.40),
-            bar(d10, 6, 45, 1.14),
-            bar(d10, 10, 0, 0.28),
-            bar(d10, 10, 15, 0.35),
-            bar(d10, 11, 45, 0.84),
-            bar(d10, 17, 45, 0.50),
-            bar(d10, 18, 0, 0.68),
-            bar(d10, 22, 0, 0.45),
-            bar(d11, 11, 45, 0.55),
-            bar(d11, 12, 0, 0.87),
-            bar(d11, 13, 15, 0.44),
-            bar(d11, 13, 30, 0.45),
-            bar(d11, 14, 0, 0.79),
-            bar(d11, 23, 15, 0.49),
+    fun determineZStrategySignalBetweenBars_skipsCrossingAcrossBarGap() {
+        val d = LocalDate.of(2026, 6, 10)
+        val fri = bar(d, 17, 45, 0.40)
+        val mon = bar(d.plusDays(3), 10, 0, 0.90)
+        assertFalse(isConsecutiveM15Bar(fri, mon))
+        assertEquals(
+            ZStrategySignal.None,
+            determineZStrategySignalBetweenBars(fri, mon, ZStrategyPosition.Flat, thresholds),
         )
+    }
+
+    @Test
+    fun buildZStrategyPortfolioMetrics_tradeCountMatchesFullSignalReplay() {
+        val points = june1011FourShortPoints()
         val (edges, _) = collectZStrategy15mSignalEdgesFull(points, thresholds = thresholds)
         val replayRoundTrips = edges.count {
             it.signal == ZStrategySignal.EnterLong || it.signal == ZStrategySignal.EnterShort

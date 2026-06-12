@@ -14,38 +14,6 @@ internal fun positionAfterZStrategySignal(signal: ZStrategySignal): ZStrategyPos
     ZStrategySignal.None -> error("positionAfterZStrategySignal(None)")
 }
 
-private fun collectZStrategy15mSignalEdgesLoop(
-    points: List<DataPoint>,
-    startIndex: Int,
-    endIndexExclusive: Int,
-    initialPosition: ZStrategyPosition,
-    thresholds: DynamicThresholds,
-): Pair<List<ZStrategy15mSignalEdge>, ZStrategyPosition> {
-    var position = initialPosition
-    val rearm = ZStrategyRearmState()
-    val edges = mutableListOf<ZStrategy15mSignalEdge>()
-    for (index in startIndex until endIndexExclusive) {
-        val prev = points[index - 1]
-        val current = points[index]
-        val signal = resolveZStrategySignalWithRearm(prev.zScore, current.zScore, position, thresholds, rearm)
-        if (signal == ZStrategySignal.None) continue
-        val after = positionAfterZStrategySignal(signal)
-        edges += ZStrategy15mSignalEdge(
-            signal = signal,
-            bar = current,
-            positionBefore = position,
-            positionAfter = after,
-        )
-        position = after
-        when (signal) {
-            ZStrategySignal.ExitShort -> rearm.onExitShort()
-            ZStrategySignal.ExitLong -> rearm.onExitLong()
-            else -> Unit
-        }
-    }
-    return edges to position
-}
-
 /**
  * Собирает все пересечения порога на новых 15м барах с [lastProcessedBarTimestampMillis].
  * При первом запуске (null/0) — только последняя пара баров, без прогона всей истории.
@@ -69,13 +37,23 @@ internal fun collectZStrategy15mSignalEdgesSinceProcessedBar(
     }
 
     var position = initialPosition
-    return collectZStrategy15mSignalEdgesLoop(
-        points = points,
-        startIndex = startIndex,
-        endIndexExclusive = points.size,
-        initialPosition = position,
-        thresholds = thresholds,
-    )
+    val edges = mutableListOf<ZStrategy15mSignalEdge>()
+    for (index in startIndex until points.size) {
+        val prev = points[index - 1]
+        val current = points[index]
+        val signal = determineZStrategySignalBetweenBars(prev, current, position, thresholds)
+        if (signal != ZStrategySignal.None) {
+            val after = positionAfterZStrategySignal(signal)
+            edges += ZStrategy15mSignalEdge(
+                signal = signal,
+                bar = current,
+                positionBefore = position,
+                positionAfter = after,
+            )
+            position = after
+        }
+    }
+    return edges to position
 }
 
 /** Полный replay пересечений Z на закрытых барах (бэктест / «Тест страт.»). */
@@ -87,13 +65,24 @@ internal fun collectZStrategy15mSignalEdgesFull(
 ): Pair<List<ZStrategy15mSignalEdge>, ZStrategyPosition> {
     if (points.size < 2) return emptyList<ZStrategy15mSignalEdge>() to initialPosition
     val start = loopStartIndex.coerceIn(1, points.lastIndex)
-    return collectZStrategy15mSignalEdgesLoop(
-        points = points,
-        startIndex = start,
-        endIndexExclusive = points.size,
-        initialPosition = initialPosition,
-        thresholds = thresholds,
-    )
+    var position = initialPosition
+    val edges = mutableListOf<ZStrategy15mSignalEdge>()
+    for (index in start until points.size) {
+        val prev = points[index - 1]
+        val current = points[index]
+        val signal = determineZStrategySignalBetweenBars(prev, current, position, thresholds)
+        if (signal != ZStrategySignal.None) {
+            val after = positionAfterZStrategySignal(signal)
+            edges += ZStrategy15mSignalEdge(
+                signal = signal,
+                bar = current,
+                positionBefore = position,
+                positionAfter = after,
+            )
+            position = after
+        }
+    }
+    return edges to position
 }
 
 internal fun shouldAdvanceLastProcessed15mBar(

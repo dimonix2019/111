@@ -221,7 +221,7 @@ internal fun zStrategySignalOnLast15mBar(
     if (points.size < 2) return ZStrategySignal.None
     val prev = points[points.size - 2]
     val current = points.last()
-    return determineZStrategySignal(prev.zScore, current.zScore, position, thresholds)
+    return determineZStrategySignalBetweenBars(prev, current, position, thresholds)
 }
 
 private val consumed15mSignalEdgeLock = Any()

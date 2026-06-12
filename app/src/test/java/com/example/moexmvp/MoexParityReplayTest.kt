@@ -72,11 +72,11 @@ class MoexParityReplayTest {
         if (points.size < 2) return@runBlocking
         var pos = ZStrategyPosition.Flat
         for (index in 1 until points.size) {
-            val sig = determineZStrategySignal(
-                points[index - 1].zScore,
-                points[index].zScore,
+            val sig = determineZStrategySignalBetweenBars(
+                points[index - 1],
+                points[index],
                 pos,
-                parityThresholds
+                parityThresholds,
             )
             pos = when (sig) {
                 ZStrategySignal.EnterLong -> ZStrategyPosition.Long
@@ -88,7 +88,7 @@ class MoexParityReplayTest {
         val prev = points[points.size - 2]
         val last = points.last()
         val liveSig = zStrategySignalOnLast15mBar(points, pos, parityThresholds)
-        val replaySig = determineZStrategySignal(prev.zScore, last.zScore, pos, parityThresholds)
+        val replaySig = determineZStrategySignalBetweenBars(prev, last, pos, parityThresholds)
         assertTrue(
             "zStrategySignalOnLast15mBar должен совпадать с replay: live=$liveSig replay=$replaySig pos=$pos",
             liveSig == replaySig

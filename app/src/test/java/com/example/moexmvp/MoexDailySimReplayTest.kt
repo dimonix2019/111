@@ -123,16 +123,20 @@ class MoexDailySimReplayTest {
         )
     }
 
-    /** Long entered previous day, still open at day start. */
+    /** Long entered previous day on consecutive 15m bars, still open at day start. */
     private fun samplePointsWithOvernightLong(day: LocalDate): List<DataPoint> {
         val prev = day.minusDays(1)
         return listOf(
             dp(prev, 9, 0, z = 0.0, spread = 1.0),
-            dp(prev, 10, 15, z = -0.75, spread = 1.1),
-            dp(prev, 10, 30, z = -0.72, spread = 1.12),
+            dp(prev, 9, 15, z = -0.65, spread = 1.05),
+            dp(prev, 9, 30, z = -0.75, spread = 1.1),
+            dp(prev, 9, 45, z = -0.72, spread = 1.12),
+            dp(prev, 10, 0, z = -0.72, spread = 1.12),
             dp(day, 10, 0, z = -0.72, spread = 1.12),
             dp(day, 10, 15, z = -0.40, spread = 1.05),
-            dp(day, 11, 0, z = 0.75, spread = 0.95),
+            dp(day, 10, 30, z = 0.35, spread = 1.0),
+            dp(day, 10, 45, z = 0.75, spread = 0.95),
+            dp(day, 11, 0, z = 0.55, spread = 0.98),
         )
     }
 

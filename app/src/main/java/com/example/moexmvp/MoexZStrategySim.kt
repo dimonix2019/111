@@ -81,7 +81,6 @@ internal fun buildZStrategyPortfolioMetrics(
     var pyramidAdded = false
     var tradingHalted = false
     var peakEquityRub = 0.0
-    val rearmState = ZStrategyRearmState()
 
     initialCarryOpen?.let { carry ->
         position = carry.direction
@@ -207,7 +206,6 @@ internal fun buildZStrategyPortfolioMetrics(
             pnlRubApprox = netTradeRub
         )
         position = ZStrategyPosition.Flat
-        rearmState.onExitLong()
         resetFlatState()
     }
 
@@ -236,7 +234,6 @@ internal fun buildZStrategyPortfolioMetrics(
             pnlRubApprox = netTradeRub
         )
         position = ZStrategyPosition.Flat
-        rearmState.onExitShort()
         resetFlatState()
     }
 
@@ -290,12 +287,11 @@ internal fun buildZStrategyPortfolioMetrics(
                     else -> {
                         val ruleExit = when (exitMode) {
                             ZStrategyExitMode.FixedThreshold ->
-                                resolveZStrategySignalWithRearm(
-                                    prev.zScore,
-                                    current.zScore,
+                                determineZStrategySignalBetweenBars(
+                                    prev,
+                                    current,
                                     ZStrategyPosition.Long,
                                     thresholds,
-                                    rearmState,
                                 ) == ZStrategySignal.ExitLong
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
@@ -327,12 +323,11 @@ internal fun buildZStrategyPortfolioMetrics(
                     else -> {
                         val ruleExit = when (exitMode) {
                             ZStrategyExitMode.FixedThreshold ->
-                                resolveZStrategySignalWithRearm(
-                                    prev.zScore,
-                                    current.zScore,
+                                determineZStrategySignalBetweenBars(
+                                    prev,
+                                    current,
                                     ZStrategyPosition.Short,
                                     thresholds,
-                                    rearmState,
                                 ) == ZStrategySignal.ExitShort
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
@@ -349,15 +344,13 @@ internal fun buildZStrategyPortfolioMetrics(
         }
         // Live-монитор: максимум одно действие на бар — без входа в тот же бар после выхода.
         if (!closedThisBar && position == ZStrategyPosition.Flat && !tradingHalted && !blockNewEntries(current)) {
-            rearmState.updateWhileFlat(current.zScore, exit)
             if (entryPullbackZ <= 0.0) {
                 when (
-                    resolveZStrategySignalWithRearm(
-                        prev.zScore,
-                        current.zScore,
+                    determineZStrategySignalBetweenBars(
+                        prev,
+                        current,
                         ZStrategyPosition.Flat,
                         thresholds,
-                        rearmState,
                     )
                 ) {
                     ZStrategySignal.EnterLong ->

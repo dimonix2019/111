@@ -59,7 +59,7 @@ internal fun buildSpreadHourlyVolatilityReport(
     }
 
     for (i in 1 until points.size) {
-        if (!isConsecutiveM15Bar(points[i - 1], points[i], zoneId)) continue
+        if (!isConsecutiveM15Bar(points[i - 1], points[i])) continue
         val delta = abs(points[i].spreadPercent - points[i - 1].spreadPercent)
         val hour = barHourMsk(points[i], zoneId)
         deltasByHour[hour].add(delta)
@@ -99,12 +99,6 @@ private fun populationStdDev(values: List<Double>): Double {
     val mean = values.average()
     val variance = values.map { (it - mean) * (it - mean) }.average()
     return sqrt(variance)
-}
-
-private fun isConsecutiveM15Bar(previous: DataPoint, current: DataPoint, zoneId: ZoneId): Boolean {
-    val prev = Instant.ofEpochMilli(previous.timestampMillis).atZone(zoneId).toLocalDateTime()
-    val cur = Instant.ofEpochMilli(current.timestampMillis).atZone(zoneId).toLocalDateTime()
-    return ChronoUnit.MINUTES.between(prev, cur) == 15L
 }
 
 internal fun formatSpreadHourlyVolatilitySubtitle(report: SpreadHourlyVolatilityReport): String {

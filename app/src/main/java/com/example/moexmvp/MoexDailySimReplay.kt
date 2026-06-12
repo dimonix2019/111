@@ -114,7 +114,7 @@ internal fun collectZStrategySignalEdgesOnCalendarDay(
         }
         if (currentDay.isAfter(day)) break
         val prev = points[index - 1]
-        val signal = determineZStrategySignal(prev.zScore, current.zScore, position, thresholds)
+        val signal = determineZStrategySignalBetweenBars(prev, current, position, thresholds)
         if (signal != ZStrategySignal.None) {
             edges += ZStrategy15mSignalEdge(
                 signal = signal,
@@ -134,9 +134,9 @@ internal fun advanceZStrategyPosition(
     position: ZStrategyPosition,
     thresholds: DynamicThresholds,
 ): ZStrategyPosition {
-    val signal = determineZStrategySignal(
-        points[index - 1].zScore,
-        points[index].zScore,
+    val signal = determineZStrategySignalBetweenBars(
+        points[index - 1],
+        points[index],
         position,
         thresholds,
     )
