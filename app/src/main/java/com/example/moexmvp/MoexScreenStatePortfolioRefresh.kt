@@ -97,7 +97,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
             journalEvents = eventsAll,
         )
     }
-    portfolioError = if (portfolio15mSeriesTailStale(portfolioM15Points.ifEmpty { points })) {
+    portfolioError = if (portfolio15mSeriesIntradayStale(portfolioM15Points.ifEmpty { points })) {
         val todayMsk = LocalDate.now(moexZoneId)
         "15м ряд обрывается на ${points.last().tradeDate} (сегодня МСК $todayMsk, нужны свежие бары с MOEX). " +
             "Нажмите «Обновить» или «MOEX заново» при сети."
@@ -114,7 +114,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
 internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     val uiKey = portfolioTabUiSessionKey()
     if (portfolioTabUiBuiltKey == uiKey && portfolioM15Points.size >= 2) {
-        if (portfolio15mSeriesTailStale(portfolioM15Points)) {
+        if (portfolio15mSeriesIntradayStale(portfolioM15Points)) {
             refreshPortfolioM15TailSilent()
         }
         return
@@ -123,7 +123,7 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     val memoryOk = portfolioM15Points.size >= 2 &&
         m15PointsCoverPortfolioLookback(portfolioM15Points, portfolioLookbackDays)
 
-    if (memoryOk && !portfolio15mSeriesTailStale(portfolioM15Points)) {
+    if (memoryOk && !portfolio15mSeriesIntradayStale(portfolioM15Points)) {
         rebuildPortfolioUiFromPoints(portfolioM15Points)
         return
     }
@@ -137,10 +137,10 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     refreshPortfolio(mode, trackProgress = false)
 }
 
-/** Фоновая догрузка хвоста 15м для портфеля без progress overlay. */
+/** Фоновая догрузка хвоста 15м (MOEX INCREMENTAL) без progress overlay. */
 internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
     refreshMutex.withLock {
-        if (portfolioM15Points.size < 2 || !portfolio15mSeriesTailStale(portfolioM15Points)) return@withLock
+        if (portfolioM15Points.size < 2 || !portfolio15mSeriesIntradayStale(portfolioM15Points)) return@withLock
         portfolioLoading = true
         try {
             val loaded = loadM15SeriesForPortfolio(
@@ -154,6 +154,41 @@ internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
             }
         } finally {
             portfolioLoading = false
+        }
+    }
+}
+
+/** Догрузка 15м с MOEX, если in-memory хвост старше [PORTFOLIO_M15_INTRADAY_STALE_MS]. */
+internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: String) {
+    val src = when (selectedTab) {
+        MainTab.Markets -> marketsM15Source().takeIf { it.size >= 2 } ?: portfolioM15Points
+        else -> portfolioM15Points.takeIf { it.size >= 2 } ?: marketsM15Source()
+    }
+    if (src.size < 2 || !portfolio15mSeriesIntradayStale(src)) return
+    MoexDiagnostics.log(context, "m15_tail", "refresh reason=$reason tab=${selectedTab.label}")
+    when (selectedTab) {
+        MainTab.Markets -> {
+            val loaded = loadM15ForMarkets(
+                mode = PortfolioM15LoadMode.INCREMENTAL,
+                wrapInSession = false,
+            )
+            if (loaded.size >= 2) {
+                storeMarketsM15(loaded)
+                portfolioM15Points = loaded
+            }
+        }
+        MainTab.Portfolio -> refreshPortfolioM15TailSilent()
+        else -> {
+            refreshMutex.withLock {
+                val loaded = loadM15SeriesForPortfolio(
+                    PortfolioM15LoadMode.INCREMENTAL,
+                    trackProgress = false,
+                )
+                if (loaded.size >= 2) {
+                    portfolioM15Points = loaded
+                    if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
+                }
+            }
         }
     }
 }
@@ -253,14 +288,14 @@ internal suspend fun MoexScreenState.refreshData(
                                     portfolioM15Points = loaded
                                 }
                             }
-                            portfolio15mSeriesTailStale(marketsM15Source()) -> {
-                                launchScope.launch {
-                                    if (!mayRefreshMarkets(MarketsRefreshPolicy.UserInitiated)) return@launch
-                                    val loaded = loadM15ForMarkets(wrapInSession = false)
-                                    if (loaded.size >= 2) {
-                                        storeMarketsM15(loaded)
-                                        if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
-                                    }
+                            portfolio15mSeriesIntradayStale(marketsM15Source()) -> {
+                                val loaded = loadM15ForMarkets(
+                                    mode = PortfolioM15LoadMode.INCREMENTAL,
+                                    wrapInSession = false,
+                                )
+                                if (loaded.size >= 2) {
+                                    storeMarketsM15(loaded)
+                                    if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
                                 }
                             }
                         }
@@ -298,7 +333,7 @@ internal suspend fun MoexScreenState.refreshData(
                         return loaded
                     }
                     val m15CachedReady = marketsM15Source().size >= 2 &&
-                        !portfolio15mSeriesTailStale(marketsM15Source())
+                        !portfolio15mSeriesIntradayStale(marketsM15Source())
                     val deferM15Network = preferBackground && m15CachedReady
                     if (deferM15Network) {
                         launchScope.launch {

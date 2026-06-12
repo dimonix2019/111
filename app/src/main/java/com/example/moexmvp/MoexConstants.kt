@@ -110,8 +110,12 @@ internal const val Z_SCORE_ROLLING_MIN_BARS = 48
 /** When refreshing from MOEX, re-fetch this many calendar days before last cached bar (overlap for ISS corrections). */
 internal const val PORTFOLIO_M15_INCREMENTAL_OVERLAP_DAYS = 3L
 
-/** Если последний 15м бар старше этого интервала — принудительно догружаем хвост с MOEX. */
+/** Обрыв ряда (выходные / сбой): эскалация FULL_REFRESH в [loadPortfolio15mSeriesEnsuringRecentTail]. */
 internal const val PORTFOLIO_M15_TAIL_MAX_AGE_MS = 40L * 60L * 60L * 1000L
+/** В торговую сессию: UI и INCREMENTAL считают 15м устаревшими и догружают MOEX. */
+internal const val PORTFOLIO_M15_INTRADAY_STALE_MS = 20L * 60L * 1000L
+/** Интервал фоновой проверки хвоста 15м (Портфель / Рынок, приложение на экране). */
+internal const val PORTFOLIO_M15_INTRADAY_POLL_MS = 60_000L
 internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
 /** Прямая загрузка debug APK (если репозиторий private — нужна авторизация GitHub в браузере, иначе будет 404). */
@@ -122,6 +126,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.152 — Автообновление 15м: устаревание 20 мин (было до 40 ч в UI / 6 ч в SQLite).
 1.7.151 — Fix фантом ~19ч: guard скачка spread MOEX + снимок Z/spread с монитора.
 1.7.150 — Fix CI: тесты с соседними 15м барами (публикация APK).
 1.7.149 — SQLite: снимок rolling-Z на 15м баре (live → «Тест страт.» без полного пересчёта).

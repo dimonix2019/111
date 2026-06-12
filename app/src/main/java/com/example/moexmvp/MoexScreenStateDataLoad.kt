@@ -145,11 +145,17 @@ internal suspend fun MoexScreenState.ensureMarketsM15ForPeriod(
 ) {
     val uiPeriod = period.coerceToMarketsUiPeriod()
     if (uiPeriod != marketsZChartPeriod) marketsZChartPeriod = uiPeriod
-    if (marketsM15CoversPeriod(uiPeriod) && marketsM15LoadedPeriod == uiPeriod) {
+    if (marketsM15CoversPeriod(uiPeriod) &&
+        marketsM15LoadedPeriod == uiPeriod &&
+        !portfolio15mSeriesIntradayStale(marketsM15Source())
+    ) {
         return
     }
     refreshMutex.withLock {
-        if (marketsM15CoversPeriod(uiPeriod) && marketsM15LoadedPeriod == uiPeriod) {
+        if (marketsM15CoversPeriod(uiPeriod) &&
+            marketsM15LoadedPeriod == uiPeriod &&
+            !portfolio15mSeriesIntradayStale(marketsM15Source())
+        ) {
             return@withLock
         }
         val loaded = loadM15ForMarkets(mode, uiPeriod, trackProgress = trackProgress)

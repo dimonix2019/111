@@ -53,7 +53,7 @@ internal suspend fun MoexScreenState.refreshPortfolioAfterJournalChange(
     refreshTailIfStale: Boolean = true,
 ) {
     if (portfolioExecutionReplayPoints().size < 2) return
-    if (refreshTailIfStale && portfolioM15Points.size >= 2 && portfolio15mSeriesTailStale(portfolioM15Points)) {
+    if (refreshTailIfStale && portfolioM15Points.size >= 2 && portfolio15mSeriesIntradayStale(portfolioM15Points)) {
         refreshPortfolioM15TailSilent()
         return
     }

@@ -44,7 +44,7 @@ internal fun MoexScreenState.portfolioTabUiSessionKey(): Long {
 
 internal fun MoexScreenState.marketsM15CoversPeriod(period: Period): Boolean {
     val src = marketsM15Source()
-    if (src.size < 2 || portfolio15mSeriesTailStale(src)) return false
+    if (src.size < 2 || portfolio15mSeriesIntradayStale(src)) return false
     val needed = marketsM15LookbackDays(period.coerceToMarketsUiPeriod())
     return marketsM15SpanDays() + 3 >= needed
 }

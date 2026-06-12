@@ -101,6 +101,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                     hydrateVirtualTradeAndSandboxUi()
                     scope.launch {
                         syncSignalJournalFromDisk()
+                        refreshM15TailIfIntradayStale(reason = "on_resume")
                         refreshPortfolioAfterJournalChange(refreshTailIfStale = true)
                         val (t, a) = withContext(Dispatchers.IO) {
                             Pair(
@@ -420,7 +421,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             return@LaunchedEffect
         }
         if (marketsM15CoversPeriod(period) && marketsM15LoadedPeriod == period) {
-            if (portfolio15mSeriesTailStale(marketsM15Source())) {
+            if (portfolio15mSeriesIntradayStale(marketsM15Source())) {
                 scope.launch {
                     ensureMarketsM15ForPeriod(period, trackProgress = false)
                 }
@@ -432,7 +433,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             mode = PortfolioM15LoadMode.CACHE_ONLY,
             trackProgress = false,
         )
-        if (portfolio15mSeriesTailStale(marketsM15Source())) {
+        if (portfolio15mSeriesIntradayStale(marketsM15Source())) {
             scope.launch {
                 ensureMarketsM15ForPeriod(period, trackProgress = false)
             }
@@ -467,6 +468,20 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                 selectedPeriod = selectedPeriod,
                 refreshPolicy = MarketsRefreshPolicy.AutoPoll,
             )
+        }
+    }
+    LaunchedEffect(realtimeEnabled, selectedTab, activityResumed, memoryPressureLevel) {
+        if (!realtimeEnabled || !activityResumed) return@LaunchedEffect
+        if (selectedTab != MainTab.Portfolio && selectedTab != MainTab.Journal) return@LaunchedEffect
+        if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) return@LaunchedEffect
+        while (true) {
+            delay(PORTFOLIO_M15_INTRADAY_POLL_MS)
+            if (!activityResumed || !realtimeEnabled) continue
+            if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) continue
+            refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}")
+            if (selectedTab == MainTab.Portfolio && portfolioTabUiBuiltKey != 0L) {
+                refreshPortfolioAfterJournalChange(refreshTailIfStale = false)
+            }
         }
     }
     }

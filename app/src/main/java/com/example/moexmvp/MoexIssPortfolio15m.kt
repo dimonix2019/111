@@ -145,6 +145,12 @@ internal fun portfolio15mSeriesTailStale(points: List<DataPoint>): Boolean {
     return System.currentTimeMillis() - lastTs > PORTFOLIO_M15_TAIL_MAX_AGE_MS
 }
 
+/** Последний закрытый/формирующийся 15м бар старше ~20 мин — пора догрузить хвост. */
+internal fun portfolio15mSeriesIntradayStale(points: List<DataPoint>): Boolean {
+    val lastTs = points.lastOrNull()?.timestampMillis ?: return true
+    return System.currentTimeMillis() - lastTs > PORTFOLIO_M15_INTRADAY_STALE_MS
+}
+
 internal suspend fun resolvePortfolioM15LoadMode(context: Context): PortfolioM15LoadMode {
     val dao = PortfolioM15Database.get(context).dao()
     if (dao.count() == 0) return PortfolioM15LoadMode.INCREMENTAL
@@ -325,7 +331,9 @@ internal suspend fun loadPortfolio15mDataPoints(
         }
 
         val lastTsAfterLoad = dao.maxTsMillis() ?: 0L
-        val tailStillStale = System.currentTimeMillis() - lastTsAfterLoad > PORTFOLIO_M15_TAIL_MAX_AGE_MS
+        val tailAgeMs = System.currentTimeMillis() - lastTsAfterLoad
+        val tailStillStale = tailAgeMs > PORTFOLIO_M15_TAIL_MAX_AGE_MS ||
+            tailAgeMs > PORTFOLIO_M15_INTRADAY_STALE_MS
         if (!skipMoexTailMerge && mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
             mergePortfolio15mRecentTailFromMoex(dao, onProgress)
         }
