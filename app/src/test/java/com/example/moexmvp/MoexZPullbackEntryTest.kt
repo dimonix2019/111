@@ -56,19 +56,10 @@ class MoexZPullbackEntryTest {
         assertTrue(immediate.closedTrades[0].entryDate < pullback.closedTrades[0].entryDate)
     }
 
-    private fun point(index: Int, z: Double, spread: Double): DataPoint =
-        DataPoint(
-            timestampMillis = index.toLong(),
-            tradeDate = "2026-05-01 ${10 + index / 4}:${(index % 4) * 15}".padMinute(),
-            tatnClose = 100.0,
-            tatnpClose = 90.0,
-            spreadPercent = spread,
-            diff = 0.0,
-            zScore = z
-        )
-
-    private fun String.padMinute(): String {
-        val parts = split(":")
-        return "${parts[0]}:${parts[1].padStart(2, '0')}"
+    private fun point(index: Int, z: Double, spread: Double): DataPoint {
+        val hour = 10 + index / 4
+        val minute = (index % 4) * 15
+        val date = String.format("2026-05-01 %02d:%02d", hour, minute)
+        return testM15Bar(date, z, spread)
     }
 }
