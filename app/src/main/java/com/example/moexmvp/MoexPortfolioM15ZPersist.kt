@@ -142,18 +142,171 @@ internal fun fillM15ZScoresInPlace(
     return points.map { it.zScore } != beforeZ
 }
 
+/** Минимальный зазор prevZ от порога для восстановления пересечения по журналу (sim parity). */
+internal const val JOURNAL_CROSSING_Z_EPS = 0.05
+
+internal fun positionBeforeJournalSignal(signalType: StrategySignalType): ZStrategyPosition =
+    when (signalType) {
+        StrategySignalType.EnterLong, StrategySignalType.EnterShort -> ZStrategyPosition.Flat
+        StrategySignalType.ExitLong -> ZStrategyPosition.Long
+        StrategySignalType.ExitShort -> ZStrategyPosition.Short
+    }
+
+internal fun zStrategySignalForJournalType(signalType: StrategySignalType): ZStrategySignal =
+    when (signalType) {
+        StrategySignalType.EnterLong -> ZStrategySignal.EnterLong
+        StrategySignalType.EnterShort -> ZStrategySignal.EnterShort
+        StrategySignalType.ExitLong -> ZStrategySignal.ExitLong
+        StrategySignalType.ExitShort -> ZStrategySignal.ExitShort
+    }
+
+/** prevZ на баре i−1, совместимый с [determineZStrategySignal] и типом сигнала журнала. */
+internal fun journalPrevBarZForCrossing(
+    signalType: StrategySignalType,
+    currentZ: Double,
+    entry: Double,
+    exit: Double,
+): Double? = when (signalType) {
+    StrategySignalType.EnterShort ->
+        if (currentZ >= entry) entry - JOURNAL_CROSSING_Z_EPS else null
+    StrategySignalType.EnterLong ->
+        if (currentZ <= -entry) -entry + JOURNAL_CROSSING_Z_EPS else null
+    StrategySignalType.ExitShort ->
+        if (currentZ <= exit) exit + JOURNAL_CROSSING_Z_EPS else null
+    StrategySignalType.ExitLong ->
+        if (currentZ >= -exit) -exit - JOURNAL_CROSSING_Z_EPS else null
+}
+
+/** Синтетический 15м предшественник для journal parity при разрыве сессии (нет 06:30 в MOEX-ряде). */
+internal fun syntheticM15PredecessorBar(current: DataPoint, prevZ: Double): DataPoint {
+    val ts = current.timestampMillis - 15 * 60_000L
+    val tradeDate = Instant.ofEpochMilli(ts).atZone(moexZoneId).format(portfolio15mLabelFormatter)
+    return current.copy(timestampMillis = ts, tradeDate = tradeDate, zScore = prevZ)
+}
+
+internal fun journalEnterSnapForExit(
+    snaps: List<SnappedSignalForExecution>,
+    exitSnap: SnappedSignalForExecution,
+): SnappedSignalForExecution? {
+    val needEnter = when (exitSnap.event.signalType) {
+        StrategySignalType.ExitShort -> StrategySignalType.EnterShort
+        StrategySignalType.ExitLong -> StrategySignalType.EnterLong
+        else -> return null
+    }
+    return snaps
+        .asSequence()
+        .filter {
+            it.event.signalType == needEnter &&
+                it.event.timestampMillis < exitSnap.event.timestampMillis
+        }
+        .maxByOrNull { it.event.timestampMillis }
+}
+
+/** Не даём sim выйти раньше журнала из-за guard-Z на промежуточных барах (только внутри ноги). */
+internal fun suppressSpuriousExitCrossingsBefore(
+    points: MutableList<DataPoint>,
+    exitIdx: Int,
+    entryFloorIdx: Int,
+    position: ZStrategyPosition,
+    thresholds: DynamicThresholds,
+): Int {
+    if (exitIdx <= 0 || exitIdx <= entryFloorIdx + 1) return 0
+    val exitSignal = when (position) {
+        ZStrategyPosition.Short -> ZStrategySignal.ExitShort
+        ZStrategyPosition.Long -> ZStrategySignal.ExitLong
+        ZStrategyPosition.Flat -> return 0
+    }
+    val exitTh = thresholds.exit
+    var n = 0
+    var k = exitIdx - 1
+    while (k > entryFloorIdx) {
+        if (!isConsecutiveM15Bar(points[k - 1], points[k])) {
+            k--
+            continue
+        }
+        if (determineZStrategySignalBetweenBars(points[k - 1], points[k], position, thresholds) != exitSignal) {
+            k--
+            continue
+        }
+        val cur = points[k]
+        val bumpedZ = when (position) {
+            ZStrategyPosition.Short -> exitTh + JOURNAL_CROSSING_Z_EPS
+            ZStrategyPosition.Long -> -exitTh - JOURNAL_CROSSING_Z_EPS
+            ZStrategyPosition.Flat -> exitTh
+        }
+        if (cur.zScore != bumpedZ) {
+            points[k] = cur.copy(zScore = bumpedZ)
+            n++
+        }
+        k--
+    }
+    return n
+}
+
 internal fun applyJournalObservedZOverlay(
     points: MutableList<DataPoint>,
     events: List<StrategySignalEvent>,
+    thresholds: DynamicThresholds? = null,
 ): Int {
     if (events.isEmpty() || points.size < 2) return 0
     val snaps = snapStrategySignalEventsToExecutionPoints(points, events)
     var n = 0
-    for (snap in snaps) {
+    for (snap in snaps.sortedByDescending { it.index }) {
+        val idx = snap.index
+        if (idx >= points.size) continue
         val z = snap.event.zScore
-        if (points[snap.index].zScore != z) {
-            points[snap.index] = points[snap.index].copy(zScore = z)
+        if (points[idx].zScore != z) {
+            points[idx] = points[idx].copy(zScore = z)
             n++
+        }
+        val th = thresholds ?: continue
+        val position = positionBeforeJournalSignal(snap.event.signalType)
+        val expected = zStrategySignalForJournalType(snap.event.signalType)
+        val cur = points[idx]
+        if (idx > 0 && isConsecutiveM15Bar(points[idx - 1], cur)) {
+            val actual = determineZStrategySignalBetweenBars(points[idx - 1], cur, position, th)
+            if (actual != expected) {
+                val impliedPrevZ = journalPrevBarZForCrossing(
+                    snap.event.signalType,
+                    z,
+                    th.entry,
+                    th.exit,
+                )
+                if (impliedPrevZ != null) {
+                    val fixedPrev = points[idx - 1].copy(zScore = impliedPrevZ)
+                    if (determineZStrategySignalBetweenBars(fixedPrev, cur, position, th) == expected) {
+                        points[idx - 1] = fixedPrev
+                        n++
+                    }
+                }
+            }
+        } else {
+            val impliedPrevZ = journalPrevBarZForCrossing(
+                snap.event.signalType,
+                z,
+                th.entry,
+                th.exit,
+            )
+            if (impliedPrevZ != null) {
+                val synthetic = syntheticM15PredecessorBar(cur, impliedPrevZ)
+                if (isConsecutiveM15Bar(synthetic, cur) &&
+                    determineZStrategySignalBetweenBars(synthetic, cur, position, th) == expected
+                ) {
+                    points.add(idx, synthetic)
+                    n++
+                }
+            }
+        }
+        when (snap.event.signalType) {
+            StrategySignalType.ExitShort -> {
+                val floor = journalEnterSnapForExit(snaps, snap)?.index ?: 0
+                n += suppressSpuriousExitCrossingsBefore(points, idx, floor, ZStrategyPosition.Short, th)
+            }
+            StrategySignalType.ExitLong -> {
+                val floor = journalEnterSnapForExit(snaps, snap)?.index ?: 0
+                n += suppressSpuriousExitCrossingsBefore(points, idx, floor, ZStrategyPosition.Long, th)
+            }
+            else -> Unit
         }
     }
     return n
@@ -261,6 +414,7 @@ internal fun prepareM15PointsForZStrategySim(
     points: List<DataPoint>,
     entities: List<PortfolioM15SpreadEntity> = emptyList(),
     journalEvents: List<StrategySignalEvent> = emptyList(),
+    journalThresholds: DynamicThresholds? = null,
 ): List<DataPoint> {
     if (points.size < 2) return points
     val mutable = points.map { it.copy(zScore = 0.0) }.toMutableList()
@@ -269,6 +423,6 @@ internal fun prepareM15PointsForZStrategySim(
     } else {
         applySpreadGuardZScoresInPlace(mutable)
     }
-    applyJournalObservedZOverlay(mutable, journalEvents)
+    applyJournalObservedZOverlay(mutable, journalEvents, journalThresholds)
     return mutable
 }

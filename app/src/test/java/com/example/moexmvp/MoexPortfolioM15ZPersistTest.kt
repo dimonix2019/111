@@ -9,6 +9,7 @@ import java.time.ZoneId
 class MoexPortfolioM15ZPersistTest {
 
     private val zone = ZoneId.of("Europe/Moscow")
+    private val thresholds = DynamicThresholds(entry = 0.7, exit = 0.5, calculatedDate = null)
 
     private fun entity(ts: Long, spread: Double, z: Double? = null, snap: Double? = null) =
         PortfolioM15SpreadEntity(
@@ -84,5 +85,60 @@ class MoexPortfolioM15ZPersistTest {
         assertEquals(ZStrategySignal.None, sig)
         val raw1745 = applyZScoresDefault(points.map { it.copy(zScore = 0.0) })[points.size - 2].zScore
         assertEquals("Z before spike bar must not shift", raw1745, bar1745.zScore, 1e-9)
+    }
+
+    @Test
+    fun applyJournalObservedZOverlay_fixesPrevBarForEnterShortCrossing() {
+        val ts0 = java.time.LocalDate.of(2026, 6, 10).atTime(6, 30).atZone(zone).toInstant().toEpochMilli()
+        val ts1 = ts0 + 15 * 60_000L
+        val points = mutableListOf(
+            DataPoint(ts0, "2026-06-10 06:30", 650.0, 600.0, 7.0, 50.0, 0.85),
+            DataPoint(ts1, "2026-06-10 06:45", 650.0, 600.0, 7.1, 50.0, 0.40),
+        )
+        val events = listOf(
+            StrategySignalEvent(
+                timestampMillis = ts1,
+                signalType = StrategySignalType.EnterShort,
+                zScore = 1.145,
+            ),
+        )
+        applyJournalObservedZOverlay(points, events, thresholds)
+        val sig = determineZStrategySignalBetweenBars(
+            points[0],
+            points[1],
+            ZStrategyPosition.Flat,
+            thresholds,
+        )
+        assertEquals(ZStrategySignal.EnterShort, sig)
+        assertTrue(points[0].zScore < thresholds.entry)
+        assertEquals(1.145, points[1].zScore, 1e-9)
+    }
+
+    @Test
+    fun applyJournalObservedZOverlay_insertsSyntheticBarOnSessionGap() {
+        val zone = java.time.ZoneId.of("Europe/Moscow")
+        val tsPrev = java.time.LocalDate.of(2026, 6, 9).atTime(23, 30).atZone(zone).toInstant().toEpochMilli()
+        val tsCur = java.time.LocalDate.of(2026, 6, 10).atTime(6, 45).atZone(zone).toInstant().toEpochMilli()
+        val points = mutableListOf(
+            DataPoint(tsPrev, "2026-06-09 23:30", 650.0, 600.0, 7.0, 50.0, 0.37),
+            DataPoint(tsCur, "2026-06-10 06:45", 650.0, 600.0, 7.1, 50.0, 1.14),
+        )
+        val events = listOf(
+            StrategySignalEvent(
+                timestampMillis = tsCur,
+                signalType = StrategySignalType.EnterShort,
+                zScore = 1.145,
+            ),
+        )
+        applyJournalObservedZOverlay(points, events, thresholds)
+        assertEquals(3, points.size)
+        assertEquals("2026-06-10 06:30", points[1].tradeDate)
+        val sig = determineZStrategySignalBetweenBars(
+            points[1],
+            points[2],
+            ZStrategyPosition.Flat,
+            thresholds,
+        )
+        assertEquals(ZStrategySignal.EnterShort, sig)
     }
 }

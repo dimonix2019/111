@@ -81,6 +81,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
             val simPoints = prepareM15PointsForZStrategySim(
                 points = points,
                 journalEvents = signalEvents,
+                journalThresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
             )
             buildZStrategyPortfolioMetrics(
                 points = simPoints,
