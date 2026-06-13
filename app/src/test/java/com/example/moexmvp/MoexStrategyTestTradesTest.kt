@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MoexStrategyTestTradesTest {
@@ -153,6 +154,14 @@ class MoexStrategyTestTradesTest {
         assertEquals(-0.3, summary.monthlyBars[1].returnPercent, 0.01)
         assertEquals(2, summary.monthlyBars[0].tradeCount)
         assertEquals(1500.0, summary.monthlyBars[0].pnlRub, 0.01)
+    }
+
+    @Test
+    fun buildNiceRubAxis_roundsToReadableSteps() {
+        val (_, axisMax, ticks) = buildNiceRubAxis(0.0, 73_000.0, tickCount = 5)
+        assertTrue(axisMax >= 73_000.0)
+        assertTrue(ticks.size >= 2)
+        assertEquals(0.0, ticks.first(), 0.01)
     }
 
     @Test

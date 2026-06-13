@@ -17,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -28,21 +27,34 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.log10
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
-private const val MONTHLY_BAR_MIN_SLOT_DP = 44f
-private const val MONTHLY_BAR_CHART_LEFT_PADDING = 58f
-private const val MONTHLY_BAR_CHART_RIGHT_PADDING = 10f
-private const val MONTHLY_BAR_CHART_TOP_PADDING = 22f
-private const val MONTHLY_BAR_CHART_BOTTOM_PADDING = 36f
+private const val MONTHLY_BAR_MIN_SLOT_DP = 52f
+private const val MONTHLY_BAR_CHART_LEFT_PADDING = 48f
+private const val MONTHLY_BAR_CHART_RIGHT_PADDING = 12f
+private const val MONTHLY_BAR_CHART_TOP_PADDING = 28f
+private const val MONTHLY_BAR_CHART_BOTTOM_PADDING = 32f
+
+private val plotBackgroundColor = Color(0xFFF3F3F3)
+private val gridLineColor = Color(0xFFD8D8D8)
+private val axisLineColor = Color(0xFFBDBDBD)
+private val axisTextColor = Color(0xFF616161)
+private val barPositiveColor = Color(0xFF4285F4)
+private val barNegativeColor = Color(0xFFEF5350)
+private val percentLabelColor = Color(0xFF424242)
+private val monthLabelColor = Color(0xFF616161)
 
 @Composable
 internal fun StrategyTestMonthlyReturnBarChartCard(
     bars: List<StrategyTestMonthlyReturnBar>,
     notionalRub: Double,
     modifier: Modifier = Modifier,
-    chartHeightDp: Int = 220,
+    chartHeightDp: Int = 240,
 ) {
     Column(
         modifier = modifier
@@ -54,7 +66,7 @@ internal fun StrategyTestMonthlyReturnBarChartCard(
             text = "PnL по месяцам (₽) · над столбиком — % от ${"%.0f".format(Locale.US, notionalRub)} ₽",
             color = Color(0xFFE0E0E0),
             fontSize = 11.sp,
-            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+            modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
         )
         StrategyTestMonthlyReturnBarChart(
             bars = bars,
@@ -67,7 +79,7 @@ internal fun StrategyTestMonthlyReturnBarChartCard(
 internal fun StrategyTestMonthlyReturnBarChart(
     bars: List<StrategyTestMonthlyReturnBar>,
     modifier: Modifier = Modifier,
-    chartHeightDp: Int = 220,
+    chartHeightDp: Int = 240,
 ) {
     if (bars.isEmpty()) {
         Box(
@@ -91,8 +103,7 @@ internal fun StrategyTestMonthlyReturnBarChart(
             modifier = Modifier
                 .width(minChartWidthDp.dp)
                 .height(chartHeightDp.dp)
-                .horizontalScroll(scrollState)
-                .background(Color(0xFF0F1722), RoundedCornerShape(6.dp)),
+                .horizontalScroll(scrollState),
         ) {
             drawMonthlyReturnBars(bars)
         }
@@ -108,15 +119,18 @@ private fun DrawScope.drawMonthlyReturnBars(bars: List<StrategyTestMonthlyReturn
     val plotW = (size.width - left - right).coerceAtLeast(1f)
     val plotH = (size.height - top - bottom).coerceAtLeast(1f)
 
+    drawRect(
+        color = plotBackgroundColor,
+        topLeft = Offset(left, top),
+        size = Size(plotW, plotH),
+    )
+
     val pnlValues = bars.map { it.pnlRub }
     val rawMin = pnlValues.minOrNull() ?: 0.0
     val rawMax = pnlValues.maxOrNull() ?: 0.0
     val yMin = if (rawMin < 0.0) rawMin else 0.0
     val yMax = if (rawMax > 0.0) rawMax else 0.0
-    val span = (yMax - yMin).coerceAtLeast(1_000.0)
-    val pad = span * 0.12
-    val axisMin = yMin - if (yMin < 0.0) pad else 0.0
-    val axisMax = yMax + pad
+    val (axisMin, axisMax, yTicks) = buildNiceRubAxis(yMin, yMax, tickCount = 5)
     val axisSpan = (axisMax - axisMin).coerceAtLeast(1.0)
 
     fun yForPnl(v: Double): Float {
@@ -125,82 +139,88 @@ private fun DrawScope.drawMonthlyReturnBars(bars: List<StrategyTestMonthlyReturn
     }
 
     val zeroY = yForPnl(0.0)
-    val yTicks = buildYTicks(axisMin, axisMax, count = 5)
 
     val axisLabelPaint = Paint().apply {
-        color = android.graphics.Color.rgb(215, 227, 244)
+        color = axisTextColor.toArgb()
         textSize = 10.sp.toPx()
         textAlign = Paint.Align.RIGHT
         isAntiAlias = true
     }
     val monthPaint = Paint().apply {
-        color = android.graphics.Color.rgb(215, 227, 244)
+        color = monthLabelColor.toArgb()
         textSize = 10.sp.toPx()
         textAlign = Paint.Align.CENTER
         isAntiAlias = true
     }
     val percentPaint = Paint().apply {
+        color = percentLabelColor.toArgb()
         textSize = 10.sp.toPx()
         textAlign = Paint.Align.CENTER
-        isFakeBoldText = true
         isAntiAlias = true
     }
 
     yTicks.forEach { tick ->
         val y = yForPnl(tick)
         drawLine(
-            color = Color(0xFF30455A),
+            color = gridLineColor,
             start = Offset(left, y),
             end = Offset(left + plotW, y),
             strokeWidth = 1f,
         )
         drawContext.canvas.nativeCanvas.drawText(
             formatRubAxisValueCompact(tick),
-            left - 6f,
+            left - 8f,
             y + 4f,
             axisLabelPaint,
         )
     }
 
     drawLine(
-        color = Color(0xFF8AA6C1),
+        color = axisLineColor,
         start = Offset(left, top),
         end = Offset(left, top + plotH),
-        strokeWidth = 1.5f,
+        strokeWidth = 1f,
     )
     drawLine(
-        color = Color(0xFF8AA6C1),
+        color = axisLineColor,
         start = Offset(left, top + plotH),
         end = Offset(left + plotW, top + plotH),
-        strokeWidth = 1.5f,
+        strokeWidth = 1f,
     )
-    drawLine(
-        color = Color(0xFF546E7A),
-        start = Offset(left, zeroY),
-        end = Offset(left + plotW, zeroY),
-        strokeWidth = 1.5f,
-    )
+    if (axisMin < 0.0 && axisMax > 0.0) {
+        drawLine(
+            color = axisLineColor,
+            start = Offset(left, zeroY),
+            end = Offset(left + plotW, zeroY),
+            strokeWidth = 1f,
+        )
+    }
 
     val slotW = plotW / n.coerceAtLeast(1)
-    val barW = slotW * 0.62f
+    val barW = slotW * 0.48f
 
     bars.forEachIndexed { index, bar ->
         val cx = left + slotW * (index + 0.5f)
         val pnl = bar.pnlRub
         val yValue = yForPnl(pnl)
-        val topY = minOf(zeroY, yValue)
-        val barH = abs(yValue - zeroY).coerceAtLeast(if (pnl == 0.0) 0f else 2f)
-        val barColor = if (pnl >= 0.0) Color(0xFF81C784) else Color(0xFFE57373)
-        drawRoundRect(
-            color = barColor.copy(alpha = 0.92f),
-            topLeft = Offset(cx - barW / 2f, topY),
-            size = Size(barW, barH),
-            cornerRadius = CornerRadius(3f, 3f),
-        )
+        val barColor = if (pnl >= 0.0) barPositiveColor else barNegativeColor
 
-        percentPaint.color = barColor.toArgb()
+        if (pnl >= 0.0) {
+            drawRect(
+                color = barColor,
+                topLeft = Offset(cx - barW / 2f, yValue),
+                size = Size(barW, (zeroY - yValue).coerceAtLeast(if (pnl == 0.0) 0f else 2f)),
+            )
+        } else {
+            drawRect(
+                color = barColor,
+                topLeft = Offset(cx - barW / 2f, zeroY),
+                size = Size(barW, (yValue - zeroY).coerceAtLeast(2f)),
+            )
+        }
+
         val percentLabel = formatBarPercentLabel(bar.returnPercent)
-        val labelY = if (pnl >= 0.0) topY - 6f else topY + barH + 14f
+        val labelY = if (pnl >= 0.0) yValue - 8f else yValue + 14f
         drawContext.canvas.nativeCanvas.drawText(
             percentLabel,
             cx,
@@ -211,7 +231,7 @@ private fun DrawScope.drawMonthlyReturnBars(bars: List<StrategyTestMonthlyReturn
         drawContext.canvas.nativeCanvas.drawText(
             bar.label,
             cx,
-            top + plotH + 18f,
+            top + plotH + 16f,
             monthPaint,
         )
     }
@@ -221,10 +241,50 @@ private fun DrawScope.drawMonthlyReturnBars(bars: List<StrategyTestMonthlyReturn
 internal fun formatBarPercentLabel(returnPercent: Double): String =
     "${returnPercent.roundToInt()}%"
 
+internal fun buildNiceRubAxis(
+    rawMin: Double,
+    rawMax: Double,
+    tickCount: Int = 5,
+): Triple<Double, Double, List<Double>> {
+    val minV = if (rawMin < 0.0) rawMin else 0.0
+    val maxV = if (rawMax > 0.0) rawMax else 0.0
+    if (maxV <= minV) {
+        val step = 10_000.0
+        val ticks = (0 until tickCount).map { it * step }
+        return Triple(0.0, step * (tickCount - 1), ticks)
+    }
+    val span = maxV - minV
+    val roughStep = span / (tickCount - 1).coerceAtLeast(1)
+    val step = niceStep(roughStep)
+    val axisMin = if (minV < 0.0) floor(minV / step) * step else 0.0
+    val axisMax = ceil(maxV / step) * step
+    val ticks = mutableListOf<Double>()
+    var t = axisMin
+    while (t <= axisMax + step * 0.001) {
+        ticks += t
+        t += step
+    }
+    return Triple(axisMin, axisMax, ticks)
+}
+
+private fun niceStep(rough: Double): Double {
+    if (rough <= 0.0) return 1.0
+    val exp = floor(log10(rough)).toInt()
+    val base = 10.0.pow(exp)
+    val f = rough / base
+    val niceF = when {
+        f <= 1.0 -> 1.0
+        f <= 2.0 -> 2.0
+        f <= 5.0 -> 5.0
+        else -> 10.0
+    }
+    return niceF * base
+}
+
 private fun formatRubAxisValueCompact(value: Double): String {
     val a = abs(value)
     return when {
-        a >= 1_000_000 -> String.format(Locale.US, "%.1fM", value / 1_000_000.0)
+        a >= 1_000_000 -> String.format(Locale.US, "%.0fM", value / 1_000_000.0)
         a >= 10_000 -> String.format(Locale.US, "%.0fk", value / 1_000.0)
         else -> String.format(Locale.US, "%.0f", value)
     }
