@@ -37,13 +37,23 @@ internal fun MoexScreenTabStrategyTest(
     }
     if (landscapeZChartFullscreen) {
         with(screen) {
+            val displayTradeItems = if (strategyTestExcludeRedZone) {
+                filterStrategyTestTradeItemsExcludingRedZone(
+                    strategyTestTradeItems,
+                    strategyTestTradeRiskAssessments,
+                )
+            } else {
+                strategyTestTradeItems
+            }
             if (strategyTestZScoreCandles.isNotEmpty()) {
-                StrategyTestZScoreCanvasChart(
+                StrategyTestZScoreTradingViewChart(
                     candles = strategyTestZScoreCandles,
                     chartPoints = strategyTestM15ChartPoints,
                     pointMarkers = strategyTestChartMarkers,
+                    tradeSegments = strategyTestChartTradeSegments,
+                    tradeItems = displayTradeItems,
+                    openPosition = if (strategyTestExcludeRedZone) null else strategyTestOpenPosition,
                     referenceLines = zReferenceLines,
-                    metrics = strategyTestPortfolioMetrics,
                     initialWindow = strategyTestZInitialWindow,
                     landscapeMinimal = true,
                     modifier = modifier.fillMaxSize(),

@@ -104,8 +104,14 @@ internal fun MoexScreen() {
             calculatedDate = screen.dynamicThresholds.calculatedDate
         )
     }
-    // Весь downsample-ряд (~255 дн.) — иначе маркеры старых сделок вне окна 30 дн.
-    val strategyTestZInitialWindow = 1f to 0f
+    // Хвост ~30 календарных дней — как на «Рынок»; иначе TradingView fitContent() на ~1200 барах
+    // делает маркеры сделок невидимыми (sub-pixel). Pinch-zoom покажет всю историю.
+    val strategyTestZInitialWindow = remember(strategyTestM15ChartPoints) {
+        chartInitialWindowForLastCalendarDays(
+            strategyTestM15ChartPoints,
+            STRATEGY_TEST_Z_CHART_VISIBLE_DAYS,
+        )
+    }
     val strategyTestTradeItems = remember(screen.strategyTestPortfolioMetrics) {
         buildStrategyTestTradeListFromSimulation(
             screen.strategyTestPortfolioMetrics?.closedTrades.orEmpty()

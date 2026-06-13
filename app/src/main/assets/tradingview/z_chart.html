@@ -144,6 +144,21 @@
       return bestPixel?.marker ?? null;
     }
 
+    function visibleBarCount() {
+      if (!chart) return Math.max(lastCandleTimes.length, 1);
+      try {
+        const range = chart.timeScale().getVisibleLogicalRange();
+        if (range) return Math.max(2, Math.ceil(range.to - range.from + 1));
+      } catch (e) {}
+      return Math.max(lastCandleTimes.length, 1);
+    }
+
+    function markerSizeForViewport(requested) {
+      const base = requested || 2;
+      const n = visibleBarCount();
+      return Math.max(base, Math.min(4, 360 / n));
+    }
+
     function buildMarkerRenderData(markers, selectedKey) {
       return markers.map((m) => {
         const key = markerPersistKey(m);
@@ -151,13 +166,14 @@
           !!selectedKey &&
           (key === selectedKey ||
             (!!m.tradeId && m.tradeId === selectedTradeId));
+        const baseSize = m.size || 2;
         return {
           time: m.time,
           position: m.position,
           color: isSelected ? TV.selected : m.color,
           shape: isSelected && !m.isEntry ? 'square' : m.shape,
           text: m.text || '',
-          size: isSelected ? 2.2 : (m.size || 1),
+          size: isSelected ? markerSizeForViewport(2.2) : markerSizeForViewport(baseSize),
         };
       });
     }
@@ -418,6 +434,8 @@
       const key = JSON.stringify({
         n: candles.length,
         last: candles[candles.length - 1].time,
+        markers: (data.markers || []).length,
+        trades: (data.trades || []).length,
       });
 
       if (!ensureChart()) {

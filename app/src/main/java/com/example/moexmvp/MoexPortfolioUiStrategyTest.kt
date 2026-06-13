@@ -3,7 +3,6 @@ package com.example.moexmvp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -130,12 +129,14 @@ internal fun StrategyTestTabContent(
             val zReferenceLines = remember(chartThresholds) {
                 buildZScoreReferenceLines(chartThresholds, desktopStyle = true)
             }
-            StrategyTestZScoreCanvasChart(
+            StrategyTestZScoreTradingViewChart(
                 candles = zScoreCandles,
                 chartPoints = m15ChartPoints,
                 pointMarkers = chartPointMarkers,
+                tradeSegments = chartTradeSegments,
+                tradeItems = displayTradeItems,
+                openPosition = if (excludeRedZone) null else metrics?.openPosition,
                 referenceLines = zReferenceLines,
-                metrics = metrics,
                 initialWindow = zInitialWindow,
                 chartHeightDp = 320,
             )
@@ -663,42 +664,35 @@ internal fun StrategyExitModeButton(
     }
 }
 
-/** Z-график «Тест страт.» на Compose Canvas — маркеры сделок рисуются напрямую, без WebView. */
+/** Z-график «Тест страт.» — TradingView (как «Рынок»), маркеры через strategyTestTradeItems. */
 @Composable
-internal fun StrategyTestZScoreCanvasChart(
+internal fun StrategyTestZScoreTradingViewChart(
     candles: List<CandlePoint>,
     chartPoints: List<DataPoint>,
     pointMarkers: List<ChartPointMarker>,
+    tradeSegments: List<TradingViewTradeSegment>,
+    tradeItems: List<StrategyTestTradeItem>,
+    openPosition: PortfolioOpenPosition?,
     referenceLines: List<ChartReferenceLine>,
-    metrics: PortfolioMetrics?,
     initialWindow: Pair<Float, Float>,
     chartHeightDp: Int = 320,
     landscapeMinimal: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier) {
-        CandlestickChartCard(
-            title = if (landscapeMinimal) "" else "Z-score · 15м (все сделки симуляции)",
-            candles = candles,
-            chartHeightDp = chartHeightDp,
-            referenceLines = referenceLines,
-            pointMarkers = pointMarkers,
-            showLegend = !landscapeMinimal,
-            showMinMax = !landscapeMinimal,
-            enableZoomPan = true,
-            markerScale = 1.35f,
-            showZoomHint = !landscapeMinimal,
-            rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
-            initialWindowWidth = initialWindow.first,
-            initialWindowStart = initialWindow.second,
-            tradeTapHintFormatter = { idx ->
-                formatZStrategyTradeTapHint(idx, chartPoints, metrics)
-            },
-            landscapeMinimal = landscapeMinimal,
-            useDesktopStyle = true,
-            displayMode = ChartDisplayMode.Candles,
-            showPlotlyToolbar = true,
-            compactLayout = landscapeMinimal,
-        )
-    }
+    if (candles.isEmpty()) return
+    TradingViewZScoreChartCard(
+        title = if (landscapeMinimal) "" else "Z-score · 15м (TradingView · все сделки симуляции)",
+        candles = candles,
+        displayPoints = chartPoints,
+        chartHeightDp = chartHeightDp,
+        referenceLines = referenceLines,
+        pointMarkers = pointMarkers,
+        tradeSegments = tradeSegments,
+        strategyTestTradeItems = tradeItems,
+        openPosition = openPosition,
+        initialWindowWidth = initialWindow.first,
+        initialWindowStart = initialWindow.second,
+        landscapeMinimal = landscapeMinimal,
+        modifier = modifier,
+    )
 }
