@@ -253,7 +253,7 @@ internal fun StrategyTestMonthlyReturnSection(summary: StrategyTestMonthlyReturn
                 StrategyTestMonthlyReturnBarChartCard(
                     bars = summary.monthlyBars,
                     notionalRub = summary.notionalRub,
-                    chartHeightDp = 220,
+                    chartHeightDp = 260,
                 )
             }
             Column(

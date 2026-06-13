@@ -3,18 +3,20 @@ package com.example.moexmvp
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -23,6 +25,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
@@ -30,15 +34,8 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.log10
-import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.roundToInt
-
-private const val MONTHLY_BAR_MIN_SLOT_DP = 52f
-private const val MONTHLY_BAR_CHART_LEFT_PADDING = 48f
-private const val MONTHLY_BAR_CHART_RIGHT_PADDING = 12f
-private const val MONTHLY_BAR_CHART_TOP_PADDING = 28f
-private const val MONTHLY_BAR_CHART_BOTTOM_PADDING = 32f
 
 private val plotBackgroundColor = Color(0xFFF3F3F3)
 private val gridLineColor = Color(0xFFD8D8D8)
@@ -49,12 +46,18 @@ private val barNegativeColor = Color(0xFFEF5350)
 private val percentLabelColor = Color(0xFF424242)
 private val monthLabelColor = Color(0xFF616161)
 
+private const val Y_AXIS_WIDTH_DP = 44
+private const val PLOT_TOP_PADDING_DP = 8
+private const val PLOT_BOTTOM_PADDING_DP = 4
+private const val MONTH_LABEL_HEIGHT_DP = 18
+private const val PERCENT_LABEL_HEIGHT_DP = 16
+
 @Composable
 internal fun StrategyTestMonthlyReturnBarChartCard(
     bars: List<StrategyTestMonthlyReturnBar>,
     notionalRub: Double,
     modifier: Modifier = Modifier,
-    chartHeightDp: Int = 240,
+    chartHeightDp: Int = 260,
 ) {
     Column(
         modifier = modifier
@@ -79,7 +82,7 @@ internal fun StrategyTestMonthlyReturnBarChartCard(
 internal fun StrategyTestMonthlyReturnBarChart(
     bars: List<StrategyTestMonthlyReturnBar>,
     modifier: Modifier = Modifier,
-    chartHeightDp: Int = 240,
+    chartHeightDp: Int = 260,
 ) {
     if (bars.isEmpty()) {
         Box(
@@ -93,148 +96,229 @@ internal fun StrategyTestMonthlyReturnBarChart(
         return
     }
 
-    val scrollState = rememberScrollState()
-    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val minChartWidthDp = max(
-            constraints.maxWidth.toFloat(),
-            bars.size * MONTHLY_BAR_MIN_SLOT_DP + MONTHLY_BAR_CHART_LEFT_PADDING + MONTHLY_BAR_CHART_RIGHT_PADDING,
-        )
-        Canvas(
+    val pnlMin = bars.minOf { it.pnlRub }.let { if (it < 0.0) it else 0.0 }
+    val pnlMax = bars.maxOf { it.pnlRub }.let { if (it > 0.0) it else 0.0 }
+    val (axisMin, axisMax, yTicks) = remember(bars) {
+        buildNiceRubAxis(pnlMin, pnlMax, tickCount = 5)
+    }
+    val axisSpan = (axisMax - axisMin).coerceAtLeast(1.0)
+    val plotBodyHeightDp = chartHeightDp - MONTH_LABEL_HEIGHT_DP - PERCENT_LABEL_HEIGHT_DP
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
             modifier = Modifier
-                .width(minChartWidthDp.dp)
-                .height(chartHeightDp.dp)
-                .horizontalScroll(scrollState),
+                .fillMaxWidth()
+                .height(plotBodyHeightDp.dp),
         ) {
-            drawMonthlyReturnBars(bars)
+            YAxisCanvas(
+                axisMin = axisMin,
+                axisMax = axisMax,
+                yTicks = yTicks,
+                modifier = Modifier
+                    .width(Y_AXIS_WIDTH_DP.dp)
+                    .fillMaxHeight(),
+            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(plotBackgroundColor, RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp)),
+            ) {
+                PlotGridCanvas(
+                    axisMin = axisMin,
+                    axisMax = axisMax,
+                    yTicks = yTicks,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            top = PLOT_TOP_PADDING_DP.dp,
+                            bottom = PLOT_BOTTOM_PADDING_DP.dp,
+                            start = 2.dp,
+                            end = 2.dp,
+                        ),
+                ) {
+                    bars.forEach { bar ->
+                        MonthlyBarColumn(
+                            bar = bar,
+                            axisMin = axisMin,
+                            axisSpan = axisSpan,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                        )
+                    }
+                }
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = Y_AXIS_WIDTH_DP.dp, top = 2.dp),
+        ) {
+            bars.forEach { bar ->
+                Text(
+                    text = bar.label,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                    color = monthLabelColor,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
 
-private fun DrawScope.drawMonthlyReturnBars(bars: List<StrategyTestMonthlyReturnBar>) {
-    val n = bars.size
-    val left = MONTHLY_BAR_CHART_LEFT_PADDING
-    val right = MONTHLY_BAR_CHART_RIGHT_PADDING
-    val top = MONTHLY_BAR_CHART_TOP_PADDING
-    val bottom = MONTHLY_BAR_CHART_BOTTOM_PADDING
-    val plotW = (size.width - left - right).coerceAtLeast(1f)
-    val plotH = (size.height - top - bottom).coerceAtLeast(1f)
-
-    drawRect(
-        color = plotBackgroundColor,
-        topLeft = Offset(left, top),
-        size = Size(plotW, plotH),
-    )
-
-    val pnlValues = bars.map { it.pnlRub }
-    val rawMin = pnlValues.minOrNull() ?: 0.0
-    val rawMax = pnlValues.maxOrNull() ?: 0.0
-    val yMin = if (rawMin < 0.0) rawMin else 0.0
-    val yMax = if (rawMax > 0.0) rawMax else 0.0
-    val (axisMin, axisMax, yTicks) = buildNiceRubAxis(yMin, yMax, tickCount = 5)
-    val axisSpan = (axisMax - axisMin).coerceAtLeast(1.0)
-
-    fun yForPnl(v: Double): Float {
-        val rel = ((v - axisMin) / axisSpan).toFloat().coerceIn(0f, 1f)
-        return top + plotH * (1f - rel)
-    }
-
-    val zeroY = yForPnl(0.0)
-
-    val axisLabelPaint = Paint().apply {
-        color = axisTextColor.toArgb()
-        textSize = 10.sp.toPx()
-        textAlign = Paint.Align.RIGHT
-        isAntiAlias = true
-    }
-    val monthPaint = Paint().apply {
-        color = monthLabelColor.toArgb()
-        textSize = 10.sp.toPx()
-        textAlign = Paint.Align.CENTER
-        isAntiAlias = true
-    }
-    val percentPaint = Paint().apply {
-        color = percentLabelColor.toArgb()
-        textSize = 10.sp.toPx()
-        textAlign = Paint.Align.CENTER
-        isAntiAlias = true
-    }
-
-    yTicks.forEach { tick ->
-        val y = yForPnl(tick)
-        drawLine(
-            color = gridLineColor,
-            start = Offset(left, y),
-            end = Offset(left + plotW, y),
-            strokeWidth = 1f,
+@Composable
+private fun MonthlyBarColumn(
+    bar: StrategyTestMonthlyReturnBar,
+    axisMin: Double,
+    axisSpan: Double,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxHeight(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = formatBarPercentLabel(bar.returnPercent),
+            color = percentLabelColor,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            modifier = Modifier.height(PERCENT_LABEL_HEIGHT_DP.dp),
         )
-        drawContext.canvas.nativeCanvas.drawText(
-            formatRubAxisValueCompact(tick),
-            left - 8f,
-            y + 4f,
-            axisLabelPaint,
-        )
-    }
-
-    drawLine(
-        color = axisLineColor,
-        start = Offset(left, top),
-        end = Offset(left, top + plotH),
-        strokeWidth = 1f,
-    )
-    drawLine(
-        color = axisLineColor,
-        start = Offset(left, top + plotH),
-        end = Offset(left + plotW, top + plotH),
-        strokeWidth = 1f,
-    )
-    if (axisMin < 0.0 && axisMax > 0.0) {
-        drawLine(
-            color = axisLineColor,
-            start = Offset(left, zeroY),
-            end = Offset(left + plotW, zeroY),
-            strokeWidth = 1f,
-        )
-    }
-
-    val slotW = plotW / n.coerceAtLeast(1)
-    val barW = slotW * 0.48f
-
-    bars.forEachIndexed { index, bar ->
-        val cx = left + slotW * (index + 0.5f)
-        val pnl = bar.pnlRub
-        val yValue = yForPnl(pnl)
-        val barColor = if (pnl >= 0.0) barPositiveColor else barNegativeColor
-
-        if (pnl >= 0.0) {
-            drawRect(
-                color = barColor,
-                topLeft = Offset(cx - barW / 2f, yValue),
-                size = Size(barW, (zeroY - yValue).coerceAtLeast(if (pnl == 0.0) 0f else 2f)),
-            )
-        } else {
-            drawRect(
-                color = barColor,
-                topLeft = Offset(cx - barW / 2f, zeroY),
-                size = Size(barW, (yValue - zeroY).coerceAtLeast(2f)),
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            MonthlyBarCanvas(
+                pnlRub = bar.pnlRub,
+                axisMin = axisMin,
+                axisSpan = axisSpan,
+                modifier = Modifier.fillMaxSize(),
             )
         }
+    }
+}
 
-        val percentLabel = formatBarPercentLabel(bar.returnPercent)
-        val labelY = if (pnl >= 0.0) yValue - 8f else yValue + 14f
-        drawContext.canvas.nativeCanvas.drawText(
-            percentLabel,
-            cx,
-            labelY,
-            percentPaint,
-        )
+@Composable
+private fun MonthlyBarCanvas(
+    pnlRub: Double,
+    axisMin: Double,
+    axisSpan: Double,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val zeroFrac = ((0.0 - axisMin) / axisSpan).toFloat().coerceIn(0f, 1f)
+        val valueFrac = ((pnlRub - axisMin) / axisSpan).toFloat().coerceIn(0f, 1f)
+        val zeroY = size.height * (1f - zeroFrac)
+        val valueY = size.height * (1f - valueFrac)
+        val barW = size.width * 0.52f
+        val barLeft = (size.width - barW) / 2f
+        if (pnlRub >= 0.0) {
+            val topY = minOf(zeroY, valueY)
+            val barH = (zeroY - valueY).coerceAtLeast(if (pnlRub == 0.0) 0f else 3f)
+            drawRect(
+                color = barPositiveColor,
+                topLeft = Offset(barLeft, topY),
+                size = Size(barW, barH),
+            )
+        } else {
+            val barH = (valueY - zeroY).coerceAtLeast(3f)
+            drawRect(
+                color = barNegativeColor,
+                topLeft = Offset(barLeft, zeroY),
+                size = Size(barW, barH),
+            )
+        }
+    }
+}
 
-        drawContext.canvas.nativeCanvas.drawText(
-            bar.label,
-            cx,
-            top + plotH + 16f,
-            monthPaint,
+@Composable
+private fun YAxisCanvas(
+    axisMin: Double,
+    axisMax: Double,
+    yTicks: List<Double>,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val axisSpan = (axisMax - axisMin).coerceAtLeast(1.0)
+        val paint = Paint().apply {
+            color = axisTextColor.toArgb()
+            textSize = 10.sp.toPx()
+            textAlign = Paint.Align.RIGHT
+            isAntiAlias = true
+        }
+        yTicks.forEach { tick ->
+            val frac = ((tick - axisMin) / axisSpan).toFloat().coerceIn(0f, 1f)
+            val y = size.height * (1f - frac)
+            drawContext.canvas.nativeCanvas.drawText(
+                formatRubAxisValueCompact(tick),
+                size.width - 4f,
+                y + 4f,
+                paint,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlotGridCanvas(
+    axisMin: Double,
+    axisMax: Double,
+    yTicks: List<Double>,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        drawPlotGrid(axisMin, axisMax, yTicks)
+    }
+}
+
+private fun DrawScope.drawPlotGrid(
+    axisMin: Double,
+    axisMax: Double,
+    yTicks: List<Double>,
+) {
+    val axisSpan = (axisMax - axisMin).coerceAtLeast(1.0)
+    yTicks.forEach { tick ->
+        val frac = ((tick - axisMin) / axisSpan).toFloat().coerceIn(0f, 1f)
+        val y = size.height * (1f - frac)
+        drawLine(
+            color = gridLineColor,
+            start = Offset(0f, y),
+            end = Offset(size.width, y),
+            strokeWidth = 1f,
         )
     }
+    if (axisMin < 0.0 && axisMax > 0.0) {
+        val zeroFrac = ((0.0 - axisMin) / axisSpan).toFloat()
+        val zeroY = size.height * (1f - zeroFrac)
+        drawLine(
+            color = axisLineColor,
+            start = Offset(0f, zeroY),
+            end = Offset(size.width, zeroY),
+            strokeWidth = 1.5f,
+        )
+    }
+    drawLine(
+        color = axisLineColor,
+        start = Offset(0f, 0f),
+        end = Offset(0f, size.height),
+        strokeWidth = 1f,
+    )
+    drawLine(
+        color = axisLineColor,
+        start = Offset(0f, size.height),
+        end = Offset(size.width, size.height),
+        strokeWidth = 1f,
+    )
 }
 
 /** Подпись над столбиком: «40%» от номинала 100k при PnL 40k. */
