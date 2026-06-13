@@ -126,6 +126,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.161 — Тест страт.: столбики PnL ₽/мес (ось Y), подписи MM.yy и % над столбиком.
 1.7.160 — Тест страт.: столбиковая диаграмма доходности по месяцам (% от номинала).
 1.7.159 — Fix: Z/15м после ночи offline — догрузка при восстановлении сети; время обновления из 15м хвоста.
 1.7.158 — Тест страт.: маркеры как на «Рынок» (pointMarkers + remap), убрана area-заливка; fix zoom.

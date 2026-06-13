@@ -131,14 +131,10 @@ private fun yearMonthFromSimExit(exitDate: String, zone: java.time.ZoneId = moex
 }
 
 private val strategyTestMonthBarLabelFormatter =
-    java.time.format.DateTimeFormatter.ofPattern("LLL yy", java.util.Locale.forLanguageTag("ru"))
+    java.time.format.DateTimeFormatter.ofPattern("MM.yy")
 
-private fun formatStrategyTestMonthBarLabel(yearMonth: java.time.YearMonth): String {
-    val raw = yearMonth.atDay(1).format(strategyTestMonthBarLabelFormatter)
-    return raw.replaceFirstChar { ch ->
-        if (ch.isLowerCase()) ch.titlecase(java.util.Locale.forLanguageTag("ru")) else ch.toString()
-    }
-}
+private fun formatStrategyTestMonthBarLabel(yearMonth: java.time.YearMonth): String =
+    yearMonth.format(strategyTestMonthBarLabelFormatter)
 
 internal fun buildStrategyTestMonthlyReturnBars(
     trades: List<PortfolioClosedTrade>,

@@ -147,10 +147,19 @@ class MoexStrategyTestTradesTest {
         )
         val summary = buildStrategyTestMonthlyReturnSummary(items, notionalRub = 100_000.0, emptyList())!!
         assertEquals(2, summary.monthlyBars.size)
+        assertEquals("01.26", summary.monthlyBars[0].label)
+        assertEquals("02.26", summary.monthlyBars[1].label)
         assertEquals(1.5, summary.monthlyBars[0].returnPercent, 0.01)
         assertEquals(-0.3, summary.monthlyBars[1].returnPercent, 0.01)
         assertEquals(2, summary.monthlyBars[0].tradeCount)
         assertEquals(1500.0, summary.monthlyBars[0].pnlRub, 0.01)
+    }
+
+    @Test
+    fun formatBarPercentLabel_showsIntegerPercentAboveBar() {
+        assertEquals("40%", formatBarPercentLabel(40.0))
+        assertEquals("-3%", formatBarPercentLabel(-3.2))
+        assertEquals("1%", formatBarPercentLabel(1.48))
     }
 
     @Test

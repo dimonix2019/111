@@ -252,7 +252,8 @@ internal fun StrategyTestMonthlyReturnSection(summary: StrategyTestMonthlyReturn
             if (summary.monthlyBars.isNotEmpty()) {
                 StrategyTestMonthlyReturnBarChartCard(
                     bars = summary.monthlyBars,
-                    chartHeightDp = 200,
+                    notionalRub = summary.notionalRub,
+                    chartHeightDp = 220,
                 )
             }
             Column(
