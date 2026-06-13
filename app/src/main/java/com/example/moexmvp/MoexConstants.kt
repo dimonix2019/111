@@ -126,6 +126,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.169 — Симуляция: опции Time/Z/Hold stop (forced exit) для бэктеста; тест MoexStrategyTestForcedExitRulesTest на live MOEX.
 1.7.168 — Тест страт.: «Без красной зоны» пересчитывает сводку PnL, просадку, эквити и детальные метрики.
 1.7.167 — Тест страт.: TradingView как на «Рынок» (окно 30д + масштаб маркеров); fix невидимых сделок.
 1.7.166 — Тест страт.: переключатель «Без красной зоны» в строке с «Капитализация» (фильтр графика/таблицы).
