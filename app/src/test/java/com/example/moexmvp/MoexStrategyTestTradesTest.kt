@@ -273,4 +273,59 @@ class MoexStrategyTestTradesTest {
         val bars = summary.monthlyBarsForDisplay(excludeRedZone = true, items, assessments)
         assertEquals(1, bars.single().tradeCount)
     }
+
+    @Test
+    fun buildStrategyTestMetricsForClosedTrades_recomputesPnlAndDrawdownWithoutRedZone() {
+        fun trade(exit: String, pnl: Double) = PortfolioClosedTrade(
+            direction = ZStrategyPosition.Long,
+            entryDate = "2026-03-01 10:00",
+            exitDate = exit,
+            entrySpreadPercent = 1.0,
+            exitSpreadPercent = 1.1,
+            pnlSpreadPoints = 0.1,
+            grossPnlRubApprox = pnl,
+            commissionRubApprox = 0.0,
+            overnightRubApprox = 0.0,
+            pnlRubApprox = pnl,
+        )
+        val base = PortfolioMetrics(
+            periodDescription = "Тест",
+            notionalRub = 100_000.0,
+            leverage = 7.0,
+            commissionPercentPerSide = 0.04,
+            totalCommissionRub = 0.0,
+            totalOvernightRub = 0.0,
+            closedTrades = listOf(
+                trade("2026-03-05 12:00", 1000.0),
+                trade("2026-03-10 12:00", -2000.0),
+            ),
+            openPosition = null,
+            cumulativeRealizedSpread = 0.0,
+            cumulativeRealizedRubApprox = -1000.0,
+            unrealizedRubApprox = 0.0,
+            totalPnlSpread = 0.0,
+            totalPnlRubApprox = -1000.0,
+            totalReturnPercent = -1.0,
+            maxDrawdownRubApprox = 3000.0,
+            maxDrawdownPercent = 200.0,
+            winCount = 1,
+            lossCount = 1,
+            winRate = 50.0,
+            profitFactor = 0.5,
+            avgWinRub = 1000.0,
+            avgLossRub = -2000.0,
+            largestWinRub = 1000.0,
+            largestLossRub = -2000.0,
+        )
+        val filtered = buildStrategyTestMetricsForClosedTrades(
+            base = base,
+            closedTrades = listOf(trade("2026-03-05 12:00", 1000.0)),
+        )
+        assertEquals(1000.0, filtered.totalPnlRubApprox, 0.01)
+        assertEquals(1.0, filtered.totalReturnPercent, 0.01)
+        assertEquals(0.0, filtered.maxDrawdownRubApprox, 0.01)
+        assertEquals(1, filtered.winCount)
+        assertEquals(0, filtered.lossCount)
+        assertTrue(filtered.periodDescription.contains("без красной зоны"))
+    }
 }

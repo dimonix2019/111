@@ -84,6 +84,9 @@ internal fun StrategyTestTabContent(
             else -> buildStrategyTestDurationSummary(displayTradeItems.map { it.trade })
         }
     }
+    val displayMetrics = remember(metrics, displayTradeItems, excludeRedZone) {
+        strategyTestMetricsForDisplay(metrics, displayTradeItems, excludeRedZone)
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
@@ -141,11 +144,12 @@ internal fun StrategyTestTabContent(
                 chartHeightDp = 320,
             )
             metrics?.let { m ->
-                if (m.equityCurveRub.isNotEmpty() && m.drawdownCurveRub.isNotEmpty()) {
+                val chartMetrics = displayMetrics ?: m
+                if (chartMetrics.equityCurveRub.isNotEmpty() && chartMetrics.drawdownCurveRub.isNotEmpty()) {
                     StrategyTestEquityDrawdownChartCard(
-                        labels = m.equityCurveLabels,
-                        equityRub = m.equityCurveRub,
-                        drawdownRub = m.drawdownCurveRub,
+                        labels = chartMetrics.equityCurveLabels,
+                        equityRub = chartMetrics.equityCurveRub,
+                        drawdownRub = chartMetrics.drawdownCurveRub,
                         chartHeightDp = 280,
                     )
                 }
@@ -192,13 +196,20 @@ internal fun StrategyTestTabContent(
         }
         PortfolioCollapsibleSection(
             title = "Сводка: Итого PnL и просадка",
-            subtitle = metrics?.let { m ->
-                "${formatRubSigned(m.totalPnlRubApprox)} · просадка ${formatRubSigned(-m.maxDrawdownRubApprox)}"
+            subtitle = displayMetrics?.let { m ->
+                buildString {
+                    append(formatRubSigned(m.totalPnlRubApprox))
+                    append(" · просадка ")
+                    append(formatRubSigned(-m.maxDrawdownRubApprox))
+                    if (excludeRedZone && tradeItems.size > displayTradeItems.size) {
+                        append(" · без красной зоны")
+                    }
+                }
             },
             defaultExpanded = false,
             compactHeader = true,
         ) {
-            PortfolioHeroMetricsRow(metrics = metrics)
+            PortfolioHeroMetricsRow(metrics = displayMetrics)
         }
 
         val dataTailWarning = m15Error
@@ -214,10 +225,14 @@ internal fun StrategyTestTabContent(
         } else if (!m15Loading && !simulationComputing && metrics == null) {
             Text("Недостаточно данных для симуляции.", color = Color(0xFFBDBDBD), fontSize = 11.sp)
         } else {
-            metrics?.let { m ->
+            displayMetrics?.let { m ->
                 PortfolioCollapsibleSection(
                     title = "Детальные показатели симуляции",
-                    subtitle = "таблица метрик",
+                    subtitle = if (excludeRedZone && tradeItems.size > displayTradeItems.size) {
+                        "без красной зоны · ${displayTradeItems.size} сделок"
+                    } else {
+                        "таблица метрик"
+                    },
                     defaultExpanded = false,
                     compactHeader = true,
                 ) {

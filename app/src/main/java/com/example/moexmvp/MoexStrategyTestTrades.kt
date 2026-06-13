@@ -1,6 +1,8 @@
 package com.example.moexmvp
 
 import android.content.Context
+import kotlin.math.abs
+import kotlin.math.max
 
 /** Сделка в списке «Тест страт.» (только симуляция на 15м ряду). */
 internal data class StrategyTestTradeItem(
@@ -28,6 +30,106 @@ internal fun filterStrategyTestTradeItemsWithRiskExcludingRedZone(
         if (risk != null) risks += risk
     }
     return items to risks
+}
+
+/**
+ * Метрики симуляции только по выбранным закрытым сделкам (фильтр «без красной зоны»).
+ * Equity и просадка — по кумулятивному PnL на датах выхода (не полный 15м replay).
+ */
+internal fun buildStrategyTestMetricsForClosedTrades(
+    base: PortfolioMetrics,
+    closedTrades: List<PortfolioClosedTrade>,
+    includeOpenPosition: Boolean = false,
+    periodSuffix: String = " · без красной зоны",
+): PortfolioMetrics {
+    val sorted = closedTrades.sortedBy { parseSimTradeExitMillis(it.exitDate) ?: Long.MAX_VALUE }
+    val realizedRub = sorted.sumOf { it.pnlRubApprox }
+    val realizedSpread = sorted.sumOf { it.pnlSpreadPoints }
+    val totalCommission = sorted.sumOf { it.commissionRubApprox }
+    val totalOvernight = sorted.sumOf { it.overnightRubApprox }
+
+    var cumulative = 0.0
+    val exitLabels = ArrayList<String>(sorted.size)
+    val equitySeries = ArrayList<Double>(sorted.size)
+    for (trade in sorted) {
+        cumulative += trade.pnlRubApprox
+        exitLabels += trade.exitDate
+        equitySeries += cumulative
+    }
+    val (curveLabels, curveEquity, curveDrawdown) = equityCurveDailyForChart(exitLabels, equitySeries)
+
+    var peak = 0.0
+    var maxDdRub = 0.0
+    var maxDdPct = 0.0
+    for (eq in equitySeries) {
+        peak = max(peak, eq)
+        val dd = peak - eq
+        if (dd > maxDdRub) maxDdRub = dd
+        if (peak != 0.0) {
+            val pct = dd / abs(peak) * 100.0
+            if (pct > maxDdPct) maxDdPct = pct
+        }
+    }
+
+    val wins = sorted.count { it.pnlRubApprox > 0 }
+    val losses = sorted.count { it.pnlRubApprox < 0 }
+    val winRate = if (sorted.isEmpty()) 0.0 else wins * 100.0 / sorted.size
+    val grossWin = sorted.filter { it.pnlRubApprox > 0 }.sumOf { it.pnlRubApprox }
+    val grossLoss = sorted.filter { it.pnlRubApprox < 0 }.sumOf { -it.pnlRubApprox }
+    val profitFactor = if (grossLoss > 0) grossWin / grossLoss else null
+    val winRubList = sorted.mapNotNull { if (it.pnlRubApprox > 0) it.pnlRubApprox else null }
+    val lossRubList = sorted.mapNotNull { if (it.pnlRubApprox < 0) it.pnlRubApprox else null }
+    val avgWin = if (winRubList.isEmpty()) 0.0 else winRubList.average()
+    val avgLoss = if (lossRubList.isEmpty()) 0.0 else lossRubList.average()
+    val largestWin = winRubList.maxOrNull() ?: 0.0
+    val largestLoss = lossRubList.minOrNull() ?: 0.0
+
+    val open = if (includeOpenPosition) base.openPosition else null
+    val unrealized = open?.unrealizedRubApprox ?: 0.0
+    val unrealizedSpread = open?.unrealizedPnlSpread ?: 0.0
+    val totalRub = realizedRub + unrealized
+
+    return base.copy(
+        periodDescription = base.periodDescription + periodSuffix,
+        totalCommissionRub = totalCommission,
+        totalOvernightRub = totalOvernight,
+        closedTrades = sorted,
+        openPosition = open,
+        cumulativeRealizedSpread = realizedSpread,
+        cumulativeRealizedRubApprox = realizedRub,
+        unrealizedRubApprox = unrealized,
+        totalPnlSpread = realizedSpread + unrealizedSpread,
+        totalPnlRubApprox = totalRub,
+        totalReturnPercent = if (base.notionalRub > 0) totalRub / base.notionalRub * 100.0 else 0.0,
+        maxDrawdownRubApprox = maxDdRub,
+        maxDrawdownPercent = maxDdPct,
+        winCount = wins,
+        lossCount = losses,
+        winRate = winRate,
+        profitFactor = profitFactor,
+        avgWinRub = avgWin,
+        avgLossRub = avgLoss,
+        largestWinRub = largestWin,
+        largestLossRub = largestLoss,
+        equityCurveLabels = curveLabels,
+        equityCurveRub = curveEquity,
+        drawdownCurveRub = curveDrawdown,
+    )
+}
+
+/** Метрики для UI «Тест страт.» с учётом переключателя «Без красной зоны». */
+internal fun strategyTestMetricsForDisplay(
+    metrics: PortfolioMetrics?,
+    displayTradeItems: List<StrategyTestTradeItem>,
+    excludeRedZone: Boolean,
+): PortfolioMetrics? {
+    val base = metrics ?: return null
+    if (!excludeRedZone) return base
+    return buildStrategyTestMetricsForClosedTrades(
+        base = base,
+        closedTrades = displayTradeItems.map { it.trade },
+        includeOpenPosition = false,
+    )
 }
 
 internal fun StrategyTestMonthlyReturnSummary.monthlyBarsForDisplay(
