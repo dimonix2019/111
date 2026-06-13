@@ -118,6 +118,8 @@ internal fun MoexScreenTabStrategyTest(
                             .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                         compoundReturns = strategyTestCompoundReturns,
                         onCompoundReturnsChange = { strategyTestCompoundReturns = it },
+                        excludeRedZone = strategyTestExcludeRedZone,
+                        onExcludeRedZoneChange = { strategyTestExcludeRedZone = it },
                         onLeverageChange = { portfolioLeverage = it },
                         onCommissionChange = { portfolioCommissionPercent = it },
                         onEntryThresholdChange = { newEntry ->

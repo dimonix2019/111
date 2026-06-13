@@ -236,4 +236,41 @@ class MoexStrategyTestTradesTest {
         assertEquals(1.0, summary.withoutRedZone.totalReturnPercent, 0.01)
         assertEquals(1.0, summary.withoutRedZone.avgMonthlyReturnPercent, 0.01)
     }
+
+    @Test
+    fun filterStrategyTestTradeItemsExcludingRedZone_dropsHighRiskOnly() {
+        fun trade(exit: String) = StrategyTestTradeItem(
+            trade = PortfolioClosedTrade(
+                direction = ZStrategyPosition.Long,
+                entryDate = "2026-03-01 10:00",
+                exitDate = exit,
+                entrySpreadPercent = 1.0,
+                exitSpreadPercent = 1.1,
+                pnlSpreadPoints = 0.1,
+                grossPnlRubApprox = 100.0,
+                pnlRubApprox = 100.0,
+            ),
+        )
+        val items = listOf(trade("2026-03-05 12:00"), trade("2026-03-10 12:00"))
+        val assessments = listOf(
+            StrategyTestTradeRiskAssessment(
+                flags = listOf(StrategyTestTradeRiskFlag.LongHold),
+                level = StrategyTestTradeRiskLevel.High,
+                score = 4,
+                entryZ = 0.5,
+            ),
+            StrategyTestTradeRiskAssessment(
+                flags = emptyList(),
+                level = StrategyTestTradeRiskLevel.None,
+                score = 0,
+                entryZ = null,
+            ),
+        )
+        val filtered = filterStrategyTestTradeItemsExcludingRedZone(items, assessments)
+        assertEquals(1, filtered.size)
+        assertEquals("2026-03-10 12:00", filtered.single().trade.exitDate)
+        val summary = buildStrategyTestMonthlyReturnSummary(items, 100_000.0, assessments)!!
+        val bars = summary.monthlyBarsForDisplay(excludeRedZone = true, items, assessments)
+        assertEquals(1, bars.single().tradeCount)
+    }
 }

@@ -8,6 +8,39 @@ internal data class StrategyTestTradeItem(
     val sourceLabel: String = "симуляция"
 )
 
+internal fun filterStrategyTestTradeItemsExcludingRedZone(
+    tradeItems: List<StrategyTestTradeItem>,
+    tradeRiskAssessments: List<StrategyTestTradeRiskAssessment>,
+): List<StrategyTestTradeItem> =
+    filterStrategyTestTradeItemsWithRiskExcludingRedZone(tradeItems, tradeRiskAssessments).first
+
+/** Пары сделка+риск без красной зоны (индексы совпадают). */
+internal fun filterStrategyTestTradeItemsWithRiskExcludingRedZone(
+    tradeItems: List<StrategyTestTradeItem>,
+    tradeRiskAssessments: List<StrategyTestTradeRiskAssessment>,
+): Pair<List<StrategyTestTradeItem>, List<StrategyTestTradeRiskAssessment>> {
+    val items = mutableListOf<StrategyTestTradeItem>()
+    val risks = mutableListOf<StrategyTestTradeRiskAssessment>()
+    tradeItems.forEachIndexed { index, item ->
+        val risk = tradeRiskAssessments.getOrNull(index)
+        if (risk != null && isOpenTradeRedRiskZone(risk)) return@forEachIndexed
+        items += item
+        if (risk != null) risks += risk
+    }
+    return items to risks
+}
+
+internal fun StrategyTestMonthlyReturnSummary.monthlyBarsForDisplay(
+    excludeRedZone: Boolean,
+    tradeItems: List<StrategyTestTradeItem>,
+    tradeRiskAssessments: List<StrategyTestTradeRiskAssessment>,
+): List<StrategyTestMonthlyReturnBar> {
+    if (!excludeRedZone) return monthlyBars
+    val safeTrades = filterStrategyTestTradeItemsExcludingRedZone(tradeItems, tradeRiskAssessments)
+        .map { it.trade }
+    return buildStrategyTestMonthlyReturnBars(safeTrades, notionalRub)
+}
+
 /** Сделки, попадающие в окно Z-графика (не весь 255д список). */
 internal fun filterStrategyTestTradesForChart(
     chartPoints: List<DataPoint>,
@@ -206,12 +239,23 @@ internal fun buildStrategyTestMonthlyReturnSummary(
     )
 }
 
-internal fun formatStrategyTestMonthlyReturnSubtitle(summary: StrategyTestMonthlyReturnSummary): String =
+internal fun formatStrategyTestMonthlyReturnSubtitle(
+    summary: StrategyTestMonthlyReturnSummary,
+    excludeRedZone: Boolean = false,
+): String =
     buildString {
-        append("ср. ")
-        append(formatPercentSigned(summary.allTrades.avgMonthlyReturnPercent))
-        append("/мес · без красной: ")
-        append(formatPercentSigned(summary.withoutRedZone.avgMonthlyReturnPercent))
+        if (excludeRedZone && summary.redZoneTradeCount > 0) {
+            append("без красной: ")
+            append(formatPercentSigned(summary.withoutRedZone.avgMonthlyReturnPercent))
+            append("/мес · всего ")
+            append(formatPercentSigned(summary.allTrades.avgMonthlyReturnPercent))
+            append("/мес")
+        } else {
+            append("ср. ")
+            append(formatPercentSigned(summary.allTrades.avgMonthlyReturnPercent))
+            append("/мес · без красной: ")
+            append(formatPercentSigned(summary.withoutRedZone.avgMonthlyReturnPercent))
+        }
     }
 
 /** Столбцы таблицы сделок на вкладке «Тест страт.». */

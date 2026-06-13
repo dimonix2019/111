@@ -23,6 +23,8 @@ internal class MoexScreenState(val context: Context) {
     var confirmedPortfolioMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var confirmedPortfolioTableRows by mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList())
     var strategyTestCompoundReturns by mutableStateOf(false)
+    /** Скрыть сделки в красной зоне риска (≥4 балла) на графике и в таблицах. */
+    var strategyTestExcludeRedZone by mutableStateOf(false)
     var portfolioLoading by mutableStateOf(false)
     var portfolioError by mutableStateOf<String?>(null)
     var portfolioLookbackDays by mutableStateOf(loadPortfolioLookbackDays(context))

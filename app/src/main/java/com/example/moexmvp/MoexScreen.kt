@@ -111,20 +111,36 @@ internal fun MoexScreen() {
             screen.strategyTestPortfolioMetrics?.closedTrades.orEmpty()
         )
     }
+    val strategyTestTradeItemsForDisplay = remember(
+        strategyTestTradeItems,
+        screen.strategyTestTradeRiskAssessments,
+        screen.strategyTestExcludeRedZone,
+    ) {
+        if (!screen.strategyTestExcludeRedZone) {
+            strategyTestTradeItems
+        } else {
+            filterStrategyTestTradeItemsExcludingRedZone(
+                strategyTestTradeItems,
+                screen.strategyTestTradeRiskAssessments,
+            )
+        }
+    }
     val strategyTestChartTradeSegmentsForDisplay = remember(
         strategyTestM15ChartPoints,
         strategyTestZScoreCandles,
-        strategyTestTradeItems,
+        strategyTestTradeItemsForDisplay,
         screen.strategyTestPortfolioMetrics?.openPosition,
+        screen.strategyTestExcludeRedZone,
     ) {
         if (strategyTestM15ChartPoints.size < 2) {
             emptyList()
         } else {
             buildTradingViewTradeSegmentsFromStrategyTest(
-                tradeItems = strategyTestTradeItems,
+                tradeItems = strategyTestTradeItemsForDisplay,
                 displayPoints = strategyTestM15ChartPoints,
                 candles = strategyTestZScoreCandles,
-                openPosition = screen.strategyTestPortfolioMetrics?.openPosition,
+                openPosition = if (screen.strategyTestExcludeRedZone) null
+                else screen.strategyTestPortfolioMetrics?.openPosition,
             )
         }
     }
@@ -132,19 +148,23 @@ internal fun MoexScreen() {
     val strategyTestChartMarkersForDisplay = remember(
         strategyTestM15SimPoints,
         strategyTestM15ChartPoints,
-        strategyTestTradeItems,
+        strategyTestTradeItemsForDisplay,
         screen.strategyTestPortfolioMetrics?.openPosition,
         screen.strategyTestChartMarkers,
+        screen.strategyTestExcludeRedZone,
     ) {
         if (strategyTestM15ChartPoints.size < 2) {
             emptyList()
         } else {
             val sourceMarkers = when {
-                strategyTestTradeItems.isNotEmpty() || screen.strategyTestPortfolioMetrics?.openPosition != null ->
+                strategyTestTradeItemsForDisplay.isNotEmpty() ||
+                    (!screen.strategyTestExcludeRedZone &&
+                        screen.strategyTestPortfolioMetrics?.openPosition != null) ->
                     buildZScoreMarkersFromStrategyTestTrades(
                         points = strategyTestM15SimPoints,
-                        tradeItems = strategyTestTradeItems,
-                        openPosition = screen.strategyTestPortfolioMetrics?.openPosition,
+                        tradeItems = strategyTestTradeItemsForDisplay,
+                        openPosition = if (screen.strategyTestExcludeRedZone) null
+                        else screen.strategyTestPortfolioMetrics?.openPosition,
                     )
                 screen.strategyTestChartMarkers.isNotEmpty() ->
                     screen.strategyTestChartMarkers
