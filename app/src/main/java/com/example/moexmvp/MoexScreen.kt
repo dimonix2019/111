@@ -128,6 +128,39 @@ internal fun MoexScreen() {
             )
         }
     }
+    /** Маркеры как на «Рынок»: ChartPointMarker + remap на downsample-ряд графика. */
+    val strategyTestChartMarkersForDisplay = remember(
+        strategyTestM15SimPoints,
+        strategyTestM15ChartPoints,
+        strategyTestTradeItems,
+        screen.strategyTestPortfolioMetrics?.openPosition,
+        screen.strategyTestChartMarkers,
+    ) {
+        if (strategyTestM15ChartPoints.size < 2) {
+            emptyList()
+        } else {
+            val sourceMarkers = when {
+                screen.strategyTestChartMarkers.isNotEmpty() ->
+                    screen.strategyTestChartMarkers
+                strategyTestTradeItems.isNotEmpty() || screen.strategyTestPortfolioMetrics?.openPosition != null ->
+                    buildZScoreMarkersFromStrategyTestTrades(
+                        points = strategyTestM15SimPoints,
+                        tradeItems = strategyTestTradeItems,
+                        openPosition = screen.strategyTestPortfolioMetrics?.openPosition,
+                    )
+                else -> emptyList()
+            }
+            if (sourceMarkers.isEmpty()) {
+                emptyList()
+            } else {
+                remapChartMarkersToDisplaySeries(
+                    sourcePoints = strategyTestM15SimPoints,
+                    displayPoints = strategyTestM15ChartPoints,
+                    markers = sourceMarkers,
+                )
+            }
+        }
+    }
     val marketsChartThresholds = remember(
         screen.realTradeEntryThreshold,
         screen.realTradeExitThreshold
@@ -221,6 +254,7 @@ internal fun MoexScreen() {
                 strategyTestZScoreCandles = strategyTestZScoreCandles,
                 strategyTestChartThresholds = strategyTestChartThresholds,
                 strategyTestChartTradeSegments = strategyTestChartTradeSegmentsForDisplay,
+                strategyTestChartMarkers = strategyTestChartMarkersForDisplay,
                 strategyTestOpenPosition = screen.strategyTestPortfolioMetrics?.openPosition,
                 strategyTestZInitialWindow = strategyTestZInitialWindow
             )

@@ -12,6 +12,7 @@ internal suspend fun MoexScreenState.storeMarketsM15(points: List<DataPoint>) {
     withContext(Dispatchers.Main.immediate) {
         marketsM15SessionCache = points
         marketsM15DataEpoch++
+        bumpMarketsLoadedAtFromM15(points)
     }
 }
 

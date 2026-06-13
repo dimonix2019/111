@@ -45,7 +45,7 @@ internal fun StrategyTestTabContent(
     zScoreCandles: List<CandlePoint> = emptyList(),
     chartThresholds: DynamicThresholds? = null,
     chartTradeSegments: List<TradingViewTradeSegment> = emptyList(),
-    openPosition: PortfolioOpenPosition? = null,
+    chartPointMarkers: List<ChartPointMarker> = emptyList(),
     zInitialWindow: Pair<Float, Float> = 1f to 0f,
     durationSummary: StrategyTestDurationSummary? = null,
     monthlyReturnSummary: StrategyTestMonthlyReturnSummary? = null,
@@ -115,13 +115,10 @@ internal fun StrategyTestTabContent(
                 displayPoints = m15ChartPoints,
                 chartHeightDp = 320,
                 referenceLines = zReferenceLines,
-                pointMarkers = emptyList(),
+                pointMarkers = chartPointMarkers,
                 tradeSegments = chartTradeSegments,
-                strategyTestTradeItems = tradeItems,
-                openPosition = openPosition,
                 initialWindowWidth = zInitialWindow.first,
                 initialWindowStart = zInitialWindow.second,
-                areaFillColor = STRATEGY_TEST_Z_CHART_AREA_FILL_HEX,
             )
             metrics?.let { m ->
                 if (m.equityCurveRub.isNotEmpty() && m.drawdownCurveRub.isNotEmpty()) {
