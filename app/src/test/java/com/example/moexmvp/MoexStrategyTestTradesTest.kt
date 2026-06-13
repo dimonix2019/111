@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MoexStrategyTestTradesTest {
@@ -124,6 +125,50 @@ class MoexStrategyTestTradesTest {
         assertEquals(150.0, summary.short.totalPnlRub, 0.01)
         assertEquals(-200.0, summary.long.totalPnlRub, 0.01)
         assertEquals("< 1 дн.", summary.detailBuckets.first().title)
+    }
+
+    @Test
+    fun buildStrategyTestMonthlyReturnSummary_buildsMonthlyBars() {
+        fun trade(exit: String, pnl: Double) = PortfolioClosedTrade(
+            direction = ZStrategyPosition.Long,
+            entryDate = exit.replace(Regex("(\\d{2}:\\d{2})$"), "10:00"),
+            exitDate = exit,
+            entrySpreadPercent = 1.0,
+            exitSpreadPercent = 1.1,
+            pnlSpreadPoints = 0.1,
+            grossPnlRubApprox = pnl,
+            pnlRubApprox = pnl,
+        )
+        val items = buildStrategyTestTradeListFromSimulation(
+            listOf(
+                trade("2026-01-15 12:00", 1000.0),
+                trade("2026-01-20 12:00", 500.0),
+                trade("2026-02-10 12:00", -300.0),
+            ),
+        )
+        val summary = buildStrategyTestMonthlyReturnSummary(items, notionalRub = 100_000.0, emptyList())!!
+        assertEquals(2, summary.monthlyBars.size)
+        assertEquals("01.26", summary.monthlyBars[0].label)
+        assertEquals("02.26", summary.monthlyBars[1].label)
+        assertEquals(1.5, summary.monthlyBars[0].returnPercent, 0.01)
+        assertEquals(-0.3, summary.monthlyBars[1].returnPercent, 0.01)
+        assertEquals(2, summary.monthlyBars[0].tradeCount)
+        assertEquals(1500.0, summary.monthlyBars[0].pnlRub, 0.01)
+    }
+
+    @Test
+    fun buildNiceRubAxis_roundsToReadableSteps() {
+        val (_, axisMax, ticks) = buildNiceRubAxis(0.0, 73_000.0, tickCount = 5)
+        assertTrue(axisMax >= 73_000.0)
+        assertTrue(ticks.size >= 2)
+        assertEquals(0.0, ticks.first(), 0.01)
+    }
+
+    @Test
+    fun formatBarPercentLabel_showsIntegerPercentAboveBar() {
+        assertEquals("40%", formatBarPercentLabel(40.0))
+        assertEquals("-3%", formatBarPercentLabel(-3.2))
+        assertEquals("1%", formatBarPercentLabel(1.48))
     }
 
     @Test
