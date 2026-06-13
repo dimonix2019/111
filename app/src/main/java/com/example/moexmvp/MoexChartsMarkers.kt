@@ -288,9 +288,10 @@ internal fun strategyTestTradeChartBadge(listIndex: Int, direction: ZStrategyPos
 /** Маркеры входа/выхода симуляции «Тест страт.»; badge как на «Рынок» (1А / 2Р). */
 internal fun buildZScoreMarkersFromStrategyTestTrades(
     points: List<DataPoint>,
-    tradeItems: List<StrategyTestTradeItem>
+    tradeItems: List<StrategyTestTradeItem>,
+    openPosition: PortfolioOpenPosition? = null,
 ): List<ChartPointMarker> {
-    if (points.isEmpty() || tradeItems.isEmpty()) return emptyList()
+    if (points.isEmpty()) return emptyList()
     val markers = mutableListOf<ChartPointMarker>()
     tradeItems.forEachIndexed { listIndex, item ->
         val badge = strategyTestTradeChartBadge(listIndex, item.trade.direction)
@@ -320,6 +321,25 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
                 shape = ChartMarkerShape.Diamond,
                 badgeText = badge,
                 barDateLabel = t.exitDate,
+            )
+        }
+    }
+    openPosition?.let { open ->
+        val badge = strategyTestTradeChartBadge(tradeItems.size, open.direction)
+        val (enterShape, enterColor) = when (open.direction) {
+            ZStrategyPosition.Long -> ChartMarkerShape.TriangleUp to Color(0xFF69F0AE)
+            ZStrategyPosition.Short -> ChartMarkerShape.TriangleDown to Color(0xFFFF8A80)
+            ZStrategyPosition.Flat -> ChartMarkerShape.Circle to Color(0xFFB0BEC5)
+        }
+        indexForNearestChartBar(points, open.entryDate)?.let { idx ->
+            markers += ChartPointMarker(
+                index = idx,
+                value = points[idx].zScore,
+                color = enterColor,
+                label = "Вх $badge",
+                shape = enterShape,
+                badgeText = badge,
+                barDateLabel = open.entryDate,
             )
         }
     }

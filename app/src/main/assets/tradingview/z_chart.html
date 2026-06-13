@@ -32,26 +32,19 @@
       border: '#2a2e39',
       crosshair: '#758696',
       crosshairLabel: '#2962FF',
-      /** Текущий Z на шкале и пунктирная price line — синие, не сливаются с порогами (зелёный exit). */
       currentZ: '#60A5FA',
       up: '#089981',
       down: '#f23645',
       selected: '#FACC15',
-      /** Заливка под Z (Тест страт.) */
-      areaFillTop: 'rgba(21, 37, 94, 0.45)',
-      areaFillBottom: 'rgba(21, 37, 94, 0.02)',
     };
     const MSK = 'Europe/Moscow';
     const RIGHT_OFFSET_BARS = 18;
-    const BAR_15M_SEC = 15 * 60;
-    const MARKER_NEAR_SEC = BAR_15M_SEC / 2;
     const MARKER_HIT_RADIUS_PX = 48;
     const MARKER_HIT_RADIUS_X_PX = 44;
     const MARKER_ENTRY_HIT_RADIUS_X_PX = 56;
 
     let chart = null;
     let series = null;
-    let areaSeries = null;
     let highlightSeries = null;
     let markersPlugin = null;
     let priceLines = [];
@@ -65,7 +58,7 @@
     let selectedMarkerKey = null;
     let clickBound = false;
     let viewportBound = false;
-    let refreshMarkersRaf = 0;
+    let refreshMarkersTimer = 0;
 
     function showError(msg) {
       const el = document.getElementById('err');
@@ -119,10 +112,9 @@
       return { x, y: y + yOffset };
     }
 
-    function findNearestMarkerAtPoint(point, timeSec) {
+    function findNearestMarkerAtPoint(point) {
       if (!lastMarkers.length) return null;
       let bestPixel = null;
-      let bestTime = null;
 
       for (const m of lastMarkers) {
         const pos = markerScreenPosition(m);
@@ -147,32 +139,9 @@
         if (pixelHit && (!bestPixel || pixelScore < bestPixel.score)) {
           bestPixel = { marker: m, score: pixelScore };
         }
-
-        if (timeSec != null) {
-          const delta = Math.abs(m.time - timeSec);
-          if (delta <= MARKER_NEAR_SEC && (!bestTime || delta < bestTime.score)) {
-            bestTime = { marker: m, score: delta };
-          }
-        }
       }
 
-      if (bestPixel && bestTime) {
-        return bestPixel.score <= bestTime.score * 4 ? bestPixel.marker : bestTime.marker;
-      }
-      return bestPixel?.marker ?? bestTime?.marker ?? null;
-    }
-
-    function crosshairTimeSec(param) {
-      if (param.point) {
-        const fromX = chart.timeScale().coordinateToTime(param.point.x);
-        if (typeof fromX === 'number' && Number.isFinite(fromX)) return fromX;
-      }
-      const t = param.time;
-      if (typeof t === 'number' && Number.isFinite(t)) return t;
-      if (!param.point) return null;
-      const fromX = chart.timeScale().coordinateToTime(param.point.x);
-      if (typeof fromX === 'number' && Number.isFinite(fromX)) return fromX;
-      return null;
+      return bestPixel?.marker ?? null;
     }
 
     function buildMarkerRenderData(markers, selectedKey) {
@@ -244,13 +213,18 @@
     }
 
     function scheduleRefreshMarkers() {
-      if (refreshMarkersRaf) return;
-      refreshMarkersRaf = requestAnimationFrame(() => {
-        refreshMarkersRaf = 0;
-        // setMarkers() теряет маркеры после pinch-zoom — только полный recreate.
-        refreshMarkers(true);
-        updateHighlightLine();
-      });
+      if (refreshMarkersTimer) {
+        clearTimeout(refreshMarkersTimer);
+      }
+      refreshMarkersTimer = setTimeout(() => {
+        refreshMarkersTimer = 0;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            refreshMarkers();
+            updateHighlightLine();
+          });
+        });
+      }, 60);
     }
 
     function bindViewportMarkerRefresh() {
@@ -263,7 +237,7 @@
       }
     }
 
-    function refreshMarkers(forceRecreate) {
+    function refreshMarkers() {
       if (!series) return;
       const markerData = buildMarkerRenderData(
         snapMarkersToCandles(lastMarkers),
@@ -278,10 +252,6 @@
       }
       if (!LightweightCharts.createSeriesMarkers) return;
       try {
-        if (!forceRecreate && markersPlugin && typeof markersPlugin.setMarkers === 'function') {
-          markersPlugin.setMarkers(markerData);
-          return;
-        }
         if (markersPlugin) {
           try { markersPlugin.detach(); } catch (e) {}
           markersPlugin = null;
@@ -302,8 +272,7 @@
         applyMarkerSelection(null);
         return;
       }
-      const timeSec = crosshairTimeSec(param);
-      const marker = findNearestMarkerAtPoint(param.point, timeSec);
+      const marker = findNearestMarkerAtPoint(param.point);
       if (!marker) {
         applyMarkerSelection(null);
         return;
@@ -384,17 +353,6 @@
         },
       });
 
-      areaSeries = chart.addSeries(LightweightCharts.AreaSeries, {
-        lineColor: 'rgba(96, 165, 250, 0.35)',
-        topColor: TV.areaFillTop,
-        bottomColor: TV.areaFillBottom,
-        lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false,
-        crosshairMarkerVisible: false,
-      });
-      areaSeries.setData([]);
-
       series = chart.addSeries(LightweightCharts.CandlestickSeries, {
         upColor: TV.up,
         downColor: TV.down,
@@ -442,15 +400,6 @@
         if (c && typeof c.time === 'number') byTime.set(c.time, c);
       }
       return [...byTime.entries()].sort((a, b) => a[0] - b[0]).map((x) => x[1]);
-    }
-
-    function hexToRgba(hex, alpha) {
-      const h = String(hex || '').replace('#', '');
-      if (h.length !== 6) return `rgba(21, 37, 94, ${alpha})`;
-      const r = parseInt(h.slice(0, 2), 16);
-      const g = parseInt(h.slice(2, 4), 16);
-      const b = parseInt(h.slice(4, 6), 16);
-      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
     function applyInitialWindow(n, startFrac, widthFrac) {
@@ -512,20 +461,6 @@
       }
       bindViewportMarkerRefresh();
 
-      if (areaSeries) {
-        if (data.areaFillColor) {
-          const top = data.areaFillColor;
-          areaSeries.applyOptions({
-            topColor: hexToRgba(top, 0.42),
-            bottomColor: hexToRgba(top, 0.04),
-            lineColor: hexToRgba(top, 0.55),
-          });
-          areaSeries.setData(candles.map((c) => ({ time: c.time, value: c.close })));
-        } else {
-          areaSeries.setData([]);
-        }
-      }
-
       for (const pl of priceLines) series.removePriceLine(pl);
       priceLines = [];
       for (const hl of data.hlines || []) {
@@ -552,11 +487,12 @@
       }
       lastPayloadKey = key;
 
-      refreshMarkers(true);
+      refreshMarkers();
       updateHighlightLine();
+      scheduleRefreshMarkers();
+      setTimeout(() => refreshMarkers(), 120);
     }
 
-    /** atob() alone breaks UTF-8 (кириллица «А» → «Ð» на canvas). */
     function parseUtf8Base64Json(b64) {
       const binary = atob(b64);
       const bytes = new Uint8Array(binary.length);
