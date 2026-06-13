@@ -6,7 +6,9 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
+
+RedZoneMode = Literal["off", "always", "losing"]
 
 import numpy as np
 
@@ -53,6 +55,7 @@ class SimConfig:
     leverage: float = 7.0
     commission_pct_per_side: float = 0.04
     force_red_zone_exit: bool = False
+    red_zone_mode: RedZoneMode = "off"
     # Z
     entry_z: float = 0.7
     exit_z: float = 0.5
@@ -220,18 +223,34 @@ def precompute_spread_percentiles(
     return pcts, meds
 
 
-def run_strategy_sim(bars: List[Bar], cfg: SimConfig) -> SimResult:
+def _effective_red_zone_mode(cfg: SimConfig) -> RedZoneMode:
+    if cfg.red_zone_mode != "off":
+        return cfg.red_zone_mode
+    return "always" if cfg.force_red_zone_exit else "off"
+
+
+def run_strategy_sim(
+    bars: List[Bar],
+    cfg: SimConfig,
+    *,
+    precomputed_pcts: Optional[List[Optional[float]]] = None,
+    precomputed_meds: Optional[List[Optional[float]]] = None,
+) -> SimResult:
     if len(bars) < 2:
         return SimResult([], 0.0, 0.0, 0.0, signals=__import__("pandas").DataFrame())
 
+    red_zone_mode = _effective_red_zone_mode(cfg)
     spreads = [b.spread_percent for b in bars]
     timestamps = [b.timestamp for b in bars]
     pct_series: List[Optional[float]]
     med_series: List[Optional[float]]
     if cfg.kind == StrategyKind.PERCENTILE:
-        pct_series, med_series = precompute_spread_percentiles(
-            spreads, timestamps, cfg.lookback_days, cfg.min_bars
-        )
+        if precomputed_pcts is not None and precomputed_meds is not None:
+            pct_series, med_series = precomputed_pcts, precomputed_meds
+        else:
+            pct_series, med_series = precompute_spread_percentiles(
+                spreads, timestamps, cfg.lookback_days, cfg.min_bars
+            )
     else:
         pct_series = [None] * len(bars)
         med_series = [None] * len(bars)
@@ -333,8 +352,11 @@ def run_strategy_sim(bars: List[Bar], cfg: SimConfig) -> SimResult:
         prev_pct, prev_med = pct_series[i - 1], med_series[i - 1]
         cur_pct, cur_med = pct_series[i], med_series[i]
 
-        if position != Position.FLAT and cfg.force_red_zone_exit and red_zone_now(cur):
-            close_pos(cur, "red_zone")
+        if position != Position.FLAT and red_zone_mode != "off" and red_zone_now(cur):
+            if red_zone_mode == "always" or (
+                red_zone_mode == "losing" and mtm_rub(cur) < 0.0
+            ):
+                close_pos(cur, "red_zone")
         elif position == Position.LONG:
             if cfg.kind == StrategyKind.Z:
                 if prev.z_score < -cfg.exit_z and cur.z_score >= -cfg.exit_z:
