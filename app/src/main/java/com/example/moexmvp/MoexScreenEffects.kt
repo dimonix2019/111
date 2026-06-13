@@ -93,6 +93,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             sandboxSpreadAutoExecute = TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)
         }
         hydrateVirtualTradeAndSandboxUi()
+        val networkMonitor = MoexNetworkConnectivityMonitor(context) {
+            scope.launch {
+                refreshAfterConnectivityRestore(reason = "network_available", launchScope = scope)
+            }
+        }
+        networkMonitor.start()
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
@@ -101,7 +107,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                     hydrateVirtualTradeAndSandboxUi()
                     scope.launch {
                         syncSignalJournalFromDisk()
-                        refreshM15TailIfIntradayStale(reason = "on_resume")
+                        refreshAfterConnectivityRestore(reason = "on_resume", launchScope = scope)
                         refreshPortfolioAfterJournalChange(refreshTailIfStale = true)
                         val (t, a) = withContext(Dispatchers.IO) {
                             Pair(
@@ -118,7 +124,10 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            networkMonitor.stop()
+        }
     }
 
     LaunchedEffect(
@@ -421,7 +430,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             return@LaunchedEffect
         }
         if (marketsM15CoversPeriod(period) && marketsM15LoadedPeriod == period) {
-            if (portfolio15mSeriesIntradayStale(marketsM15Source())) {
+            if (portfolio15mSeriesNeedsMoexRefresh(marketsM15Source())) {
                 scope.launch {
                     ensureMarketsM15ForPeriod(period, trackProgress = false)
                 }
@@ -433,7 +442,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             mode = PortfolioM15LoadMode.CACHE_ONLY,
             trackProgress = false,
         )
-        if (portfolio15mSeriesIntradayStale(marketsM15Source())) {
+        if (portfolio15mSeriesNeedsMoexRefresh(marketsM15Source())) {
             scope.launch {
                 ensureMarketsM15ForPeriod(period, trackProgress = false)
             }
@@ -455,7 +464,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             loadPushNotificationLog(context.applicationContext)
         }
     }
-    LaunchedEffect(realtimeEnabled, selectedPeriod, selectedTab, activityResumed, memoryPressureLevel) {
+    LaunchedEffect(realtimeEnabled, selectedTab, activityResumed, memoryPressureLevel) {
         if (!realtimeEnabled || selectedTab != MainTab.Markets || !activityResumed) return@LaunchedEffect
         while (true) {
             val interval = MoexMemoryPressure.autoPollIntervalMs(memoryPressureLevel)
@@ -470,14 +479,19 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             )
         }
     }
-    LaunchedEffect(realtimeEnabled, selectedTab, activityResumed, memoryPressureLevel) {
-        if (!realtimeEnabled || !activityResumed) return@LaunchedEffect
-        if (selectedTab != MainTab.Portfolio && selectedTab != MainTab.Journal) return@LaunchedEffect
-        if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) return@LaunchedEffect
+    /** 15м хвост — даже если realtime на «Рынок» выключен (ночь offline → утро). */
+    LaunchedEffect(selectedTab, activityResumed, memoryPressureLevel) {
+        if (!activityResumed) return@LaunchedEffect
         while (true) {
             delay(PORTFOLIO_M15_INTRADAY_POLL_MS)
-            if (!activityResumed || !realtimeEnabled) continue
+            if (!activityResumed) continue
             if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) continue
+            if (selectedTab != MainTab.Markets &&
+                selectedTab != MainTab.Portfolio &&
+                selectedTab != MainTab.Journal
+            ) {
+                continue
+            }
             refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}")
             if (selectedTab == MainTab.Portfolio && portfolioTabUiBuiltKey != 0L) {
                 refreshPortfolioAfterJournalChange(refreshTailIfStale = false)

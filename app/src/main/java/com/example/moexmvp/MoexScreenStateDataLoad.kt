@@ -147,14 +147,14 @@ internal suspend fun MoexScreenState.ensureMarketsM15ForPeriod(
     if (uiPeriod != marketsZChartPeriod) marketsZChartPeriod = uiPeriod
     if (marketsM15CoversPeriod(uiPeriod) &&
         marketsM15LoadedPeriod == uiPeriod &&
-        !portfolio15mSeriesIntradayStale(marketsM15Source())
+        !portfolio15mSeriesNeedsMoexRefresh(marketsM15Source())
     ) {
         return
     }
     refreshMutex.withLock {
         if (marketsM15CoversPeriod(uiPeriod) &&
             marketsM15LoadedPeriod == uiPeriod &&
-            !portfolio15mSeriesIntradayStale(marketsM15Source())
+            !portfolio15mSeriesNeedsMoexRefresh(marketsM15Source())
         ) {
             return@withLock
         }

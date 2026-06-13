@@ -136,13 +136,17 @@ internal fun MoexScreenTabMarkets(
                     if (!landscapeZChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
                             ?: chartSuccess?.points?.lastOrNull()
+                        val loadedAtLabel = resolveMarketsLoadedAtLabel(
+                            m15Points = marketsM15SourcePoints,
+                            dailyLoadedAt = chartSuccess?.loadedAt,
+                        )
                         MarketsSummaryStrip(
                             z = last?.zScore,
                             spread = last?.spreadPercent,
                             position = zStrategyPosition,
                             signalsToday = dailySignalLimit.sentCount,
                             signalsMax = DAILY_SIGNAL_MAX_PER_DAY,
-                            lastLoadedAt = chartSuccess?.loadedAt ?: "—",
+                            lastLoadedAt = loadedAtLabel ?: "—",
                             dataSource = dataSourceLabel,
                             stale = staleMarkets,
                             onMoexRefresh = {
