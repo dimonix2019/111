@@ -98,6 +98,15 @@ internal fun buildStrategyTestDurationSummary(
     )
 }
 
+/** Один столбец доходности по месяцу выхода сделки. */
+internal data class StrategyTestMonthlyReturnBar(
+    val yearMonth: java.time.YearMonth,
+    val label: String,
+    val returnPercent: Double,
+    val pnlRub: Double,
+    val tradeCount: Int,
+)
+
 /** Срез доходности по закрытым сделкам симуляции. */
 internal data class StrategyTestReturnSlice(
     val tradeCount: Int,
@@ -113,11 +122,43 @@ internal data class StrategyTestMonthlyReturnSummary(
     val allTrades: StrategyTestReturnSlice,
     val withoutRedZone: StrategyTestReturnSlice,
     val redZoneTradeCount: Int,
+    val monthlyBars: List<StrategyTestMonthlyReturnBar>,
 )
 
 private fun yearMonthFromSimExit(exitDate: String, zone: java.time.ZoneId = moexZoneId): java.time.YearMonth? {
     val ms = parseSimTradeExitMillis(exitDate) ?: return null
     return java.time.YearMonth.from(java.time.Instant.ofEpochMilli(ms).atZone(zone))
+}
+
+private val strategyTestMonthBarLabelFormatter =
+    java.time.format.DateTimeFormatter.ofPattern("LLL yy", java.util.Locale.forLanguageTag("ru"))
+
+private fun formatStrategyTestMonthBarLabel(yearMonth: java.time.YearMonth): String {
+    val raw = yearMonth.atDay(1).format(strategyTestMonthBarLabelFormatter)
+    return raw.replaceFirstChar { ch ->
+        if (ch.isLowerCase()) ch.titlecase(java.util.Locale.forLanguageTag("ru")) else ch.toString()
+    }
+}
+
+internal fun buildStrategyTestMonthlyReturnBars(
+    trades: List<PortfolioClosedTrade>,
+    notionalRub: Double,
+): List<StrategyTestMonthlyReturnBar> {
+    if (trades.isEmpty() || notionalRub <= 0.0) return emptyList()
+    return trades
+        .groupBy { yearMonthFromSimExit(it.exitDate) }
+        .mapNotNull { (month, monthTrades) ->
+            month ?: return@mapNotNull null
+            val pnl = monthTrades.sumOf { it.pnlRubApprox }
+            StrategyTestMonthlyReturnBar(
+                yearMonth = month,
+                label = formatStrategyTestMonthBarLabel(month),
+                returnPercent = pnl / notionalRub * 100.0,
+                pnlRub = pnl,
+                tradeCount = monthTrades.size,
+            )
+        }
+        .sortedBy { it.yearMonth }
 }
 
 private fun buildStrategyTestReturnSlice(
@@ -165,6 +206,7 @@ internal fun buildStrategyTestMonthlyReturnSummary(
         allTrades = buildStrategyTestReturnSlice(allTrades, notionalRub),
         withoutRedZone = buildStrategyTestReturnSlice(safeTrades, notionalRub),
         redZoneTradeCount = allTrades.size - safeTrades.size,
+        monthlyBars = buildStrategyTestMonthlyReturnBars(allTrades, notionalRub),
     )
 }
 

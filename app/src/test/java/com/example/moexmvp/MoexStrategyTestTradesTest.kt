@@ -127,6 +127,33 @@ class MoexStrategyTestTradesTest {
     }
 
     @Test
+    fun buildStrategyTestMonthlyReturnSummary_buildsMonthlyBars() {
+        fun trade(exit: String, pnl: Double) = PortfolioClosedTrade(
+            direction = ZStrategyPosition.Long,
+            entryDate = exit.replace(Regex("(\\d{2}:\\d{2})$"), "10:00"),
+            exitDate = exit,
+            entrySpreadPercent = 1.0,
+            exitSpreadPercent = 1.1,
+            pnlSpreadPoints = 0.1,
+            grossPnlRubApprox = pnl,
+            pnlRubApprox = pnl,
+        )
+        val items = buildStrategyTestTradeListFromSimulation(
+            listOf(
+                trade("2026-01-15 12:00", 1000.0),
+                trade("2026-01-20 12:00", 500.0),
+                trade("2026-02-10 12:00", -300.0),
+            ),
+        )
+        val summary = buildStrategyTestMonthlyReturnSummary(items, notionalRub = 100_000.0, emptyList())!!
+        assertEquals(2, summary.monthlyBars.size)
+        assertEquals(1.5, summary.monthlyBars[0].returnPercent, 0.01)
+        assertEquals(-0.3, summary.monthlyBars[1].returnPercent, 0.01)
+        assertEquals(2, summary.monthlyBars[0].tradeCount)
+        assertEquals(1500.0, summary.monthlyBars[0].pnlRub, 0.01)
+    }
+
+    @Test
     fun buildStrategyTestMonthlyReturnSummary_averagesMonthlyReturns() {
         fun trade(exit: String, pnl: Double) = PortfolioClosedTrade(
             direction = ZStrategyPosition.Long,
