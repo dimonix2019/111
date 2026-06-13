@@ -3,6 +3,7 @@ package com.example.moexmvp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -109,18 +110,14 @@ internal fun StrategyTestTabContent(
             val zReferenceLines = remember(chartThresholds) {
                 buildZScoreReferenceLines(chartThresholds, desktopStyle = true)
             }
-            TradingViewZScoreChartCard(
-                title = "Z-score · 15м (TradingView · все сделки симуляции)",
+            StrategyTestZScoreCanvasChart(
                 candles = zScoreCandles,
-                displayPoints = m15ChartPoints,
-                chartHeightDp = 320,
-                referenceLines = zReferenceLines,
+                chartPoints = m15ChartPoints,
                 pointMarkers = chartPointMarkers,
-                tradeSegments = chartTradeSegments,
-                strategyTestTradeItems = tradeItems,
-                openPosition = metrics?.openPosition,
-                initialWindowWidth = zInitialWindow.first,
-                initialWindowStart = zInitialWindow.second,
+                referenceLines = zReferenceLines,
+                metrics = metrics,
+                initialWindow = zInitialWindow,
+                chartHeightDp = 320,
             )
             metrics?.let { m ->
                 if (m.equityCurveRub.isNotEmpty() && m.drawdownCurveRub.isNotEmpty()) {
@@ -596,5 +593,45 @@ internal fun StrategyExitModeButton(
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
     ) {
         Text(text, fontSize = 10.sp, maxLines = 1)
+    }
+}
+
+/** Z-график «Тест страт.» на Compose Canvas — маркеры сделок рисуются напрямую, без WebView. */
+@Composable
+internal fun StrategyTestZScoreCanvasChart(
+    candles: List<CandlePoint>,
+    chartPoints: List<DataPoint>,
+    pointMarkers: List<ChartPointMarker>,
+    referenceLines: List<ChartReferenceLine>,
+    metrics: PortfolioMetrics?,
+    initialWindow: Pair<Float, Float>,
+    chartHeightDp: Int = 320,
+    landscapeMinimal: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier) {
+        CandlestickChartCard(
+            title = if (landscapeMinimal) "" else "Z-score · 15м (все сделки симуляции)",
+            candles = candles,
+            chartHeightDp = chartHeightDp,
+            referenceLines = referenceLines,
+            pointMarkers = pointMarkers,
+            showLegend = !landscapeMinimal,
+            showMinMax = !landscapeMinimal,
+            enableZoomPan = true,
+            markerScale = 1.35f,
+            showZoomHint = !landscapeMinimal,
+            rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
+            initialWindowWidth = initialWindow.first,
+            initialWindowStart = initialWindow.second,
+            tradeTapHintFormatter = { idx ->
+                formatZStrategyTradeTapHint(idx, chartPoints, metrics)
+            },
+            landscapeMinimal = landscapeMinimal,
+            useDesktopStyle = true,
+            displayMode = ChartDisplayMode.Candles,
+            showPlotlyToolbar = true,
+            compactLayout = landscapeMinimal,
+        )
     }
 }
