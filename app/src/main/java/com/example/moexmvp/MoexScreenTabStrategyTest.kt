@@ -45,6 +45,8 @@ internal fun MoexScreenTabStrategyTest(
                 referenceLines = zReferenceLines,
                 pointMarkers = strategyTestChartMarkers,
                 tradeSegments = strategyTestChartTradeSegments,
+                strategyTestTradeItems = strategyTestTradeItems,
+                openPosition = strategyTestOpenPosition,
                 initialWindowWidth = strategyTestZInitialWindow.first,
                 initialWindowStart = strategyTestZInitialWindow.second,
                 emptyContent = {

@@ -140,14 +140,14 @@ internal fun MoexScreen() {
             emptyList()
         } else {
             val sourceMarkers = when {
-                screen.strategyTestChartMarkers.isNotEmpty() ->
-                    screen.strategyTestChartMarkers
                 strategyTestTradeItems.isNotEmpty() || screen.strategyTestPortfolioMetrics?.openPosition != null ->
                     buildZScoreMarkersFromStrategyTestTrades(
                         points = strategyTestM15SimPoints,
                         tradeItems = strategyTestTradeItems,
                         openPosition = screen.strategyTestPortfolioMetrics?.openPosition,
                     )
+                screen.strategyTestChartMarkers.isNotEmpty() ->
+                    screen.strategyTestChartMarkers
                 else -> emptyList()
             }
             if (sourceMarkers.isEmpty()) {

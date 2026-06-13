@@ -117,6 +117,8 @@ internal fun StrategyTestTabContent(
                 referenceLines = zReferenceLines,
                 pointMarkers = chartPointMarkers,
                 tradeSegments = chartTradeSegments,
+                strategyTestTradeItems = tradeItems,
+                openPosition = metrics?.openPosition,
                 initialWindowWidth = zInitialWindow.first,
                 initialWindowStart = zInitialWindow.second,
             )
