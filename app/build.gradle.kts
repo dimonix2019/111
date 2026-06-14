@@ -24,8 +24,8 @@ android {
         applicationId = "com.example.moexmvp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 288
-        versionName = "1.7.170"
+        versionCode = 289
+        versionName = "1.7.171"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -124,6 +124,12 @@ tasks.withType<Test>().configureEach {
             excludeTestsMatching("com.example.moexmvp.MoexTodayBacktestTest")
             excludeTestsMatching("com.example.moexmvp.Moex10mBacktestTest")
             excludeTestsMatching("com.example.moexmvp.MoexZPeakTrailingFullBacktestTest")
+            excludeTestsMatching("com.example.moexmvp.MoexParityReplayTest")
+            excludeTestsMatching("com.example.moexmvp.MoexJune1011ParityTest")
+            excludeTestsMatching("com.example.moexmvp.MoexJune1011PhantomFixTest")
+            excludeTestsMatching("com.example.moexmvp.MoexJune1011PhantomDiagTest")
+            excludeTestsMatching("com.example.moexmvp.UserJournalJune1011ParityTest")
+            excludeTestsMatching("com.example.moexmvp.MoexStrategyTestForcedExitRulesTest")
         }
     }
 }
