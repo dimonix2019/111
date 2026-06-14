@@ -33,7 +33,7 @@ private val bgSignalFallbackThresholds = DynamicThresholds(
 
 class SignalForegroundService : Service() {
     private val scope = CoroutineScope(Dispatchers.Default + Job())
-    private var workerStarted = false
+    private var monitorJob: kotlinx.coroutines.Job? = null
     private var ticksSinceAppUpdateCheck = 0
     private var monitorTickCount = 0
 
@@ -54,23 +54,37 @@ class SignalForegroundService : Service() {
         saveSignalMonitorEnabled(this, true)
         MoexDiagnostics.log(applicationContext, "monitor", "service_start foreground")
         startForeground(SIGNAL_MONITOR_NOTIFICATION_ID, buildForegroundNotification())
-        if (!workerStarted) {
-            workerStarted = true
-            scope.launch {
-                while (isActive) {
-                    runCatching { performSignalMonitorTick() }
-                        .onFailure { e ->
-                            MoexDiagnostics.logError(applicationContext, "monitor", e, "tick failed")
-                        }
-                    delay(SIGNAL_MONITOR_INTERVAL_MS)
-                }
+        scheduleMonitorWatchdog(applicationContext)
+        ensureMonitorWorkerRunning()
+        return START_STICKY
+    }
+
+    private fun ensureMonitorWorkerRunning() {
+        if (monitorJob?.isActive == true) return
+        monitorJob = scope.launch {
+            while (isActive) {
+                runCatching { performSignalMonitorTick() }
+                    .onFailure { e ->
+                        MoexDiagnostics.logError(applicationContext, "monitor", e, "tick failed")
+                    }
+                delay(SIGNAL_MONITOR_INTERVAL_MS)
             }
         }
-        return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        MoexDiagnostics.log(applicationContext, "monitor", "onTaskRemoved")
+        if (isBackgroundMonitorEnabled(applicationContext)) {
+            scheduleMonitorWatchdog(applicationContext)
+            start(applicationContext)
+        }
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
         MoexDiagnostics.log(applicationContext, "monitor", "service_onDestroy")
+        monitorJob?.cancel()
+        monitorJob = null
         scope.cancel()
         super.onDestroy()
     }
@@ -85,10 +99,16 @@ class SignalForegroundService : Service() {
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val status = MoexWatchdog.readStatus(this)
+        val subtitle = when {
+            !status.monitorEnabled -> "Монитор выключен"
+            status.serviceLastTickMs <= 0L -> "Ожидание первого тика…"
+            else -> "Тик ${formatWatchdogAgeSec(status.serviceAgeSec)} назад · #${status.serviceTickCount}"
+        }
         return NotificationCompat.Builder(this, SIGNAL_MONITOR_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("MOEX signal monitor")
-            .setContentText("Фоновый мониторинг сигналов активен")
+            .setContentText(subtitle)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .build()
@@ -96,6 +116,8 @@ class SignalForegroundService : Service() {
 
     private suspend fun performSignalMonitorTick() = withContext(Dispatchers.IO) {
         monitorTickCount++
+        MoexWatchdog.recordServiceTick(applicationContext)
+        updateForegroundNotificationIfNeeded()
         ticksSinceAppUpdateCheck++
         if (ticksSinceAppUpdateCheck * SIGNAL_MONITOR_INTERVAL_MS >= APP_UPDATE_CHECK_INTERVAL_MS) {
             ticksSinceAppUpdateCheck = 0
@@ -347,6 +369,13 @@ class SignalForegroundService : Service() {
         saveStrategyPosition(applicationContext, currentPosition)
     }
 
+    private fun updateForegroundNotificationIfNeeded() {
+        if (monitorTickCount <= 3 || monitorTickCount % 4 == 0) {
+            val manager = getSystemService(NotificationManager::class.java) ?: return
+            manager.notify(SIGNAL_MONITOR_NOTIFICATION_ID, buildForegroundNotification())
+        }
+    }
+
     companion object {
         private const val MONITOR_PREFS_NAME = "moex_alert_prefs"
         private const val PREF_BACKGROUND_SIGNAL_ENABLED = "background_signal_enabled"
@@ -363,6 +392,7 @@ class SignalForegroundService : Service() {
             } else {
                 context.startService(intent)
             }
+            scheduleMonitorWatchdog(context.applicationContext)
         }
 
         fun stop(context: Context) {
@@ -372,7 +402,7 @@ class SignalForegroundService : Service() {
             context.startService(intent)
         }
 
-        fun isBackgroundMonitorEnabled(context: Context): Boolean {
+        internal fun isBackgroundMonitorEnabled(context: Context): Boolean {
             return context.getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_BACKGROUND_SIGNAL_ENABLED, true)
         }

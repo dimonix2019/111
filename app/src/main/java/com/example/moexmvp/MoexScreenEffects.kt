@@ -104,6 +104,9 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                 Lifecycle.Event.ON_RESUME -> {
                     activityResumed = true
                     memoryPressureLevel = 0
+                    MoexWatchdog.recordUiPing(context)
+                    MoexWatchdog.performMonitorWatchdogCheck(context, "on_resume")
+                    watchdogStatus = MoexWatchdog.readStatus(context)
                     hydrateVirtualTradeAndSandboxUi()
                     scope.launch {
                         syncSignalJournalFromDisk()
@@ -127,6 +130,16 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             networkMonitor.stop()
+        }
+    }
+
+    LaunchedEffect(activityResumed, bgMonitorToggleEpoch) {
+        if (!activityResumed) return@LaunchedEffect
+        while (activityResumed) {
+            MoexWatchdog.recordUiPing(context)
+            MoexWatchdog.performMonitorWatchdogCheck(context, "ui_poll")
+            watchdogStatus = MoexWatchdog.readStatus(context)
+            delay(WATCHDOG_UI_POLL_MS)
         }
     }
 

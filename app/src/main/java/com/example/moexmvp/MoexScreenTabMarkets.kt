@@ -308,8 +308,10 @@ internal fun MoexScreenTabMarkets(
                                             SignalForegroundService.stop(context)
                                         } else {
                                             SignalForegroundService.start(context)
+                                            scheduleMonitorWatchdog(context)
                                         }
                                         bgMonitorToggleEpoch++
+                                        watchdogStatus = MoexWatchdog.readStatus(context)
                                     },
                                     modifier = Modifier.weight(1f),
                                     colors = ButtonDefaults.buttonColors(
@@ -332,6 +334,12 @@ internal fun MoexScreenTabMarkets(
                                     }
                                 }
                             }
+                        }
+                        item {
+                            MoexWatchdogStatusCard(
+                                status = watchdogStatus,
+                                onRefresh = { refreshWatchdogStatus(screen) },
+                            )
                         }
                         item {
                             RealtimeControls(
