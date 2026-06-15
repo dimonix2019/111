@@ -37,6 +37,7 @@ class SignalForegroundService : Service() {
     private var ticksSinceAppUpdateCheck = 0
     private var monitorTickCount = 0
     private var lastForegroundZScore: Double? = null
+    private var lastForegroundOpenTrade: SignalMonitorOpenTradeSnapshot? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -106,11 +107,20 @@ class SignalForegroundService : Service() {
             serviceLastTickMs = status.serviceLastTickMs,
             serviceAgeSec = status.serviceAgeSec,
             zScore = lastForegroundZScore,
+            openTrade = lastForegroundOpenTrade,
+        )
+        val bigText = formatSignalMonitorForegroundBigText(
+            monitorEnabled = status.monitorEnabled,
+            serviceLastTickMs = status.serviceLastTickMs,
+            serviceAgeSec = status.serviceAgeSec,
+            zScore = lastForegroundZScore,
+            openTrade = lastForegroundOpenTrade,
         )
         return NotificationCompat.Builder(this, SIGNAL_MONITOR_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("MOEX signal monitor")
             .setContentText(subtitle)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .build()
@@ -158,11 +168,13 @@ class SignalForegroundService : Service() {
             if (monitorTickCount <= 3 || monitorTickCount % 20 == 0) {
                 MoexDiagnostics.log(applicationContext, "monitor", "tick#$monitorTickCount points=${points.size} (wait data)")
             }
+            lastForegroundOpenTrade = null
             refreshForegroundNotification()
             return@withContext
         }
 
         lastForegroundZScore = points.last().zScore
+        lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, points)
         refreshForegroundNotification()
 
         val signalThresholds = loadRealTradeZThresholds(applicationContext, bgSignalFallbackThresholds)
