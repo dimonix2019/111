@@ -35,7 +35,8 @@ internal suspend fun closePortfolioOpenTrade(
         StrategySignalType.EnterShort -> StrategySignalType.ExitShort
         else -> error("unreachable")
     }
-    val legs = executeSpreadExitIfConfigured(context, entrySignal)
+    val legs = executeSpreadExitIfConfigured(context, entrySignal, execution.quantityLots)
+    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
     val (exitTs, exitZ) = resolveExitBarForPortfolioClose(context, execution, null, null)
     finalizePortfolioOpenTradeClose(
         context = context,
@@ -51,6 +52,8 @@ internal suspend fun closePortfolioOpenTrade(
         exitBarTimestampMillis = exitTs,
         exitZScore = exitZ,
         exitLegs = legs,
+        notionalRub = tradeExecutionNotionalRub(execution, DEFAULT_PORTFOLIO_NOTIONAL_RUB),
+        leverage = leverage,
     )
     "Сделка ${execution.tradeId} закрыта"
 }
@@ -114,6 +117,7 @@ internal suspend fun finalizePortfolioOpenTradeClose(
 internal suspend fun executeSpreadExitIfConfigured(
     context: Context,
     entrySignal: StrategySignalType,
+    quantityLots: Int = 1,
 ): List<SandboxLegOrderResult> {
     val mode = currentExecutionMode(context)
     val tok = TinkoffSandboxStorage.getActiveToken(context, mode)
@@ -122,7 +126,7 @@ internal suspend fun executeSpreadExitIfConfigured(
         !tok.isNullOrBlank() &&
         !acc.isNullOrBlank()
     ) {
-        return tinkoffExecuteSpreadExitDetailed(mode, tok, acc, entrySignal)
+        return executeSpreadExitDetailedForConfiguredMode(context, entrySignal, quantityLots)
     }
     return emptyList()
 }

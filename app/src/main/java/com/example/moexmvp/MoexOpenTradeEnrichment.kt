@@ -30,17 +30,18 @@ internal fun enrichOpenSandboxExecutions(
         )
         val entryDateLabel = points.minByOrNull { kotlin.math.abs(it.timestampMillis - exec.barTimestampMillis) }
             ?.tradeDate ?: exec.entryTimeMsk
+        val tradeNotional = tradeExecutionNotionalRub(exec, notionalRub)
         val grossRub = estimateOpenSpreadMtmGrossRub(
             signalType = exec.signalType,
             entrySpreadPercent = entrySpread,
             currentSpreadPercent = last.spreadPercent,
-            notionalRub = notionalRub,
+            notionalRub = tradeNotional,
             leverage = leverage,
             points = points,
             barTimestampMillis = exec.barTimestampMillis
         )
         val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
-            notionalRub = notionalRub,
+            notionalRub = tradeNotional,
             leverage = leverage,
             commissionPercentPerSide = commissionPercentPerSide,
             entryDateLabel = entryDateLabel,

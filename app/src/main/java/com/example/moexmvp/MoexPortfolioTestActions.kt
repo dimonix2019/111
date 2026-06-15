@@ -59,7 +59,7 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             )
             return@runCatching if (ran) {
                 PortfolioTestEntrySignalResult(
-                    toastMessage = "Тестовый $dir: авто-вход на ${executionAccountShortRu(mode)} — 2 ордера (Z=$zText).",
+                    toastMessage = "Тестовый $dir: авто-вход на ${executionAccountShortRu(mode)} (Z=$zText).",
                     sandboxSpreadExecReloadDelta = 1
                 )
             } else {
@@ -79,8 +79,9 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             fromTestButton = true
         )
         r.getOrThrow()
+        val lots = TinkoffSandboxSpreadExecLog.loadRecent(app).lastOrNull()?.quantityLots ?: 1
         PortfolioTestEntrySignalResult(
-            toastMessage = "Тестовый $dir: 2 ордера на ${executionAccountShortRu(mode)} (Z=$zText).",
+            toastMessage = "Тестовый $dir: 2×$lots лот на ${executionAccountShortRu(mode)} (Z=$zText).",
             sandboxSpreadExecReloadDelta = 1
         )
     }
@@ -130,9 +131,9 @@ internal suspend fun executeTestSandboxSpreadPair(
         } else {
             entrySpreadPercent ?: resolveSpreadPercentAtBar(app, barTs, market.spreadPercent)
         }
-        val tok = TinkoffSandboxStorage.getActiveToken(app, mode) ?: error("Нет токена.")
-        val acc = TinkoffSandboxStorage.getActiveAccountId(app, mode) ?: error("Нет счёта.")
-        val legs = tinkoffExecuteSpreadEntryDetailed(mode, tok, acc, signalType)
+        val entry = executeSpreadEntryDetailedForConfiguredMode(app, signalType)
+        val legs = entry.legs
+        val sizing = entry.sizing
         val executedAt = System.currentTimeMillis()
         markVirtualTradeConsumedForJournalEntry(app, signalType, barTs)
         appendPortfolioExecutionLedger(
@@ -173,14 +174,16 @@ internal suspend fun executeTestSandboxSpreadPair(
             entrySpreadPercent = entrySpread,
             source = PortfolioExecSource.MANUAL,
             legs = legs,
-            fromTestButton = fromTestButton
+            fromTestButton = fromTestButton,
+            quantityLots = sizing.quantityLots,
+            executionNotionalRub = sizing.executionNotionalRub,
         )
         if (execution != null) {
             val lastLeg = legs.lastOrNull()
             notifySandboxTradeOpened(
                 context = app,
                 execution = execution,
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                notionalRub = sizing.executionNotionalRub,
                 leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
                 portfolioTotalRub = lastLeg?.portfolioTotalRub,
                 portfolioCashRub = lastLeg?.portfolioCashRub,

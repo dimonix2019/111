@@ -136,9 +136,20 @@ internal fun MoexScreenDialogs(
                                     !tok.isNullOrBlank() &&
                                     !acc.isNullOrBlank()
                                 ) {
+                                    val openTrade = sandboxSpreadExecutions
+                                        .filter { it.signalType == entrySignal }
+                                        .maxByOrNull { it.barTimestampMillis }
                                     withContext(Dispatchers.IO) {
                                         runCatching {
-                                            tinkoffExecuteSpreadExitDetailed(mode, tok, acc, entrySignal)
+                                            if (openTrade != null) {
+                                                executeSpreadExitDetailedForConfiguredMode(
+                                                    context,
+                                                    entrySignal,
+                                                    openTrade.quantityLots,
+                                                )
+                                            } else {
+                                                executeSpreadExitDetailedForConfiguredMode(context, entrySignal, 1)
+                                            }
                                         }
                                     }
                                 }

@@ -782,19 +782,21 @@ internal suspend fun tinkoffExecuteSpreadEntryDetailed(
     token: String,
     accountId: String,
     signalType: StrategySignalType,
+    quantityLots: Int = 1,
 ): List<SandboxLegOrderResult> {
+    val qty = quantityLots.coerceAtLeast(1)
     val tatnId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
         .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
     val tatnpId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
         .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
     val buy = "ORDER_DIRECTION_BUY"
     val sell = "ORDER_DIRECTION_SELL"
-    suspend fun postLeg(ticker: String, instId: String, dir: String, sideRu: String): SandboxLegOrderResult {
-        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, dir)
+    suspend fun postLeg(ticker: String, instId: String, dir: String, buyLeg: Boolean): SandboxLegOrderResult {
+        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, dir, qty)
         val pf = runCatching { tinkoffGetPortfolio(mode, token, accountId) }.getOrNull()
         return SandboxLegOrderResult(
             ticker = ticker,
-            sideRu = sideRu,
+            sideRu = spreadLegSideRu(buyLeg, qty),
             orderJson = order,
             portfolioTotalRub = pf?.let { formatSandboxPortfolioTotalRub(it) },
             portfolioCashRub = pf?.let { formatSandboxCashRub(it) },
@@ -803,12 +805,12 @@ internal suspend fun tinkoffExecuteSpreadEntryDetailed(
     }
     return when (signalType) {
         StrategySignalType.EnterLong -> listOf(
-            postLeg("TATN", tatnId, buy, "покупка 1 лот"),
-            postLeg("TATNP", tatnpId, sell, "продажа 1 лот")
+            postLeg("TATN", tatnId, buy, buyLeg = true),
+            postLeg("TATNP", tatnpId, sell, buyLeg = false)
         )
         StrategySignalType.EnterShort -> listOf(
-            postLeg("TATNP", tatnpId, buy, "покупка 1 лот"),
-            postLeg("TATN", tatnId, sell, "продажа 1 лот")
+            postLeg("TATNP", tatnpId, buy, buyLeg = true),
+            postLeg("TATN", tatnId, sell, buyLeg = false)
         )
         else -> throw IOException("Только EnterLong / EnterShort")
     }
@@ -845,19 +847,21 @@ internal suspend fun tinkoffExecuteSpreadExitDetailed(
     token: String,
     accountId: String,
     openedWithEntrySignal: StrategySignalType,
+    quantityLots: Int = 1,
 ): List<SandboxLegOrderResult> {
+    val qty = quantityLots.coerceAtLeast(1)
     val tatnId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
         .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
     val tatnpId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
         .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
     val buy = "ORDER_DIRECTION_BUY"
     val sell = "ORDER_DIRECTION_SELL"
-    suspend fun postLeg(ticker: String, instId: String, dir: String, sideRu: String): SandboxLegOrderResult {
-        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, dir)
+    suspend fun postLeg(ticker: String, instId: String, dir: String, buyLeg: Boolean): SandboxLegOrderResult {
+        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, dir, qty)
         val pf = runCatching { tinkoffGetPortfolio(mode, token, accountId) }.getOrNull()
         return SandboxLegOrderResult(
             ticker = ticker,
-            sideRu = sideRu,
+            sideRu = spreadLegSideRu(buyLeg, qty),
             orderJson = order,
             portfolioTotalRub = pf?.let { formatSandboxPortfolioTotalRub(it) },
             portfolioCashRub = pf?.let { formatSandboxCashRub(it) },
@@ -866,12 +870,12 @@ internal suspend fun tinkoffExecuteSpreadExitDetailed(
     }
     return when (openedWithEntrySignal) {
         StrategySignalType.EnterLong -> listOf(
-            postLeg("TATN", tatnId, sell, "продажа 1 лот"),
-            postLeg("TATNP", tatnpId, buy, "покупка 1 лот")
+            postLeg("TATN", tatnId, sell, buyLeg = false),
+            postLeg("TATNP", tatnpId, buy, buyLeg = true)
         )
         StrategySignalType.EnterShort -> listOf(
-            postLeg("TATNP", tatnpId, sell, "продажа 1 лот"),
-            postLeg("TATN", tatnId, buy, "покупка 1 лот")
+            postLeg("TATNP", tatnpId, sell, buyLeg = false),
+            postLeg("TATN", tatnId, buy, buyLeg = true)
         )
         StrategySignalType.ExitLong, StrategySignalType.ExitShort ->
             throw IOException("Укажите тип входа EnterLong или EnterShort")
@@ -964,7 +968,7 @@ internal suspend fun tinkoffGetPortfolio(
     TinkoffExecutionMode.Prod -> tinkoffGetProdPortfolio(token, accountId)
 }
 
-private fun quotationUnitsToDouble(o: JSONObject): Double? {
+internal fun quotationUnitsToDouble(o: JSONObject): Double? {
     val nano = o.optLong("nano", o.optLong("Nano", 0L))
     val raw = o.opt("units") ?: o.opt("Units")
     val units = when (raw) {
@@ -994,7 +998,7 @@ internal fun formatSandboxPortfolioTotalRub(portfolioJson: JSONObject): String? 
     return String.format(java.util.Locale.US, "%.2f ₽", v)
 }
 
-private fun findPortfolioMoneyQuotation(portfolioJson: JSONObject): JSONObject? {
+internal fun findPortfolioMoneyQuotation(portfolioJson: JSONObject): JSONObject? {
     val keys = listOf("totalAmountCurrencies", "total_amount_currencies")
     fun find(o: JSONObject?, depth: Int): JSONObject? {
         if (o == null || depth > 6) return null

@@ -56,6 +56,16 @@ internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 750L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
 internal const val PROD_MONEY_STOP_PER_TRADE_RUB = 4_000.0
+/** Доля свободных денег, которую не тратим на вход (резерв под ГО/комиссии). */
+internal const val SPREAD_LOT_RESERVE_CASH_FRACTION = 0.25
+/** Минимальный резерв ₽ на счёте независимо от доли. */
+internal const val SPREAD_LOT_RESERVE_MIN_RUB = 2_000.0
+/** Оценка ГО на short-ногу как доля номинала (консервативно). */
+internal const val SPREAD_LOT_MARGIN_RATE_PER_LEG = 0.30
+/** Буфер на комиссию/slippage от номинала пары. */
+internal const val SPREAD_LOT_COMMISSION_BUFFER_FRACTION = 0.002
+internal const val SPREAD_LOT_MIN_LOTS = 1
+internal const val SPREAD_LOT_MAX_LOTS = 50
 
 /** Portfolio tab: entry/exit |Z| limits are independent (UI steppers). */
 internal const val PORTFOLIO_Z_THRESHOLD_MIN = 0.0
@@ -127,6 +137,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.181 — Prod/Sandbox: лоты пары TATN/TATNP считаются от денег на счёте с резервом под ГО; выход тем же объёмом.
 1.7.180 — Портфель и авто-исполнение показывают режим Prod; тестовые ордера идут в активный контур.
 1.7.179 — Шторка: открытая сделка показывает направление в ID (`1S` Short, `1L` Long).
 1.7.178 — Prod: кнопка «Список боевых счетов» (UsersService/GetAccounts), выбор accountId без PowerShell.

@@ -79,13 +79,13 @@ internal fun MoexScreenVirtualTradeCard(
                                 }
                                 try {
                                     val nowMs = System.currentTimeMillis()
-                                    val (skipDupJournal, legs, opened) = withContext(Dispatchers.IO) {
-                                        val legsInner = tinkoffExecuteSpreadEntryDetailed(
-                                            mode,
-                                            tok,
-                                            acc,
-                                            proposal.signalType
+                                    val acceptBundle = withContext(Dispatchers.IO) {
+                                        val entry = executeSpreadEntryDetailedForConfiguredMode(
+                                            context,
+                                            proposal.signalType,
                                         )
+                                        val legsInner = entry.legs
+                                        val sizingInner = entry.sizing
                                         clearPendingVirtualTradeProposal(context, proposal)
                                         appendPortfolioExecutionLedger(
                                             context,
@@ -112,7 +112,7 @@ internal fun MoexScreenVirtualTradeCard(
                                             context,
                                             proposal.timestampMillis
                                         )
-                                        val opened = TinkoffSandboxSpreadExecLog.recordFromLegs(
+                                        val openedInner = TinkoffSandboxSpreadExecLog.recordFromLegs(
                                             context,
                                             proposal.signalType,
                                             proposal.zScore,
@@ -121,7 +121,9 @@ internal fun MoexScreenVirtualTradeCard(
                                             entrySpreadPercent = entrySpread,
                                             source = PortfolioExecSource.MANUAL,
                                             legs = legsInner,
-                                            fromTestButton = false
+                                            fromTestButton = false,
+                                            quantityLots = sizingInner.quantityLots,
+                                            executionNotionalRub = sizingInner.executionNotionalRub,
                                         )
                                         val position = when (proposal.signalType) {
                                             StrategySignalType.EnterLong -> ZStrategyPosition.Long
@@ -129,14 +131,16 @@ internal fun MoexScreenVirtualTradeCard(
                                             else -> ZStrategyPosition.Flat
                                         }
                                         saveStrategyPosition(context, position)
-                                        Triple(skipDup, legsInner, opened)
+                                        Pair(Triple(skipDup, legsInner, openedInner), sizingInner)
                                     }
+                                    val (skipDupJournal, legs, opened) = acceptBundle.first
+                                    val sizing = acceptBundle.second
                                     val lastLeg = legs.lastOrNull()
                                     opened?.let { trade ->
                                         notifySandboxTradeOpened(
                                             context = context,
                                             execution = trade,
-                                            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                                            notionalRub = sizing.executionNotionalRub,
                                             leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context),
                                             portfolioTotalRub = lastLeg?.portfolioTotalRub,
                                             portfolioCashRub = lastLeg?.portfolioCashRub,
@@ -153,7 +157,7 @@ internal fun MoexScreenVirtualTradeCard(
                                     }
                                     Toast.makeText(
                                         context,
-                                        "Отправлены 2 заявки (${executionModeLabelRu(mode)}). $tail",
+                                        "Отправлены 2×${sizing.quantityLots} лот (${executionModeLabelRu(mode)}). $tail",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } catch (e: Exception) {
