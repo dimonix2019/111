@@ -133,6 +133,9 @@ private suspend fun tinkoffProdInstrumentsPostRaw(token: String, method: String,
 private suspend fun tinkoffProdOperationsPostRaw(token: String, method: String, bodyJson: String): String =
     tinkoffSbxPostRaw(TINVEST_PROD_OPERATIONS_PREFIXES, token, method, bodyJson)
 
+private suspend fun tinkoffProdUsersPostRaw(token: String, method: String, bodyJson: String): String =
+    tinkoffSbxPostRaw(TINVEST_PROD_USERS_PREFIXES, token, method, bodyJson)
+
 internal suspend fun tinkoffInstrumentsPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffInstrumentsPostRaw(token, method, body.toString())
     return parseJsonObjectOrEmpty(raw)
@@ -155,6 +158,11 @@ internal suspend fun tinkoffProdInstrumentsPostAsync(token: String, method: Stri
 
 internal suspend fun tinkoffProdOperationsPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffProdOperationsPostRaw(token, method, body.toString())
+    return parseJsonObjectOrEmpty(raw)
+}
+
+internal suspend fun tinkoffProdUsersPostAsync(token: String, method: String, body: JSONObject): JSONObject {
+    val raw = tinkoffProdUsersPostRaw(token, method, body.toString())
     return parseJsonObjectOrEmpty(raw)
 }
 
@@ -296,6 +304,30 @@ internal suspend fun tinkoffGetSandboxAccounts(token: String): List<SandboxAccou
         rows = parse(root)
     }
     return rows
+}
+
+internal suspend fun tinkoffGetProdAccounts(token: String): List<SandboxAccountRow> {
+    fun parse(root: JSONObject): List<SandboxAccountRow> =
+        parseSandboxAccounts(unwrapGetAccountsEnvelope(root))
+    var root = tinkoffProdUsersPostAsync(token, "GetAccounts", JSONObject())
+    var rows = parse(root)
+    if (rows.isEmpty()) {
+        root = tinkoffProdUsersPostAsync(
+            token,
+            "GetAccounts",
+            JSONObject().put("status", "ACCOUNT_STATUS_ALL")
+        )
+        rows = parse(root)
+    }
+    return rows
+}
+
+internal suspend fun tinkoffGetAccounts(
+    mode: TinkoffExecutionMode,
+    token: String,
+): List<SandboxAccountRow> = when (mode) {
+    TinkoffExecutionMode.Sandbox -> tinkoffGetSandboxAccounts(token)
+    TinkoffExecutionMode.Prod -> tinkoffGetProdAccounts(token)
 }
 
 private fun payInBodyCamel(accountId: String, unitsRub: Long): JSONObject {
