@@ -180,6 +180,20 @@ internal fun formatCompactSignedPnlRub(rub: Double): String {
     return if (rounded >= 0) "+${rounded}₽" else "${rounded}₽"
 }
 
+/** Короткая метка сделки для шторки: «1S» = первая Short, «1L» = первая Long. */
+internal fun signalMonitorTradeDirectionBadge(
+    tradeDisplayId: String,
+    signalType: StrategySignalType,
+): String {
+    val num = tradeDisplayId.trim().substringBefore(' ').ifBlank { tradeDisplayId.trim() }
+    val suffix = when (signalType) {
+        StrategySignalType.EnterShort -> "S"
+        StrategySignalType.EnterLong -> "L"
+        else -> ""
+    }
+    return "$num$suffix"
+}
+
 internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMonitorOpenTradeSnapshot? {
     if (exec.signalType != StrategySignalType.EnterLong &&
         exec.signalType != StrategySignalType.EnterShort
@@ -189,7 +203,7 @@ internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMo
     val openedRaw = exec.entrySignalBarTimeMsk.takeIf { it.isNotBlank() && it != "—" }
         ?: exec.entryTimeMsk
     return SignalMonitorOpenTradeSnapshot(
-        badge = portfolioTradeChartBadgeText(exec.tradeDisplayId, exec.confirmLabel),
+        badge = signalMonitorTradeDirectionBadge(exec.tradeDisplayId, exec.signalType),
         openedAt = compactMonitorDateTimeMsk(openedRaw),
         entryZ = exec.zScore,
         pnlRub = exec.netPnlRubApprox,
