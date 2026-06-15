@@ -166,13 +166,6 @@ internal data class SignalMonitorOpenTradeSnapshot(
     val pnlRub: Double,
 )
 
-/** «1 short» + short → «1S». */
-internal fun compactMonitorTradeBadge(tradeDisplayId: String, directionLabel: String): String {
-    val num = tradeDisplayId.trim().substringBefore(' ').ifBlank { tradeDisplayId }
-    val dir = directionLabel.firstOrNull()?.uppercaseChar()?.toString().orEmpty()
-    return "$num$dir"
-}
-
 /** «2026-06-15 18:45» → «15.06 18:45». */
 internal fun compactMonitorDateTimeMsk(text: String): String {
     if (text.isBlank() || text == "—") return "—"
@@ -196,7 +189,7 @@ internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMo
     val openedRaw = exec.entrySignalBarTimeMsk.takeIf { it.isNotBlank() && it != "—" }
         ?: exec.entryTimeMsk
     return SignalMonitorOpenTradeSnapshot(
-        badge = compactMonitorTradeBadge(exec.tradeDisplayId, exec.directionLabel),
+        badge = portfolioTradeChartBadgeText(exec.tradeDisplayId, exec.confirmLabel),
         openedAt = compactMonitorDateTimeMsk(openedRaw),
         entryZ = exec.zScore,
         pnlRub = exec.netPnlRubApprox,
@@ -213,18 +206,22 @@ internal fun resolveSignalMonitorOpenTrade(
     points: List<DataPoint>,
 ): SignalMonitorOpenTradeSnapshot? {
     if (points.isEmpty()) return null
-    val opens = TinkoffSandboxSpreadExecLog.loadRecent(context)
+    val app = context.applicationContext
+    val opens = TinkoffSandboxSpreadExecLog.loadRecent(app)
         .filter {
             it.signalType == StrategySignalType.EnterLong ||
                 it.signalType == StrategySignalType.EnterShort
         }
     val latest = opens.maxByOrNull { it.barTimestampMillis } ?: return null
-    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
-    val enriched = enrichOpenSandboxExecutions(
+    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(app)
+    val journal = loadStrategySignalEvents(app)
+    val enriched = TinkoffSandboxSpreadExecLog.enrichForDisplay(
+        context = app,
         executions = listOf(latest),
         points = points,
         notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
         leverage = leverage,
+        journalEvents = journal,
     ).firstOrNull() ?: return null
     return signalMonitorOpenTradeSnapshot(enriched)
 }

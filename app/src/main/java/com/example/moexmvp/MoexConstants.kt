@@ -126,6 +126,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.174 — Fix: номер сделки в шторке = еженедельный ID из журнала (как на «Портфель»), не D-00x.
 1.7.173 — Шторка: при открытой сделке — номер, время, Z₀, PnL рядом с текущим Z.
 1.7.172 — Шторка: в уведомлении монитора Z-score вместо номера тика.
 1.7.171 — CI: исключены flaky MOEX parity-тесты на GitHub; публикация watchdog v1.7.170.
