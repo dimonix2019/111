@@ -2,6 +2,7 @@ package com.example.moexmvp
 
 import android.app.ActivityManager
 import android.content.Context
+import java.util.Locale
 
 /** Интервал проверки watchdog из UI (приложение на экране). */
 internal const val WATCHDOG_UI_POLL_MS = 30_000L
@@ -155,4 +156,115 @@ internal fun formatWatchdogAgeSec(ageSec: Long): String = when {
     ageSec < 60 -> "${ageSec}с"
     ageSec < 3600 -> "${ageSec / 60}м ${ageSec % 60}с"
     else -> "${ageSec / 3600}ч ${(ageSec % 3600) / 60}м"
+}
+
+/** Снимок открытой сделки для ongoing-уведомления монитора. */
+internal data class SignalMonitorOpenTradeSnapshot(
+    val badge: String,
+    val openedAt: String,
+    val entryZ: Double,
+    val pnlRub: Double,
+)
+
+/** «2026-06-15 18:45» → «15.06 18:45». */
+internal fun compactMonitorDateTimeMsk(text: String): String {
+    if (text.isBlank() || text == "—") return "—"
+    val m = Regex("""(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2})""").find(text.trim()) ?: return text.take(14)
+    val (_, month, day, time) = m.destructured
+    return "$day.$month $time"
+}
+
+internal fun formatCompactSignedPnlRub(rub: Double): String {
+    if (rub.isNaN()) return "—"
+    val rounded = kotlin.math.round(rub).toInt()
+    return if (rounded >= 0) "+${rounded}₽" else "${rounded}₽"
+}
+
+internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMonitorOpenTradeSnapshot? {
+    if (exec.signalType != StrategySignalType.EnterLong &&
+        exec.signalType != StrategySignalType.EnterShort
+    ) {
+        return null
+    }
+    val openedRaw = exec.entrySignalBarTimeMsk.takeIf { it.isNotBlank() && it != "—" }
+        ?: exec.entryTimeMsk
+    return SignalMonitorOpenTradeSnapshot(
+        badge = portfolioTradeChartBadgeText(exec.tradeDisplayId, exec.confirmLabel),
+        openedAt = compactMonitorDateTimeMsk(openedRaw),
+        entryZ = exec.zScore,
+        pnlRub = exec.netPnlRubApprox,
+    )
+}
+
+internal fun formatSignalMonitorOpenTradeLine(trade: SignalMonitorOpenTradeSnapshot): String =
+    "${trade.badge} ${trade.openedAt} Z₀${"%.2f".format(Locale.US, trade.entryZ)} " +
+        formatCompactSignedPnlRub(trade.pnlRub)
+
+/** Последняя открытая демо-сделка с актуальным MTM для шторки. */
+internal fun resolveSignalMonitorOpenTrade(
+    context: Context,
+    points: List<DataPoint>,
+): SignalMonitorOpenTradeSnapshot? {
+    if (points.isEmpty()) return null
+    val app = context.applicationContext
+    val opens = TinkoffSandboxSpreadExecLog.loadRecent(app)
+        .filter {
+            it.signalType == StrategySignalType.EnterLong ||
+                it.signalType == StrategySignalType.EnterShort
+        }
+    val latest = opens.maxByOrNull { it.barTimestampMillis } ?: return null
+    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(app)
+    val journal = loadStrategySignalEvents(app)
+    val enriched = TinkoffSandboxSpreadExecLog.enrichForDisplay(
+        context = app,
+        executions = listOf(latest),
+        points = points,
+        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+        leverage = leverage,
+        journalEvents = journal,
+    ).firstOrNull() ?: return null
+    return signalMonitorOpenTradeSnapshot(enriched)
+}
+
+/** Текст ongoing-уведомления фонового монитора в шторке. */
+internal fun formatSignalMonitorForegroundText(
+    monitorEnabled: Boolean,
+    serviceLastTickMs: Long,
+    serviceAgeSec: Long,
+    zScore: Double?,
+    openTrade: SignalMonitorOpenTradeSnapshot? = null,
+): String = when {
+    !monitorEnabled -> "Монитор выключен"
+    serviceLastTickMs <= 0L -> "Ожидание данных…"
+    openTrade != null && zScore != null -> {
+        val zPart = "Z=${"%.2f".format(Locale.US, zScore)}"
+        "$zPart | ${formatSignalMonitorOpenTradeLine(openTrade)}"
+    }
+    openTrade != null -> formatSignalMonitorOpenTradeLine(openTrade)
+    zScore != null ->
+        "Z = ${"%.2f".format(Locale.US, zScore)} · ${formatWatchdogAgeSec(serviceAgeSec)} назад"
+    else -> "Обновлено ${formatWatchdogAgeSec(serviceAgeSec)} назад"
+}
+
+/** Развёрнутый текст в шторке (две строки при открытой сделке). */
+internal fun formatSignalMonitorForegroundBigText(
+    monitorEnabled: Boolean,
+    serviceLastTickMs: Long,
+    serviceAgeSec: Long,
+    zScore: Double?,
+    openTrade: SignalMonitorOpenTradeSnapshot?,
+): String {
+    val collapsed = formatSignalMonitorForegroundText(
+        monitorEnabled,
+        serviceLastTickMs,
+        serviceAgeSec,
+        zScore,
+        openTrade,
+    )
+    if (openTrade == null || zScore == null) return collapsed
+    return buildString {
+        append("Z=${"%.2f".format(Locale.US, zScore)} · ${formatWatchdogAgeSec(serviceAgeSec)} назад")
+        append('\n')
+        append(formatSignalMonitorOpenTradeLine(openTrade))
+    }
 }

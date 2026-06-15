@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -124,7 +125,16 @@ class MoexStrategyTestTradesTest {
         assertEquals(0.0, summary.long.winPercent, 0.01)
         assertEquals(150.0, summary.short.totalPnlRub, 0.01)
         assertEquals(-200.0, summary.long.totalPnlRub, 0.01)
+        assertEquals(1, summary.closedSecondDay.tradeCount)
+        assertEquals(50.0, summary.closedSecondDay.totalPnlRub, 0.01)
         assertEquals("< 1 дн.", summary.detailBuckets.first().title)
+    }
+
+    @Test
+    fun isSimTradeClosedOnSecondCalendarDay_nextMskDayOnly() {
+        assertTrue(isSimTradeClosedOnSecondCalendarDay("2026-05-01 18:00", "2026-05-02 10:00"))
+        assertFalse(isSimTradeClosedOnSecondCalendarDay("2026-05-01 10:00", "2026-05-01 18:00"))
+        assertFalse(isSimTradeClosedOnSecondCalendarDay("2026-05-01 10:00", "2026-05-03 10:00"))
     }
 
     @Test

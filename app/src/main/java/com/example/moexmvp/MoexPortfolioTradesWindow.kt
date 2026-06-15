@@ -93,6 +93,13 @@ internal fun simTradeDurationTone(entryDate: String, exitDate: String): SimTrade
     else -> SimTradeDurationTone.Neutral
 }
 
+/** true, если выход на следующий календарный день после входа (закрытие «во 2-й день», МСК). */
+internal fun isSimTradeClosedOnSecondCalendarDay(entryDate: String, exitDate: String): Boolean {
+    val entry = parseChartDateLabel(entryDate) ?: return false
+    val exit = parseChartDateLabel(exitDate) ?: return false
+    return java.time.temporal.ChronoUnit.DAYS.between(entry, exit) == 1L
+}
+
 /** Человекочитаемая длительность сделки (вход → выход) для списка «Тест страт.». */
 internal fun formatSimTradeDurationLabel(entryDate: String, exitDate: String): String {
     val diffMs = simTradeDurationMillis(entryDate, exitDate) ?: return "—"
