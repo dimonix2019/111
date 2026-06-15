@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MOEX MVP</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header class="header">
+    <h1>MOEX MVP <span class="badge">Web</span></h1>
+    <p class="sub">TATN / TATNP · 15м · rolling Z 30д · отладка без APK</p>
+    <nav class="tabs" id="tabs">
+      <button type="button" data-tab="markets" class="active">Рынок</button>
+      <button type="button" data-tab="portfolio">Портфель</button>
+      <button type="button" data-tab="strategy">Тест страт.</button>
+      <button type="button" data-tab="journal">Журнал</button>
+      <button type="button" data-tab="sandbox">Песочница</button>
+      <button type="button" data-tab="about">О приложении</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="panel-markets" class="panel active">
+      <div class="toolbar">
+        <div class="periods" id="periods">
+          <button type="button" data-period="1D" class="active">1D</button>
+          <button type="button" data-period="1W">1W</button>
+          <button type="button" data-period="1M">1M</button>
+          <button type="button" data-period="3M">3M</button>
+        </div>
+        <button type="button" id="btn-refresh-m15" class="secondary">Обновить MOEX 15м</button>
+      </div>
+      <p class="meta" id="markets-meta">—</p>
+      <div id="chart" class="chart"></div>
+    </section>
+
+    <section id="panel-portfolio" class="panel">
+      <p class="stub">Портфель (демо-сделки, Tinkoff песочница) — в web пока не подключён.</p>
+      <p class="stub">Для сделок и открытых позиций используйте APK или дождитесь следующего этапа web-паритета.</p>
+    </section>
+
+    <section id="panel-strategy" class="panel">
+      <div class="form-grid">
+        <label>Вход |Z| <input type="number" id="st-entry" step="0.05" value="0.8" /></label>
+        <label>Выход |Z| <input type="number" id="st-exit" step="0.05" value="0.7" /></label>
+        <label>Плечо <input type="number" id="st-lev" step="0.5" value="7" /></label>
+        <label>Комиссия % <input type="number" id="st-comm" step="0.01" value="0.04" /></label>
+        <label><input type="checkbox" id="st-compound" /> Капитализация</label>
+      </div>
+      <button type="button" id="btn-sim" class="primary">Симуляция 255д</button>
+      <pre class="metrics" id="st-metrics">Нажмите «Симуляция»</pre>
+      <div id="st-trades" class="trades"></div>
+    </section>
+
+    <section id="panel-journal" class="panel">
+      <p class="stub">Журнал сигналов — только в APK (Room + push).</p>
+    </section>
+
+    <section id="panel-sandbox" class="panel">
+      <p class="stub">Песочница T‑Инвест — только в APK.</p>
+    </section>
+
+    <section id="panel-about" class="panel">
+      <pre id="about-info">Загрузка…</pre>
+      <p class="stub">
+        APK:
+        <a href="https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk">moexmvp-debug.apk</a>
+      </p>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
