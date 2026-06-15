@@ -321,10 +321,8 @@ internal fun formatM15ChartXAxisLabel(tradeDateLabel: String): String {
 /** Время последней загрузки MOEX в сводке «Рынок» (без секунд). */
 internal fun formatMarketsLoadedAtShort(raw: String?): String {
     if (raw.isNullOrBlank() || raw == "—") return "—"
-    val trimmed = raw.trim()
-    val dt = runCatching { LocalDateTime.parse(trimmed, updatedAtFormatter) }.getOrNull()
-        ?: runCatching { LocalDateTime.parse(trimmed, portfolio15mLabelFormatter) }.getOrNull()
-        ?: return trimmed.removeSuffix(":00").takeLast(14)
+    val dt = parseMarketsLoadedAt(raw)
+        ?: return sanitizeMarketsLoadedAtRaw(raw).removeSuffix(":00").takeLast(14)
     return dt.format(m15ChartXAxisLabelFormatter)
 }
 

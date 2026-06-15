@@ -3,6 +3,8 @@ package com.example.moexmvp
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** Время последнего 15м бара в формате [updatedAtFormatter] (для сводки «Рынок»). */
 internal fun m15LastBarLoadedAtLabel(points: List<DataPoint>, zone: ZoneId = moexZoneId): String? {
@@ -25,24 +27,40 @@ internal fun resolveMarketsLoadedAtLabel(
     val m15 = m15LastBarLoadedAtLabel(m15Points)
     if (m15.isNullOrBlank()) return dailyLoadedAt
     if (dailyLoadedAt.isNullOrBlank() || dailyLoadedAt == "—") return m15
-    val m15Dt = parseLoadedAtMillis(m15) ?: return m15
-    val dailyDt = parseLoadedAtMillis(dailyLoadedAt) ?: return m15
-    return if (m15Dt >= dailyDt) m15 else dailyLoadedAt
+    val m15Dt = parseMarketsLoadedAt(m15)
+    val dailyDt = parseMarketsLoadedAt(dailyLoadedAt)
+    return when {
+        m15Dt != null && dailyDt != null ->
+            if (m15Dt >= dailyDt) m15Dt.format(updatedAtFormatter) else dailyDt.format(updatedAtFormatter)
+        dailyDt != null -> dailyDt.format(updatedAtFormatter)
+        m15Dt != null -> m15Dt.format(updatedAtFormatter)
+        else -> sanitizeMarketsLoadedAtRaw(dailyLoadedAt).ifBlank { m15 }
+    }
 }
 
-private fun parseLoadedAtMillis(raw: String): Long? {
-    val trimmed = raw.trim()
-    return runCatching { LocalDateTime.parse(trimmed, updatedAtFormatter) }
-        .getOrNull()
-        ?.atZone(moexZoneId)
-        ?.toInstant()
-        ?.toEpochMilli()
-        ?: runCatching { LocalDateTime.parse(trimmed, portfolio15mLabelFormatter) }
-            .getOrNull()
-            ?.atZone(moexZoneId)
-            ?.toInstant()
-            ?.toEpochMilli()
+private val marketsLoadedAtLegacyFormatter = DateTimeFormatter.ofPattern("dd.MM.yy HH:mm", Locale.forLanguageTag("ru"))
+
+internal fun parseMarketsLoadedAt(raw: String?): LocalDateTime? {
+    val trimmed = raw?.trim().orEmpty()
+    if (trimmed.isEmpty() || trimmed == "—") return null
+    val sanitized = sanitizeMarketsLoadedAtRaw(trimmed)
+    val candidates = if (sanitized == trimmed) listOf(trimmed) else listOf(trimmed, sanitized)
+    return candidates.asSequence().mapNotNull { candidate ->
+        runCatching { LocalDateTime.parse(candidate, updatedAtFormatter) }.getOrNull()
+            ?: runCatching { LocalDateTime.parse(candidate, portfolio15mLabelFormatter) }.getOrNull()
+            ?: runCatching { LocalDateTime.parse(candidate, marketsLoadedAtLegacyFormatter) }.getOrNull()
+    }.firstOrNull()
 }
+
+internal fun parseMarketsLoadedAtMillis(raw: String?): Long? =
+    parseMarketsLoadedAt(raw)?.atZone(moexZoneId)?.toInstant()?.toEpochMilli()
+
+internal fun sanitizeMarketsLoadedAtRaw(raw: String?): String =
+    raw?.trim()
+        ?.replace(" : ", " ")
+        ?.replace(',', ':')
+        ?.replace(Regex("\\s+"), " ")
+        .orEmpty()
 
 internal fun MoexScreenState.bumpMarketsLoadedAtFromM15(points: List<DataPoint>) {
     val cached = lastGoodMarkets ?: return
