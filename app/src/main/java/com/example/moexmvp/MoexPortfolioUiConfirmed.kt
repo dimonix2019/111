@@ -75,6 +75,7 @@ internal fun ConfirmedPortfolioTabContent(
     onRealTradeExitChange: (Double) -> Unit,
     portfolioLedgerIncludeAuto: Boolean,
     onPortfolioLedgerIncludeAutoChange: (Boolean) -> Unit,
+    executionMode: TinkoffExecutionMode,
     portfolioTestBusy: Boolean,
     onTestSpreadPairLongClick: () -> Unit,
     onTestSpreadPairShortClick: () -> Unit,
@@ -88,7 +89,7 @@ internal fun ConfirmedPortfolioTabContent(
         modifier = Modifier.fillMaxWidth()
     ) {
         PortfolioDataRefreshHeader(
-            title = "Портфель · демо-счёт",
+            title = portfolioTabTitleRu(executionMode),
             portfolioLoading = portfolioLoading,
             onRefresh = onRefresh,
             onMoex15mFullReload = onMoex15mFullReload
@@ -160,7 +161,7 @@ internal fun ConfirmedPortfolioTabContent(
             }
             Text(
                 text = if (portfolioLedgerIncludeAuto) {
-                    "Авто: сигнал и «Тестовая пара Long/Short» сразу открывают сделку на демо (2 заявки), без «Принять»."
+                    "Авто: сигнал и «Тестовая пара Long/Short» сразу открывают сделку на ${executionAccountShortRu(executionMode)} (2 заявки), без «Принять»."
                 } else {
                     "Ручной: при сигнале или «Тестовая пара Long/Short» — карточка «Принять» / «Отклонить», затем сделка в открытых."
                 },

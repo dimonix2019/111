@@ -127,6 +127,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.180 — Портфель и авто-исполнение показывают режим Prod; тестовые ордера идут в активный контур.
 1.7.179 — Шторка: открытая сделка показывает направление в ID (`1S` Short, `1L` Long).
 1.7.178 — Prod: кнопка «Список боевых счетов» (UsersService/GetAccounts), выбор accountId без PowerShell.
 1.7.177 — Добавлен execution mode Sandbox/Prod: боевые токен+accountId, продовые PostOrder/GetPortfolio, money-stop 4000 ₽ на сделку.

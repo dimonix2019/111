@@ -8,6 +8,19 @@ internal fun currentExecutionMode(context: Context): TinkoffExecutionMode =
 
 internal fun executionModeLabelRu(mode: TinkoffExecutionMode): String = mode.titleRu.lowercase()
 
+internal fun portfolioTabTitleRu(mode: TinkoffExecutionMode): String = when (mode) {
+    TinkoffExecutionMode.Sandbox -> "Портфель · демо-счёт"
+    TinkoffExecutionMode.Prod -> "Портфель · боевой счёт"
+}
+
+internal fun executionAccountShortRu(mode: TinkoffExecutionMode): String = when (mode) {
+    TinkoffExecutionMode.Sandbox -> "демо"
+    TinkoffExecutionMode.Prod -> "боевой счёт"
+}
+
+internal fun executionSettingsHintRu(mode: TinkoffExecutionMode): String =
+    "вкладка «Песочница» · режим ${executionModeLabelRu(mode)}"
+
 internal suspend fun executeSpreadEntryDetailedForConfiguredMode(
     context: Context,
     signalType: StrategySignalType,

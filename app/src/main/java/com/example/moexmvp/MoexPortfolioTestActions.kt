@@ -40,10 +40,11 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             savePendingVirtualTradeIfEntry = true
         )
         val execState = TinkoffSandboxStorage.resolveExecUiState(app)
+        val mode = currentExecutionMode(app)
         if (execState != SandboxExecUiState.Ready) {
             return@runCatching PortfolioTestEntrySignalResult(
                 toastMessage = "Тестовый сигнал $dir: журнал и позиция Z (Z=$zText). " +
-                    "Укажите токен и счёт песочницы, чтобы отправлялись ордера.",
+                    "Укажите токен и счёт (${executionSettingsHintRu(mode)}).",
                 sandboxSpreadExecReloadDelta = 0
             )
         }
@@ -58,7 +59,7 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             )
             return@runCatching if (ran) {
                 PortfolioTestEntrySignalResult(
-                    toastMessage = "Тестовый $dir: авто-вход на демо — 2 ордера (Z=$zText).",
+                    toastMessage = "Тестовый $dir: авто-вход на ${executionAccountShortRu(mode)} — 2 ордера (Z=$zText).",
                     sandboxSpreadExecReloadDelta = 1
                 )
             } else {
@@ -79,7 +80,7 @@ internal suspend fun runPortfolioTestEntrySignalFull(
         )
         r.getOrThrow()
         PortfolioTestEntrySignalResult(
-            toastMessage = "Тестовый $dir: 2 ордера на демо (Z=$zText).",
+            toastMessage = "Тестовый $dir: 2 ордера на ${executionAccountShortRu(mode)} (Z=$zText).",
             sandboxSpreadExecReloadDelta = 1
         )
     }
@@ -102,8 +103,10 @@ internal suspend fun executeTestSandboxSpreadPair(
     runCatching {
         require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
         val app = context.applicationContext
-        when (TinkoffSandboxStorage.resolveExecUiState(app)) {
-            SandboxExecUiState.MissingCredentials -> error("Укажите токен и счёт песочницы (вкладка «Песочница»).")
+        val mode = currentExecutionMode(app)
+        when (TinkoffSandboxStorage.resolveExecUiState(app, mode)) {
+            SandboxExecUiState.MissingCredentials ->
+                error("Укажите токен и счёт (${executionSettingsHintRu(mode)}).")
             SandboxExecUiState.Ready -> Unit
             SandboxExecUiState.Off -> Unit
         }
@@ -127,9 +130,9 @@ internal suspend fun executeTestSandboxSpreadPair(
         } else {
             entrySpreadPercent ?: resolveSpreadPercentAtBar(app, barTs, market.spreadPercent)
         }
-        val tok = TinkoffSandboxStorage.getToken(app) ?: error("Нет токена.")
-        val acc = TinkoffSandboxStorage.getAccountId(app) ?: error("Нет счёта.")
-        val legs = tinkoffSandboxExecuteSpreadEntryDetailed(tok, acc, signalType)
+        val tok = TinkoffSandboxStorage.getActiveToken(app, mode) ?: error("Нет токена.")
+        val acc = TinkoffSandboxStorage.getActiveAccountId(app, mode) ?: error("Нет счёта.")
+        val legs = tinkoffExecuteSpreadEntryDetailed(mode, tok, acc, signalType)
         val executedAt = System.currentTimeMillis()
         markVirtualTradeConsumedForJournalEntry(app, signalType, barTs)
         appendPortfolioExecutionLedger(
@@ -218,10 +221,11 @@ internal suspend fun runPortfolioTestSpreadPairFull(
             savePendingVirtualTradeIfEntry = !autoMode
         )
         val execState = TinkoffSandboxStorage.resolveExecUiState(app)
+        val mode = currentExecutionMode(app)
         if (execState != SandboxExecUiState.Ready) {
             return@runCatching PortfolioTestEntrySignalResult(
                 toastMessage = "Тестовая пара $dir: журнал и позиция Z (Z=$zText). " +
-                    "Укажите токен и счёт песочницы (вкладка «Песочница»).",
+                    "Укажите токен и счёт (${executionSettingsHintRu(mode)}).",
                 sandboxSpreadExecReloadDelta = 0
             )
         }
@@ -236,7 +240,7 @@ internal suspend fun runPortfolioTestSpreadPairFull(
             )
             return@runCatching if (ran) {
                 PortfolioTestEntrySignalResult(
-                    toastMessage = "Тестовая пара $dir: авто-вход на демо — 2 ордера (Z=$zText).",
+                    toastMessage = "Тестовая пара $dir: авто-вход на ${executionAccountShortRu(mode)} — 2 ордера (Z=$zText).",
                     sandboxSpreadExecReloadDelta = 1
                 )
             } else {

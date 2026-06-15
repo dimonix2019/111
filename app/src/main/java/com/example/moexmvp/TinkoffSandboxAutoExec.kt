@@ -188,18 +188,20 @@ internal suspend fun runSandboxAutoExitIfNeeded(
 }
 
 private fun notifySandboxAutoEntrySkipped(context: Context, reason: String) {
+    val mode = currentExecutionMode(context)
     showPushNotification(
         context = context,
-        title = "Песочница: авто-вход не выполнен",
+        title = "${mode.titleRu}: авто-вход не выполнен",
         body = reason,
         virtualTradeTap = null
     )
 }
 
 private fun notifySandboxAutoExitSkipped(context: Context, reason: String) {
+    val mode = currentExecutionMode(context)
     showPushNotification(
         context = context,
-        title = "Песочница: авто-выход не выполнен",
+        title = "${mode.titleRu}: авто-выход не выполнен",
         body = reason,
         virtualTradeTap = null
     )
