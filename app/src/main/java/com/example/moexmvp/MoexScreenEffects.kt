@@ -88,7 +88,8 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             }
             restorePendingVirtualTradeFromJournalIfNeeded(context)
             pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-            sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+            executionMode = TinkoffSandboxStorage.getExecutionMode(context)
+            sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context, executionMode)
             executeSignalsOnSandbox = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
             sandboxSpreadAutoExecute = TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)
         }
@@ -113,9 +114,10 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                         refreshAfterConnectivityRestore(reason = "on_resume", launchScope = scope)
                         refreshPortfolioAfterJournalChange(refreshTailIfStale = true)
                         val (t, a) = withContext(Dispatchers.IO) {
+                            val mode = TinkoffSandboxStorage.getExecutionMode(context)
                             Pair(
-                                TinkoffSandboxStorage.getToken(context).orEmpty(),
-                                TinkoffSandboxStorage.getAccountId(context).orEmpty()
+                                TinkoffSandboxStorage.getActiveToken(context, mode).orEmpty(),
+                                TinkoffSandboxStorage.getActiveAccountId(context, mode).orEmpty()
                             )
                         }
                         sandboxTokenInput = t
@@ -166,7 +168,8 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
 
     LaunchedEffect(Unit) {
         runCatching {
-            val (t, a) = TinkoffSandboxStorage.hydrateCredentialsForUi(context)
+            val mode = TinkoffSandboxStorage.getExecutionMode(context)
+            val (t, a) = TinkoffSandboxStorage.hydrateCredentialsForUi(context, mode)
             sandboxTokenInput = t
             sandboxAccountInput = a
         }

@@ -59,18 +59,20 @@ internal fun MoexScreenVirtualTradeCard(
             PendingVirtualTradeProposalCard(
                 proposal = proposal,
                 sandboxState = sandboxExecState,
+                executionMode = executionMode,
                 onAccept = {
                     scope.launch {
-                        val st = TinkoffSandboxStorage.resolveExecUiState(context)
+                        val mode = currentExecutionMode(context)
+                        val st = TinkoffSandboxStorage.resolveExecUiState(context, mode)
                         sandboxExecState = st
                         when (st) {
                             SandboxExecUiState.Ready -> {
-                                val tok = TinkoffSandboxStorage.getToken(context)
-                                val acc = TinkoffSandboxStorage.getAccountId(context)
+                                val tok = TinkoffSandboxStorage.getActiveToken(context, mode)
+                                val acc = TinkoffSandboxStorage.getActiveAccountId(context, mode)
                                 if (tok.isNullOrBlank() || acc.isNullOrBlank()) {
                                     Toast.makeText(
                                         context,
-                                        "Нет токена или счёта в «Песочница».",
+                                        "Нет токена или счёта (${executionModeLabelRu(mode)}).",
                                         Toast.LENGTH_LONG
                                     ).show()
                                     return@launch
@@ -78,7 +80,8 @@ internal fun MoexScreenVirtualTradeCard(
                                 try {
                                     val nowMs = System.currentTimeMillis()
                                     val (skipDupJournal, legs, opened) = withContext(Dispatchers.IO) {
-                                        val legsInner = tinkoffSandboxExecuteSpreadEntryDetailed(
+                                        val legsInner = tinkoffExecuteSpreadEntryDetailed(
+                                            mode,
                                             tok,
                                             acc,
                                             proposal.signalType
@@ -150,7 +153,7 @@ internal fun MoexScreenVirtualTradeCard(
                                     }
                                     Toast.makeText(
                                         context,
-                                        "В песочнице отправлены 2 заявки (две ноги спрэда). $tail",
+                                        "Отправлены 2 заявки (${executionModeLabelRu(mode)}). $tail",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } catch (e: Exception) {
@@ -167,7 +170,7 @@ internal fun MoexScreenVirtualTradeCard(
                                 pendingVirtualTrade = null
                                 Toast.makeText(
                                     context,
-                                    "Принято без заявок: сохраните токен и счёт во вкладке «Песочница».",
+                                    "Принято без заявок: сохраните токен и счёт (${executionModeLabelRu(mode)}).",
                                     Toast.LENGTH_LONG
                                 ).show()
                             }

@@ -48,6 +48,8 @@ import org.json.JSONObject
 
 @Composable
 internal fun TinkoffSandboxTabContent(
+    executionMode: TinkoffExecutionMode,
+    onExecutionModeChange: (TinkoffExecutionMode) -> Unit,
     tokenInput: String,
     onTokenInputChange: (String) -> Unit,
     accountInput: String,
@@ -65,24 +67,34 @@ internal fun TinkoffSandboxTabContent(
     var portfolioRubLine by remember { mutableStateOf<String?>(null) }
     var showResetSandboxDialog by remember { mutableStateOf(false) }
     fun hasToken(): Boolean =
-        tokenInput.isNotBlank() || !TinkoffSandboxStorage.getToken(context).isNullOrBlank()
+        tokenInput.isNotBlank() || !TinkoffSandboxStorage.getActiveToken(context, executionMode).isNullOrBlank()
 
-    LaunchedEffect(tokenInput) {
+    LaunchedEffect(tokenInput, executionMode) {
         if (tokenInput.isBlank()) return@LaunchedEffect
         delay(550)
         val err = withContext(Dispatchers.IO) {
-            runCatching { TinkoffSandboxStorage.setToken(context, tokenInput) }
+            runCatching {
+                when (executionMode) {
+                    TinkoffExecutionMode.Sandbox -> TinkoffSandboxStorage.setToken(context, tokenInput)
+                    TinkoffExecutionMode.Prod -> TinkoffSandboxStorage.setProdToken(context, tokenInput)
+                }
+            }
                 .exceptionOrNull()?.let { "Сохранение токена: ${it.message ?: it.javaClass.simpleName}" }
         }
         if (!err.isNullOrEmpty()) status = err
         onSandboxPrefsChanged()
     }
 
-    LaunchedEffect(accountInput) {
+    LaunchedEffect(accountInput, executionMode) {
         if (accountInput.isBlank()) return@LaunchedEffect
         delay(550)
         val err = withContext(Dispatchers.IO) {
-            runCatching { TinkoffSandboxStorage.setAccountId(context, accountInput) }
+            runCatching {
+                when (executionMode) {
+                    TinkoffExecutionMode.Sandbox -> TinkoffSandboxStorage.setAccountId(context, accountInput)
+                    TinkoffExecutionMode.Prod -> TinkoffSandboxStorage.setProdAccountId(context, accountInput)
+                }
+            }
                 .exceptionOrNull()?.let { "Сохранение счёта: ${it.message ?: it.javaClass.simpleName}" }
         }
         if (!err.isNullOrEmpty()) status = err
@@ -112,7 +124,51 @@ internal fun TinkoffSandboxTabContent(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        if (showResetSandboxDialog) {
+        Text(
+            text = "Контур исполнения",
+            color = Color(0xFFB3E5FC),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    if (executionMode == TinkoffExecutionMode.Sandbox) return@Button
+                    scope.launch {
+                        TinkoffSandboxStorage.setExecutionMode(context, TinkoffExecutionMode.Sandbox)
+                        val (t, a) = withContext(Dispatchers.IO) {
+                            TinkoffSandboxStorage.hydrateCredentialsForUi(context, TinkoffExecutionMode.Sandbox)
+                        }
+                        onExecutionModeChange(TinkoffExecutionMode.Sandbox)
+                        onTokenInputChange(t)
+                        onAccountInputChange(a)
+                        onSandboxPrefsChanged()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (executionMode == TinkoffExecutionMode.Sandbox) Color(0xFF2E7D32) else Color(0xFF37474F)
+                )
+            ) { Text("Sandbox") }
+            Button(
+                onClick = {
+                    if (executionMode == TinkoffExecutionMode.Prod) return@Button
+                    scope.launch {
+                        TinkoffSandboxStorage.setExecutionMode(context, TinkoffExecutionMode.Prod)
+                        val (t, a) = withContext(Dispatchers.IO) {
+                            TinkoffSandboxStorage.hydrateCredentialsForUi(context, TinkoffExecutionMode.Prod)
+                        }
+                        onExecutionModeChange(TinkoffExecutionMode.Prod)
+                        onTokenInputChange(t)
+                        onAccountInputChange(a)
+                        onSandboxPrefsChanged()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (executionMode == TinkoffExecutionMode.Prod) Color(0xFFEF6C00) else Color(0xFF37474F)
+                )
+            ) { Text("Prod") }
+        }
+        if (showResetSandboxDialog && executionMode == TinkoffExecutionMode.Sandbox) {
             AlertDialog(
                 onDismissRequest = { if (!loading) showResetSandboxDialog = false },
                 title = { Text("Сбросить счёт песочницы?", color = Color.White) },
@@ -169,19 +225,32 @@ internal fun TinkoffSandboxTabContent(
             )
         }
         Text(
-            text = "T‑Invest · песочница (только клиент)",
+            text = when (executionMode) {
+                TinkoffExecutionMode.Sandbox -> "T‑Invest · песочница"
+                TinkoffExecutionMode.Prod -> "T‑Invest · боевой контур"
+            },
             style = MaterialTheme.typography.titleMedium,
             color = Color.White,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Токен режима «песочница» (Т‑Инвест → API). Сохраняется на устройстве (в т.ч. резервная копия для пережития обновлений APK); поля не сбрасываются при переходе на другие вкладки. После ввода — автосохранение ~0,5 с. Локальная сборка: sandbox-token.properties (см. пример). «Bearer …» у токена отрежется само.",
+            text = when (executionMode) {
+                TinkoffExecutionMode.Sandbox ->
+                    "Токен режима «песочница». Сохраняется на устройстве (в т.ч. резервная копия для пережития обновлений APK). После ввода — автосохранение ~0,5 с. «Bearer …» у токена отрежется само."
+                TinkoffExecutionMode.Prod ->
+                    "Токен боевого API. Хранится только локально. Полный токен в чат не отправляйте."
+            },
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp
         )
 
         Text(
-            text = "Режим «Ручной» / «Авто» и «Тестовая пара» — на вкладке «Портфель» (розовый блок). Здесь — токен, счёт и пополнение.",
+            text = when (executionMode) {
+                TinkoffExecutionMode.Sandbox ->
+                    "Режим «Ручной» / «Авто» и «Тестовая пара» — на вкладке «Портфель». Здесь — токен, счёт и пополнение."
+                TinkoffExecutionMode.Prod ->
+                    "Перед запуском боевого исполнения проверьте accountId и доступ к портфелю."
+            },
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
             modifier = Modifier.padding(bottom = 2.dp)
@@ -190,7 +259,7 @@ internal fun TinkoffSandboxTabContent(
         OutlinedTextField(
             value = tokenInput,
             onValueChange = onTokenInputChange,
-            label = { Text("Sandbox token") },
+            label = { Text(if (executionMode == TinkoffExecutionMode.Sandbox) "Sandbox token" else "Prod token") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
@@ -209,7 +278,10 @@ internal fun TinkoffSandboxTabContent(
                     scope.launch {
                         try {
                             withContext(Dispatchers.IO) {
-                                TinkoffSandboxStorage.setToken(context, tokenInput)
+                                when (executionMode) {
+                                    TinkoffExecutionMode.Sandbox -> TinkoffSandboxStorage.setToken(context, tokenInput)
+                                    TinkoffExecutionMode.Prod -> TinkoffSandboxStorage.setProdToken(context, tokenInput)
+                                }
                             }
                             status = "Токен сохранён локально."
                             onSandboxPrefsChanged()
@@ -228,8 +300,16 @@ internal fun TinkoffSandboxTabContent(
                     scope.launch {
                         try {
                             withContext(Dispatchers.IO) {
-                                TinkoffSandboxStorage.setToken(context, null)
-                                TinkoffSandboxStorage.setAccountId(context, null)
+                                when (executionMode) {
+                                    TinkoffExecutionMode.Sandbox -> {
+                                        TinkoffSandboxStorage.setToken(context, null)
+                                        TinkoffSandboxStorage.setAccountId(context, null)
+                                    }
+                                    TinkoffExecutionMode.Prod -> {
+                                        TinkoffSandboxStorage.setProdToken(context, null)
+                                        TinkoffSandboxStorage.setProdAccountId(context, null)
+                                    }
+                                }
                             }
                             onTokenInputChange("")
                             onAccountInputChange("")
@@ -251,12 +331,21 @@ internal fun TinkoffSandboxTabContent(
         OutlinedTextField(
             value = accountInput,
             onValueChange = onAccountInputChange,
-            label = { Text("Account ID (подставится после «Открыть счёт»)") },
+            label = {
+                Text(
+                    if (executionMode == TinkoffExecutionMode.Sandbox) {
+                        "Account ID (подставится после «Открыть счёт»)"
+                    } else {
+                        "Prod account ID"
+                    }
+                )
+            },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (executionMode == TinkoffExecutionMode.Sandbox) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(
                 onClick = {
                     run {
@@ -297,82 +386,83 @@ internal fun TinkoffSandboxTabContent(
             }
         }
 
-        if (accounts.isNotEmpty()) {
-            Text("Счета:", color = Color(0xFFB3E5FC), fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            accounts.forEach { row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(row.name.ifBlank { "—" }, color = Color(0xFFE0E0E0), fontSize = 12.sp, modifier = Modifier.weight(1f))
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        TinkoffSandboxStorage.setAccountId(context, row.id)
-                                    }
-                                    onAccountInputChange(row.id)
-                                    status = "Выбран счёт ${row.id}"
-                                    onSandboxPrefsChanged()
-                                } catch (e: Throwable) {
-                                    status = e.message ?: e.javaClass.simpleName
-                                }
-                            }
-                        },
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+            if (accounts.isNotEmpty()) {
+                Text("Счета:", color = Color(0xFFB3E5FC), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                accounts.forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Выбрать", fontSize = 10.sp)
+                        Text(row.name.ifBlank { "—" }, color = Color(0xFFE0E0E0), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            TinkoffSandboxStorage.setAccountId(context, row.id)
+                                        }
+                                        onAccountInputChange(row.id)
+                                        status = "Выбран счёт ${row.id}"
+                                        onSandboxPrefsChanged()
+                                    } catch (e: Throwable) {
+                                        status = e.message ?: e.javaClass.simpleName
+                                    }
+                                }
+                            },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("Выбрать", fontSize = 10.sp)
+                        }
                     }
+                    Text(row.id, color = Color(0xFF9E9E9E), fontSize = 10.sp)
                 }
-                Text(row.id, color = Color(0xFF9E9E9E), fontSize = 10.sp)
             }
-        }
 
-        OutlinedButton(
-            onClick = { showResetSandboxDialog = true },
-            enabled = !loading && hasToken() && accountInput.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFAB91))
-        ) {
-            Text(
-                "Сбросить счёт песочницы (закрыть текущий и открыть новый пустой)",
-                fontSize = 12.sp
+            OutlinedButton(
+                onClick = { showResetSandboxDialog = true },
+                enabled = !loading && hasToken() && accountInput.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFAB91))
+            ) {
+                Text(
+                    "Сбросить счёт песочницы (закрыть текущий и открыть новый пустой)",
+                    fontSize = 12.sp
+                )
+            }
+
+            OutlinedTextField(
+                value = payInRub,
+                onValueChange = { payInRub = it.filter { ch -> ch.isDigit() } },
+                label = { Text("Пополнение, ₽ (целое)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
-        }
-
-        OutlinedTextField(
-            value = payInRub,
-            onValueChange = { payInRub = it.filter { ch -> ch.isDigit() } },
-            label = { Text("Пополнение, ₽ (целое)") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-        )
-        Button(
-            onClick = {
-                run {
-                    val typedTok = tokenInput.trim()
-                    val typedAcc = accountInput.trim()
-                    val rubStr = payInRub
-                    val resp = withContext(Dispatchers.IO) {
-                        val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
-                        val acc = TinkoffSandboxStorage.getAccountId(context) ?: typedAcc
-                        if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
-                        if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
-                        val rub = rubStr.toLongOrNull() ?: throw IllegalArgumentException("Сумма не число")
-                        tinkoffSandboxPayIn(t, acc, rub)
+            Button(
+                onClick = {
+                    run {
+                        val typedTok = tokenInput.trim()
+                        val typedAcc = accountInput.trim()
+                        val rubStr = payInRub
+                        val resp = withContext(Dispatchers.IO) {
+                            val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
+                            val acc = TinkoffSandboxStorage.getAccountId(context) ?: typedAcc
+                            if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                            if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
+                            val rub = rubStr.toLongOrNull() ?: throw IllegalArgumentException("Сумма не число")
+                            tinkoffSandboxPayIn(t, acc, rub)
+                        }
+                        status = formatPayInResult(resp)
+                        onSandboxPrefsChanged()
                     }
-                    status = formatPayInResult(resp)
-                    onSandboxPrefsChanged()
-                }
-            },
-            enabled = !loading && hasToken() && accountInput.isNotBlank() && payInRub.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
-        ) {
-            Text("Пополнить песочницу")
+                },
+                enabled = !loading && hasToken() && accountInput.isNotBlank() && payInRub.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
+            ) {
+                Text("Пополнить песочницу")
+            }
         }
 
         Button(
@@ -382,11 +472,11 @@ internal fun TinkoffSandboxTabContent(
                     val typedTok = tokenInput.trim()
                     val typedAcc = accountInput.trim()
                     val port = withContext(Dispatchers.IO) {
-                        val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
-                        val acc = TinkoffSandboxStorage.getAccountId(context) ?: typedAcc
+                        val t = TinkoffSandboxStorage.getActiveToken(context, executionMode) ?: typedTok
+                        val acc = TinkoffSandboxStorage.getActiveAccountId(context, executionMode) ?: typedAcc
                         if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
                         if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
-                        tinkoffGetSandboxPortfolio(t, acc)
+                        tinkoffGetPortfolio(executionMode, t, acc)
                     }
                     portfolioRubLine = formatSandboxPortfolioLinesForUi(port)
                 }
@@ -395,21 +485,28 @@ internal fun TinkoffSandboxTabContent(
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00695C))
         ) {
-            Text("Запросить портфель песочницы (оценка в ₽)")
+            Text(
+                if (executionMode == TinkoffExecutionMode.Sandbox) {
+                    "Запросить портфель песочницы (оценка в ₽)"
+                } else {
+                    "Проверить доступ к боевому портфелю"
+                }
+            )
         }
         portfolioRubLine?.let { line ->
             Text(line, color = Color(0xFFB2DFDB), fontSize = 12.sp)
         }
 
-        Text(
-            text = "Тестовые рыночные заявки — 1 лот TATN. Ниже: всего по портфелю и строка «Деньги (₽)» (после продажи деньги обычно растут).",
-            color = Color(0xFF9E9E9E),
-            fontSize = 11.sp
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        if (executionMode == TinkoffExecutionMode.Sandbox) {
+            Text(
+                text = "Тестовые рыночные заявки — 1 лот TATN. Ниже: всего по портфелю и строка «Деньги (₽)».",
+                color = Color(0xFF9E9E9E),
+                fontSize = 11.sp
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
             Button(
                 onClick = {
                     run {
@@ -472,6 +569,7 @@ internal fun TinkoffSandboxTabContent(
                 )
                 Text("Продать 1 лот", fontSize = 12.sp)
             }
+        }
         }
 
         if (loading) {

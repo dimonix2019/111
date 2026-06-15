@@ -33,31 +33,35 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
         return false
     }
     if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
+    val mode = currentExecutionMode(context)
     val dedupKey = "${signalType.name}|$barTimestampMillis"
     synchronized(autoSpreadDedupLock) {
         val p = context.applicationContext.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
         if (p.getString(KEY_LAST_AUTO, null) == dedupKey) return false
     }
-    when (TinkoffSandboxStorage.resolveExecUiState(context)) {
+    when (TinkoffSandboxStorage.resolveExecUiState(context, mode)) {
         SandboxExecUiState.MissingCredentials -> {
-            notifySandboxAutoEntrySkipped(context, "Укажите токен и счёт песочницы (вкладка «Песочница»).")
+            notifySandboxAutoEntrySkipped(
+                context,
+                "Укажите токен и счёт (${executionModeLabelRu(mode)})."
+            )
             return false
         }
         SandboxExecUiState.Ready -> Unit
         SandboxExecUiState.Off -> Unit
     }
-    val token = TinkoffSandboxStorage.getToken(context) ?: run {
-        notifySandboxAutoEntrySkipped(context, "Нет токена песочницы.")
+    val token = TinkoffSandboxStorage.getActiveToken(context, mode) ?: run {
+        notifySandboxAutoEntrySkipped(context, "Нет токена (${executionModeLabelRu(mode)}).")
         return false
     }
-    val accountId = TinkoffSandboxStorage.getAccountId(context) ?: run {
-        notifySandboxAutoEntrySkipped(context, "Нет счёта песочницы.")
+    val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode) ?: run {
+        notifySandboxAutoEntrySkipped(context, "Нет счёта (${executionModeLabelRu(mode)}).")
         return false
     }
     val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
     val app = context.applicationContext
     return try {
-        val legs = tinkoffSandboxExecuteSpreadEntryDetailed(token, accountId, signalType)
+        val legs = tinkoffExecuteSpreadEntryDetailed(mode, token, accountId, signalType)
         val executedAt = System.currentTimeMillis()
         synchronized(autoSpreadDedupLock) {
             app.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
@@ -119,6 +123,7 @@ internal suspend fun runSandboxAutoExitIfNeeded(
         return false
     }
     if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
+    val mode = currentExecutionMode(context)
     val dedupKey = "${exitSignalType.name}|$barTimestampMillis"
     synchronized(autoSpreadDedupLock) {
         val p = context.applicationContext.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
@@ -128,26 +133,29 @@ internal suspend fun runSandboxAutoExitIfNeeded(
         TinkoffSandboxSpreadExecLog.loadRecent(context),
         exitSignalType,
     ) ?: return false
-    when (TinkoffSandboxStorage.resolveExecUiState(context)) {
+    when (TinkoffSandboxStorage.resolveExecUiState(context, mode)) {
         SandboxExecUiState.MissingCredentials -> {
-            notifySandboxAutoExitSkipped(context, "Укажите токен и счёт песочницы (вкладка «Песочница»).")
+            notifySandboxAutoExitSkipped(
+                context,
+                "Укажите токен и счёт (${executionModeLabelRu(mode)})."
+            )
             return false
         }
         SandboxExecUiState.Ready -> Unit
         SandboxExecUiState.Off -> Unit
     }
-    val token = TinkoffSandboxStorage.getToken(context) ?: run {
-        notifySandboxAutoExitSkipped(context, "Нет токена песочницы.")
+    val token = TinkoffSandboxStorage.getActiveToken(context, mode) ?: run {
+        notifySandboxAutoExitSkipped(context, "Нет токена (${executionModeLabelRu(mode)}).")
         return false
     }
-    val accountId = TinkoffSandboxStorage.getAccountId(context) ?: run {
-        notifySandboxAutoExitSkipped(context, "Нет счёта песочницы.")
+    val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode) ?: run {
+        notifySandboxAutoExitSkipped(context, "Нет счёта (${executionModeLabelRu(mode)}).")
         return false
     }
     val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
     val app = context.applicationContext
     return try {
-        val legs = tinkoffSandboxExecuteSpreadExitDetailed(token, accountId, openTrade.signalType)
+        val legs = tinkoffExecuteSpreadExitDetailed(mode, token, accountId, openTrade.signalType)
         synchronized(autoSpreadDedupLock) {
             app.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_LAST_AUTO_EXIT, dedupKey).commit()

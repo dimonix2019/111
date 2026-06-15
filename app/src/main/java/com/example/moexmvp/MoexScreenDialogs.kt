@@ -128,8 +128,9 @@ internal fun MoexScreenDialogs(
                                     ZStrategyPosition.Short -> StrategySignalType.EnterShort
                                     ZStrategyPosition.Flat -> null
                                 }
-                                val tok = TinkoffSandboxStorage.getToken(context)
-                                val acc = TinkoffSandboxStorage.getAccountId(context)
+                                val mode = TinkoffSandboxStorage.getExecutionMode(context)
+                                val tok = TinkoffSandboxStorage.getActiveToken(context, mode)
+                                val acc = TinkoffSandboxStorage.getActiveAccountId(context, mode)
                                 if (entrySignal != null &&
                                     TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context) &&
                                     !tok.isNullOrBlank() &&
@@ -137,7 +138,7 @@ internal fun MoexScreenDialogs(
                                 ) {
                                     withContext(Dispatchers.IO) {
                                         runCatching {
-                                            tinkoffSandboxExecuteSpreadExitDetailed(tok, acc, entrySignal)
+                                            tinkoffExecuteSpreadExitDetailed(mode, tok, acc, entrySignal)
                                         }
                                     }
                                 }

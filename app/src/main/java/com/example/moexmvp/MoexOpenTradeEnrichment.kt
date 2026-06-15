@@ -152,6 +152,31 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
             journalEvents = journalEvents
         )
     }
+    enforceProdMoneyStopIfNeeded()
+}
+
+private suspend fun MoexScreenState.enforceProdMoneyStopIfNeeded() {
+    if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) {
+        prodMoneyStopLastTriggeredTradeId = null
+        return
+    }
+    if (!TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)) return
+    val candidate = sandboxSpreadExecutions
+        .asSequence()
+        .filter { it.signalType == StrategySignalType.EnterLong || it.signalType == StrategySignalType.EnterShort }
+        .filter { !it.netPnlRubApprox.isNaN() && it.netPnlRubApprox <= -PROD_MONEY_STOP_PER_TRADE_RUB }
+        .sortedBy { it.netPnlRubApprox }
+        .firstOrNull()
+    if (candidate == null) {
+        prodMoneyStopLastTriggeredTradeId = null
+        return
+    }
+    if (prodMoneyStopLastTriggeredTradeId == candidate.tradeId) return
+    prodMoneyStopLastTriggeredTradeId = candidate.tradeId
+    runCatching { closePortfolioOpenTrade(context, candidate).getOrThrow() }
+    zStrategyPosition = loadSavedStrategyPosition(context)
+    signalEvents = loadStrategySignalEvents(context)
+    sandboxSpreadExecReload++
 }
 
 /** Открытые и закрытые сделки портфеля для маркеров на Z-графике «Рынок». */

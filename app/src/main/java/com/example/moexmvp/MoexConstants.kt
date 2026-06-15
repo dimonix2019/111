@@ -55,6 +55,7 @@ internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 /** Debounce rapid threshold/leverage tweaks on «Тест страт.» before rerunning simulation. */
 internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 750L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
+internal const val PROD_MONEY_STOP_PER_TRADE_RUB = 4_000.0
 
 /** Portfolio tab: entry/exit |Z| limits are independent (UI steppers). */
 internal const val PORTFOLIO_Z_THRESHOLD_MIN = 0.0
@@ -126,6 +127,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.177 — Добавлен execution mode Sandbox/Prod: боевые токен+accountId, продовые PostOrder/GetPortfolio, money-stop 4000 ₽ на сделку.
 1.7.176 — Рынок: loadedAt корректно парсит legacy-форматы (в т.ч. `15.05.26 : 22,07`) и не залипает на старом 15м времени.
 1.7.175 — main: шторка Z/сделка + сводка «закр. 2-й дн.»; повторная публикация обновления.
 1.7.174 — Fix: номер сделки в шторке = еженедельный ID из журнала (как на «Портфель»), не D-00x.
