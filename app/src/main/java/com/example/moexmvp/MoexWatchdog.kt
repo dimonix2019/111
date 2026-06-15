@@ -2,6 +2,7 @@ package com.example.moexmvp
 
 import android.app.ActivityManager
 import android.content.Context
+import java.util.Locale
 
 /** Интервал проверки watchdog из UI (приложение на экране). */
 internal const val WATCHDOG_UI_POLL_MS = 30_000L
@@ -155,4 +156,18 @@ internal fun formatWatchdogAgeSec(ageSec: Long): String = when {
     ageSec < 60 -> "${ageSec}с"
     ageSec < 3600 -> "${ageSec / 60}м ${ageSec % 60}с"
     else -> "${ageSec / 3600}ч ${(ageSec % 3600) / 60}м"
+}
+
+/** Текст ongoing-уведомления фонового монитора в шторке. */
+internal fun formatSignalMonitorForegroundText(
+    monitorEnabled: Boolean,
+    serviceLastTickMs: Long,
+    serviceAgeSec: Long,
+    zScore: Double?,
+): String = when {
+    !monitorEnabled -> "Монитор выключен"
+    serviceLastTickMs <= 0L -> "Ожидание данных…"
+    zScore != null ->
+        "Z = ${"%.2f".format(Locale.US, zScore)} · ${formatWatchdogAgeSec(serviceAgeSec)} назад"
+    else -> "Обновлено ${formatWatchdogAgeSec(serviceAgeSec)} назад"
 }

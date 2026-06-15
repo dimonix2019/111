@@ -52,4 +52,27 @@ class MoexWatchdogTest {
     fun formatWatchdogAgeSec_formatsMinutes() {
         assertTrue(formatWatchdogAgeSec(90).contains("1м"))
     }
+
+    @Test
+    fun formatSignalMonitorForegroundText_showsZWithoutTickNumber() {
+        val text = formatSignalMonitorForegroundText(
+            monitorEnabled = true,
+            serviceLastTickMs = 1L,
+            serviceAgeSec = 12L,
+            zScore = 0.52,
+        )
+        assertTrue(text.contains("Z = 0.52"))
+        assertFalse(text.contains("#"))
+    }
+
+    @Test
+    fun formatSignalMonitorForegroundText_waitingWhenNoZ() {
+        val text = formatSignalMonitorForegroundText(
+            monitorEnabled = true,
+            serviceLastTickMs = 0L,
+            serviceAgeSec = -1L,
+            zScore = null,
+        )
+        assertTrue(text.contains("Ожидание"))
+    }
 }
