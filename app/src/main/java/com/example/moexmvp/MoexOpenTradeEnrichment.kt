@@ -30,17 +30,18 @@ internal fun enrichOpenSandboxExecutions(
         )
         val entryDateLabel = points.minByOrNull { kotlin.math.abs(it.timestampMillis - exec.barTimestampMillis) }
             ?.tradeDate ?: exec.entryTimeMsk
+        val tradeNotional = tradeExecutionNotionalRub(exec, notionalRub)
         val grossRub = estimateOpenSpreadMtmGrossRub(
             signalType = exec.signalType,
             entrySpreadPercent = entrySpread,
             currentSpreadPercent = last.spreadPercent,
-            notionalRub = notionalRub,
+            notionalRub = tradeNotional,
             leverage = leverage,
             points = points,
             barTimestampMillis = exec.barTimestampMillis
         )
         val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
-            notionalRub = notionalRub,
+            notionalRub = tradeNotional,
             leverage = leverage,
             commissionPercentPerSide = commissionPercentPerSide,
             entryDateLabel = entryDateLabel,
@@ -152,6 +153,31 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
             journalEvents = journalEvents
         )
     }
+    enforceProdMoneyStopIfNeeded()
+}
+
+private suspend fun MoexScreenState.enforceProdMoneyStopIfNeeded() {
+    if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) {
+        prodMoneyStopLastTriggeredTradeId = null
+        return
+    }
+    if (!TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)) return
+    val candidate = sandboxSpreadExecutions
+        .asSequence()
+        .filter { it.signalType == StrategySignalType.EnterLong || it.signalType == StrategySignalType.EnterShort }
+        .filter { !it.netPnlRubApprox.isNaN() && it.netPnlRubApprox <= -PROD_MONEY_STOP_PER_TRADE_RUB }
+        .sortedBy { it.netPnlRubApprox }
+        .firstOrNull()
+    if (candidate == null) {
+        prodMoneyStopLastTriggeredTradeId = null
+        return
+    }
+    if (prodMoneyStopLastTriggeredTradeId == candidate.tradeId) return
+    prodMoneyStopLastTriggeredTradeId = candidate.tradeId
+    runCatching { closePortfolioOpenTrade(context, candidate).getOrThrow() }
+    zStrategyPosition = loadSavedStrategyPosition(context)
+    signalEvents = loadStrategySignalEvents(context)
+    sandboxSpreadExecReload++
 }
 
 /** Открытые и закрытые сделки портфеля для маркеров на Z-графике «Рынок». */

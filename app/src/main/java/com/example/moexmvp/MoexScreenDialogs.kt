@@ -109,7 +109,7 @@ internal fun MoexScreenDialogs(
             title = { Text("Закрыть все сделки", color = Color.White) },
             text = {
                 Text(
-                    "Отправить обратные заявки на демо-счёте (если позиция открыта), записать выход в журнал, " +
+                    "Отправить обратные заявки на ${executionAccountShortRu(executionMode)} (если позиция открыта), записать выход в журнал, " +
                         "очистить список исполнений портфеля и сбросить локальную позицию Z в FLAT. Журнал сигналов не очищается.",
                     color = Color(0xFFE0E0E0),
                     fontSize = 13.sp
@@ -128,16 +128,28 @@ internal fun MoexScreenDialogs(
                                     ZStrategyPosition.Short -> StrategySignalType.EnterShort
                                     ZStrategyPosition.Flat -> null
                                 }
-                                val tok = TinkoffSandboxStorage.getToken(context)
-                                val acc = TinkoffSandboxStorage.getAccountId(context)
+                                val mode = TinkoffSandboxStorage.getExecutionMode(context)
+                                val tok = TinkoffSandboxStorage.getActiveToken(context, mode)
+                                val acc = TinkoffSandboxStorage.getActiveAccountId(context, mode)
                                 if (entrySignal != null &&
                                     TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context) &&
                                     !tok.isNullOrBlank() &&
                                     !acc.isNullOrBlank()
                                 ) {
+                                    val openTrade = sandboxSpreadExecutions
+                                        .filter { it.signalType == entrySignal }
+                                        .maxByOrNull { it.barTimestampMillis }
                                     withContext(Dispatchers.IO) {
                                         runCatching {
-                                            tinkoffSandboxExecuteSpreadExitDetailed(tok, acc, entrySignal)
+                                            if (openTrade != null) {
+                                                executeSpreadExitDetailedForConfiguredMode(
+                                                    context,
+                                                    entrySignal,
+                                                    openTrade.quantityLots,
+                                                )
+                                            } else {
+                                                executeSpreadExitDetailedForConfiguredMode(context, entrySignal, 1)
+                                            }
                                         }
                                     }
                                 }

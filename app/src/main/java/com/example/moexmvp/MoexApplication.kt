@@ -7,6 +7,11 @@ class MoexApplication : Application() {
         super.onCreate()
         installMoexDiagnosticsCrashHandler(applicationContext)
         MoexDiagnostics.log(applicationContext, "lifecycle", "application_onCreate")
+        scheduleAppUpdateChecks(applicationContext)
+        scheduleMonitorWatchdog(applicationContext)
+        if (SignalForegroundService.isBackgroundMonitorEnabled(applicationContext)) {
+            MoexWatchdog.performMonitorWatchdogCheck(applicationContext, "application_onCreate")
+        }
     }
 
     override fun onTrimMemory(level: Int) {

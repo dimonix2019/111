@@ -124,6 +124,18 @@ private suspend fun tinkoffSandboxPostRaw(token: String, method: String, bodyJso
 private suspend fun tinkoffInstrumentsPostRaw(token: String, method: String, bodyJson: String): String =
     tinkoffSbxPostRaw(TINVEST_SANDBOX_INSTRUMENTS_PREFIXES, token, method, bodyJson)
 
+private suspend fun tinkoffProdOrdersPostRaw(token: String, method: String, bodyJson: String): String =
+    tinkoffSbxPostRaw(TINVEST_PROD_ORDERS_PREFIXES, token, method, bodyJson)
+
+private suspend fun tinkoffProdInstrumentsPostRaw(token: String, method: String, bodyJson: String): String =
+    tinkoffSbxPostRaw(TINVEST_PROD_INSTRUMENTS_PREFIXES, token, method, bodyJson)
+
+private suspend fun tinkoffProdOperationsPostRaw(token: String, method: String, bodyJson: String): String =
+    tinkoffSbxPostRaw(TINVEST_PROD_OPERATIONS_PREFIXES, token, method, bodyJson)
+
+private suspend fun tinkoffProdUsersPostRaw(token: String, method: String, bodyJson: String): String =
+    tinkoffSbxPostRaw(TINVEST_PROD_USERS_PREFIXES, token, method, bodyJson)
+
 internal suspend fun tinkoffInstrumentsPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffInstrumentsPostRaw(token, method, body.toString())
     return parseJsonObjectOrEmpty(raw)
@@ -131,6 +143,26 @@ internal suspend fun tinkoffInstrumentsPostAsync(token: String, method: String, 
 
 internal suspend fun tinkoffSandboxPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffSandboxPostRaw(token, method, body.toString())
+    return parseJsonObjectOrEmpty(raw)
+}
+
+internal suspend fun tinkoffProdOrdersPostAsync(token: String, method: String, body: JSONObject): JSONObject {
+    val raw = tinkoffProdOrdersPostRaw(token, method, body.toString())
+    return parseJsonObjectOrEmpty(raw)
+}
+
+internal suspend fun tinkoffProdInstrumentsPostAsync(token: String, method: String, body: JSONObject): JSONObject {
+    val raw = tinkoffProdInstrumentsPostRaw(token, method, body.toString())
+    return parseJsonObjectOrEmpty(raw)
+}
+
+internal suspend fun tinkoffProdOperationsPostAsync(token: String, method: String, body: JSONObject): JSONObject {
+    val raw = tinkoffProdOperationsPostRaw(token, method, body.toString())
+    return parseJsonObjectOrEmpty(raw)
+}
+
+internal suspend fun tinkoffProdUsersPostAsync(token: String, method: String, body: JSONObject): JSONObject {
+    val raw = tinkoffProdUsersPostRaw(token, method, body.toString())
     return parseJsonObjectOrEmpty(raw)
 }
 
@@ -272,6 +304,30 @@ internal suspend fun tinkoffGetSandboxAccounts(token: String): List<SandboxAccou
         rows = parse(root)
     }
     return rows
+}
+
+internal suspend fun tinkoffGetProdAccounts(token: String): List<SandboxAccountRow> {
+    fun parse(root: JSONObject): List<SandboxAccountRow> =
+        parseSandboxAccounts(unwrapGetAccountsEnvelope(root))
+    var root = tinkoffProdUsersPostAsync(token, "GetAccounts", JSONObject())
+    var rows = parse(root)
+    if (rows.isEmpty()) {
+        root = tinkoffProdUsersPostAsync(
+            token,
+            "GetAccounts",
+            JSONObject().put("status", "ACCOUNT_STATUS_ALL")
+        )
+        rows = parse(root)
+    }
+    return rows
+}
+
+internal suspend fun tinkoffGetAccounts(
+    mode: TinkoffExecutionMode,
+    token: String,
+): List<SandboxAccountRow> = when (mode) {
+    TinkoffExecutionMode.Sandbox -> tinkoffGetSandboxAccounts(token)
+    TinkoffExecutionMode.Prod -> tinkoffGetProdAccounts(token)
 }
 
 private fun payInBodyCamel(accountId: String, unitsRub: Long): JSONObject {
@@ -474,6 +530,55 @@ internal suspend fun tinkoffPostSandboxMarketOrder(
     throw last ?: IOException("PostSandboxOrder: неизвестная ошибка")
 }
 
+/** One market order on the prod account (1 lot by default). */
+internal suspend fun tinkoffPostProdMarketOrder(
+    token: String,
+    accountId: String,
+    instrumentId: String,
+    orderDirection: String,
+    quantityLots: Int = 1
+): JSONObject {
+    var last: IOException? = null
+    val oid = { UUID.randomUUID().toString() }
+    val figi = isLikelyFigi(instrumentId)
+    val bodies = buildList {
+        add { postMarketBodySnake(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+        add { postMarketBodyCamel(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+        add { postMarketBodySnakeNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+        add { postMarketBodyCamelNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+        add { postMarketBodySnakeNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE") }
+        add { postMarketBodyCamelNoPrice(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE") }
+        if (figi) {
+            add { postMarketBodySnakeFigi(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+            add { postMarketBodyCamelFigi(accountId, instrumentId, orderDirection, quantityLots, oid()) }
+            add { postMarketBodySnakeFigi(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE", false) }
+            add { postMarketBodyCamelFigi(accountId, instrumentId, orderDirection, quantityLots, oid(), "ORDER_TYPE_BESTPRICE", false) }
+        }
+    }
+    for (factory in bodies) {
+        try {
+            return tinkoffProdOrdersPostAsync(token, "PostOrder", factory())
+        } catch (e: IOException) {
+            last = e
+        }
+    }
+    throw last ?: IOException("PostOrder: неизвестная ошибка")
+}
+
+internal suspend fun tinkoffPostMarketOrder(
+    mode: TinkoffExecutionMode,
+    token: String,
+    accountId: String,
+    instrumentId: String,
+    orderDirection: String,
+    quantityLots: Int = 1,
+): JSONObject = when (mode) {
+    TinkoffExecutionMode.Sandbox ->
+        tinkoffPostSandboxMarketOrder(token, accountId, instrumentId, orderDirection, quantityLots)
+    TinkoffExecutionMode.Prod ->
+        tinkoffPostProdMarketOrder(token, accountId, instrumentId, orderDirection, quantityLots)
+}
+
 /**
  * REST PostOrder expects [instrument_id] as FIGI or instrument UID, not always `TICKER_TQBR`.
  * Resolves via InstrumentsService/FindInstrument on the sandbox host.
@@ -531,6 +636,66 @@ internal suspend fun tinkoffResolveShareInstrumentId(token: String, ticker: Stri
         ?: throw IOException("FindInstrument: нет uid/figi для $want · ${chosen.toString().take(400)}")
 }
 
+internal suspend fun tinkoffResolveShareInstrumentIdProd(token: String, ticker: String): String {
+    val want = ticker.trim().uppercase(Locale.US)
+    fun parseMatches(root: JSONObject): List<JSONObject> {
+        val arr = root.optJSONArray("instruments")
+            ?: root.optJSONArray("Instruments")
+            ?: JSONArray()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val raw = arr.optJSONObject(i) ?: continue
+                val o = raw.optJSONObject("instrument") ?: raw
+                val t = o.optString("ticker", o.optString("Ticker", "")).trim().uppercase(Locale.US)
+                if (t == want) add(o)
+            }
+        }
+    }
+    fun pickId(o: JSONObject): String? = o.firstNonBlankString(
+        "instrumentUid", "instrument_uid", "uid",
+        "figi", "FIGI"
+    )
+    val roots = listOf(
+        tinkoffProdInstrumentsPostAsync(
+            token,
+            "FindInstrument",
+            JSONObject()
+                .put("query", want)
+                .put("instrumentKind", "INSTRUMENT_TYPE_SHARE")
+                .put("apiTradeAvailableFlag", true)
+        ),
+        runCatching {
+            tinkoffProdInstrumentsPostAsync(
+                token,
+                "FindInstrument",
+                JSONObject()
+                    .put("query", want)
+                    .put("instrumentKind", "INSTRUMENT_TYPE_UNSPECIFIED")
+            )
+        }.getOrElse { JSONObject() }
+    )
+    val allMatches = roots.flatMap { parseMatches(it) }.distinctBy { it.toString() }
+    if (allMatches.isEmpty()) {
+        val hint = roots.joinToString(" | ") { it.toString().take(200) }
+        throw IOException("FindInstrument(prod): тикер $want не найден · $hint")
+    }
+    val tqbr = allMatches.firstOrNull {
+        it.optString("classCode", it.optString("class_code", "")).equals("TQBR", ignoreCase = true)
+    }
+    val chosen = tqbr ?: allMatches.first()
+    return pickId(chosen)
+        ?: throw IOException("FindInstrument(prod): нет uid/figi для $want · ${chosen.toString().take(400)}")
+}
+
+internal suspend fun tinkoffResolveShareInstrumentId(
+    mode: TinkoffExecutionMode,
+    token: String,
+    ticker: String,
+): String = when (mode) {
+    TinkoffExecutionMode.Sandbox -> tinkoffResolveShareInstrumentId(token, ticker)
+    TinkoffExecutionMode.Prod -> tinkoffResolveShareInstrumentIdProd(token, ticker)
+}
+
 /**
  * Одна рыночная тестовая заявка по TATN (1 лот по умолчанию) — для проверки песочницы и баланса.
  */
@@ -584,45 +749,68 @@ internal data class SandboxLegOrderResult(
 )
 
 /**
- * Две рыночные заявки по 1 лоту; после **каждой** — GetSandboxPortfolio для строк «всего» и «деньги» в уведомлениях.
+ * Две рыночные заявки по 1 лоту; для песочницы после каждой ноги читаем портфель,
+ * для прода строка портфеля опциональна.
  */
 internal suspend fun tinkoffSandboxExecuteSpreadEntryDetailed(
     token: String,
     accountId: String,
     signalType: StrategySignalType
+): List<SandboxLegOrderResult> =
+    tinkoffExecuteSpreadEntryDetailed(
+        mode = TinkoffExecutionMode.Sandbox,
+        token = token,
+        accountId = accountId,
+        signalType = signalType,
+    )
+
+internal suspend fun tinkoffProdExecuteSpreadEntryDetailed(
+    token: String,
+    accountId: String,
+    signalType: StrategySignalType,
 ): List<SandboxLegOrderResult> {
-    val tatnId = try {
-        tinkoffResolveShareInstrumentId(token, "TATN")
-    } catch (_: Exception) {
-        TINKOFF_MOEX_TATN_INSTRUMENT_ID
-    }
-    val tatnpId = try {
-        tinkoffResolveShareInstrumentId(token, "TATNP")
-    } catch (_: Exception) {
-        TINKOFF_MOEX_TATNP_INSTRUMENT_ID
-    }
+    return tinkoffExecuteSpreadEntryDetailed(
+        mode = TinkoffExecutionMode.Prod,
+        token = token,
+        accountId = accountId,
+        signalType = signalType,
+    )
+}
+
+internal suspend fun tinkoffExecuteSpreadEntryDetailed(
+    mode: TinkoffExecutionMode,
+    token: String,
+    accountId: String,
+    signalType: StrategySignalType,
+    quantityLots: Int = 1,
+): List<SandboxLegOrderResult> {
+    val qty = quantityLots.coerceAtLeast(1)
+    val tatnId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
+        .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
+    val tatnpId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
+        .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
     val buy = "ORDER_DIRECTION_BUY"
     val sell = "ORDER_DIRECTION_SELL"
-    suspend fun postLeg(ticker: String, instId: String, dir: String, sideRu: String): SandboxLegOrderResult {
-        val order = tinkoffPostSandboxMarketOrder(token, accountId, instId, dir)
-        val pf = tinkoffGetSandboxPortfolio(token, accountId)
+    suspend fun postLeg(ticker: String, instId: String, dir: String, buyLeg: Boolean): SandboxLegOrderResult {
+        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, dir, qty)
+        val pf = runCatching { tinkoffGetPortfolio(mode, token, accountId) }.getOrNull()
         return SandboxLegOrderResult(
             ticker = ticker,
-            sideRu = sideRu,
+            sideRu = spreadLegSideRu(buyLeg, qty),
             orderJson = order,
-            portfolioTotalRub = formatSandboxPortfolioTotalRub(pf),
-            portfolioCashRub = formatSandboxCashRub(pf),
+            portfolioTotalRub = pf?.let { formatSandboxPortfolioTotalRub(it) },
+            portfolioCashRub = pf?.let { formatSandboxCashRub(it) },
             completedAtMillis = System.currentTimeMillis()
         )
     }
     return when (signalType) {
         StrategySignalType.EnterLong -> listOf(
-            postLeg("TATN", tatnId, buy, "покупка 1 лот"),
-            postLeg("TATNP", tatnpId, sell, "продажа 1 лот")
+            postLeg("TATN", tatnId, buy, buyLeg = true),
+            postLeg("TATNP", tatnpId, sell, buyLeg = false)
         )
         StrategySignalType.EnterShort -> listOf(
-            postLeg("TATNP", tatnpId, buy, "покупка 1 лот"),
-            postLeg("TATN", tatnId, sell, "продажа 1 лот")
+            postLeg("TATNP", tatnpId, buy, buyLeg = true),
+            postLeg("TATN", tatnId, sell, buyLeg = false)
         )
         else -> throw IOException("Только EnterLong / EnterShort")
     }
@@ -633,39 +821,61 @@ internal suspend fun tinkoffSandboxExecuteSpreadExitDetailed(
     token: String,
     accountId: String,
     openedWithEntrySignal: StrategySignalType
+): List<SandboxLegOrderResult> =
+    tinkoffExecuteSpreadExitDetailed(
+        mode = TinkoffExecutionMode.Sandbox,
+        token = token,
+        accountId = accountId,
+        openedWithEntrySignal = openedWithEntrySignal,
+    )
+
+internal suspend fun tinkoffProdExecuteSpreadExitDetailed(
+    token: String,
+    accountId: String,
+    openedWithEntrySignal: StrategySignalType,
 ): List<SandboxLegOrderResult> {
-    val tatnId = try {
-        tinkoffResolveShareInstrumentId(token, "TATN")
-    } catch (_: Exception) {
-        TINKOFF_MOEX_TATN_INSTRUMENT_ID
-    }
-    val tatnpId = try {
-        tinkoffResolveShareInstrumentId(token, "TATNP")
-    } catch (_: Exception) {
-        TINKOFF_MOEX_TATNP_INSTRUMENT_ID
-    }
+    return tinkoffExecuteSpreadExitDetailed(
+        mode = TinkoffExecutionMode.Prod,
+        token = token,
+        accountId = accountId,
+        openedWithEntrySignal = openedWithEntrySignal,
+    )
+}
+
+internal suspend fun tinkoffExecuteSpreadExitDetailed(
+    mode: TinkoffExecutionMode,
+    token: String,
+    accountId: String,
+    openedWithEntrySignal: StrategySignalType,
+    quantityLots: Int = 1,
+): List<SandboxLegOrderResult> {
+    val qty = quantityLots.coerceAtLeast(1)
+    val tatnId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
+        .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
+    val tatnpId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
+        .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
     val buy = "ORDER_DIRECTION_BUY"
     val sell = "ORDER_DIRECTION_SELL"
-    suspend fun postLeg(ticker: String, instId: String, dir: String, sideRu: String): SandboxLegOrderResult {
-        val order = tinkoffPostSandboxMarketOrder(token, accountId, instId, dir)
-        val pf = tinkoffGetSandboxPortfolio(token, accountId)
+    suspend fun postLeg(ticker: String, instId: String, dir: String, buyLeg: Boolean): SandboxLegOrderResult {
+        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, dir, qty)
+        val pf = runCatching { tinkoffGetPortfolio(mode, token, accountId) }.getOrNull()
         return SandboxLegOrderResult(
             ticker = ticker,
-            sideRu = sideRu,
+            sideRu = spreadLegSideRu(buyLeg, qty),
             orderJson = order,
-            portfolioTotalRub = formatSandboxPortfolioTotalRub(pf),
-            portfolioCashRub = formatSandboxCashRub(pf),
+            portfolioTotalRub = pf?.let { formatSandboxPortfolioTotalRub(it) },
+            portfolioCashRub = pf?.let { formatSandboxCashRub(it) },
             completedAtMillis = System.currentTimeMillis()
         )
     }
     return when (openedWithEntrySignal) {
         StrategySignalType.EnterLong -> listOf(
-            postLeg("TATN", tatnId, sell, "продажа 1 лот"),
-            postLeg("TATNP", tatnpId, buy, "покупка 1 лот")
+            postLeg("TATN", tatnId, sell, buyLeg = false),
+            postLeg("TATNP", tatnpId, buy, buyLeg = true)
         )
         StrategySignalType.EnterShort -> listOf(
-            postLeg("TATNP", tatnpId, sell, "продажа 1 лот"),
-            postLeg("TATN", tatnId, buy, "покупка 1 лот")
+            postLeg("TATNP", tatnpId, sell, buyLeg = false),
+            postLeg("TATN", tatnId, buy, buyLeg = true)
         )
         StrategySignalType.ExitLong, StrategySignalType.ExitShort ->
             throw IOException("Укажите тип входа EnterLong или EnterShort")
@@ -719,7 +929,46 @@ internal suspend fun tinkoffGetSandboxPortfolio(token: String, accountId: String
     throw last ?: IOException("GetSandboxPortfolio: неизвестная ошибка")
 }
 
-private fun quotationUnitsToDouble(o: JSONObject): Double? {
+private fun unwrapProdPortfolioJson(root: JSONObject): JSONObject =
+    unwrapJsonByKeys(
+        root,
+        listOf(
+            "getPortfolioResponse",
+            "get_portfolio_response",
+            "portfolio",
+            "Portfolio",
+        )
+    )
+
+internal suspend fun tinkoffGetProdPortfolio(token: String, accountId: String): JSONObject {
+    val attempts = listOf(
+        JSONObject().put("accountId", accountId.trim()),
+        JSONObject().put("account_id", accountId.trim()),
+        JSONObject().put("accountId", accountId.trim()).put("currency", "RUB"),
+        JSONObject().put("account_id", accountId.trim()).put("currency", "RUB"),
+    )
+    var last: IOException? = null
+    for (body in attempts) {
+        try {
+            val raw = tinkoffProdOperationsPostAsync(token, "GetPortfolio", body)
+            return unwrapProdPortfolioJson(raw)
+        } catch (e: IOException) {
+            last = e
+        }
+    }
+    throw last ?: IOException("GetPortfolio(prod): неизвестная ошибка")
+}
+
+internal suspend fun tinkoffGetPortfolio(
+    mode: TinkoffExecutionMode,
+    token: String,
+    accountId: String,
+): JSONObject = when (mode) {
+    TinkoffExecutionMode.Sandbox -> tinkoffGetSandboxPortfolio(token, accountId)
+    TinkoffExecutionMode.Prod -> tinkoffGetProdPortfolio(token, accountId)
+}
+
+internal fun quotationUnitsToDouble(o: JSONObject): Double? {
     val nano = o.optLong("nano", o.optLong("Nano", 0L))
     val raw = o.opt("units") ?: o.opt("Units")
     val units = when (raw) {
@@ -749,7 +998,7 @@ internal fun formatSandboxPortfolioTotalRub(portfolioJson: JSONObject): String? 
     return String.format(java.util.Locale.US, "%.2f ₽", v)
 }
 
-private fun findPortfolioMoneyQuotation(portfolioJson: JSONObject): JSONObject? {
+internal fun findPortfolioMoneyQuotation(portfolioJson: JSONObject): JSONObject? {
     val keys = listOf("totalAmountCurrencies", "total_amount_currencies")
     fun find(o: JSONObject?, depth: Int): JSONObject? {
         if (o == null || depth > 6) return null
