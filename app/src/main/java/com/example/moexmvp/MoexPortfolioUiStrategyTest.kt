@@ -458,6 +458,10 @@ internal fun StrategyTestDurationSummarySection(summary: StrategyTestDurationSum
                 bucket = summary.long,
                 valueColor = Color(0xFFE57373),
             )
+            StrategyTestDurationSummaryRow(
+                bucket = summary.closedSecondDay,
+                valueColor = Color(0xFFFFCC80),
+            )
             if (summary.detailBuckets.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 Text(

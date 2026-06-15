@@ -187,6 +187,8 @@ internal data class StrategyTestDurationBucket(
 internal data class StrategyTestDurationSummary(
     val short: StrategyTestDurationBucket,
     val long: StrategyTestDurationBucket,
+    /** Закрытие на следующий календарный день после входа (2-й день удержания, МСК). */
+    val closedSecondDay: StrategyTestDurationBucket,
     val detailBuckets: List<StrategyTestDurationBucket>,
 )
 
@@ -217,16 +219,21 @@ internal fun buildStrategyTestDurationSummary(
     if (trades.isEmpty()) return null
     val shortTrades = mutableListOf<PortfolioClosedTrade>()
     val longTrades = mutableListOf<PortfolioClosedTrade>()
+    val secondDayTrades = mutableListOf<PortfolioClosedTrade>()
     val detailOrder = listOf("< 1 дн.", "1–2 дн.", "2–3 дн.", "3–5 дн.", "> 5 дн.")
     val detailAcc = detailOrder.associateWith { mutableListOf<PortfolioClosedTrade>() }.toMutableMap()
     for (trade in trades) {
         val durationMs = simTradeDurationMillis(trade.entryDate, trade.exitDate) ?: continue
         if (durationMs <= STRATEGY_TEST_TWO_DAYS_MS) shortTrades += trade else longTrades += trade
+        if (isSimTradeClosedOnSecondCalendarDay(trade.entryDate, trade.exitDate)) {
+            secondDayTrades += trade
+        }
         detailAcc[strategyTestDurationBucketTitle(durationMs)]?.add(trade)
     }
     return StrategyTestDurationSummary(
         short = bucketFromTrades("≤ 2 сут", shortTrades),
         long = bucketFromTrades("> 2 сут", longTrades),
+        closedSecondDay = bucketFromTrades("закр. 2-й дн.", secondDayTrades),
         detailBuckets = detailOrder.map { title ->
             bucketFromTrades(title, detailAcc[title].orEmpty())
         }.filter { it.tradeCount > 0 },
