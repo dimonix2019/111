@@ -1031,3 +1031,83 @@ internal fun formatSandboxPortfolioLinesForUi(portfolioJson: JSONObject): String
     return formatSandboxPortfolioTotalRub(portfolioJson)
         ?: "Портфель (сырой): ${portfolioJson.toString().take(400)}"
 }
+
+internal data class MarginAttributesSnapshot(
+    val liquidPortfolioRub: Double,
+    val correctedMarginRub: Double,
+    val startingMarginRub: Double,
+    val amountOfMissingFundsRub: Double?,
+)
+
+private fun findMarginMoneyField(portfolioJson: JSONObject, fieldKeys: List<String>): Double? {
+    fun find(o: JSONObject?, depth: Int): JSONObject? {
+        if (o == null || depth > 8) return null
+        for (k in fieldKeys) {
+            o.optJSONObject(k)?.let { return it }
+        }
+        val it = o.keys()
+        while (it.hasNext()) {
+            find(o.optJSONObject(it.next()), depth + 1)?.let { return it }
+        }
+        return null
+    }
+    val q = find(portfolioJson, 0) ?: return null
+    return quotationUnitsToDouble(q)
+}
+
+internal fun parseMarginAttributesJson(root: JSONObject): MarginAttributesSnapshot? {
+    val envelope = unwrapJsonByKeys(
+        root,
+        listOf(
+            "getMarginAttributesResponse",
+            "get_margin_attributes_response",
+            "marginAttributes",
+            "margin_attributes",
+        ),
+    )
+    val liquid = findMarginMoneyField(
+        envelope,
+        listOf("liquidPortfolio", "liquid_portfolio"),
+    ) ?: return null
+    val corrected = findMarginMoneyField(
+        envelope,
+        listOf("correctedMargin", "corrected_margin"),
+    )
+    val starting = findMarginMoneyField(
+        envelope,
+        listOf("startingMargin", "starting_margin"),
+    ) ?: corrected ?: return null
+    val missing = findMarginMoneyField(
+        envelope,
+        listOf("amountOfMissingFunds", "amount_of_missing_funds"),
+    )
+    return MarginAttributesSnapshot(
+        liquidPortfolioRub = liquid,
+        correctedMarginRub = corrected ?: starting,
+        startingMarginRub = starting,
+        amountOfMissingFundsRub = missing,
+    )
+}
+
+internal suspend fun tinkoffGetMarginAttributes(
+    mode: TinkoffExecutionMode,
+    token: String,
+    accountId: String,
+): MarginAttributesSnapshot? {
+    if (mode != TinkoffExecutionMode.Prod) return null
+    val attempts = listOf(
+        JSONObject().put("accountId", accountId.trim()),
+        JSONObject().put("account_id", accountId.trim()),
+    )
+    var last: IOException? = null
+    for (body in attempts) {
+        try {
+            val raw = tinkoffProdUsersPostAsync(token, "GetMarginAttributes", body)
+            return parseMarginAttributesJson(raw)
+        } catch (e: IOException) {
+            last = e
+        }
+    }
+    if (last != null) throw last
+    return null
+}

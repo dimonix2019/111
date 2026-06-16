@@ -65,7 +65,11 @@ internal const val SPREAD_LOT_MARGIN_RATE_PER_LEG = 0.30
 /** Буфер на комиссию/slippage от номинала пары. */
 internal const val SPREAD_LOT_COMMISSION_BUFFER_FRACTION = 0.002
 internal const val SPREAD_LOT_MIN_LOTS = 1
-internal const val SPREAD_LOT_MAX_LOTS = 50
+internal const val SPREAD_LOT_MAX_LOTS = 80
+/** Prod: доля номинала пары на прирост скорректированной маржи (эмпирика ~10+10 → 5.4k). */
+internal const val SPREAD_LOT_MARGIN_PAIR_FRACTION = 0.50
+/** Prod: плечо для расчёта целевого номинала = liquid × leverage / pairNotional. */
+internal const val SPREAD_LOT_PROD_DEFAULT_LEVERAGE = 7.0
 
 /** Portfolio tab: entry/exit |Z| limits are independent (UI steppers). */
 internal const val PORTFOLIO_Z_THRESHOLD_MIN = 0.0
@@ -137,6 +141,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.183 — Prod: лоты пары до 80 — по марже GetMarginAttributes и плечу ×7 (ликвидный портфель), не только cash.
 1.7.182 — Prod: PnL открытой сделки на «Портфеле» без плеча ×7, по реальному номиналу позиции (как в T‑Invest).
 1.7.181 — Prod/Sandbox: лоты пары TATN/TATNP считаются от денег на счёте с резервом под ГО; выход тем же объёмом.
 1.7.180 — Портфель и авто-исполнение показывают режим Prod; тестовые ордера идут в активный контур.

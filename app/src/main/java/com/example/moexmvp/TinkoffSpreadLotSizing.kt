@@ -5,6 +5,7 @@ import org.json.JSONObject
 import java.io.IOException
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.min
 
 internal data class SpreadLotSizingResult(
     val quantityLots: Int,
@@ -17,6 +18,11 @@ internal data class SpreadLotSizingResult(
     val priceTatNp: Double,
     val lotSize: Int,
     val executionNotionalRub: Double,
+    val liquidPortfolioRub: Double? = null,
+    val marginHeadroomRub: Double? = null,
+    val lotsFromCash: Int = 0,
+    val lotsFromLeverage: Int = 0,
+    val lotsFromMarginHeadroom: Int = 0,
 )
 
 internal data class SpreadLotSizingInput(
@@ -30,6 +36,10 @@ internal data class SpreadLotSizingInput(
     val commissionBufferFraction: Double = SPREAD_LOT_COMMISSION_BUFFER_FRACTION,
     val minLots: Int = SPREAD_LOT_MIN_LOTS,
     val maxLots: Int = SPREAD_LOT_MAX_LOTS,
+    val liquidPortfolioRub: Double? = null,
+    val correctedMarginRub: Double? = null,
+    val leverageForNotional: Double? = null,
+    val marginPairFraction: Double = SPREAD_LOT_MARGIN_PAIR_FRACTION,
 )
 
 internal fun spreadPairNotionalRub(
@@ -43,6 +53,16 @@ internal fun spreadPairNotionalRub(
     return (priceTatN.coerceAtLeast(0.0) + priceTatNp.coerceAtLeast(0.0)) * lot * qty
 }
 
+internal fun estimateSpreadMarginPerLotRub(
+    priceTatN: Double,
+    priceTatNp: Double,
+    lotSize: Int,
+    marginPairFraction: Double = SPREAD_LOT_MARGIN_PAIR_FRACTION,
+): Double {
+    val pairNotionalPerLotRub = (priceTatN.coerceAtLeast(0.0) + priceTatNp.coerceAtLeast(0.0)) * lotSize.coerceAtLeast(1)
+    return pairNotionalPerLotRub * marginPairFraction.coerceAtLeast(0.01)
+}
+
 internal fun computeSpreadQuantityLots(input: SpreadLotSizingInput): SpreadLotSizingResult {
     val lotSize = input.lotSize.coerceAtLeast(1)
     val priceTatN = input.priceTatN.coerceAtLeast(0.0)
@@ -50,20 +70,59 @@ internal fun computeSpreadQuantityLots(input: SpreadLotSizingInput): SpreadLotSi
     require(priceTatN > 0.0 && priceTatNp > 0.0) {
         "Некорректные цены TATN/TATNP для расчёта лотов"
     }
-    val reserveRub = max(input.reserveMinRub, input.cashRub * input.reserveFraction)
-    val availableRub = (input.cashRub - reserveRub).coerceAtLeast(0.0)
     val pairNotionalPerLotRub = (priceTatN + priceTatNp) * lotSize
     val goBuyLegRub = priceTatN * lotSize
     val goSellLegRub = priceTatNp * lotSize * input.marginRatePerLeg
     val commissionBufferRub = pairNotionalPerLotRub * input.commissionBufferFraction
     val goPerLotRub = goBuyLegRub + goSellLegRub + commissionBufferRub
-    val rawLots = if (goPerLotRub <= 0.0) 0 else floor(availableRub / goPerLotRub).toInt()
+    val marginPerLotRub = estimateSpreadMarginPerLotRub(
+        priceTatN,
+        priceTatNp,
+        lotSize,
+        input.marginPairFraction,
+    )
+
+    val liquid = input.liquidPortfolioRub?.takeIf { it > 0.0 }
+    val reserveBase = liquid ?: input.cashRub
+    val reserveRub = max(input.reserveMinRub, reserveBase * input.reserveFraction)
+    val availableCashRub = (input.cashRub - reserveRub).coerceAtLeast(0.0)
+    val lotsFromCash = if (goPerLotRub <= 0.0) 0 else floor(availableCashRub / goPerLotRub).toInt()
+
+    val leverage = input.leverageForNotional?.takeIf { it >= 1.0 }
+    val lotsFromLeverage = if (liquid != null && leverage != null && pairNotionalPerLotRub > 0.0) {
+        floor(liquid * leverage / pairNotionalPerLotRub).toInt()
+    } else {
+        0
+    }
+
+    val corrected = input.correctedMarginRub?.coerceAtLeast(0.0)
+    val marginHeadroomRub = if (liquid != null && corrected != null) {
+        (liquid - corrected - reserveRub).coerceAtLeast(0.0)
+    } else {
+        null
+    }
+    val lotsFromMarginHeadroom = if (marginHeadroomRub != null && marginHeadroomRub > 0.0 && marginPerLotRub > 0.0) {
+        floor(marginHeadroomRub / marginPerLotRub).toInt()
+    } else {
+        0
+    }
+
+    val mostlyFlat = liquid != null && corrected != null && corrected < liquid * 0.05
+    val rawLots = when {
+        leverage != null && liquid != null && mostlyFlat ->
+            max(lotsFromCash, lotsFromLeverage)
+        leverage != null && liquid != null ->
+            max(lotsFromCash, min(lotsFromLeverage, lotsFromMarginHeadroom))
+        marginHeadroomRub != null ->
+            max(lotsFromCash, lotsFromMarginHeadroom)
+        else -> lotsFromCash
+    }
     val quantityLots = rawLots.coerceIn(0, input.maxLots)
     return SpreadLotSizingResult(
         quantityLots = quantityLots,
         cashRub = input.cashRub,
         reserveRub = reserveRub,
-        availableRub = availableRub,
+        availableRub = availableCashRub,
         goPerLotRub = goPerLotRub,
         pairNotionalPerLotRub = pairNotionalPerLotRub,
         priceTatN = priceTatN,
@@ -75,6 +134,11 @@ internal fun computeSpreadQuantityLots(input: SpreadLotSizingInput): SpreadLotSi
             lotSize,
             quantityLots.coerceAtLeast(1),
         ),
+        liquidPortfolioRub = liquid,
+        marginHeadroomRub = marginHeadroomRub,
+        lotsFromCash = lotsFromCash,
+        lotsFromLeverage = lotsFromLeverage,
+        lotsFromMarginHeadroom = lotsFromMarginHeadroom,
     )
 }
 
@@ -113,19 +177,36 @@ internal suspend fun resolveSpreadOrderQuantityLots(
     val cashRub = parsePortfolioCashRubDouble(portfolio)
         ?: throw IOException("Не удалось прочитать деньги на счёте (totalAmountCurrencies)")
     val (priceTatN, priceTatNp) = resolveMoexSpreadPrices(context)
+    val marginAttrs = if (mode == TinkoffExecutionMode.Prod) {
+        runCatching { tinkoffGetMarginAttributes(mode, token, accountId) }.getOrNull()
+    } else {
+        null
+    }
+    val leverage = if (mode == TinkoffExecutionMode.Prod) {
+        TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
+            .coerceIn(1.0, 30.0)
+    } else {
+        null
+    }
     val sizing = computeSpreadQuantityLots(
         SpreadLotSizingInput(
             cashRub = cashRub,
             priceTatN = priceTatN,
             priceTatNp = priceTatNp,
             lotSize = 1,
+            liquidPortfolioRub = marginAttrs?.liquidPortfolioRub,
+            correctedMarginRub = marginAttrs?.correctedMarginRub,
+            leverageForNotional = leverage,
         )
     )
     if (sizing.quantityLots < SPREAD_LOT_MIN_LOTS) {
+        val marginHint = marginAttrs?.let { attrs ->
+            " ликвид=${"%.0f".format(attrs.liquidPortfolioRub)} ₽, скорр.маржа=${"%.0f".format(attrs.correctedMarginRub)} ₽"
+        }.orEmpty()
         throw IOException(
             "Недостаточно средств для входа: на счёте ${"%.0f".format(cashRub)} ₽, " +
                 "после резерва ${"%.0f".format(sizing.availableRub)} ₽, " +
-                "нужно ≈${"%.0f".format(sizing.goPerLotRub)} ₽ на 1 лот пары"
+                "нужно ≈${"%.0f".format(sizing.goPerLotRub)} ₽ на 1 лот пары$marginHint"
         )
     }
     return sizing
