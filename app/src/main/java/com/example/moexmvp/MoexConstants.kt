@@ -131,6 +131,8 @@ internal const val PORTFOLIO_M15_TAIL_MAX_AGE_MS = 40L * 60L * 60L * 1000L
 internal const val PORTFOLIO_M15_INTRADAY_STALE_MS = 20L * 60L * 1000L
 /** Интервал фоновой проверки хвоста 15м (Портфель / Рынок, приложение на экране). */
 internal const val PORTFOLIO_M15_INTRADAY_POLL_MS = 60_000L
+/** Prod: авто-обновление PnL/цен открытых ног с GetPortfolio на вкладке «Портфель». */
+internal const val PROD_BROKER_PORTFOLIO_POLL_MS = 15_000L
 internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
 /** Прямая загрузка debug APK (если репозиторий private — нужна авторизация GitHub в браузере, иначе будет 404). */
@@ -141,6 +143,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.186 — Prod «Портфель»: авто-обновление PnL/цен с боевого счёта каждые 15 с (без кнопки).
 1.7.185 — Prod «Портфель»: котировки и PnL ног с GetPortfolio без ожидания MOEX; быстрый «Обновить».
 1.7.184 — Prod: PnL L/S на «Портфеле» из expectedYield GetPortfolio (как T‑Invest), не пополам от спреда.
 1.7.183 — Prod: лоты пары до 80 — по марже GetMarginAttributes и плечу ×7 (ликвидный портфель), не только cash.

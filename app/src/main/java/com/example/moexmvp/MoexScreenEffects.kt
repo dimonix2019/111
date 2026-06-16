@@ -353,6 +353,18 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         ensurePortfolioTabLoaded()
     }
 
+    LaunchedEffect(selectedTab, activityResumed, executionMode, memoryPressureLevel) {
+        if (selectedTab != MainTab.Portfolio || !activityResumed) return@LaunchedEffect
+        if (executionMode != TinkoffExecutionMode.Prod) return@LaunchedEffect
+        refreshProdOpenTradesFromBroker()
+        while (activityResumed && selectedTab == MainTab.Portfolio) {
+            delay(PROD_BROKER_PORTFOLIO_POLL_MS)
+            if (!activityResumed || selectedTab != MainTab.Portfolio) break
+            if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) continue
+            refreshProdOpenTradesFromBroker()
+        }
+    }
+
     LaunchedEffect(
         signalJournalFingerprint,
         sandboxSpreadExecReload,
@@ -511,6 +523,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}")
             if (selectedTab == MainTab.Portfolio && portfolioTabUiBuiltKey != 0L) {
                 refreshPortfolioAfterJournalChange(refreshTailIfStale = false)
+            }
+            if (selectedTab == MainTab.Portfolio &&
+                executionMode == TinkoffExecutionMode.Prod &&
+                !MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)
+            ) {
+                refreshProdOpenTradesFromBroker()
             }
         }
     }
