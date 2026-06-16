@@ -145,6 +145,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.192 — «О приложении»: скачать журнал в Загрузки / «Сохранить как…» / отправить .txt файлом.
 1.7.191 — Рынок: 1м графики TATN/TATNP (день); журнал [quotes] при новых барах и залипании; догон Z если 1м впереди 15м.
 1.7.190 — Z-score: формирующийся 15м бар пересчитывается каждую минуту (MOEX 10м→15м), не залипает на persisted.
 1.7.189 — Prod закрытые: чистый PnL = Δ денег на счёте; ноги из GetOperations yield (не MTM).

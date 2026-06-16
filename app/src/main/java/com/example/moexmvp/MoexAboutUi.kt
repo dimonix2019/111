@@ -1,6 +1,9 @@
 package com.example.moexmvp
 
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -201,6 +204,19 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var preview by remember { mutableStateOf("Загрузка журнала…") }
     var lineCount by remember { mutableIntStateOf(0) }
+    val saveAsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) { MoexDiagnostics.writeExportToUri(context, uri) }
+            Toast.makeText(
+                context,
+                if (ok) "Журнал сохранён в выбранный файл" else "Не удалось записать файл",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
     LaunchedEffect(Unit) {
         val (text, count) = withContext(Dispatchers.IO) {
             MoexDiagnostics.formatForDisplay(context, tail = 12) to MoexDiagnostics.lineCount(context)
@@ -221,7 +237,7 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
             fontSize = 14.sp
         )
         Text(
-            text = "Записей: $lineCount · сохраняется между перезапусками",
+            text = "Записей: $lineCount · ANR «не отвечает» и вылеты пишутся в файл",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 4.dp)
@@ -241,21 +257,64 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .padding(top = 8.dp)
                 .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Button(
                 onClick = {
                     scope.launch {
-                        withContext(Dispatchers.IO) { MoexDiagnostics.shareExport(context) }
-                        Toast.makeText(context, "Отправьте файл/text себе (Telegram, почта…)", Toast.LENGTH_LONG).show()
+                        val path = withContext(Dispatchers.IO) {
+                            MoexDiagnostics.saveExportToDownloads(context)
+                        }
+                        when {
+                            path != null -> Toast.makeText(
+                                context,
+                                "Сохранено: $path",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                                Toast.makeText(context, "Не удалось сохранить в Загрузки", Toast.LENGTH_SHORT).show()
+                            else -> saveAsLauncher.launch(MoexDiagnostics.eventLogExportFileName())
+                        }
                     }
                 },
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
             ) {
-                Text("Экспорт", fontSize = 12.sp)
+                Text("Скачать", fontSize = 11.sp)
             }
+            OutlinedButton(
+                onClick = {
+                    saveAsLauncher.launch(MoexDiagnostics.eventLogExportFileName())
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA))
+            ) {
+                Text("Сохранить", fontSize = 11.sp)
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) { MoexDiagnostics.shareExportFile(context) }
+                        if (!ok) {
+                            Toast.makeText(context, "Журнал пуст", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFCE93D8))
+            ) {
+                Text("Файл", fontSize = 11.sp)
+            }
+        }
+        Row(
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             OutlinedButton(
                 onClick = {
                     scope.launch {
@@ -272,6 +331,19 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA))
             ) {
                 Text("Копировать", fontSize = 12.sp)
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { MoexDiagnostics.shareExport(context) }
+                        Toast.makeText(context, "Отправьте текст (Telegram, почта…)", Toast.LENGTH_LONG).show()
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB0BEC5))
+            ) {
+                Text("Текст", fontSize = 12.sp)
             }
         }
         Row(
