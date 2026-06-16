@@ -62,6 +62,10 @@ internal class MoexScreenState(val context: Context) {
     var marketsStale by mutableStateOf(false)
     /** @deprecated Используйте [marketsM15SessionCache] + [storeMarketsM15]; оставлено для миграции читателей. */
     var marketsM15Points by mutableStateOf<List<DataPoint>>(emptyList())
+    var marketsIntraday1mTatn by mutableStateOf<List<CandlePoint>>(emptyList())
+    var marketsIntraday1mTatnp by mutableStateOf<List<CandlePoint>>(emptyList())
+    /** Инкремент при обновлении 1м котировок на «Рынок». */
+    var marketsIntraday1mEpoch by mutableStateOf(0)
     var marketsM15SessionCache: List<DataPoint> = emptyList()
     var marketsM15DataEpoch by mutableStateOf(0)
     var portfolioM15Points by mutableStateOf<List<DataPoint>>(emptyList())

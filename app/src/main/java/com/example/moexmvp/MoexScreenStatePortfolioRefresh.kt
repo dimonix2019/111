@@ -179,7 +179,10 @@ internal suspend fun MoexScreenState.refreshM15LiveFormingTail(reason: String) {
             .coerceAtLeast(portfolioLookbackDays)
         else -> portfolioLookbackDays
     }
-    val loaded = refreshPortfolio15mLiveFormingTailFromMoex(context, lookback) ?: return
+    val loaded = refreshPortfolio15mLiveFormingTailFromMoex(context, lookback) ?: run {
+        MoexDiagnostics.log(context, "m15_tail", "live_forming_skip no_rows lookback=$lookback reason=$reason")
+        return
+    }
     MoexDiagnostics.log(context, "m15_tail", "live_forming reason=$reason tab=${selectedTab.label}")
     portfolioM15Points = loaded
     when (selectedTab) {

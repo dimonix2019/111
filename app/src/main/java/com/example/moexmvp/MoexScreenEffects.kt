@@ -410,6 +410,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(selectedTab, activityResumed) {
+        if (selectedTab != MainTab.Markets || !activityResumed) return@LaunchedEffect
+        refreshMarketsIntraday1mQuotes(reason = "tab_open")
+    }
+
     LaunchedEffect(dataLoadSessions, dataLoadProgress?.phase, selectedTab) {
         if (selectedTab != MainTab.Markets) return@LaunchedEffect
         if (dataLoadSessions == 0 && dataLoadProgress?.active == true) {
@@ -521,6 +526,9 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                 continue
             }
             refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}")
+            if (selectedTab == MainTab.Markets) {
+                refreshMarketsIntraday1mQuotes(reason = "auto_poll_Markets")
+            }
             if (selectedTab == MainTab.Portfolio && portfolioTabUiBuiltKey != 0L) {
                 refreshPortfolioAfterJournalChange(refreshTailIfStale = false)
             }

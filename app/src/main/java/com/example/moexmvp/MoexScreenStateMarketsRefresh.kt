@@ -64,3 +64,23 @@ internal suspend fun MoexScreenState.refreshMarketsDailyOnly(period: Period) {
             }
         }
     }
+
+/** 1м TATN/TATNP за сегодня (МСК) + журнал [quotes] при новых барах. */
+internal suspend fun MoexScreenState.refreshMarketsIntraday1mQuotes(reason: String) {
+    if (!activityResumed) return
+    if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) return
+    val snap = withContext(Dispatchers.IO) { fetchMarketsIntraday1mDay() }
+    if (snap.tatn.isEmpty() && snap.tatnp.isEmpty()) {
+        MoexDiagnostics.log(context, "quotes", "empty 1m day fetch reason=$reason")
+        return
+    }
+    marketsIntraday1mTatn = snap.tatn
+    marketsIntraday1mTatnp = snap.tatnp
+    marketsIntraday1mEpoch++
+    val m15Last = marketsM15Source().lastOrNull()
+    MarketsQuotesDiagnostics.logQuoteUpdate(context, snap, m15Last, reason)
+    val newest1m = maxOf(snap.tatnLastBarMillis, snap.tatnpLastBarMillis)
+    if (m15Last != null && newest1m > m15Last.timestampMillis + 5 * 60_000L) {
+        refreshM15LiveFormingTail(reason = "1m_ahead_$reason")
+    }
+}

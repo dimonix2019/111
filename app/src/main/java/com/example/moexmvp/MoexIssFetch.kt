@@ -57,7 +57,7 @@ internal fun loadCloseSeries(
 }
 
 internal fun fetchData(period: Period): FetchedData {
-    val till = LocalDate.now()
+    val till = LocalDate.now(moexZoneId)
     val from = period.from(till)
 
     val tatnBars = loadCandleSeries("TATN", period, from, till)

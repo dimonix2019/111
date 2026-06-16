@@ -226,6 +226,14 @@ internal fun MoexScreenTabMarkets(
                                 }
                             )
                         } else {
+                        val tatn1m = marketsIntraday1mTatn
+                        val tatnp1m = marketsIntraday1mTatnp
+                        val tatn1mWindow = remember(tatn1m) {
+                            intraday1mChartInitialWindow(tatn1m.size, visibleBars = 120)
+                        }
+                        val tatnp1mWindow = remember(tatnp1m) {
+                            intraday1mChartInitialWindow(tatnp1m.size, visibleBars = 120)
+                        }
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -347,6 +355,45 @@ internal fun MoexScreenTabMarkets(
                                 isRefreshing = isRefreshing,
                                 onToggle = { realtimeEnabled = !realtimeEnabled }
                             )
+                        }
+                        if (tatn1m.isNotEmpty() || tatnp1m.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "1м · сегодня (МСК) · обновление ~1 мин · журнал [quotes] на «О приложении»",
+                                    color = Color(0xFF90CAF9),
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            if (tatn1m.isNotEmpty()) {
+                                item {
+                                    CandlestickChartCard(
+                                        title = "TATN · 1м",
+                                        candles = tatn1m,
+                                        chartHeightDp = 200,
+                                        enableZoomPan = true,
+                                        showZoomHint = true,
+                                        compactLayout = true,
+                                        initialWindowWidth = tatn1mWindow.first,
+                                        initialWindowStart = tatn1mWindow.second,
+                                        xLabelStyle = ChartXLabelStyleHorizontal,
+                                    )
+                                }
+                            }
+                            if (tatnp1m.isNotEmpty()) {
+                                item {
+                                    CandlestickChartCard(
+                                        title = "TATNP · 1м",
+                                        candles = tatnp1m,
+                                        chartHeightDp = 200,
+                                        enableZoomPan = true,
+                                        showZoomHint = true,
+                                        compactLayout = true,
+                                        initialWindowWidth = tatnp1mWindow.first,
+                                        initialWindowStart = tatnp1mWindow.second,
+                                        xLabelStyle = ChartXLabelStyleHorizontal,
+                                    )
+                                }
+                            }
                         }
                         val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()
                         val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isMarketsDataLoadActive)
