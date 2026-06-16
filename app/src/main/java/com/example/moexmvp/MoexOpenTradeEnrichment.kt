@@ -14,6 +14,7 @@ internal fun enrichOpenSandboxExecutions(
     leverage: Double,
     commissionPercentPerSide: Double = 0.04,
     pnlLeverage: Double = leverage,
+    brokerLegPnl: SpreadLegBrokerPnl? = null,
 ): List<SandboxSpreadExecUi> {
     if (executions.isEmpty() || points.isEmpty()) return executions
     val last = points.last()
@@ -32,15 +33,6 @@ internal fun enrichOpenSandboxExecutions(
         val entryDateLabel = points.minByOrNull { kotlin.math.abs(it.timestampMillis - exec.barTimestampMillis) }
             ?.tradeDate ?: exec.entryTimeMsk
         val tradeNotional = resolveTradeNotionalRubForPnl(exec, points, notionalRub)
-        val grossRub = estimateOpenSpreadMtmGrossRub(
-            signalType = exec.signalType,
-            entrySpreadPercent = entrySpread,
-            currentSpreadPercent = last.spreadPercent,
-            notionalRub = tradeNotional,
-            leverage = pnlLeverage,
-            points = points,
-            barTimestampMillis = exec.barTimestampMillis
-        )
         val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
             notionalRub = tradeNotional,
             leverage = pnlLeverage,
@@ -49,14 +41,36 @@ internal fun enrichOpenSandboxExecutions(
             exitDateLabel = last.tradeDate,
             includeExitCommission = false
         )
-        val mtmRub = grossRub - commRub - ovnRub
-        val half = mtmRub / 2.0
+        val brokerForExec = brokerLegPnl?.takeIf {
+            exec.signalType == StrategySignalType.EnterLong ||
+                exec.signalType == StrategySignalType.EnterShort
+        }
+        val (legLongPnl, legShortPnl, mtmRub) = if (brokerForExec != null) {
+            val gross = brokerForExec.netGrossRub
+            Triple(
+                brokerForExec.longLegYieldRub,
+                brokerForExec.shortLegYieldRub,
+                gross - commRub - ovnRub,
+            )
+        } else {
+            val grossRub = estimateOpenSpreadMtmGrossRub(
+                signalType = exec.signalType,
+                entrySpreadPercent = entrySpread,
+                currentSpreadPercent = last.spreadPercent,
+                notionalRub = tradeNotional,
+                leverage = pnlLeverage,
+                points = points,
+                barTimestampMillis = exec.barTimestampMillis
+            )
+            val net = grossRub - commRub - ovnRub
+            Triple(net / 2.0, net / 2.0, net)
+        }
         exec.copy(
             zScore = entryZ,
             entrySpreadPercent = entrySpread,
             exitZDisplay = last.zScore,
-            legLongPnlSplitRubApprox = half,
-            legShortPnlSplitRubApprox = half,
+            legLongPnlSplitRubApprox = legLongPnl,
+            legShortPnlSplitRubApprox = legShortPnl,
             netPnlRubApprox = mtmRub,
             commissionRubApprox = commRub,
             overnightRubApprox = ovnRub
@@ -147,6 +161,9 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
     }
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(opensAfterJournalClose, ledgerIncludeAuto)
     val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage)
+    val brokerLegPnl = modeFiltered.firstOrNull()?.signalType?.let { signal ->
+        loadProdSpreadLegBrokerPnl(context, signal)
+    }
     sandboxSpreadExecutions = withContext(Dispatchers.IO) {
         TinkoffSandboxSpreadExecLog.enrichForDisplay(
             context = context,
@@ -157,6 +174,7 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
             commissionPercentPerSide = portfolioCommissionPercent,
             journalEvents = journalEvents,
             pnlLeverage = pnlLeverage,
+            brokerLegPnl = brokerLegPnl,
         )
     }
     enforceProdMoneyStopIfNeeded()

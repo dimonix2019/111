@@ -141,6 +141,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.184 — Prod: PnL L/S на «Портфеле» из expectedYield GetPortfolio (как T‑Invest), не пополам от спреда.
 1.7.183 — Prod: лоты пары до 80 — по марже GetMarginAttributes и плечу ×7 (ликвидный портфель), не только cash.
 1.7.182 — Prod: PnL открытой сделки на «Портфеле» без плеча ×7, по реальному номиналу позиции (как в T‑Invest).
 1.7.181 — Prod/Sandbox: лоты пары TATN/TATNP считаются от денег на счёте с резервом под ГО; выход тем же объёмом.

@@ -222,6 +222,7 @@ internal object TinkoffSandboxSpreadExecLog {
         commissionPercentPerSide: Double = 0.04,
         journalEvents: List<StrategySignalEvent> = emptyList(),
         pnlLeverage: Double = portfolioPnlLeverageMultiplier(currentExecutionMode(context), leverage),
+        brokerLegPnl: SpreadLegBrokerPnl? = null,
     ): List<SandboxSpreadExecUi> {
         if (executions.isEmpty()) return executions
         val pushLog = loadPushNotificationLog(context)
@@ -259,6 +260,7 @@ internal object TinkoffSandboxSpreadExecLog {
             leverage,
             commissionPercentPerSide,
             pnlLeverage,
+            brokerLegPnl,
         )
     }
 

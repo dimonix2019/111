@@ -1,5 +1,6 @@
 package com.example.moexmvp
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -1110,4 +1111,80 @@ internal suspend fun tinkoffGetMarginAttributes(
     }
     if (last != null) throw last
     return null
+}
+
+internal data class SpreadLegBrokerPnl(
+    val longLegYieldRub: Double,
+    val shortLegYieldRub: Double,
+) {
+    val netGrossRub: Double get() = longLegYieldRub + shortLegYieldRub
+}
+
+private fun JSONObject.positionTicker(): String? =
+    firstNonBlankString("ticker", "Ticker")?.uppercase(Locale.US)
+
+private fun parsePositionExpectedYieldRub(position: JSONObject): Double? {
+    val yieldObj = position.optJSONObject("expectedYield")
+        ?: position.optJSONObject("expected_yield")
+        ?: return null
+    return quotationUnitsToDouble(yieldObj)
+}
+
+private fun collectPortfolioPositions(portfolioJson: JSONObject): List<JSONObject> {
+    val out = mutableListOf<JSONObject>()
+    fun walk(o: JSONObject?, depth: Int) {
+        if (o == null || depth > 8) return
+        val arr = o.optJSONArray("positions") ?: o.optJSONArray("Positions")
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                arr.optJSONObject(i)?.let { out.add(it) }
+            }
+        }
+        val keys = o.keys()
+        while (keys.hasNext()) {
+            walk(o.optJSONObject(keys.next()), depth + 1)
+        }
+    }
+    walk(portfolioJson, 0)
+    return out
+}
+
+/** Нереализованный PnL по ногам из GetPortfolio (как в T‑Invest). */
+internal fun parseSpreadLegBrokerPnl(
+    portfolioJson: JSONObject,
+    signalType: StrategySignalType,
+): SpreadLegBrokerPnl? {
+    val yieldsByTicker = linkedMapOf<String, Double>()
+    for (pos in collectPortfolioPositions(portfolioJson)) {
+        val ticker = pos.positionTicker() ?: continue
+        val yieldRub = parsePositionExpectedYieldRub(pos) ?: continue
+        yieldsByTicker[ticker] = (yieldsByTicker[ticker] ?: 0.0) + yieldRub
+    }
+    val tatn = yieldsByTicker["TATN"] ?: return null
+    val tatnp = yieldsByTicker["TATNP"] ?: return null
+    return when (signalType) {
+        StrategySignalType.EnterLong -> SpreadLegBrokerPnl(
+            longLegYieldRub = tatn,
+            shortLegYieldRub = tatnp,
+        )
+        StrategySignalType.EnterShort -> SpreadLegBrokerPnl(
+            longLegYieldRub = tatnp,
+            shortLegYieldRub = tatn,
+        )
+        else -> null
+    }
+}
+
+internal suspend fun loadProdSpreadLegBrokerPnl(
+    context: Context,
+    signalType: StrategySignalType,
+): SpreadLegBrokerPnl? {
+    if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) return null
+    val mode = TinkoffExecutionMode.Prod
+    val token = TinkoffSandboxStorage.getActiveToken(context, mode) ?: return null
+    val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode) ?: return null
+    return runCatching {
+        val portfolio = tinkoffGetPortfolio(mode, token, accountId)
+        parseSpreadLegBrokerPnl(portfolio, signalType)
+    }.getOrNull()
 }
