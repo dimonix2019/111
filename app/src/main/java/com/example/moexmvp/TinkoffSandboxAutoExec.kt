@@ -180,14 +180,17 @@ internal suspend fun runSandboxAutoExitIfNeeded(
             exitZScore = zScore,
             exitTimestampMillis = barTimestampMillis,
         ).getOrThrow()
-        brokerBeforeClose?.let { brokerPnl ->
-            TinkoffClosedSpreadExecLog.recordClose(
+        val closedRecord = if (mode == TinkoffExecutionMode.Prod) {
+            recordProdClosedTradeAfterExit(
                 context = app,
                 execution = openTrade,
-                brokerPnl = brokerPnl,
+                exitLegs = legs,
                 exitTimestampMillis = barTimestampMillis,
                 exitZScore = zScore,
+                mtmBeforeClose = brokerBeforeClose,
             )
+        } else {
+            null
         }
         notifySandboxTradeClosedAfterClose(
             context = app,
@@ -198,6 +201,7 @@ internal suspend fun runSandboxAutoExitIfNeeded(
             exitLegs = legs,
             notionalRub = tradeExecutionNotionalRub(openTrade, DEFAULT_PORTFOLIO_NOTIONAL_RUB),
             leverage = leverage,
+            closedRecord = closedRecord,
             brokerPnlBeforeClose = brokerBeforeClose,
         )
         true

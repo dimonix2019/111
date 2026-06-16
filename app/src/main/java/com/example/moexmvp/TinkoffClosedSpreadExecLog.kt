@@ -33,6 +33,11 @@ internal data class ProdClosedSpreadExecRecord(
     val exitZScore: Double,
     val longLegYieldRub: Double,
     val shortLegYieldRub: Double,
+    /** Чистый реализованный PnL = Δ денег на счёте (Prod). */
+    val realizedNetRub: Double? = null,
+    val entryPortfolioCashRub: Double? = null,
+    val exitPortfolioCashRub: Double? = null,
+    val operationsCommissionRub: Double = 0.0,
     val closedAtMillis: Long = System.currentTimeMillis(),
 )
 
@@ -46,6 +51,10 @@ internal object TinkoffClosedSpreadExecLog {
         brokerPnl: SpreadLegBrokerPnl,
         exitTimestampMillis: Long,
         exitZScore: Double,
+        realizedNetRub: Double? = null,
+        entryPortfolioCashRub: Double? = null,
+        exitPortfolioCashRub: Double? = null,
+        operationsCommissionRub: Double = 0.0,
     ): ProdClosedSpreadExecRecord {
         val record = ProdClosedSpreadExecRecord(
             tradeId = execution.tradeId,
@@ -70,6 +79,10 @@ internal object TinkoffClosedSpreadExecLog {
             exitZScore = exitZScore,
             longLegYieldRub = brokerPnl.longLegYieldRub,
             shortLegYieldRub = brokerPnl.shortLegYieldRub,
+            realizedNetRub = realizedNetRub,
+            entryPortfolioCashRub = entryPortfolioCashRub,
+            exitPortfolioCashRub = exitPortfolioCashRub,
+            operationsCommissionRub = operationsCommissionRub,
         )
         val app = context.applicationContext
         synchronized(lock) {
@@ -145,6 +158,10 @@ internal object TinkoffClosedSpreadExecLog {
             .put("exitZScore", r.exitZScore)
             .put("longLegYieldRub", r.longLegYieldRub)
             .put("shortLegYieldRub", r.shortLegYieldRub)
+            .put("realizedNetRub", r.realizedNetRub ?: JSONObject.NULL)
+            .put("entryPortfolioCashRub", r.entryPortfolioCashRub ?: JSONObject.NULL)
+            .put("exitPortfolioCashRub", r.exitPortfolioCashRub ?: JSONObject.NULL)
+            .put("operationsCommissionRub", r.operationsCommissionRub)
             .put("closedAtMillis", r.closedAtMillis)
 
     private fun parseRecord(o: JSONObject): ProdClosedSpreadExecRecord? {
@@ -179,9 +196,18 @@ internal object TinkoffClosedSpreadExecLog {
             exitZScore = o.optDouble("exitZScore", 0.0),
             longLegYieldRub = o.optDouble("longLegYieldRub", 0.0),
             shortLegYieldRub = o.optDouble("shortLegYieldRub", 0.0),
+            realizedNetRub = o.optNullableDouble("realizedNetRub"),
+            entryPortfolioCashRub = o.optNullableDouble("entryPortfolioCashRub"),
+            exitPortfolioCashRub = o.optNullableDouble("exitPortfolioCashRub"),
+            operationsCommissionRub = o.optDouble("operationsCommissionRub", 0.0),
             closedAtMillis = o.optLong("closedAtMillis", System.currentTimeMillis()),
         )
     }
+}
+
+private fun JSONObject.optNullableDouble(key: String): Double? {
+    if (!has(key) || isNull(key)) return null
+    return optDouble(key)
 }
 
 internal fun computeProdClosedTradePnl(
@@ -195,6 +221,8 @@ internal fun computeProdClosedTradePnl(
         longLegYieldRub = record.longLegYieldRub,
         shortLegYieldRub = record.shortLegYieldRub,
         commissionPercentPerSide = commissionPercentPerSide,
+        realizedNetRub = record.realizedNetRub,
+        operationsCommissionRub = record.operationsCommissionRub,
     )
 
 internal fun computeProdClosedTradePnlFromBroker(
@@ -218,7 +246,20 @@ private fun computeProdClosedTradePnlFromBroker(
     longLegYieldRub: Double,
     shortLegYieldRub: Double,
     commissionPercentPerSide: Double,
+    realizedNetRub: Double? = null,
+    operationsCommissionRub: Double = 0.0,
 ): SandboxClosedTradePnl {
+    if (realizedNetRub != null) {
+        val comm = operationsCommissionRub.takeIf { it > 0.0 }
+            ?: 0.0
+        return SandboxClosedTradePnl(
+            grossRub = realizedNetRub + comm,
+            commissionRub = comm,
+            overnightRub = 0.0,
+            netRub = realizedNetRub,
+            exitSpreadPercent = 0.0,
+        )
+    }
     val entryDate = portfolioDateLabelFromMskTableTime(entryTimeMsk)
     val exitDate = portfolioDateLabelFromMskTableTime(
         formatPortfolioExecutionTableMsk(exitTimestampMillis)

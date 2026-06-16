@@ -52,6 +52,9 @@ internal data class SandboxSpreadExecUi(
     val tradeDisplayId: String = tradeId,
     val quantityLots: Int = 1,
     val executionNotionalRub: Double = 0.0,
+    /** Деньги на счёте после входа (Prod) — для Δ cash при закрытии. */
+    val entryPortfolioCashRub: Double = 0.0,
+    val entryPortfolioTotalRub: Double = 0.0,
 ) {
     fun toTradeGroup(): PortfolioTradeGroupRow {
         val orderRows = if (legs.size >= 2) {
@@ -149,6 +152,9 @@ internal object TinkoffSandboxSpreadExecLog {
                 fromTestButton
             )
         }
+        val lastLeg = legs.lastOrNull()
+        val entryCash = lastLeg?.portfolioCashRub?.let { parseFormattedRubString(it) } ?: 0.0
+        val entryTotal = lastLeg?.portfolioTotalRub?.let { parseFormattedRubString(it) } ?: 0.0
         return appendExecution(
             context,
             buildEntry(
@@ -163,6 +169,8 @@ internal object TinkoffSandboxSpreadExecLog {
                 fromTestButton,
                 quantityLots,
                 executionNotionalRub,
+                entryPortfolioCashRub = entryCash,
+                entryPortfolioTotalRub = entryTotal,
             )
         )
     }
@@ -305,6 +313,8 @@ internal object TinkoffSandboxSpreadExecLog {
         fromTestButton: Boolean,
         quantityLots: Int,
         executionNotionalRub: Double,
+        entryPortfolioCashRub: Double = 0.0,
+        entryPortfolioTotalRub: Double = 0.0,
     ): SandboxSpreadExecUi {
         val app = context.applicationContext
         val spread = legSpreadDisplayForEntry(signalType)
@@ -345,6 +355,8 @@ internal object TinkoffSandboxSpreadExecLog {
             legs = legUi,
             quantityLots = quantityLots.coerceAtLeast(1),
             executionNotionalRub = executionNotionalRub.coerceAtLeast(0.0),
+            entryPortfolioCashRub = entryPortfolioCashRub.coerceAtLeast(0.0),
+            entryPortfolioTotalRub = entryPortfolioTotalRub.coerceAtLeast(0.0),
         )
     }
 
@@ -474,6 +486,8 @@ internal object TinkoffSandboxSpreadExecLog {
             .put("notificationIdsText", e.notificationIdsText)
             .put("quantityLots", e.quantityLots)
             .put("executionNotionalRub", e.executionNotionalRub)
+            .put("entryPortfolioCashRub", e.entryPortfolioCashRub)
+            .put("entryPortfolioTotalRub", e.entryPortfolioTotalRub)
             .put("legs", legsArr)
     }
 
@@ -532,6 +546,8 @@ internal object TinkoffSandboxSpreadExecLog {
             legs = legs,
             quantityLots = quantityLots,
             executionNotionalRub = executionNotionalRub,
+            entryPortfolioCashRub = o.optDouble("entryPortfolioCashRub", 0.0),
+            entryPortfolioTotalRub = o.optDouble("entryPortfolioTotalRub", 0.0),
         )
     }
 }
