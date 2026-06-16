@@ -115,4 +115,72 @@ class MoexProdClosedTradePnlTest {
         assertEquals(1, merged.size)
         assertEquals(-31.91, merged.single().legLongPnlSplitRubApprox, 0.02)
     }
+
+    @Test
+    fun mergePortfolioClosedTableRowsForMode_onProd_dropsSignalReplayRows() {
+        fun signalRow(pnl: Double) = PortfolioConfirmedTradeTableRow(
+            tradeId = "T-001",
+            directionLabel = "long",
+            entryTimeMsk = "2026-06-16 07:15",
+            exitTimeMsk = "2026-06-16 11:15",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "покупка",
+            shortLegSideRu = "продажа",
+            volumeText = "1+1 лот",
+            confirmLabel = "сигнал",
+            entryZ = -0.86,
+            exitZ = -0.31,
+            notificationIdsText = "—",
+            legLongPnlSplitRubApprox = pnl / 2,
+            legShortPnlSplitRubApprox = pnl / 2,
+            grossPnlRubApprox = pnl,
+            netPnlRubApprox = pnl,
+        )
+        val autoBroker = signalRow(81.0).copy(
+            tradeId = "T-P001",
+            confirmLabel = "авто",
+            legLongPnlSplitRubApprox = -45.0,
+            legShortPnlSplitRubApprox = 181.0,
+        )
+        val merged = mergePortfolioClosedTableRowsForMode(
+            mode = TinkoffExecutionMode.Prod,
+            fromReplay = listOf(signalRow(1073.0), signalRow(2625.0)),
+            fromOpens = emptyList(),
+            fromProdBroker = listOf(autoBroker),
+        )
+        assertEquals(1, merged.size)
+        assertEquals("авто", merged.single().confirmLabel)
+        assertTrue(merged.single().netPnlRubApprox < 500.0)
+    }
+
+    @Test
+    fun filterConfirmedTableRowsByPortfolioMode_onProd_hidesSignalRows() {
+        fun row(confirm: String) = PortfolioConfirmedTradeTableRow(
+            tradeId = "T-001",
+            directionLabel = "long",
+            entryTimeMsk = "t",
+            exitTimeMsk = "t",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "покупка",
+            shortLegSideRu = "продажа",
+            volumeText = "1+1",
+            confirmLabel = confirm,
+            entryZ = 0.0,
+            exitZ = 0.0,
+            notificationIdsText = "—",
+            legLongPnlSplitRubApprox = 0.0,
+            legShortPnlSplitRubApprox = 0.0,
+            grossPnlRubApprox = 0.0,
+            netPnlRubApprox = 0.0,
+        )
+        val filtered = filterConfirmedTableRowsByPortfolioMode(
+            rows = listOf(row("сигнал"), row("авто")),
+            portfolioLedgerIncludeAuto = true,
+            executionMode = TinkoffExecutionMode.Prod,
+        )
+        assertEquals(1, filtered.size)
+        assertEquals("авто", filtered.single().confirmLabel)
+    }
 }

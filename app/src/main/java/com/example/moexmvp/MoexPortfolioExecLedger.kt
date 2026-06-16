@@ -224,9 +224,13 @@ internal fun filterSandboxExecutionsByPortfolioMode(
 
 internal fun filterConfirmedTableRowsByPortfolioMode(
     rows: List<PortfolioConfirmedTradeTableRow>,
-    portfolioLedgerIncludeAuto: Boolean
+    portfolioLedgerIncludeAuto: Boolean,
+    executionMode: TinkoffExecutionMode = TinkoffExecutionMode.Sandbox,
 ): List<PortfolioConfirmedTradeTableRow> =
     rows.filter { row ->
+        if (executionMode == TinkoffExecutionMode.Prod && isPortfolioSignalOnlyClosedRow(row)) {
+            return@filter false
+        }
         when {
             isPortfolioTestTradeConfirmLabel(row.confirmLabel) -> true
             row.confirmLabel.startsWith("авто") -> portfolioLedgerIncludeAuto

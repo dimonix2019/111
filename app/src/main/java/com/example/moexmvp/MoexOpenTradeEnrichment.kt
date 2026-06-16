@@ -246,14 +246,15 @@ internal suspend fun MoexScreenState.refreshProdClosedTradesInPortfolioUi(
         commissionPercentPerSide = portfolioCommissionPercent,
     )
     val replayRows = confirmedPortfolioTableRows.filter { row ->
-        !row.tradeId.startsWith("T-P")
+        !row.tradeId.startsWith("T-P") && !isPortfolioSignalOnlyClosedRow(row)
     }
     val synthRows = confirmedPortfolioTableRows.filter { row ->
-        row.tradeId.startsWith("T-O")
+        row.tradeId.startsWith("T-O") && !isPortfolioSignalOnlyClosedRow(row)
     }
     confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
         mergeClosedPortfolioTableRowsPreferBroker(replayRows, synthRows, brokerRows),
         portfolioLedgerIncludeAuto,
+        executionMode = TinkoffExecutionMode.Prod,
     )
 }
 
@@ -384,10 +385,11 @@ internal suspend fun loadPortfolioTradesForZChart(
         } else {
             emptyList()
         }
-        val closed = mergeClosedPortfolioTableRowsPreferBroker(
-            executed.tableRows,
-            closedFromOpens,
-            prodBrokerClosed,
+        val closed = mergePortfolioClosedTableRowsForMode(
+            mode = currentExecutionMode(context),
+            fromReplay = executed.tableRows,
+            fromOpens = closedFromOpens,
+            fromProdBroker = prodBrokerClosed,
         )
         val brokerLegPnl = opensAfterJournalClose.firstOrNull()?.signalType?.let { signal ->
             loadProdSpreadBrokerSnapshot(context, signal)

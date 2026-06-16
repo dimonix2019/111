@@ -90,14 +90,16 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
     } else {
         emptyList()
     }
-    val mergedClosed = mergeClosedPortfolioTableRowsPreferBroker(
-        executed.tableRows,
-        closedFromOpens,
-        prodBrokerClosed,
+    val mergedClosed = mergePortfolioClosedTableRowsForMode(
+        mode = currentExecutionMode(context),
+        fromReplay = executed.tableRows,
+        fromOpens = closedFromOpens,
+        fromProdBroker = prodBrokerClosed,
     )
     confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
         mergedClosed,
         ledgerIncludeAuto,
+        executionMode = currentExecutionMode(context),
     )
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(
         opensAfterJournalClose,

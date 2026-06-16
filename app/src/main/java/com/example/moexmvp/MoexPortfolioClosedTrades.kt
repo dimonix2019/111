@@ -176,6 +176,29 @@ private fun overnightDaysForClosed(entryDate: String, exitDate: String): Long {
     return max(0L, java.time.temporal.ChronoUnit.DAYS.between(entry, exit))
 }
 
+/** Строка закрытой сделки только из replay журнала (без исполнения на счёте). */
+internal fun isPortfolioSignalOnlyClosedRow(row: PortfolioConfirmedTradeTableRow): Boolean =
+    row.confirmLabel == "сигнал" || row.confirmLabel == "—"
+
+internal fun mergePortfolioClosedTableRowsForMode(
+    mode: TinkoffExecutionMode,
+    fromReplay: List<PortfolioConfirmedTradeTableRow>,
+    fromOpens: List<PortfolioConfirmedTradeTableRow>,
+    fromProdBroker: List<PortfolioConfirmedTradeTableRow>,
+): List<PortfolioConfirmedTradeTableRow> {
+    if (mode != TinkoffExecutionMode.Prod) {
+        return if (fromProdBroker.isEmpty()) {
+            mergeClosedPortfolioTableRows(fromReplay, fromOpens)
+        } else {
+            mergeClosedPortfolioTableRowsPreferBroker(fromReplay, fromOpens, fromProdBroker)
+        }
+    }
+    // Prod: не смешивать MOEX-симуляцию «сигнал» (100k×leverage) с реальными сделками.
+    val execReplay = fromReplay.filter { !isPortfolioSignalOnlyClosedRow(it) }
+    val execOpens = fromOpens.filter { !isPortfolioSignalOnlyClosedRow(it) }
+    return mergeClosedPortfolioTableRowsPreferBroker(execReplay, execOpens, fromProdBroker)
+}
+
 /** Объединить закрытые строки replay и синтеза; при дубликате предпочитаем replay (T-xxx). */
 internal fun mergeClosedPortfolioTableRows(
     fromReplay: List<PortfolioConfirmedTradeTableRow>,
