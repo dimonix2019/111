@@ -55,6 +55,17 @@ internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 /** Debounce rapid threshold/leverage tweaks on «Тест страт.» before rerunning simulation. */
 internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 750L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
+internal const val PROD_MONEY_STOP_PER_TRADE_RUB = 4_000.0
+/** Доля свободных денег, которую не тратим на вход (резерв под ГО/комиссии). */
+internal const val SPREAD_LOT_RESERVE_CASH_FRACTION = 0.25
+/** Минимальный резерв ₽ на счёте независимо от доли. */
+internal const val SPREAD_LOT_RESERVE_MIN_RUB = 2_000.0
+/** Оценка ГО на short-ногу как доля номинала (консервативно). */
+internal const val SPREAD_LOT_MARGIN_RATE_PER_LEG = 0.30
+/** Буфер на комиссию/slippage от номинала пары. */
+internal const val SPREAD_LOT_COMMISSION_BUFFER_FRACTION = 0.002
+internal const val SPREAD_LOT_MIN_LOTS = 1
+internal const val SPREAD_LOT_MAX_LOTS = 50
 
 /** Portfolio tab: entry/exit |Z| limits are independent (UI steppers). */
 internal const val PORTFOLIO_Z_THRESHOLD_MIN = 0.0
@@ -126,6 +137,34 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.182 — Prod: PnL открытой сделки на «Портфеле» без плеча ×7, по реальному номиналу позиции (как в T‑Invest).
+1.7.181 — Prod/Sandbox: лоты пары TATN/TATNP считаются от денег на счёте с резервом под ГО; выход тем же объёмом.
+1.7.180 — Портфель и авто-исполнение показывают режим Prod; тестовые ордера идут в активный контур.
+1.7.179 — Шторка: открытая сделка показывает направление в ID (`1S` Short, `1L` Long).
+1.7.178 — Prod: кнопка «Список боевых счетов» (UsersService/GetAccounts), выбор accountId без PowerShell.
+1.7.177 — Добавлен execution mode Sandbox/Prod: боевые токен+accountId, продовые PostOrder/GetPortfolio, money-stop 4000 ₽ на сделку.
+1.7.176 — Рынок: loadedAt корректно парсит legacy-форматы (в т.ч. `15.05.26 : 22,07`) и не залипает на старом 15м времени.
+1.7.175 — main: шторка Z/сделка + сводка «закр. 2-й дн.»; повторная публикация обновления.
+1.7.174 — Fix: номер сделки в шторке = еженедельный ID из журнала (как на «Портфель»), не D-00x.
+1.7.173 — Шторка: при открытой сделке — номер, время, Z₀, PnL рядом с текущим Z.
+1.7.172 — Шторка: Z-score в уведомлении; Тест страт.: строка «закр. 2-й дн.» в сводке длительности.
+1.7.171 — CI: исключены flaky MOEX parity-тесты на GitHub; публикация watchdog v1.7.170.
+1.7.170 — Watchdog: пульс UI↔SignalForegroundService, alarm каждые 5 мин, карточка на «Рынок», автоперезапуск FGS.
+1.7.169 — Симуляция: опции Time/Z/Hold stop (forced exit) для бэктеста; тест MoexStrategyTestForcedExitRulesTest на live MOEX.
+1.7.168 — Тест страт.: «Без красной зоны» пересчитывает сводку PnL, просадку, эквити и детальные метрики.
+1.7.167 — Тест страт.: TradingView как на «Рынок» (окно 30д + масштаб маркеров); fix невидимых сделок.
+1.7.166 — Тест страт.: переключатель «Без красной зоны» в строке с «Капитализация» (фильтр графика/таблицы).
+1.7.165 — Тест страт.: Z-график на Compose Canvas (маркеры 1A/157R рисуются напрямую, без WebView).
+1.7.164 — Fix: маркеры сделок на Z-графике «Тест страт.» (157R и др.) снова видны на полном 255д ряду.
+1.7.163 — Fix: столбиковая диаграмма PnL — все месяцы в ряд, % над столбиком, ось Y в ₽.
+1.7.162 — Тест страт.: классическая столбиковая диаграмма PnL (светлый фон, синие столбики, MM.yy).
+1.7.161 — Тест страт.: столбики PnL ₽/мес (ось Y), подписи MM.yy и % над столбиком.
+1.7.160 — Тест страт.: столбиковая диаграмма доходности по месяцам (% от номинала).
+1.7.159 — Fix: Z/15м после ночи offline — догрузка при восстановлении сети; время обновления из 15м хвоста.
+1.7.158 — Тест страт.: маркеры как на «Рынок» (pointMarkers + remap), убрана area-заливка; fix zoom.
+1.7.157 — Fix: маркеры «Тест страт.» после pinch-zoom (host-серия + debounce); жёлтая линия только при тапе по маркеру.
+1.7.156 — Fix: маркеры сделок на Z-графике не пропадают при pinch-zoom (альбом / Тест страт.).
+1.7.155 — Тест страт.: среднемесячная доходность + сценарий без сделок в красной зоне (≥4 балла).
 1.7.154 — Parity sim: prevZ на баре перед сигналом журнала + синт. 06:30 при разрыве сессии (fix 10.06 06:45→10:00).
 1.7.153 — Spread-guard: Z только на хвосте spike, без сдвига 17:45; parity 10–11.06 SHORT #2–#4.
 1.7.152 — Автообновление 15м: устаревание 20 мин (было до 40 ч в UI / 6 ч в SQLite).

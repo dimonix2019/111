@@ -1,0 +1,145 @@
+package com.example.moexmvp
+
+import android.content.Context
+import org.json.JSONObject
+import java.io.IOException
+import kotlin.math.floor
+import kotlin.math.max
+
+internal data class SpreadLotSizingResult(
+    val quantityLots: Int,
+    val cashRub: Double,
+    val reserveRub: Double,
+    val availableRub: Double,
+    val goPerLotRub: Double,
+    val pairNotionalPerLotRub: Double,
+    val priceTatN: Double,
+    val priceTatNp: Double,
+    val lotSize: Int,
+    val executionNotionalRub: Double,
+)
+
+internal data class SpreadLotSizingInput(
+    val cashRub: Double,
+    val priceTatN: Double,
+    val priceTatNp: Double,
+    val lotSize: Int = 1,
+    val reserveFraction: Double = SPREAD_LOT_RESERVE_CASH_FRACTION,
+    val reserveMinRub: Double = SPREAD_LOT_RESERVE_MIN_RUB,
+    val marginRatePerLeg: Double = SPREAD_LOT_MARGIN_RATE_PER_LEG,
+    val commissionBufferFraction: Double = SPREAD_LOT_COMMISSION_BUFFER_FRACTION,
+    val minLots: Int = SPREAD_LOT_MIN_LOTS,
+    val maxLots: Int = SPREAD_LOT_MAX_LOTS,
+)
+
+internal fun spreadPairNotionalRub(
+    priceTatN: Double,
+    priceTatNp: Double,
+    lotSize: Int,
+    quantityLots: Int,
+): Double {
+    val lot = lotSize.coerceAtLeast(1)
+    val qty = quantityLots.coerceAtLeast(1)
+    return (priceTatN.coerceAtLeast(0.0) + priceTatNp.coerceAtLeast(0.0)) * lot * qty
+}
+
+internal fun computeSpreadQuantityLots(input: SpreadLotSizingInput): SpreadLotSizingResult {
+    val lotSize = input.lotSize.coerceAtLeast(1)
+    val priceTatN = input.priceTatN.coerceAtLeast(0.0)
+    val priceTatNp = input.priceTatNp.coerceAtLeast(0.0)
+    require(priceTatN > 0.0 && priceTatNp > 0.0) {
+        "Некорректные цены TATN/TATNP для расчёта лотов"
+    }
+    val reserveRub = max(input.reserveMinRub, input.cashRub * input.reserveFraction)
+    val availableRub = (input.cashRub - reserveRub).coerceAtLeast(0.0)
+    val pairNotionalPerLotRub = (priceTatN + priceTatNp) * lotSize
+    val goBuyLegRub = priceTatN * lotSize
+    val goSellLegRub = priceTatNp * lotSize * input.marginRatePerLeg
+    val commissionBufferRub = pairNotionalPerLotRub * input.commissionBufferFraction
+    val goPerLotRub = goBuyLegRub + goSellLegRub + commissionBufferRub
+    val rawLots = if (goPerLotRub <= 0.0) 0 else floor(availableRub / goPerLotRub).toInt()
+    val quantityLots = rawLots.coerceIn(0, input.maxLots)
+    return SpreadLotSizingResult(
+        quantityLots = quantityLots,
+        cashRub = input.cashRub,
+        reserveRub = reserveRub,
+        availableRub = availableRub,
+        goPerLotRub = goPerLotRub,
+        pairNotionalPerLotRub = pairNotionalPerLotRub,
+        priceTatN = priceTatN,
+        priceTatNp = priceTatNp,
+        lotSize = lotSize,
+        executionNotionalRub = spreadPairNotionalRub(
+            priceTatN,
+            priceTatNp,
+            lotSize,
+            quantityLots.coerceAtLeast(1),
+        ),
+    )
+}
+
+internal fun parsePortfolioCashRubDouble(portfolioJson: JSONObject): Double? {
+    val q = findPortfolioMoneyQuotation(portfolioJson) ?: return null
+    return quotationUnitsToDouble(q)
+}
+
+internal suspend fun resolveMoexSpreadPrices(context: Context): Pair<Double, Double> {
+    val points = loadZStrategySignalSeries(context.applicationContext, PortfolioM15LoadMode.CACHE_ONLY)
+    val last = points.lastOrNull()
+    if (last != null && last.tatnClose > 0.0 && last.tatnpClose > 0.0) {
+        return last.tatnClose to last.tatnpClose
+    }
+    val market = loadCurrentPortfolioMarketSnapshot(context.applicationContext, forceNetworkRefresh = false)
+    val till = java.time.Instant.ofEpochMilli(market.timestampMillis)
+        .atZone(moexZoneId)
+        .toLocalDate()
+        .plusDays(1)
+    val from = till.minusDays(3)
+    val tatn = loadCandleBars("TATN", from, till, interval = 10).lastOrNull()?.close
+    val tatnp = loadCandleBars("TATNP", from, till, interval = 10).lastOrNull()?.close
+    if (tatn != null && tatnp != null && tatn > 0.0 && tatnp > 0.0) {
+        return tatn to tatnp
+    }
+    throw IOException("Не удалось получить цены TATN/TATNP для расчёта лотов")
+}
+
+internal suspend fun resolveSpreadOrderQuantityLots(
+    mode: TinkoffExecutionMode,
+    token: String,
+    accountId: String,
+    context: Context,
+): SpreadLotSizingResult {
+    val portfolio = tinkoffGetPortfolio(mode, token, accountId)
+    val cashRub = parsePortfolioCashRubDouble(portfolio)
+        ?: throw IOException("Не удалось прочитать деньги на счёте (totalAmountCurrencies)")
+    val (priceTatN, priceTatNp) = resolveMoexSpreadPrices(context)
+    val sizing = computeSpreadQuantityLots(
+        SpreadLotSizingInput(
+            cashRub = cashRub,
+            priceTatN = priceTatN,
+            priceTatNp = priceTatNp,
+            lotSize = 1,
+        )
+    )
+    if (sizing.quantityLots < SPREAD_LOT_MIN_LOTS) {
+        throw IOException(
+            "Недостаточно средств для входа: на счёте ${"%.0f".format(cashRub)} ₽, " +
+                "после резерва ${"%.0f".format(sizing.availableRub)} ₽, " +
+                "нужно ≈${"%.0f".format(sizing.goPerLotRub)} ₽ на 1 лот пары"
+        )
+    }
+    return sizing
+}
+
+internal fun spreadVolumeText(quantityLots: Int): String {
+    val qty = quantityLots.coerceAtLeast(1)
+    return "$qty+$qty лот"
+}
+
+internal fun spreadLegSideRu(buy: Boolean, quantityLots: Int): String {
+    val qty = quantityLots.coerceAtLeast(1)
+    return if (buy) "покупка $qty лот" else "продажа $qty лот"
+}
+
+internal fun tradeExecutionNotionalRub(exec: SandboxSpreadExecUi, fallbackRub: Double): Double =
+    exec.executionNotionalRub.takeIf { it > 0.0 } ?: fallbackRub

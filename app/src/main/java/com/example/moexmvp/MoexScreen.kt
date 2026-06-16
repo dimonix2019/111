@@ -104,28 +104,87 @@ internal fun MoexScreen() {
             calculatedDate = screen.dynamicThresholds.calculatedDate
         )
     }
-    // Весь downsample-ряд (~255 дн.) — иначе маркеры старых сделок вне окна 30 дн.
-    val strategyTestZInitialWindow = 1f to 0f
+    // Хвост ~30 календарных дней — как на «Рынок»; иначе TradingView fitContent() на ~1200 барах
+    // делает маркеры сделок невидимыми (sub-pixel). Pinch-zoom покажет всю историю.
+    val strategyTestZInitialWindow = remember(strategyTestM15ChartPoints) {
+        chartInitialWindowForLastCalendarDays(
+            strategyTestM15ChartPoints,
+            STRATEGY_TEST_Z_CHART_VISIBLE_DAYS,
+        )
+    }
     val strategyTestTradeItems = remember(screen.strategyTestPortfolioMetrics) {
         buildStrategyTestTradeListFromSimulation(
             screen.strategyTestPortfolioMetrics?.closedTrades.orEmpty()
         )
     }
+    val strategyTestTradeItemsForDisplay = remember(
+        strategyTestTradeItems,
+        screen.strategyTestTradeRiskAssessments,
+        screen.strategyTestExcludeRedZone,
+    ) {
+        if (!screen.strategyTestExcludeRedZone) {
+            strategyTestTradeItems
+        } else {
+            filterStrategyTestTradeItemsExcludingRedZone(
+                strategyTestTradeItems,
+                screen.strategyTestTradeRiskAssessments,
+            )
+        }
+    }
     val strategyTestChartTradeSegmentsForDisplay = remember(
         strategyTestM15ChartPoints,
         strategyTestZScoreCandles,
-        strategyTestTradeItems,
+        strategyTestTradeItemsForDisplay,
         screen.strategyTestPortfolioMetrics?.openPosition,
+        screen.strategyTestExcludeRedZone,
     ) {
         if (strategyTestM15ChartPoints.size < 2) {
             emptyList()
         } else {
             buildTradingViewTradeSegmentsFromStrategyTest(
-                tradeItems = strategyTestTradeItems,
+                tradeItems = strategyTestTradeItemsForDisplay,
                 displayPoints = strategyTestM15ChartPoints,
                 candles = strategyTestZScoreCandles,
-                openPosition = screen.strategyTestPortfolioMetrics?.openPosition,
+                openPosition = if (screen.strategyTestExcludeRedZone) null
+                else screen.strategyTestPortfolioMetrics?.openPosition,
             )
+        }
+    }
+    /** Маркеры как на «Рынок»: ChartPointMarker + remap на downsample-ряд графика. */
+    val strategyTestChartMarkersForDisplay = remember(
+        strategyTestM15SimPoints,
+        strategyTestM15ChartPoints,
+        strategyTestTradeItemsForDisplay,
+        screen.strategyTestPortfolioMetrics?.openPosition,
+        screen.strategyTestChartMarkers,
+        screen.strategyTestExcludeRedZone,
+    ) {
+        if (strategyTestM15ChartPoints.size < 2) {
+            emptyList()
+        } else {
+            val sourceMarkers = when {
+                strategyTestTradeItemsForDisplay.isNotEmpty() ||
+                    (!screen.strategyTestExcludeRedZone &&
+                        screen.strategyTestPortfolioMetrics?.openPosition != null) ->
+                    buildZScoreMarkersFromStrategyTestTrades(
+                        points = strategyTestM15SimPoints,
+                        tradeItems = strategyTestTradeItemsForDisplay,
+                        openPosition = if (screen.strategyTestExcludeRedZone) null
+                        else screen.strategyTestPortfolioMetrics?.openPosition,
+                    )
+                screen.strategyTestChartMarkers.isNotEmpty() ->
+                    screen.strategyTestChartMarkers
+                else -> emptyList()
+            }
+            if (sourceMarkers.isEmpty()) {
+                emptyList()
+            } else {
+                remapChartMarkersToDisplaySeries(
+                    sourcePoints = strategyTestM15SimPoints,
+                    displayPoints = strategyTestM15ChartPoints,
+                    markers = sourceMarkers,
+                )
+            }
         }
     }
     val marketsChartThresholds = remember(
@@ -221,6 +280,7 @@ internal fun MoexScreen() {
                 strategyTestZScoreCandles = strategyTestZScoreCandles,
                 strategyTestChartThresholds = strategyTestChartThresholds,
                 strategyTestChartTradeSegments = strategyTestChartTradeSegmentsForDisplay,
+                strategyTestChartMarkers = strategyTestChartMarkersForDisplay,
                 strategyTestOpenPosition = screen.strategyTestPortfolioMetrics?.openPosition,
                 strategyTestZInitialWindow = strategyTestZInitialWindow
             )

@@ -158,13 +158,13 @@ internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
     }
 }
 
-/** Догрузка 15м с MOEX, если in-memory хвост старше [PORTFOLIO_M15_INTRADAY_STALE_MS]. */
+/** Догрузка 15м с MOEX, если хвост устарел или нет баров за сегодня (МСК). */
 internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: String) {
     val src = when (selectedTab) {
         MainTab.Markets -> marketsM15Source().takeIf { it.size >= 2 } ?: portfolioM15Points
         else -> portfolioM15Points.takeIf { it.size >= 2 } ?: marketsM15Source()
     }
-    if (src.size < 2 || !portfolio15mSeriesIntradayStale(src)) return
+    if (src.size < 2 || !portfolio15mSeriesNeedsMoexRefresh(src)) return
     MoexDiagnostics.log(context, "m15_tail", "refresh reason=$reason tab=${selectedTab.label}")
     when (selectedTab) {
         MainTab.Markets -> {
@@ -189,6 +189,29 @@ internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: Strin
                     if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
                 }
             }
+        }
+    }
+}
+
+/** После восстановления сети / onResume: догрузить 15м и при необходимости обновить вкладку «Рынок». */
+internal suspend fun MoexScreenState.refreshAfterConnectivityRestore(
+    reason: String,
+    launchScope: CoroutineScope,
+) {
+    MoexDiagnostics.log(context, "network", "refresh_after_connectivity reason=$reason tab=${selectedTab.label}")
+    refreshM15TailIfIntradayStale(reason = reason)
+    if (selectedTab == MainTab.Markets && activityResumed) {
+        val period = selectedPeriod.coerceToMarketsUiPeriod()
+        val m15 = marketsM15Source()
+        if (m15.size >= 2 && portfolio15mSeriesNeedsMoexRefresh(m15)) {
+            refreshData(
+                showLoading = false,
+                launchScope = launchScope,
+                selectedPeriod = period,
+                refreshPolicy = MarketsRefreshPolicy.UserInitiated,
+            )
+        } else if (m15.size >= 2) {
+            bumpMarketsLoadedAtFromM15(m15)
         }
     }
 }

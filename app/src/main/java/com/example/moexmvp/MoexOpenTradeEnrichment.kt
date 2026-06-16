@@ -12,7 +12,8 @@ internal fun enrichOpenSandboxExecutions(
     points: List<DataPoint>,
     notionalRub: Double,
     leverage: Double,
-    commissionPercentPerSide: Double = 0.04
+    commissionPercentPerSide: Double = 0.04,
+    pnlLeverage: Double = leverage,
 ): List<SandboxSpreadExecUi> {
     if (executions.isEmpty() || points.isEmpty()) return executions
     val last = points.last()
@@ -30,18 +31,19 @@ internal fun enrichOpenSandboxExecutions(
         )
         val entryDateLabel = points.minByOrNull { kotlin.math.abs(it.timestampMillis - exec.barTimestampMillis) }
             ?.tradeDate ?: exec.entryTimeMsk
+        val tradeNotional = resolveTradeNotionalRubForPnl(exec, points, notionalRub)
         val grossRub = estimateOpenSpreadMtmGrossRub(
             signalType = exec.signalType,
             entrySpreadPercent = entrySpread,
             currentSpreadPercent = last.spreadPercent,
-            notionalRub = notionalRub,
-            leverage = leverage,
+            notionalRub = tradeNotional,
+            leverage = pnlLeverage,
             points = points,
             barTimestampMillis = exec.barTimestampMillis
         )
         val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
-            notionalRub = notionalRub,
-            leverage = leverage,
+            notionalRub = tradeNotional,
+            leverage = pnlLeverage,
             commissionPercentPerSide = commissionPercentPerSide,
             entryDateLabel = entryDateLabel,
             exitDateLabel = last.tradeDate,
@@ -75,16 +77,19 @@ internal fun enrichSandboxExecutionsIfNeeded(
     points: List<DataPoint>,
     leverage: Double,
     commissionPercentPerSide: Double,
+    executionMode: TinkoffExecutionMode = TinkoffExecutionMode.Sandbox,
 ): List<SandboxSpreadExecUi> {
     if (executions.isEmpty() || points.isEmpty() || !openSandboxExecutionsNeedMtmEnrichment(executions)) {
         return executions
     }
+    val pnlLeverage = portfolioPnlLeverageMultiplier(executionMode, leverage)
     return enrichOpenSandboxExecutions(
         executions = executions,
         points = points,
         notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
         leverage = leverage,
-        commissionPercentPerSide = commissionPercentPerSide
+        commissionPercentPerSide = commissionPercentPerSide,
+        pnlLeverage = pnlLeverage,
     )
 }
 
@@ -141,6 +146,7 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
         ).second
     }
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(opensAfterJournalClose, ledgerIncludeAuto)
+    val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage)
     sandboxSpreadExecutions = withContext(Dispatchers.IO) {
         TinkoffSandboxSpreadExecLog.enrichForDisplay(
             context = context,
@@ -149,9 +155,35 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
             notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
-            journalEvents = journalEvents
+            journalEvents = journalEvents,
+            pnlLeverage = pnlLeverage,
         )
     }
+    enforceProdMoneyStopIfNeeded()
+}
+
+private suspend fun MoexScreenState.enforceProdMoneyStopIfNeeded() {
+    if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) {
+        prodMoneyStopLastTriggeredTradeId = null
+        return
+    }
+    if (!TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)) return
+    val candidate = sandboxSpreadExecutions
+        .asSequence()
+        .filter { it.signalType == StrategySignalType.EnterLong || it.signalType == StrategySignalType.EnterShort }
+        .filter { !it.netPnlRubApprox.isNaN() && it.netPnlRubApprox <= -PROD_MONEY_STOP_PER_TRADE_RUB }
+        .sortedBy { it.netPnlRubApprox }
+        .firstOrNull()
+    if (candidate == null) {
+        prodMoneyStopLastTriggeredTradeId = null
+        return
+    }
+    if (prodMoneyStopLastTriggeredTradeId == candidate.tradeId) return
+    prodMoneyStopLastTriggeredTradeId = candidate.tradeId
+    runCatching { closePortfolioOpenTrade(context, candidate).getOrThrow() }
+    zStrategyPosition = loadSavedStrategyPosition(context)
+    signalEvents = loadStrategySignalEvents(context)
+    sandboxSpreadExecReload++
 }
 
 /** Открытые и закрытые сделки портфеля для маркеров на Z-графике «Рынок». */
@@ -206,6 +238,7 @@ internal suspend fun loadPortfolioTradesForZChart(
             leverage = leverage,
             commissionPercentPerSide = commissionPercentPerSide,
             journalEvents = eventsAll,
+            pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), leverage),
         )
         opens to closed
     }

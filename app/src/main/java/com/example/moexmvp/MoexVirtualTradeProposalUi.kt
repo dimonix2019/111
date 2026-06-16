@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 internal fun PendingVirtualTradeProposalCard(
     proposal: PendingVirtualTradeProposal,
     sandboxState: SandboxExecUiState,
+    executionMode: TinkoffExecutionMode,
     onAccept: () -> Unit,
     onReject: () -> Unit,
     modifier: Modifier = Modifier
@@ -97,11 +98,11 @@ internal fun PendingVirtualTradeProposalCard(
         Text(
             text = when (sandboxState) {
                 SandboxExecUiState.Ready ->
-                    "Принять: 2 рыночные заявки на демо — покупка 1 лота и продажа 1 лота (${proposal.titleRu})."
+                    "Принять: 2 рыночные заявки (${executionModeLabelRu(executionMode)}) — покупка 1 лота и продажа 1 лота (${proposal.titleRu})."
                 SandboxExecUiState.MissingCredentials ->
-                    "Сохраните токен и счёт на вкладке «Песочница», затем нажмите «Принять»."
+                    "Сохраните токен и счёт (${executionModeLabelRu(executionMode)}), затем нажмите «Принять»."
                 SandboxExecUiState.Off ->
-                    "Сохраните токен и счёт на вкладке «Песочница»."
+                    "Сохраните токен и счёт (${executionModeLabelRu(executionMode)})."
             },
             color = Color(0xFF78909C),
             fontSize = 9.sp

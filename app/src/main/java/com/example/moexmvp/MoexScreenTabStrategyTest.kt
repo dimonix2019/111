@@ -1,12 +1,14 @@
 package com.example.moexmvp
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -26,6 +28,7 @@ internal fun MoexScreenTabStrategyTest(
     strategyTestZScoreCandles: List<CandlePoint>,
     strategyTestChartThresholds: DynamicThresholds,
     strategyTestChartTradeSegments: List<TradingViewTradeSegment>,
+    strategyTestChartMarkers: List<ChartPointMarker> = emptyList(),
     strategyTestOpenPosition: PortfolioOpenPosition?,
     strategyTestZInitialWindow: Pair<Float, Float>,
 ) {
@@ -34,22 +37,32 @@ internal fun MoexScreenTabStrategyTest(
     }
     if (landscapeZChartFullscreen) {
         with(screen) {
-            LandscapeZScoreFullscreenPane(
-                modifier = modifier.fillMaxSize(),
-                selectedPeriod = Period.OneMonth,
-                onPeriodSelect = {},
-                showPeriodSelector = false,
-                candles = strategyTestZScoreCandles,
-                displayPoints = strategyTestM15ChartPoints,
-                referenceLines = zReferenceLines,
-                pointMarkers = emptyList(),
-                tradeSegments = strategyTestChartTradeSegments,
-                initialWindowWidth = strategyTestZInitialWindow.first,
-                initialWindowStart = strategyTestZInitialWindow.second,
-                areaFillColor = STRATEGY_TEST_Z_CHART_AREA_FILL_HEX,
-                strategyTestTradeItems = strategyTestTradeItems,
-                openPosition = strategyTestOpenPosition,
-                emptyContent = {
+            val displayTradeItems = if (strategyTestExcludeRedZone) {
+                filterStrategyTestTradeItemsExcludingRedZone(
+                    strategyTestTradeItems,
+                    strategyTestTradeRiskAssessments,
+                )
+            } else {
+                strategyTestTradeItems
+            }
+            if (strategyTestZScoreCandles.isNotEmpty()) {
+                StrategyTestZScoreTradingViewChart(
+                    candles = strategyTestZScoreCandles,
+                    chartPoints = strategyTestM15ChartPoints,
+                    pointMarkers = strategyTestChartMarkers,
+                    tradeSegments = strategyTestChartTradeSegments,
+                    tradeItems = displayTradeItems,
+                    openPosition = if (strategyTestExcludeRedZone) null else strategyTestOpenPosition,
+                    referenceLines = zReferenceLines,
+                    initialWindow = strategyTestZInitialWindow,
+                    landscapeMinimal = true,
+                    modifier = modifier.fillMaxSize(),
+                )
+            } else {
+                Box(
+                    modifier = modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
                     when {
                         strategyTestM15Loading || strategyTestSimComputing -> {
                             Text(
@@ -67,8 +80,8 @@ internal fun MoexScreenTabStrategyTest(
                         }
                         else -> EmptyState()
                     }
-                },
-            )
+                }
+            }
         }
         return
     }
@@ -89,9 +102,10 @@ internal fun MoexScreenTabStrategyTest(
                         zScoreCandles = strategyTestZScoreCandles,
                         chartThresholds = strategyTestChartThresholds,
                         chartTradeSegments = strategyTestChartTradeSegments,
-                        openPosition = strategyTestOpenPosition,
+                        chartPointMarkers = strategyTestChartMarkers,
                         zInitialWindow = strategyTestZInitialWindow,
                         durationSummary = strategyTestDurationSummary,
+                        monthlyReturnSummary = strategyTestMonthlyReturnSummary,
                         tradeRiskAssessments = strategyTestTradeRiskAssessments,
                         onRefresh = {
                             scope.launch {
@@ -114,6 +128,8 @@ internal fun MoexScreenTabStrategyTest(
                             .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                         compoundReturns = strategyTestCompoundReturns,
                         onCompoundReturnsChange = { strategyTestCompoundReturns = it },
+                        excludeRedZone = strategyTestExcludeRedZone,
+                        onExcludeRedZoneChange = { strategyTestExcludeRedZone = it },
                         onLeverageChange = { portfolioLeverage = it },
                         onCommissionChange = { portfolioCommissionPercent = it },
                         onEntryThresholdChange = { newEntry ->

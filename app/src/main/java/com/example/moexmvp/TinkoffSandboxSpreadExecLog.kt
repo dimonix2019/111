@@ -50,6 +50,8 @@ internal data class SandboxSpreadExecUi(
     val entrySignalBarTimeMsk: String = "—",
     val entrySignalReceivedMsk: String = "—",
     val tradeDisplayId: String = tradeId,
+    val quantityLots: Int = 1,
+    val executionNotionalRub: Double = 0.0,
 ) {
     fun toTradeGroup(): PortfolioTradeGroupRow {
         val orderRows = if (legs.size >= 2) {
@@ -60,7 +62,7 @@ internal data class SandboxSpreadExecUi(
                     ticker = legs[0].ticker,
                     sideRu = legs[0].sideRu,
                     orderBrief = legs[0].orderBrief,
-                    volumeText = "1 лот"
+                    volumeText = "${quantityLots.coerceAtLeast(1)} лот"
                 ),
                 PortfolioOrderTableRow(
                     orderIndex = 2,
@@ -68,7 +70,7 @@ internal data class SandboxSpreadExecUi(
                     ticker = legs[1].ticker,
                     sideRu = legs[1].sideRu,
                     orderBrief = legs[1].orderBrief,
-                    volumeText = "1 лот"
+                    volumeText = "${quantityLots.coerceAtLeast(1)} лот"
                 )
             )
         } else {
@@ -79,7 +81,7 @@ internal data class SandboxSpreadExecUi(
                     ticker = leg.ticker,
                     sideRu = leg.sideRu,
                     orderBrief = leg.orderBrief,
-                    volumeText = "1 лот"
+                    volumeText = "${quantityLots.coerceAtLeast(1)} лот"
                 )
             }
         }
@@ -121,7 +123,9 @@ internal object TinkoffSandboxSpreadExecLog {
         entrySpreadPercent: Double,
         source: PortfolioExecSource,
         legs: List<SandboxLegOrderResult>,
-        fromTestButton: Boolean = false
+        fromTestButton: Boolean = false,
+        quantityLots: Int = 1,
+        executionNotionalRub: Double = 0.0,
     ): SandboxSpreadExecUi? {
         if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) {
             return null
@@ -156,7 +160,9 @@ internal object TinkoffSandboxSpreadExecLog {
                 entrySpreadPercent,
                 source,
                 legUi,
-                fromTestButton
+                fromTestButton,
+                quantityLots,
+                executionNotionalRub,
             )
         )
     }
@@ -169,7 +175,9 @@ internal object TinkoffSandboxSpreadExecLog {
         executedAtMillis: Long,
         entrySpreadPercent: Double,
         source: PortfolioExecSource,
-        fromTestButton: Boolean = false
+        fromTestButton: Boolean = false,
+        quantityLots: Int = 1,
+        executionNotionalRub: Double = 0.0,
     ): SandboxSpreadExecUi? {
         if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) {
             return null
@@ -184,8 +192,10 @@ internal object TinkoffSandboxSpreadExecLog {
                 executedAtMillis,
                 entrySpreadPercent,
                 source,
-                templateLegUi(signalType),
-                fromTestButton
+                templateLegUi(signalType, quantityLots),
+                fromTestButton,
+                quantityLots,
+                executionNotionalRub,
             )
         )
     }
@@ -210,7 +220,8 @@ internal object TinkoffSandboxSpreadExecLog {
         notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
         leverage: Double = 7.0,
         commissionPercentPerSide: Double = 0.04,
-        journalEvents: List<StrategySignalEvent> = emptyList()
+        journalEvents: List<StrategySignalEvent> = emptyList(),
+        pnlLeverage: Double = portfolioPnlLeverageMultiplier(currentExecutionMode(context), leverage),
     ): List<SandboxSpreadExecUi> {
         if (executions.isEmpty()) return executions
         val pushLog = loadPushNotificationLog(context)
@@ -246,7 +257,8 @@ internal object TinkoffSandboxSpreadExecLog {
             points,
             notionalRub,
             leverage,
-            commissionPercentPerSide
+            commissionPercentPerSide,
+            pnlLeverage,
         )
     }
 
@@ -287,7 +299,9 @@ internal object TinkoffSandboxSpreadExecLog {
         entrySpreadPercent: Double,
         source: PortfolioExecSource,
         legUi: List<SandboxSpreadOrderLegUi>,
-        fromTestButton: Boolean
+        fromTestButton: Boolean,
+        quantityLots: Int,
+        executionNotionalRub: Double,
     ): SandboxSpreadExecUi {
         val app = context.applicationContext
         val spread = legSpreadDisplayForEntry(signalType)
@@ -321,11 +335,13 @@ internal object TinkoffSandboxSpreadExecLog {
             shortLegTicker = spread.shortTicker,
             longLegSideRu = spread.longSideRu,
             shortLegSideRu = spread.shortSideRu,
-            volumeText = "1+1 лот",
+            volumeText = spreadVolumeText(quantityLots),
             confirmLabel = confirm,
             correlationTag = tag,
             notificationIdsText = formatPushIdsForCorrelation(pushLog, tag),
-            legs = legUi
+            legs = legUi,
+            quantityLots = quantityLots.coerceAtLeast(1),
+            executionNotionalRub = executionNotionalRub.coerceAtLeast(0.0),
         )
     }
 
@@ -398,7 +414,7 @@ internal object TinkoffSandboxSpreadExecLog {
             confirmLabel = "ручное",
             correlationTag = spreadLegPushCorrelationTag(barTs, type),
             notificationIdsText = "—",
-            legs = templateLegUi(type)
+            legs = templateLegUi(type, 1)
         )
         prefs.edit()
             .putString(KEY_HISTORY_JSON, encodeHistory(listOf(entry)).toString())
@@ -406,14 +422,15 @@ internal object TinkoffSandboxSpreadExecLog {
             .apply()
     }
 
-    private fun templateLegUi(signalType: StrategySignalType): List<SandboxSpreadOrderLegUi> = when (signalType) {
+    private fun templateLegUi(signalType: StrategySignalType, quantityLots: Int): List<SandboxSpreadOrderLegUi> =
+        when (signalType) {
         StrategySignalType.EnterLong -> listOf(
-            SandboxSpreadOrderLegUi("TATN", "покупка 1 лот", "—"),
-            SandboxSpreadOrderLegUi("TATNP", "продажа 1 лот", "—")
+            SandboxSpreadOrderLegUi("TATN", spreadLegSideRu(buy = true, quantityLots), "—"),
+            SandboxSpreadOrderLegUi("TATNP", spreadLegSideRu(buy = false, quantityLots), "—")
         )
         StrategySignalType.EnterShort -> listOf(
-            SandboxSpreadOrderLegUi("TATNP", "покупка 1 лот", "—"),
-            SandboxSpreadOrderLegUi("TATN", "продажа 1 лот", "—")
+            SandboxSpreadOrderLegUi("TATNP", spreadLegSideRu(buy = true, quantityLots), "—"),
+            SandboxSpreadOrderLegUi("TATN", spreadLegSideRu(buy = false, quantityLots), "—")
         )
         else -> emptyList()
     }
@@ -452,6 +469,8 @@ internal object TinkoffSandboxSpreadExecLog {
             .put("confirmLabel", e.confirmLabel)
             .put("correlationTag", e.correlationTag)
             .put("notificationIdsText", e.notificationIdsText)
+            .put("quantityLots", e.quantityLots)
+            .put("executionNotionalRub", e.executionNotionalRub)
             .put("legs", legsArr)
     }
 
@@ -476,8 +495,10 @@ internal object TinkoffSandboxSpreadExecLog {
                 }
             }
         } else {
-            templateLegUi(type)
+            templateLegUi(type, o.optInt("quantityLots", 1))
         }
+        val quantityLots = o.optInt("quantityLots", 1).coerceAtLeast(1)
+        val executionNotionalRub = o.optDouble("executionNotionalRub", 0.0)
         val barTs = o.optLong("barTimestampMillis", o.optLong("timestampMillis", 0L))
         val spread = legSpreadDisplayForEntry(type)
         val tag = o.optString("correlationTag").ifBlank {
@@ -501,11 +522,13 @@ internal object TinkoffSandboxSpreadExecLog {
             shortLegTicker = o.optString("shortLegTicker", spread.shortTicker),
             longLegSideRu = o.optString("longLegSideRu", spread.longSideRu),
             shortLegSideRu = o.optString("shortLegSideRu", spread.shortSideRu),
-            volumeText = o.optString("volumeText", "1+1 лот"),
+            volumeText = o.optString("volumeText", spreadVolumeText(quantityLots)),
             confirmLabel = o.optString("confirmLabel", if (src == PortfolioExecSource.AUTO) "авто" else "ручное"),
             correlationTag = tag,
             notificationIdsText = o.optString("notificationIdsText", "—"),
-            legs = legs
+            legs = legs,
+            quantityLots = quantityLots,
+            executionNotionalRub = executionNotionalRub,
         )
     }
 }

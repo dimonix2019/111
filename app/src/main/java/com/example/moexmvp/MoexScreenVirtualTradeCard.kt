@@ -59,30 +59,33 @@ internal fun MoexScreenVirtualTradeCard(
             PendingVirtualTradeProposalCard(
                 proposal = proposal,
                 sandboxState = sandboxExecState,
+                executionMode = executionMode,
                 onAccept = {
                     scope.launch {
-                        val st = TinkoffSandboxStorage.resolveExecUiState(context)
+                        val mode = currentExecutionMode(context)
+                        val st = TinkoffSandboxStorage.resolveExecUiState(context, mode)
                         sandboxExecState = st
                         when (st) {
                             SandboxExecUiState.Ready -> {
-                                val tok = TinkoffSandboxStorage.getToken(context)
-                                val acc = TinkoffSandboxStorage.getAccountId(context)
+                                val tok = TinkoffSandboxStorage.getActiveToken(context, mode)
+                                val acc = TinkoffSandboxStorage.getActiveAccountId(context, mode)
                                 if (tok.isNullOrBlank() || acc.isNullOrBlank()) {
                                     Toast.makeText(
                                         context,
-                                        "Нет токена или счёта в «Песочница».",
+                                        "Нет токена или счёта (${executionModeLabelRu(mode)}).",
                                         Toast.LENGTH_LONG
                                     ).show()
                                     return@launch
                                 }
                                 try {
                                     val nowMs = System.currentTimeMillis()
-                                    val (skipDupJournal, legs, opened) = withContext(Dispatchers.IO) {
-                                        val legsInner = tinkoffSandboxExecuteSpreadEntryDetailed(
-                                            tok,
-                                            acc,
-                                            proposal.signalType
+                                    val acceptBundle = withContext(Dispatchers.IO) {
+                                        val entry = executeSpreadEntryDetailedForConfiguredMode(
+                                            context,
+                                            proposal.signalType,
                                         )
+                                        val legsInner = entry.legs
+                                        val sizingInner = entry.sizing
                                         clearPendingVirtualTradeProposal(context, proposal)
                                         appendPortfolioExecutionLedger(
                                             context,
@@ -109,7 +112,7 @@ internal fun MoexScreenVirtualTradeCard(
                                             context,
                                             proposal.timestampMillis
                                         )
-                                        val opened = TinkoffSandboxSpreadExecLog.recordFromLegs(
+                                        val openedInner = TinkoffSandboxSpreadExecLog.recordFromLegs(
                                             context,
                                             proposal.signalType,
                                             proposal.zScore,
@@ -118,7 +121,9 @@ internal fun MoexScreenVirtualTradeCard(
                                             entrySpreadPercent = entrySpread,
                                             source = PortfolioExecSource.MANUAL,
                                             legs = legsInner,
-                                            fromTestButton = false
+                                            fromTestButton = false,
+                                            quantityLots = sizingInner.quantityLots,
+                                            executionNotionalRub = sizingInner.executionNotionalRub,
                                         )
                                         val position = when (proposal.signalType) {
                                             StrategySignalType.EnterLong -> ZStrategyPosition.Long
@@ -126,14 +131,16 @@ internal fun MoexScreenVirtualTradeCard(
                                             else -> ZStrategyPosition.Flat
                                         }
                                         saveStrategyPosition(context, position)
-                                        Triple(skipDup, legsInner, opened)
+                                        Pair(Triple(skipDup, legsInner, openedInner), sizingInner)
                                     }
+                                    val (skipDupJournal, legs, opened) = acceptBundle.first
+                                    val sizing = acceptBundle.second
                                     val lastLeg = legs.lastOrNull()
                                     opened?.let { trade ->
                                         notifySandboxTradeOpened(
                                             context = context,
                                             execution = trade,
-                                            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                                            notionalRub = sizing.executionNotionalRub,
                                             leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context),
                                             portfolioTotalRub = lastLeg?.portfolioTotalRub,
                                             portfolioCashRub = lastLeg?.portfolioCashRub,
@@ -150,7 +157,7 @@ internal fun MoexScreenVirtualTradeCard(
                                     }
                                     Toast.makeText(
                                         context,
-                                        "В песочнице отправлены 2 заявки (две ноги спрэда). $tail",
+                                        "Отправлены 2×${sizing.quantityLots} лот (${executionModeLabelRu(mode)}). $tail",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 } catch (e: Exception) {
@@ -167,7 +174,7 @@ internal fun MoexScreenVirtualTradeCard(
                                 pendingVirtualTrade = null
                                 Toast.makeText(
                                     context,
-                                    "Принято без заявок: сохраните токен и счёт во вкладке «Песочница».",
+                                    "Принято без заявок: сохраните токен и счёт (${executionModeLabelRu(mode)}).",
                                     Toast.LENGTH_LONG
                                 ).show()
                             }

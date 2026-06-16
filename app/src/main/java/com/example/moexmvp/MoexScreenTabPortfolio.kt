@@ -54,13 +54,15 @@ internal fun MoexScreenTabPortfolio(
                 sandboxSpreadExecutions,
                 enrichmentPoints,
                 portfolioLeverage,
-                portfolioCommissionPercent
+                portfolioCommissionPercent,
+                executionMode,
             ) {
                 enrichSandboxExecutionsIfNeeded(
                     executions = sandboxSpreadExecutions,
                     points = enrichmentPoints,
                     leverage = portfolioLeverage,
-                    commissionPercentPerSide = portfolioCommissionPercent
+                    commissionPercentPerSide = portfolioCommissionPercent,
+                    executionMode = executionMode,
                 )
             }
             val launchTestSpreadPair: (StrategySignalType) -> Unit = { signalType ->
@@ -114,7 +116,7 @@ internal fun MoexScreenTabPortfolio(
                     text = {
                         Text(
                             text = if (exec != null) {
-                                "Сделка ${exec.tradeId} (${exec.directionLabel}): обратные заявки на демо " +
+                                "Сделка ${exec.tradeId} (${exec.directionLabel}): обратные заявки на ${executionAccountShortRu(executionMode)} " +
                                     "(если включено), запись выхода в журнал, перенос в «Закрытые»."
                             } else {
                                 "Закрыть сделку $tradeId?"
@@ -217,6 +219,7 @@ internal fun MoexScreenTabPortfolio(
                                 pendingVirtualTrade = null
                             }
                         },
+                        executionMode = executionMode,
                         portfolioTestBusy = portfolioTestBusy,
                         onTestSpreadPairLongClick = {
                             launchTestSpreadPair(StrategySignalType.EnterLong)

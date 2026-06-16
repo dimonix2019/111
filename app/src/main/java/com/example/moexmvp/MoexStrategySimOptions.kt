@@ -32,8 +32,20 @@ internal data class ZStrategySimOptions(
     val maxDrawdownHaltRub: Double = 0.0,
     /** Остановить новые входы при просадке эквити ≥ % от пика (0 = выкл.). */
     val maxDrawdownHaltPct: Double = 0.0,
+    /** Time stop: закрыть позицию после N часов удержания (0 = выкл.). */
+    val forcedTimeStopHours: Double = 0.0,
+    /** Z-stop: |Z − Z_входа| в сторону от mean-revert > N → закрыть (0 = выкл.). */
+    val forcedZStopDeviation: Double = 0.0,
+    /** Закрыть, если удержание ≥ N ч и MTM < 0 (0 = выкл.). */
+    val forcedHoldHoursIfLosing: Double = 0.0,
+    /** К [forcedHoldHoursIfLosing]: только если сделка ни разу не была в плюсе по MTM. */
+    val forcedHoldRequireNeverGreen: Boolean = false,
 ) {
     val hasPyramiding: Boolean get() = pyramidAddNotionalRub > 0.0
+    val hasForcedExits: Boolean
+        get() = forcedTimeStopHours > 0.0 ||
+            forcedZStopDeviation > 0.0 ||
+            forcedHoldHoursIfLosing > 0.0
     val hasProtections: Boolean
         get() = slippageSpreadPts > 0.0 ||
             maxLossSpreadPts > 0.0 ||
@@ -42,7 +54,8 @@ internal data class ZStrategySimOptions(
             maxSpreadPct > 0.0 ||
             entryZBuffer > 0.0 ||
             maxDrawdownHaltRub > 0.0 ||
-            maxDrawdownHaltPct > 0.0
+            maxDrawdownHaltPct > 0.0 ||
+            hasForcedExits
 }
 
 internal fun describeSimOptions(options: ZStrategySimOptions): String {
@@ -76,6 +89,19 @@ internal fun describeSimOptions(options: ZStrategySimOptions): String {
     }
     if (options.maxDrawdownHaltPct > 0.0) {
         parts += "halt DD ${options.maxDrawdownHaltPct}%"
+    }
+    if (options.forcedTimeStopHours > 0.0) {
+        parts += "T${options.forcedTimeStopHours.toInt()}ч"
+    }
+    if (options.forcedZStopDeviation > 0.0) {
+        parts += "Z±${options.forcedZStopDeviation}"
+    }
+    if (options.forcedHoldHoursIfLosing > 0.0) {
+        parts += if (options.forcedHoldRequireNeverGreen) {
+            "H${options.forcedHoldHoursIfLosing.toInt()}ч−&never+"
+        } else {
+            "H${options.forcedHoldHoursIfLosing.toInt()}ч−"
+        }
     }
     return if (parts.isEmpty()) "" else " · " + parts.joinToString(" · ")
 }

@@ -15,6 +15,9 @@ private const val PLAIN_PREFS_FILE = "tinkoff_sandbox_plain"
 private const val PUBLIC_MIRROR_PREFS = "tinkoff_sandbox_public_mirror"
 private const val KEY_TOKEN = "sandbox_api_token"
 private const val KEY_ACCOUNT_ID = "sandbox_account_id"
+private const val KEY_PROD_TOKEN = "prod_api_token"
+private const val KEY_PROD_ACCOUNT_ID = "prod_account_id"
+private const val KEY_EXECUTION_MODE = "execution_mode"
 /** When true, «Принять» на карточке сигнала шлёт рыночные заявки в SandboxService. */
 private const val KEY_EXECUTE_SIGNALS_ON_SANDBOX = "execute_signals_on_sandbox"
 /** Legacy: раньше один переключатель; теперь разделён на «авто-заявки на демо» и «фильтр портфеля». */
@@ -129,6 +132,49 @@ internal object TinkoffSandboxStorage {
         }.apply()
     }
 
+    fun getProdToken(context: Context): String? =
+        prefs(context).getString(KEY_PROD_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
+
+    fun setProdToken(context: Context, token: String?) {
+        val t = normalizeInvestToken(token?.trim().orEmpty())
+        prefs(context).edit().apply {
+            if (t.isEmpty()) remove(KEY_PROD_TOKEN) else putString(KEY_PROD_TOKEN, t)
+        }.apply()
+    }
+
+    fun getProdAccountId(context: Context): String? =
+        prefs(context).getString(KEY_PROD_ACCOUNT_ID, null)?.trim()?.takeIf { it.isNotEmpty() }
+
+    fun setProdAccountId(context: Context, accountId: String?) {
+        val id = accountId?.trim().orEmpty()
+        prefs(context).edit().apply {
+            if (id.isEmpty()) remove(KEY_PROD_ACCOUNT_ID) else putString(KEY_PROD_ACCOUNT_ID, id)
+        }.apply()
+    }
+
+    fun getExecutionMode(context: Context): TinkoffExecutionMode {
+        val raw = prefs(context).getString(KEY_EXECUTION_MODE, TinkoffExecutionMode.Sandbox.name)
+            ?.trim()
+            .orEmpty()
+        return runCatching { TinkoffExecutionMode.valueOf(raw) }.getOrDefault(TinkoffExecutionMode.Sandbox)
+    }
+
+    fun setExecutionMode(context: Context, mode: TinkoffExecutionMode) {
+        prefs(context).edit().putString(KEY_EXECUTION_MODE, mode.name).apply()
+    }
+
+    fun getActiveToken(context: Context, mode: TinkoffExecutionMode = getExecutionMode(context)): String? =
+        when (mode) {
+            TinkoffExecutionMode.Sandbox -> getToken(context)
+            TinkoffExecutionMode.Prod -> getProdToken(context)
+        }
+
+    fun getActiveAccountId(context: Context, mode: TinkoffExecutionMode = getExecutionMode(context)): String? =
+        when (mode) {
+            TinkoffExecutionMode.Sandbox -> getAccountId(context)
+            TinkoffExecutionMode.Prod -> getProdAccountId(context)
+        }
+
     private fun prefsWithMigration(context: Context): SharedPreferences {
         val p = prefs(context)
         if (p.getBoolean(KEY_SANDBOX_PORTFOLIO_MODE_SPLIT_MIGRATED, false)) return p
@@ -189,9 +235,12 @@ internal object TinkoffSandboxStorage {
             .apply()
     }
 
-    fun resolveExecUiState(context: Context): SandboxExecUiState {
-        val t = getToken(context)
-        val a = getAccountId(context)
+    fun resolveExecUiState(
+        context: Context,
+        mode: TinkoffExecutionMode = getExecutionMode(context),
+    ): SandboxExecUiState {
+        val t = getActiveToken(context, mode)
+        val a = getActiveAccountId(context, mode)
         if (t.isNullOrBlank() || a.isNullOrBlank()) return SandboxExecUiState.MissingCredentials
         return SandboxExecUiState.Ready
     }
@@ -200,20 +249,31 @@ internal object TinkoffSandboxStorage {
      * Читает токен и счёт с диска; при пустых prefs подставляет значения из [BuildConfig] (sandbox-token.properties),
      * если они заданы при сборке. Безопасно вызывать с главного потока (внутри — [Dispatchers.IO]).
      */
-    suspend fun hydrateCredentialsForUi(context: Context): Pair<String, String> =
+    suspend fun hydrateCredentialsForUi(
+        context: Context,
+        mode: TinkoffExecutionMode = getExecutionMode(context),
+    ): Pair<String, String> =
         withContext(Dispatchers.IO) {
-            val embedTok = BuildConfig.SANDBOX_TOKEN_EMBED.trim()
-            val embedAcc = BuildConfig.SANDBOX_ACCOUNT_EMBED.trim()
-            var tok = getToken(context)
-            if (tok.isNullOrEmpty() && embedTok.isNotEmpty()) {
-                setToken(context, embedTok)
-                tok = getToken(context)
+            when (mode) {
+                TinkoffExecutionMode.Sandbox -> {
+                    val embedTok = BuildConfig.SANDBOX_TOKEN_EMBED.trim()
+                    val embedAcc = BuildConfig.SANDBOX_ACCOUNT_EMBED.trim()
+                    var tok = getToken(context)
+                    if (tok.isNullOrEmpty() && embedTok.isNotEmpty()) {
+                        setToken(context, embedTok)
+                        tok = getToken(context)
+                    }
+                    var acc = getAccountId(context)
+                    if (acc.isNullOrEmpty() && embedAcc.isNotEmpty()) {
+                        setAccountId(context, embedAcc)
+                        acc = getAccountId(context)
+                    }
+                    Pair(tok.orEmpty(), acc.orEmpty())
+                }
+                TinkoffExecutionMode.Prod -> Pair(
+                    getProdToken(context).orEmpty(),
+                    getProdAccountId(context).orEmpty(),
+                )
             }
-            var acc = getAccountId(context)
-            if (acc.isNullOrEmpty() && embedAcc.isNotEmpty()) {
-                setAccountId(context, embedAcc)
-                acc = getAccountId(context)
-            }
-            Pair(tok.orEmpty(), acc.orEmpty())
         }
 }

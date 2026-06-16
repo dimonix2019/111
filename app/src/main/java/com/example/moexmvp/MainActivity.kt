@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
         }
         if (SignalForegroundService.isBackgroundMonitorEnabled(this)) {
             SignalForegroundService.start(this)
+            MoexWatchdog.performMonitorWatchdogCheck(this, "activity_onCreate")
         }
         setContent {
             MaterialTheme(
@@ -70,6 +71,8 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         MoexDiagnostics.log(applicationContext, "lifecycle", "activity_onStart")
+        MoexWatchdog.recordUiPing(applicationContext)
+        MoexWatchdog.performMonitorWatchdogCheck(applicationContext, "activity_onStart")
     }
 
     override fun onStop() {
