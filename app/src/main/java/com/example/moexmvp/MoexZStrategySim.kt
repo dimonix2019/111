@@ -75,6 +75,8 @@ internal fun buildZStrategyPortfolioMetrics(
     }
 
     var entryCommissionRub = 0.0
+    var entryZScore = 0.0
+    var peakMtmNetRub = 0.0
     var zBestSinceEntry = 0.0
     var entryPendingArm = ZEntryPendingArm.None
     var zExtremeWhilePending = 0.0
@@ -101,9 +103,54 @@ internal fun buildZStrategyPortfolioMetrics(
 
     fun resetFlatState() {
         entryCommissionRub = 0.0
+        entryZScore = 0.0
+        peakMtmNetRub = 0.0
         zBestSinceEntry = 0.0
         entryPendingArm = ZEntryPendingArm.None
         pyramidAdded = false
+    }
+
+    fun netMtmIfClosedNow(bar: DataPoint): Double {
+        if (position == ZStrategyPosition.Flat) return 0.0
+        val mtmSpread = when (position) {
+            ZStrategyPosition.Long -> bar.spreadPercent - entrySpread
+            ZStrategyPosition.Short -> entrySpread - bar.spreadPercent
+            ZStrategyPosition.Flat -> 0.0
+        }
+        val grossRub = spreadPnlToRubApprox(mtmSpread, tradeEffNotionalRub)
+        val overnightRub = tradeOvernightFeePerDayRub * overnightDays(entryDate, bar.tradeDate)
+        return grossRub - entryCommissionRub - tradeCommissionPerSideRub - overnightRub
+    }
+
+    fun forcedExitHit(bar: DataPoint): Boolean {
+        if (position == ZStrategyPosition.Flat) return false
+        val durationMs = simTradeDurationMillis(entryDate, bar.tradeDate) ?: return false
+        peakMtmNetRub = max(peakMtmNetRub, netMtmIfClosedNow(bar))
+        if (simOptions.forcedTimeStopHours > 0.0 &&
+            durationMs >= (simOptions.forcedTimeStopHours * 3_600_000.0).toLong()
+        ) {
+            return true
+        }
+        if (simOptions.forcedZStopDeviation > 0.0) {
+            when (position) {
+                ZStrategyPosition.Long ->
+                    if (bar.zScore > entryZScore + simOptions.forcedZStopDeviation) return true
+                ZStrategyPosition.Short ->
+                    if (bar.zScore < entryZScore - simOptions.forcedZStopDeviation) return true
+                ZStrategyPosition.Flat -> Unit
+            }
+        }
+        if (simOptions.forcedHoldHoursIfLosing > 0.0 &&
+            durationMs >= (simOptions.forcedHoldHoursIfLosing * 3_600_000.0).toLong()
+        ) {
+            val netRub = netMtmIfClosedNow(bar)
+            if (netRub < 0.0 &&
+                (!simOptions.forcedHoldRequireNeverGreen || peakMtmNetRub <= 0.0)
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     fun addPyramidLeg(bar: DataPoint) {
@@ -242,7 +289,9 @@ internal fun buildZStrategyPortfolioMetrics(
         position = ZStrategyPosition.Long
         entrySpread = zSimEntrySpread(bar.spreadPercent, ZStrategyPosition.Long, slip)
         entryDate = bar.tradeDate
+        entryZScore = bar.zScore
         entryCommissionRub = tradeCommissionPerSideRub
+        peakMtmNetRub = netMtmIfClosedNow(bar)
         zBestSinceEntry = bar.zScore
         totalCommissionRub += tradeCommissionPerSideRub
         realizedRub -= tradeCommissionPerSideRub
@@ -255,7 +304,9 @@ internal fun buildZStrategyPortfolioMetrics(
         position = ZStrategyPosition.Short
         entrySpread = zSimEntrySpread(bar.spreadPercent, ZStrategyPosition.Short, slip)
         entryDate = bar.tradeDate
+        entryZScore = bar.zScore
         entryCommissionRub = tradeCommissionPerSideRub
+        peakMtmNetRub = netMtmIfClosedNow(bar)
         zBestSinceEntry = bar.zScore
         totalCommissionRub += tradeCommissionPerSideRub
         realizedRub -= tradeCommissionPerSideRub
@@ -281,6 +332,10 @@ internal fun buildZStrategyPortfolioMetrics(
                         closedThisBar = true
                     }
                     forceSessionExit(current) || forceReportExit(current) -> {
+                        closeLongAt(current)
+                        closedThisBar = true
+                    }
+                    forcedExitHit(current) -> {
                         closeLongAt(current)
                         closedThisBar = true
                     }
@@ -317,6 +372,10 @@ internal fun buildZStrategyPortfolioMetrics(
                         closedThisBar = true
                     }
                     forceSessionExit(current) || forceReportExit(current) -> {
+                        closeShortAt(current)
+                        closedThisBar = true
+                    }
+                    forcedExitHit(current) -> {
                         closeShortAt(current)
                         closedThisBar = true
                     }

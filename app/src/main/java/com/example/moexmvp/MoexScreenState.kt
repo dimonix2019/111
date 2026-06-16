@@ -23,6 +23,8 @@ internal class MoexScreenState(val context: Context) {
     var confirmedPortfolioMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var confirmedPortfolioTableRows by mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList())
     var strategyTestCompoundReturns by mutableStateOf(false)
+    /** Скрыть сделки в красной зоне риска (≥4 балла) на графике и в таблицах. */
+    var strategyTestExcludeRedZone by mutableStateOf(false)
     var portfolioLoading by mutableStateOf(false)
     var portfolioError by mutableStateOf<String?>(null)
     var portfolioLookbackDays by mutableStateOf(loadPortfolioLookbackDays(context))
@@ -71,6 +73,8 @@ internal class MoexScreenState(val context: Context) {
     var robustCandidate by mutableStateOf<DynamicThresholds?>(null)
     var walkForwardBusy by mutableStateOf(false)
     var pendingVirtualTrade by mutableStateOf<PendingVirtualTradeProposal?>(null)
+    var executionMode by mutableStateOf(TinkoffSandboxStorage.getExecutionMode(context))
+    var prodMoneyStopLastTriggeredTradeId by mutableStateOf<String?>(null)
     var sandboxExecState by mutableStateOf(SandboxExecUiState.Off)
     var sandboxTokenInput by mutableStateOf("")
     var sandboxAccountInput by mutableStateOf("")
@@ -89,6 +93,7 @@ internal class MoexScreenState(val context: Context) {
     var showCloseAllPortfolioDialog by mutableStateOf(false)
     var closeAllPortfolioBusy by mutableStateOf(false)
     var bgMonitorToggleEpoch by mutableStateOf(0)
+    var watchdogStatus by mutableStateOf(MoexWatchdog.readStatus(context))
     var strategyTestPortfolioMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var strategyTestSimComputing by mutableStateOf(false)
     var strategyTestM15Loading by mutableStateOf(false)
@@ -97,6 +102,7 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestChartTradeSegments by mutableStateOf<List<TradingViewTradeSegment>>(emptyList())
     var strategyTestTradeRiskAssessments by mutableStateOf<List<StrategyTestTradeRiskAssessment>>(emptyList())
     var strategyTestDurationSummary by mutableStateOf<StrategyTestDurationSummary?>(null)
+    var strategyTestMonthlyReturnSummary by mutableStateOf<StrategyTestMonthlyReturnSummary?>(null)
     var strategyTestSpreadHourlyVolatility by mutableStateOf<SpreadHourlyVolatilityReport?>(null)
     var strategyTestLastSimKey: Long = 0L
     var strategyTestVisibleSessionCache: StrategyTestVisibleSnapshot? = null

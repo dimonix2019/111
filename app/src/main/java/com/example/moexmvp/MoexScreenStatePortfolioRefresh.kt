@@ -75,18 +75,45 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
             portfolioLedgerIncludeAuto = ledgerIncludeAuto,
+            pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage),
         )
     }
-    val mergedClosed = mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens)
+    val prodBrokerClosed = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+        withContext(Dispatchers.IO) {
+            buildClosedRowsFromProdBrokerLog(
+                records = TinkoffClosedSpreadExecLog.loadRecent(context),
+                journalEvents = eventsAll,
+                pushLog = pushLog,
+                commissionPercentPerSide = portfolioCommissionPercent,
+            )
+        }
+    } else {
+        emptyList()
+    }
+    val mergedClosed = mergePortfolioClosedTableRowsForMode(
+        mode = currentExecutionMode(context),
+        fromReplay = executed.tableRows,
+        fromOpens = closedFromOpens,
+        fromProdBroker = prodBrokerClosed,
+    )
     confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
         mergedClosed,
         ledgerIncludeAuto,
+        executionMode = currentExecutionMode(context),
     )
+    val modeFiltered = filterSandboxExecutionsByPortfolioMode(
+        opensAfterJournalClose,
+        ledgerIncludeAuto,
+    )
+    val brokerLegPnl = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+        modeFiltered.firstOrNull()?.signalType?.let { signal ->
+            withContext(Dispatchers.IO) { loadProdSpreadBrokerSnapshot(context, signal) }
+        }
+    } else {
+        null
+    }
+    val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage)
     sandboxSpreadExecutions = withContext(Dispatchers.IO) {
-        val modeFiltered = filterSandboxExecutionsByPortfolioMode(
-            opensAfterJournalClose,
-            ledgerIncludeAuto,
-        )
         TinkoffSandboxSpreadExecLog.enrichForDisplay(
             context = context,
             executions = modeFiltered,
@@ -95,15 +122,14 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
             journalEvents = eventsAll,
+            pnlLeverage = pnlLeverage,
+            brokerLegPnl = brokerLegPnl,
         )
     }
-    portfolioError = if (portfolio15mSeriesIntradayStale(portfolioM15Points.ifEmpty { points })) {
-        val todayMsk = LocalDate.now(moexZoneId)
-        "15м ряд обрывается на ${points.last().tradeDate} (сегодня МСК $todayMsk, нужны свежие бары с MOEX). " +
-            "Нажмите «Обновить» или «MOEX заново» при сети."
-    } else {
-        null
-    }
+    portfolioError = portfolioStaleMoexWarning(
+        points = portfolioM15Points.ifEmpty { points },
+        prodBrokerPnlReady = brokerLegPnl != null,
+    )
     portfolioTabUiBuiltKey = portfolioTabUiSessionKey()
 }
 
@@ -112,6 +138,9 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
  * MOEX INCREMENTAL — только если хвост устарел.
  */
 internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
+    if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+        refreshProdOpenTradesFromBroker()
+    }
     val uiKey = portfolioTabUiSessionKey()
     if (portfolioTabUiBuiltKey == uiKey && portfolioM15Points.size >= 2) {
         if (portfolio15mSeriesIntradayStale(portfolioM15Points)) {
@@ -158,13 +187,13 @@ internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
     }
 }
 
-/** Догрузка 15м с MOEX, если in-memory хвост старше [PORTFOLIO_M15_INTRADAY_STALE_MS]. */
+/** Догрузка 15м с MOEX, если хвост устарел или нет баров за сегодня (МСК). */
 internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: String) {
     val src = when (selectedTab) {
         MainTab.Markets -> marketsM15Source().takeIf { it.size >= 2 } ?: portfolioM15Points
         else -> portfolioM15Points.takeIf { it.size >= 2 } ?: marketsM15Source()
     }
-    if (src.size < 2 || !portfolio15mSeriesIntradayStale(src)) return
+    if (src.size < 2 || !portfolio15mSeriesNeedsMoexRefresh(src)) return
     MoexDiagnostics.log(context, "m15_tail", "refresh reason=$reason tab=${selectedTab.label}")
     when (selectedTab) {
         MainTab.Markets -> {
@@ -189,6 +218,29 @@ internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: Strin
                     if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
                 }
             }
+        }
+    }
+}
+
+/** После восстановления сети / onResume: догрузить 15м и при необходимости обновить вкладку «Рынок». */
+internal suspend fun MoexScreenState.refreshAfterConnectivityRestore(
+    reason: String,
+    launchScope: CoroutineScope,
+) {
+    MoexDiagnostics.log(context, "network", "refresh_after_connectivity reason=$reason tab=${selectedTab.label}")
+    refreshM15TailIfIntradayStale(reason = reason)
+    if (selectedTab == MainTab.Markets && activityResumed) {
+        val period = selectedPeriod.coerceToMarketsUiPeriod()
+        val m15 = marketsM15Source()
+        if (m15.size >= 2 && portfolio15mSeriesNeedsMoexRefresh(m15)) {
+            refreshData(
+                showLoading = false,
+                launchScope = launchScope,
+                selectedPeriod = period,
+                refreshPolicy = MarketsRefreshPolicy.UserInitiated,
+            )
+        } else if (m15.size >= 2) {
+            bumpMarketsLoadedAtFromM15(m15)
         }
     }
 }

@@ -349,7 +349,7 @@ internal fun buildTradingViewChartPayloadJson(
                     .put("color", bucket.color)
                     .put("shape", bucket.shape)
                     .put("text", label)
-                    .put("size", 2.0)
+                    .put("size", 2.5)
                     .put("tradeId", tradeId)
                     .put("isEntry", bucket.isEntry)
             )
@@ -550,13 +550,12 @@ internal fun TradingViewZScoreChart(
         },
         update = { webView ->
             webViewRef = webView
-            deliverPayload()
         },
         modifier = modifier,
     )
 
     LaunchedEffect(pageReady, payloadJson) {
-        deliverPayload()
+        if (pageReady) deliverPayload()
     }
 }
 

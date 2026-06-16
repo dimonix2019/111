@@ -58,12 +58,14 @@ internal fun MoexScreenTabSandbox(
         with(screen) {
             Column(modifier = Modifier.fillMaxWidth()) {
                     TinkoffSandboxTabContent(
+                        executionMode = executionMode,
+                        onExecutionModeChange = { mode -> executionMode = mode },
                         tokenInput = sandboxTokenInput,
                         onTokenInputChange = { sandboxTokenInput = it },
                         accountInput = sandboxAccountInput,
                         onAccountInputChange = { sandboxAccountInput = it },
                         onSandboxPrefsChanged = {
-                            sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+                            sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context, executionMode)
                             executeSignalsOnSandbox = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
                             sandboxSpreadAutoExecute = TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)
                         },
