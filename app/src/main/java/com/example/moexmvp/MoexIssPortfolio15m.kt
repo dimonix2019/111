@@ -391,3 +391,34 @@ internal suspend fun loadPortfolio15mDataPoints(
     }
 }
 
+/**
+ * Лёгкая догрузка MOEX (2 дня) + пересчёт Z на формирующемся 15м баре.
+ * Вызывается каждую минуту на экране, даже если хвост «свежий» (<20 мин).
+ */
+internal suspend fun refreshPortfolio15mLiveFormingTailFromMoex(
+    context: Context,
+    lookbackDays: Long,
+): List<DataPoint>? = withContext(Dispatchers.IO) {
+    withPortfolioM15LoadLock {
+        val dao = PortfolioM15Database.get(context.applicationContext).dao()
+        mergePortfolio15mLiveFormingBarFromMoex(dao)
+        clearM15FormingBarPersistedZ(dao)
+        val till = LocalDate.now(moexZoneId)
+        val from = till.minusDays(lookbackDays)
+        val queryCutoffMillis = from.atStartOfDay(moexZoneId).toInstant().toEpochMilli()
+        val rows = dao.getSince(queryCutoffMillis)
+        if (rows.size < 2) return@withPortfolioM15LoadLock null
+        val points = ArrayList(rows.map { it.toDataPoint() })
+        val recalculated = fillM15ZScoresInPlace(points, rows)
+        persistM15ZScoreSnapshots(dao, rows, points)
+        if (recalculated) {
+            MoexDiagnostics.log(
+                context.applicationContext,
+                "m15_z",
+                "live_forming_tail z=${"%.2f".format(Locale.US, points.last().zScore)} " +
+                    "spread=${"%.2f".format(Locale.US, points.last().spreadPercent)}",
+            )
+        }
+        points
+    }
+}

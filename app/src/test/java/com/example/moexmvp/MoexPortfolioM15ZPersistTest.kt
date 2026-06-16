@@ -2,6 +2,7 @@ package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneId
@@ -45,6 +46,23 @@ class MoexPortfolioM15ZPersistTest {
         val before = points.map { it.zScore }
         assertFalse(fillM15ZScoresInPlace(points, entities))
         assertEquals(before, points.map { it.zScore })
+    }
+
+    @Test
+    fun fillM15ZScoresInPlace_recalcsFormingBarDespitePersistedZ() {
+        val step = 15 * 60_000L
+        val bucket = currentM15BucketStartMillis()
+        val ts0 = bucket - 81 * step
+        val entities = (0 until 82).map { i ->
+            val ts = ts0 + i * step
+            entity(ts, spread = 7.0 + i * 0.001, z = if (i < 81) 0.5 else 0.99)
+        }
+        val points = entities.map { it.toDataPoint() }.toMutableList()
+        val lastIdx = points.lastIndex
+        points[lastIdx] = points[lastIdx].copy(spreadPercent = 8.5)
+        assertTrue(isM15FormingBarIndex(points, lastIdx))
+        assertTrue(fillM15ZScoresInPlace(points, entities))
+        assertNotEquals(0.99, points[lastIdx].zScore, 1e-9)
     }
 
     @Test

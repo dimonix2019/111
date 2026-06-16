@@ -15,6 +15,32 @@ internal const val PORTFOLIO_M15_FETCH_CHUNK_DAYS = 21L
 /** Догрузка хвоста 15м с MOEX только если кэш устарел (не при каждом INCREMENTAL). */
 internal const val PORTFOLIO_M15_TAIL_REFETCH_DAYS = 7L
 
+/** Догрузка 10м→15м для формирующегося бара (каждую минуту на экране). */
+internal suspend fun mergePortfolio15mLiveFormingBarFromMoex(dao: PortfolioM15Dao) {
+    val moexTill = portfolioM15MoexFetchTillDate()
+    val tailFrom = LocalDate.now(moexZoneId).minusDays(PORTFOLIO_M15_LIVE_FORMING_REFETCH_DAYS)
+    if (tailFrom.isAfter(moexTill)) return
+    val tail = fetchPortfolio15mSpreadEntities(tailFrom, moexTill)
+    if (tail.isNotEmpty()) {
+        insertPortfolio15mEntitiesBatched(dao, tail)
+    }
+}
+
+/** Сброс снимка Z/spread на формирующемся 15м баре — иначе Z залипает на persisted. */
+internal suspend fun clearM15FormingBarPersistedZ(dao: PortfolioM15Dao) {
+    val bucket = currentM15BucketStartMillis()
+    val existing = dao.getByTsMillis(listOf(bucket)).firstOrNull() ?: return
+    if (existing.persistedZScore == null && existing.spreadAtZSnapshot == null) return
+    dao.insertAll(
+        listOf(
+            existing.copy(
+                persistedZScore = null,
+                spreadAtZSnapshot = null,
+            ),
+        ),
+    )
+}
+
 /** Если последний бар в кэше старше — не CACHE_ONLY, а догрузка с MOEX. */
 internal const val PORTFOLIO_M15_CACHE_STALE_MS = PORTFOLIO_M15_INTRADAY_STALE_MS
 

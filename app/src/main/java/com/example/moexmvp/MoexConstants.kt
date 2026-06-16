@@ -131,6 +131,8 @@ internal const val PORTFOLIO_M15_TAIL_MAX_AGE_MS = 40L * 60L * 60L * 1000L
 internal const val PORTFOLIO_M15_INTRADAY_STALE_MS = 20L * 60L * 1000L
 /** Интервал фоновой проверки хвоста 15м (Портфель / Рынок, приложение на экране). */
 internal const val PORTFOLIO_M15_INTRADAY_POLL_MS = 60_000L
+/** Лёгкая догрузка MOEX для формирующегося 15м бара (10м→15м), без ожидания 20 мин stale. */
+internal const val PORTFOLIO_M15_LIVE_FORMING_REFETCH_DAYS = 2L
 /** Prod: авто-обновление PnL/цен открытых ног с GetPortfolio на вкладке «Портфель». */
 internal const val PROD_BROKER_PORTFOLIO_POLL_MS = 15_000L
 internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
@@ -143,6 +145,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.190 — Z-score: формирующийся 15м бар пересчитывается каждую минуту (MOEX 10м→15м), не залипает на persisted.
 1.7.189 — Prod закрытые: чистый PnL = Δ денег на счёте; ноги из GetOperations yield (не MTM).
 1.7.188 — Prod «Закрытые»: убраны строки «сигнал» (MOEX-симуляция 100k); только авто/брокер.
 1.7.187 — Prod: PnL закрытых сделок с GetPortfolio (expectedYield на выходе), не симуляция MOEX ×100k.

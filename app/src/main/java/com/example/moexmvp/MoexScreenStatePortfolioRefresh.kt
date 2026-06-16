@@ -145,6 +145,8 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     if (portfolioTabUiBuiltKey == uiKey && portfolioM15Points.size >= 2) {
         if (portfolio15mSeriesIntradayStale(portfolioM15Points)) {
             refreshPortfolioM15TailSilent()
+        } else {
+            refreshM15LiveFormingTail(reason = "portfolio_tab")
         }
         return
     }
@@ -164,6 +166,33 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
 
     val mode = PortfolioM15LoadMode.CACHE_ONLY
     refreshPortfolio(mode, trackProgress = false)
+}
+
+/**
+ * Каждую минуту: 10м→15м с MOEX + пересчёт Z на формирующемся баре (без ожидания 20 мин stale).
+ */
+internal suspend fun MoexScreenState.refreshM15LiveFormingTail(reason: String) {
+    if (!activityResumed) return
+    if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) return
+    val lookback = when (selectedTab) {
+        MainTab.Markets -> marketsM15LookbackDays(selectedPeriod.coerceToMarketsUiPeriod())
+            .coerceAtLeast(portfolioLookbackDays)
+        else -> portfolioLookbackDays
+    }
+    val loaded = refreshPortfolio15mLiveFormingTailFromMoex(context, lookback) ?: return
+    MoexDiagnostics.log(context, "m15_tail", "live_forming reason=$reason tab=${selectedTab.label}")
+    portfolioM15Points = loaded
+    when (selectedTab) {
+        MainTab.Markets -> storeMarketsM15(loaded)
+        MainTab.Portfolio -> {
+            if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
+            rebuildPortfolioUiFromPoints(loaded)
+        }
+        MainTab.Journal -> {
+            if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
+        }
+        else -> Unit
+    }
 }
 
 /** Фоновая догрузка хвоста 15м (MOEX INCREMENTAL) без progress overlay. */
@@ -189,6 +218,7 @@ internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
 
 /** Догрузка 15м с MOEX, если хвост устарел или нет баров за сегодня (МСК). */
 internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: String) {
+    refreshM15LiveFormingTail(reason = "${reason}_forming")
     val src = when (selectedTab) {
         MainTab.Markets -> marketsM15Source().takeIf { it.size >= 2 } ?: portfolioM15Points
         else -> portfolioM15Points.takeIf { it.size >= 2 } ?: marketsM15Source()
