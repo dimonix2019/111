@@ -1116,8 +1116,43 @@ internal suspend fun tinkoffGetMarginAttributes(
 internal data class SpreadLegBrokerPnl(
     val longLegYieldRub: Double,
     val shortLegYieldRub: Double,
+    val longLegPriceRub: Double? = null,
+    val shortLegPriceRub: Double? = null,
+    val longLegQuantity: Int = 0,
+    val shortLegQuantity: Int = 0,
+    val fetchedAtMillis: Long = System.currentTimeMillis(),
 ) {
     val netGrossRub: Double get() = longLegYieldRub + shortLegYieldRub
+
+    fun spreadPercentFromBrokerPrices(): Double? {
+        val longPx = longLegPriceRub ?: return null
+        val shortPx = shortLegPriceRub ?: return null
+        if (shortPx <= 0.0) return null
+        return (longPx / shortPx - 1.0) * 100.0
+    }
+}
+
+private data class BrokerPositionRow(
+    val yieldRub: Double,
+    val currentPriceRub: Double?,
+    val quantityUnits: Int,
+)
+
+private fun parsePositionCurrentPriceRub(position: JSONObject): Double? {
+    val priceObj = position.optJSONObject("currentPrice")
+        ?: position.optJSONObject("current_price")
+        ?: position.optJSONObject("averagePositionPrice")
+        ?: position.optJSONObject("average_position_price")
+        ?: return null
+    return quotationUnitsToDouble(priceObj)
+}
+
+private fun parsePositionQuantityUnits(position: JSONObject): Int {
+    val q = position.optJSONObject("quantity")
+        ?: position.optJSONObject("quantityLots")
+        ?: position.optJSONObject("quantity_lots")
+        ?: return 0
+    return quotationUnitsToDouble(q)?.toInt() ?: 0
 }
 
 private fun JSONObject.positionTicker(): String? =
@@ -1149,31 +1184,49 @@ private fun collectPortfolioPositions(portfolioJson: JSONObject): List<JSONObjec
     return out
 }
 
-/** Нереализованный PnL по ногам из GetPortfolio (как в T‑Invest). */
+/** Котировки и нереализованный PnL по ногам из GetPortfolio (как в T‑Invest). */
 internal fun parseSpreadLegBrokerPnl(
     portfolioJson: JSONObject,
     signalType: StrategySignalType,
 ): SpreadLegBrokerPnl? {
-    val yieldsByTicker = linkedMapOf<String, Double>()
+    val rowsByTicker = linkedMapOf<String, BrokerPositionRow>()
     for (pos in collectPortfolioPositions(portfolioJson)) {
         val ticker = pos.positionTicker() ?: continue
         val yieldRub = parsePositionExpectedYieldRub(pos) ?: continue
-        yieldsByTicker[ticker] = (yieldsByTicker[ticker] ?: 0.0) + yieldRub
+        val prev = rowsByTicker[ticker]
+        rowsByTicker[ticker] = BrokerPositionRow(
+            yieldRub = (prev?.yieldRub ?: 0.0) + yieldRub,
+            currentPriceRub = parsePositionCurrentPriceRub(pos) ?: prev?.currentPriceRub,
+            quantityUnits = (prev?.quantityUnits ?: 0) + parsePositionQuantityUnits(pos),
+        )
     }
-    val tatn = yieldsByTicker["TATN"] ?: return null
-    val tatnp = yieldsByTicker["TATNP"] ?: return null
+    val tatn = rowsByTicker["TATN"] ?: return null
+    val tatnp = rowsByTicker["TATNP"] ?: return null
     return when (signalType) {
         StrategySignalType.EnterLong -> SpreadLegBrokerPnl(
-            longLegYieldRub = tatn,
-            shortLegYieldRub = tatnp,
+            longLegYieldRub = tatn.yieldRub,
+            shortLegYieldRub = tatnp.yieldRub,
+            longLegPriceRub = tatn.currentPriceRub,
+            shortLegPriceRub = tatnp.currentPriceRub,
+            longLegQuantity = tatn.quantityUnits,
+            shortLegQuantity = tatnp.quantityUnits,
         )
         StrategySignalType.EnterShort -> SpreadLegBrokerPnl(
-            longLegYieldRub = tatnp,
-            shortLegYieldRub = tatn,
+            longLegYieldRub = tatnp.yieldRub,
+            shortLegYieldRub = tatn.yieldRub,
+            longLegPriceRub = tatnp.currentPriceRub,
+            shortLegPriceRub = tatn.currentPriceRub,
+            longLegQuantity = tatnp.quantityUnits,
+            shortLegQuantity = tatn.quantityUnits,
         )
         else -> null
     }
 }
+
+internal suspend fun loadProdSpreadBrokerSnapshot(
+    context: Context,
+    signalType: StrategySignalType,
+): SpreadLegBrokerPnl? = loadProdSpreadLegBrokerPnl(context, signalType)
 
 internal suspend fun loadProdSpreadLegBrokerPnl(
     context: Context,

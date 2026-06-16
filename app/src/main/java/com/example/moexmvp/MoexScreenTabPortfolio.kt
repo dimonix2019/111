@@ -184,7 +184,12 @@ internal fun MoexScreenTabPortfolio(
                         },
                         onRefresh = {
                             portfolioTabUiBuiltKey = 0L
-                            scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) }
+                            scope.launch {
+                                if (executionMode == TinkoffExecutionMode.Prod) {
+                                    refreshProdOpenTradesFromBroker()
+                                }
+                                refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL)
+                            }
                         },
                         onMoex15mFullReload = {
                             scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) }

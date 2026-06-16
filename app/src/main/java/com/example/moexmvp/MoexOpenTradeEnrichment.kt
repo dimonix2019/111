@@ -5,7 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Подстановка актуального Z и оценки PnL для открытых сделок на демо при обновлении 15м ряда.
+ * Подстановка актуального Z и оценки PnL для открытых сделок.
+ * На Prod PnL L/S берётся из GetPortfolio (expectedYield), без ожидания MOEX.
  */
 internal fun enrichOpenSandboxExecutions(
     executions: List<SandboxSpreadExecUi>,
@@ -16,74 +17,95 @@ internal fun enrichOpenSandboxExecutions(
     pnlLeverage: Double = leverage,
     brokerLegPnl: SpreadLegBrokerPnl? = null,
 ): List<SandboxSpreadExecUi> {
-    if (executions.isEmpty() || points.isEmpty()) return executions
-    val last = points.last()
+    if (executions.isEmpty()) return executions
+    if (points.isEmpty() && brokerLegPnl == null) return executions
+    val last = points.lastOrNull()
     return executions.map { exec ->
         if (exec.signalType != StrategySignalType.EnterLong &&
             exec.signalType != StrategySignalType.EnterShort
         ) {
             return@map exec
         }
-        val entryZ = if (exec.zScore == PORTFOLIO_TEST_SIGNAL_Z_MARKER) last.zScore else exec.zScore
-        val entrySpread = resolveEntrySpreadPercent(
-            exec.entrySpreadPercent,
-            exec.barTimestampMillis,
-            points
-        )
-        val entryDateLabel = points.minByOrNull { kotlin.math.abs(it.timestampMillis - exec.barTimestampMillis) }
-            ?.tradeDate ?: exec.entryTimeMsk
+        val brokerForExec = brokerLegPnl?.takeIf {
+            exec.signalType == StrategySignalType.EnterLong ||
+                exec.signalType == StrategySignalType.EnterShort
+        }
+        val entryDateLabel = last?.let { bar ->
+            points.minByOrNull { kotlin.math.abs(it.timestampMillis - exec.barTimestampMillis) }?.tradeDate
+        } ?: exec.entryTimeMsk
+        val exitDateLabel = last?.tradeDate ?: exec.entryTimeMsk
         val tradeNotional = resolveTradeNotionalRubForPnl(exec, points, notionalRub)
         val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
             notionalRub = tradeNotional,
             leverage = pnlLeverage,
             commissionPercentPerSide = commissionPercentPerSide,
             entryDateLabel = entryDateLabel,
-            exitDateLabel = last.tradeDate,
+            exitDateLabel = exitDateLabel,
             includeExitCommission = false
         )
-        val brokerForExec = brokerLegPnl?.takeIf {
-            exec.signalType == StrategySignalType.EnterLong ||
-                exec.signalType == StrategySignalType.EnterShort
-        }
-        val (legLongPnl, legShortPnl, mtmRub) = if (brokerForExec != null) {
+        if (brokerForExec != null) {
             val gross = brokerForExec.netGrossRub
-            Triple(
-                brokerForExec.longLegYieldRub,
-                brokerForExec.shortLegYieldRub,
-                gross - commRub - ovnRub,
+            return@map exec.copy(
+                entrySpreadPercent = exec.entrySpreadPercent.takeIf { it != 0.0 }
+                    ?: brokerForExec.spreadPercentFromBrokerPrices()
+                    ?: exec.entrySpreadPercent,
+                exitZDisplay = last?.zScore
+                    ?: exec.exitZDisplay.takeUnless { it.isNaN() }
+                    ?: Double.NaN,
+                legLongPnlSplitRubApprox = brokerForExec.longLegYieldRub,
+                legShortPnlSplitRubApprox = brokerForExec.shortLegYieldRub,
+                netPnlRubApprox = gross - commRub - ovnRub,
+                commissionRubApprox = commRub,
+                overnightRubApprox = ovnRub,
             )
-        } else {
-            val grossRub = estimateOpenSpreadMtmGrossRub(
-                signalType = exec.signalType,
-                entrySpreadPercent = entrySpread,
-                currentSpreadPercent = last.spreadPercent,
-                notionalRub = tradeNotional,
-                leverage = pnlLeverage,
-                points = points,
-                barTimestampMillis = exec.barTimestampMillis
-            )
-            val net = grossRub - commRub - ovnRub
-            Triple(net / 2.0, net / 2.0, net)
         }
+        if (last == null) return@map exec
+        val entryZ = if (exec.zScore == PORTFOLIO_TEST_SIGNAL_Z_MARKER) last.zScore else exec.zScore
+        val entrySpread = resolveEntrySpreadPercent(
+            exec.entrySpreadPercent,
+            exec.barTimestampMillis,
+            points
+        )
+        val grossRub = estimateOpenSpreadMtmGrossRub(
+            signalType = exec.signalType,
+            entrySpreadPercent = entrySpread,
+            currentSpreadPercent = last.spreadPercent,
+            notionalRub = tradeNotional,
+            leverage = pnlLeverage,
+            points = points,
+            barTimestampMillis = exec.barTimestampMillis
+        )
+        val net = grossRub - commRub - ovnRub
         exec.copy(
             zScore = entryZ,
             entrySpreadPercent = entrySpread,
             exitZDisplay = last.zScore,
-            legLongPnlSplitRubApprox = legLongPnl,
-            legShortPnlSplitRubApprox = legShortPnl,
-            netPnlRubApprox = mtmRub,
+            legLongPnlSplitRubApprox = net / 2.0,
+            legShortPnlSplitRubApprox = net / 2.0,
+            netPnlRubApprox = net,
             commissionRubApprox = commRub,
             overnightRubApprox = ovnRub
         )
     }
 }
 
-internal fun openSandboxExecutionsNeedMtmEnrichment(executions: List<SandboxSpreadExecUi>): Boolean =
-    executions.any { exec ->
+internal fun openSandboxExecutionsNeedMtmEnrichment(
+    executions: List<SandboxSpreadExecUi>,
+    executionMode: TinkoffExecutionMode = TinkoffExecutionMode.Sandbox,
+): Boolean {
+    if (executionMode == TinkoffExecutionMode.Prod) {
+        return executions.any { exec ->
+            (exec.signalType == StrategySignalType.EnterLong ||
+                exec.signalType == StrategySignalType.EnterShort) &&
+                exec.netPnlRubApprox.isNaN()
+        }
+    }
+    return executions.any { exec ->
         (exec.signalType == StrategySignalType.EnterLong ||
             exec.signalType == StrategySignalType.EnterShort) &&
             (exec.netPnlRubApprox.isNaN() || exec.exitZDisplay.isNaN())
     }
+}
 
 /** Синхронный MTM для UI, если в state ещё сырые записи из SQLite prefs. */
 internal fun enrichSandboxExecutionsIfNeeded(
@@ -93,7 +115,11 @@ internal fun enrichSandboxExecutionsIfNeeded(
     commissionPercentPerSide: Double,
     executionMode: TinkoffExecutionMode = TinkoffExecutionMode.Sandbox,
 ): List<SandboxSpreadExecUi> {
-    if (executions.isEmpty() || points.isEmpty() || !openSandboxExecutionsNeedMtmEnrichment(executions)) {
+    if (executions.isEmpty()) return executions
+    if (points.isEmpty() && executionMode != TinkoffExecutionMode.Prod) return executions
+    if (!openSandboxExecutionsNeedMtmEnrichment(executions, executionMode) &&
+        executionMode != TinkoffExecutionMode.Prod
+    ) {
         return executions
     }
     val pnlLeverage = portfolioPnlLeverageMultiplier(executionMode, leverage)
@@ -112,7 +138,7 @@ internal suspend fun MoexScreenState.resolveEnrichmentPoints(): List<DataPoint> 
     if (strategyTestM15SessionCache.sufficientForZSimulation()) return strategyTestM15SessionCache
     if (marketsM15Source().isNotEmpty()) return marketsM15Source()
     val cached = withContext(Dispatchers.IO) {
-        loadZStrategySignalSeries(context, PortfolioM15LoadMode.CACHE_ONLY)
+        loadZStrategySignalSeries(context.applicationContext, PortfolioM15LoadMode.CACHE_ONLY)
     }
     if (cached.isNotEmpty()) {
         if (portfolioM15Points.isEmpty()) portfolioM15Points = cached
@@ -128,6 +154,79 @@ internal suspend fun MoexScreenState.resolveEnrichmentPoints(): List<DataPoint> 
     return emptyList()
 }
 
+internal fun portfolioStaleMoexWarning(
+    points: List<DataPoint>,
+    prodBrokerPnlReady: Boolean,
+): String? {
+    if (!portfolio15mSeriesIntradayStale(points)) return null
+    val todayMsk = java.time.LocalDate.now(moexZoneId)
+    val tail = points.lastOrNull()?.tradeDate ?: "—"
+    return if (prodBrokerPnlReady) {
+        "15м Z/симуляция устарели ($tail, сегодня МСК $todayMsk). " +
+            "PnL ног обновлён с боевого счёта. Для Z — «MOEX заново» при сети."
+    } else {
+        "15м ряд обрывается на $tail (сегодня МСК $todayMsk, нужны свежие бары с MOEX). " +
+            "Нажмите «Обновить» или «MOEX заново» при сети."
+    }
+}
+
+private suspend fun MoexScreenState.applyBrokerEnrichmentToOpenExecutions(
+    openExecutions: List<SandboxSpreadExecUi>,
+    journalEvents: List<StrategySignalEvent>,
+    points: List<DataPoint>,
+): List<SandboxSpreadExecUi> {
+    if (openExecutions.isEmpty()) return openExecutions
+    val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage)
+    val brokerLegPnl = openExecutions.firstOrNull()?.signalType?.let { signal ->
+        loadProdSpreadBrokerSnapshot(context, signal)
+    }
+    return withContext(Dispatchers.IO) {
+        TinkoffSandboxSpreadExecLog.enrichForDisplay(
+            context = context,
+            executions = openExecutions,
+            points = points,
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = portfolioLeverage,
+            commissionPercentPerSide = portfolioCommissionPercent,
+            journalEvents = journalEvents,
+            pnlLeverage = pnlLeverage,
+            brokerLegPnl = brokerLegPnl,
+        )
+    }
+}
+
+/** Быстрое обновление открытых сделок с боевого счёта (GetPortfolio), без MOEX. */
+internal suspend fun MoexScreenState.refreshProdOpenTradesFromBroker(
+    journalEvents: List<StrategySignalEvent> = signalEvents,
+) {
+    if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) return
+    val ledgerIncludeAuto = portfolioLedgerIncludeAuto
+    val raw = withContext(Dispatchers.IO) {
+        TinkoffSandboxSpreadExecLog.loadRecent(context)
+    }
+    if (raw.isEmpty()) {
+        sandboxSpreadExecutions = emptyList()
+        return
+    }
+    val modeFiltered = filterSandboxExecutionsByPortfolioMode(raw, ledgerIncludeAuto)
+    val points = resolveEnrichmentPoints()
+    sandboxSpreadExecutions = applyBrokerEnrichmentToOpenExecutions(
+        openExecutions = modeFiltered,
+        journalEvents = journalEvents,
+        points = points,
+    )
+    val stalePoints = portfolioM15Points.ifEmpty { points }
+    if (stalePoints.isNotEmpty()) {
+        portfolioError = portfolioStaleMoexWarning(
+            points = stalePoints,
+            prodBrokerPnlReady = sandboxSpreadExecutions.any {
+                !it.netPnlRubApprox.isNaN() && !it.legLongPnlSplitRubApprox.isNaN()
+            },
+        )
+    }
+    enforceProdMoneyStopIfNeeded()
+}
+
 /** Пересчёт Z/PnL открытых сделок демо по последнему 15м ряду. */
 internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
     journalEvents: List<StrategySignalEvent> = signalEvents
@@ -141,6 +240,11 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
     }
     val points = resolveEnrichmentPoints()
     val ledgerIncludeAuto = portfolioLedgerIncludeAuto
+    val mode = currentExecutionMode(context)
+    if (points.isEmpty() && mode == TinkoffExecutionMode.Prod) {
+        refreshProdOpenTradesFromBroker(journalEvents)
+        return
+    }
     if (points.isEmpty()) {
         sandboxSpreadExecutions = filterSandboxExecutionsByPortfolioMode(raw, ledgerIncludeAuto)
         return
@@ -160,23 +264,11 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
         ).second
     }
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(opensAfterJournalClose, ledgerIncludeAuto)
-    val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage)
-    val brokerLegPnl = modeFiltered.firstOrNull()?.signalType?.let { signal ->
-        loadProdSpreadLegBrokerPnl(context, signal)
-    }
-    sandboxSpreadExecutions = withContext(Dispatchers.IO) {
-        TinkoffSandboxSpreadExecLog.enrichForDisplay(
-            context = context,
-            executions = modeFiltered,
-            points = points,
-            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage = portfolioLeverage,
-            commissionPercentPerSide = portfolioCommissionPercent,
-            journalEvents = journalEvents,
-            pnlLeverage = pnlLeverage,
-            brokerLegPnl = brokerLegPnl,
-        )
-    }
+    sandboxSpreadExecutions = applyBrokerEnrichmentToOpenExecutions(
+        openExecutions = modeFiltered,
+        journalEvents = journalEvents,
+        points = points,
+    )
     enforceProdMoneyStopIfNeeded()
 }
 
@@ -248,6 +340,10 @@ internal suspend fun loadPortfolioTradesForZChart(
             )
         }
         val closed = mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens)
+        val brokerLegPnl = opensAfterJournalClose.firstOrNull()?.signalType?.let { signal ->
+            loadProdSpreadBrokerSnapshot(context, signal)
+        }
+        val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), leverage)
         val opens = TinkoffSandboxSpreadExecLog.enrichForDisplay(
             context = context,
             executions = opensAfterJournalClose,
@@ -256,7 +352,8 @@ internal suspend fun loadPortfolioTradesForZChart(
             leverage = leverage,
             commissionPercentPerSide = commissionPercentPerSide,
             journalEvents = eventsAll,
-            pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), leverage),
+            pnlLeverage = pnlLeverage,
+            brokerLegPnl = brokerLegPnl,
         )
         opens to closed
     }

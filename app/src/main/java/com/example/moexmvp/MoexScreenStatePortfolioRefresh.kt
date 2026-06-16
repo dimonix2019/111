@@ -82,11 +82,19 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
         mergedClosed,
         ledgerIncludeAuto,
     )
+    val modeFiltered = filterSandboxExecutionsByPortfolioMode(
+        opensAfterJournalClose,
+        ledgerIncludeAuto,
+    )
+    val brokerLegPnl = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+        modeFiltered.firstOrNull()?.signalType?.let { signal ->
+            withContext(Dispatchers.IO) { loadProdSpreadBrokerSnapshot(context, signal) }
+        }
+    } else {
+        null
+    }
+    val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage)
     sandboxSpreadExecutions = withContext(Dispatchers.IO) {
-        val modeFiltered = filterSandboxExecutionsByPortfolioMode(
-            opensAfterJournalClose,
-            ledgerIncludeAuto,
-        )
         TinkoffSandboxSpreadExecLog.enrichForDisplay(
             context = context,
             executions = modeFiltered,
@@ -95,15 +103,14 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
             journalEvents = eventsAll,
+            pnlLeverage = pnlLeverage,
+            brokerLegPnl = brokerLegPnl,
         )
     }
-    portfolioError = if (portfolio15mSeriesIntradayStale(portfolioM15Points.ifEmpty { points })) {
-        val todayMsk = LocalDate.now(moexZoneId)
-        "15м ряд обрывается на ${points.last().tradeDate} (сегодня МСК $todayMsk, нужны свежие бары с MOEX). " +
-            "Нажмите «Обновить» или «MOEX заново» при сети."
-    } else {
-        null
-    }
+    portfolioError = portfolioStaleMoexWarning(
+        points = portfolioM15Points.ifEmpty { points },
+        prodBrokerPnlReady = brokerLegPnl != null,
+    )
     portfolioTabUiBuiltKey = portfolioTabUiSessionKey()
 }
 
@@ -112,6 +119,9 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
  * MOEX INCREMENTAL — только если хвост устарел.
  */
 internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
+    if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+        refreshProdOpenTradesFromBroker()
+    }
     val uiKey = portfolioTabUiSessionKey()
     if (portfolioTabUiBuiltKey == uiKey && portfolioM15Points.size >= 2) {
         if (portfolio15mSeriesIntradayStale(portfolioM15Points)) {
