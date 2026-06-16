@@ -54,13 +54,15 @@ internal fun MoexScreenTabPortfolio(
                 sandboxSpreadExecutions,
                 enrichmentPoints,
                 portfolioLeverage,
-                portfolioCommissionPercent
+                portfolioCommissionPercent,
+                executionMode,
             ) {
                 enrichSandboxExecutionsIfNeeded(
                     executions = sandboxSpreadExecutions,
                     points = enrichmentPoints,
                     leverage = portfolioLeverage,
-                    commissionPercentPerSide = portfolioCommissionPercent
+                    commissionPercentPerSide = portfolioCommissionPercent,
+                    executionMode = executionMode,
                 )
             }
             val launchTestSpreadPair: (StrategySignalType) -> Unit = { signalType ->

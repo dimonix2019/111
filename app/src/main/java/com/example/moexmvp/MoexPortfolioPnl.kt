@@ -14,6 +14,31 @@ internal fun spreadPnlToRubApprox(pnlSpreadPoints: Double, notionalRub: Double):
     return notionalRub * (pnlSpreadPoints / 100.0)
 }
 
+/** В Prod PnL считаем по реальному номиналу без симуляционного плеча. */
+internal fun portfolioPnlLeverageMultiplier(
+    mode: TinkoffExecutionMode,
+    configuredLeverage: Double,
+): Double = when (mode) {
+    TinkoffExecutionMode.Prod -> 1.0
+    TinkoffExecutionMode.Sandbox -> configuredLeverage.coerceAtLeast(1.0)
+}
+
+internal fun resolveTradeNotionalRubForPnl(
+    exec: SandboxSpreadExecUi,
+    points: List<DataPoint>,
+    fallbackRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+): Double {
+    exec.executionNotionalRub.takeIf { it > 0.0 }?.let { return it }
+    if (exec.quantityLots > 0 && points.isNotEmpty()) {
+        val bar = points.minByOrNull { kotlin.math.abs(it.timestampMillis - exec.barTimestampMillis) }
+            ?: points.last()
+        if (bar.tatnClose > 0.0 && bar.tatnpClose > 0.0) {
+            return spreadPairNotionalRub(bar.tatnClose, bar.tatnpClose, 1, exec.quantityLots)
+        }
+    }
+    return fallbackRub
+}
+
 internal fun overnightDays(entryDate: String, endDate: String): Long {
     val entry = parseChartDateLabel(entryDate) ?: return 0L
     val end = parseChartDateLabel(endDate) ?: return 0L

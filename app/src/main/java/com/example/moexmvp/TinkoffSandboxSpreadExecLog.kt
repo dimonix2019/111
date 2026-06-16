@@ -220,7 +220,8 @@ internal object TinkoffSandboxSpreadExecLog {
         notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
         leverage: Double = 7.0,
         commissionPercentPerSide: Double = 0.04,
-        journalEvents: List<StrategySignalEvent> = emptyList()
+        journalEvents: List<StrategySignalEvent> = emptyList(),
+        pnlLeverage: Double = portfolioPnlLeverageMultiplier(currentExecutionMode(context), leverage),
     ): List<SandboxSpreadExecUi> {
         if (executions.isEmpty()) return executions
         val pushLog = loadPushNotificationLog(context)
@@ -256,7 +257,8 @@ internal object TinkoffSandboxSpreadExecLog {
             points,
             notionalRub,
             leverage,
-            commissionPercentPerSide
+            commissionPercentPerSide,
+            pnlLeverage,
         )
     }
 
