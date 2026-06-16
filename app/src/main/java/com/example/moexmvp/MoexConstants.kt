@@ -143,6 +143,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.187 — Prod: PnL закрытых сделок с GetPortfolio (expectedYield на выходе), не симуляция MOEX ×100k.
 1.7.186 — Prod «Портфель»: авто-обновление PnL/цен с боевого счёта каждые 15 с (без кнопки).
 1.7.185 — Prod «Портфель»: котировки и PnL ног с GetPortfolio без ожидания MOEX; быстрый «Обновить».
 1.7.184 — Prod: PnL L/S на «Портфеле» из expectedYield GetPortfolio (как T‑Invest), не пополам от спреда.

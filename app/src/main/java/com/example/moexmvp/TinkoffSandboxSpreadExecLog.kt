@@ -290,6 +290,7 @@ internal object TinkoffSandboxSpreadExecLog {
             .remove(KEY_JSON_LEGACY)
             .apply()
         SandboxAccountPnlLedger.clear(app)
+        TinkoffClosedSpreadExecLog.clear(app)
     }
 
     private fun buildEntry(

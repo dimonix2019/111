@@ -206,6 +206,7 @@ internal suspend fun MoexScreenState.refreshProdOpenTradesFromBroker(
     }
     if (raw.isEmpty()) {
         sandboxSpreadExecutions = emptyList()
+        refreshProdClosedTradesInPortfolioUi(journalEvents)
         return
     }
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(raw, ledgerIncludeAuto)
@@ -225,22 +226,54 @@ internal suspend fun MoexScreenState.refreshProdOpenTradesFromBroker(
         )
     }
     enforceProdMoneyStopIfNeeded()
+    refreshProdClosedTradesInPortfolioUi(journalEvents)
+}
+
+/** Пересобрать закрытые строки портфеля из журнала Prod (без MOEX). */
+internal suspend fun MoexScreenState.refreshProdClosedTradesInPortfolioUi(
+    journalEvents: List<StrategySignalEvent> = signalEvents,
+) {
+    if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) return
+    val records = withContext(Dispatchers.IO) {
+        TinkoffClosedSpreadExecLog.loadRecent(context)
+    }
+    if (records.isEmpty()) return
+    val pushLog = withContext(Dispatchers.IO) { loadPushNotificationLog(context) }
+    val brokerRows = buildClosedRowsFromProdBrokerLog(
+        records = records,
+        journalEvents = journalEvents,
+        pushLog = pushLog,
+        commissionPercentPerSide = portfolioCommissionPercent,
+    )
+    val replayRows = confirmedPortfolioTableRows.filter { row ->
+        !row.tradeId.startsWith("T-P")
+    }
+    val synthRows = confirmedPortfolioTableRows.filter { row ->
+        row.tradeId.startsWith("T-O")
+    }
+    confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
+        mergeClosedPortfolioTableRowsPreferBroker(replayRows, synthRows, brokerRows),
+        portfolioLedgerIncludeAuto,
+    )
 }
 
 /** Пересчёт Z/PnL открытых сделок демо по последнему 15м ряду. */
 internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
     journalEvents: List<StrategySignalEvent> = signalEvents
 ) {
+    val mode = currentExecutionMode(context)
     val raw = withContext(Dispatchers.IO) {
         TinkoffSandboxSpreadExecLog.loadRecent(context)
     }
     if (raw.isEmpty()) {
         sandboxSpreadExecutions = emptyList()
+        if (mode == TinkoffExecutionMode.Prod) {
+            refreshProdClosedTradesInPortfolioUi(journalEvents)
+        }
         return
     }
     val points = resolveEnrichmentPoints()
     val ledgerIncludeAuto = portfolioLedgerIncludeAuto
-    val mode = currentExecutionMode(context)
     if (points.isEmpty() && mode == TinkoffExecutionMode.Prod) {
         refreshProdOpenTradesFromBroker(journalEvents)
         return
@@ -260,7 +293,8 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
             notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
-            portfolioLedgerIncludeAuto = ledgerIncludeAuto
+            portfolioLedgerIncludeAuto = ledgerIncludeAuto,
+            pnlLeverage = portfolioPnlLeverageMultiplier(mode, portfolioLeverage),
         ).second
     }
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(opensAfterJournalClose, ledgerIncludeAuto)
@@ -337,9 +371,24 @@ internal suspend fun loadPortfolioTradesForZChart(
                 commissionPercentPerSide = commissionPercentPerSide,
                 portfolioLedgerIncludeAuto = true,
                 includeAllLedgerEntries = true,
+                pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), leverage),
             )
         }
-        val closed = mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens)
+        val prodBrokerClosed = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+            buildClosedRowsFromProdBrokerLog(
+                records = TinkoffClosedSpreadExecLog.loadRecent(context),
+                journalEvents = eventsAll,
+                pushLog = pushLog,
+                commissionPercentPerSide = commissionPercentPerSide,
+            )
+        } else {
+            emptyList()
+        }
+        val closed = mergeClosedPortfolioTableRowsPreferBroker(
+            executed.tableRows,
+            closedFromOpens,
+            prodBrokerClosed,
+        )
         val brokerLegPnl = opensAfterJournalClose.firstOrNull()?.signalType?.let { signal ->
             loadProdSpreadBrokerSnapshot(context, signal)
         }

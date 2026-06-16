@@ -75,9 +75,26 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
             portfolioLedgerIncludeAuto = ledgerIncludeAuto,
+            pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage),
         )
     }
-    val mergedClosed = mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens)
+    val prodBrokerClosed = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+        withContext(Dispatchers.IO) {
+            buildClosedRowsFromProdBrokerLog(
+                records = TinkoffClosedSpreadExecLog.loadRecent(context),
+                journalEvents = eventsAll,
+                pushLog = pushLog,
+                commissionPercentPerSide = portfolioCommissionPercent,
+            )
+        }
+    } else {
+        emptyList()
+    }
+    val mergedClosed = mergeClosedPortfolioTableRowsPreferBroker(
+        executed.tableRows,
+        closedFromOpens,
+        prodBrokerClosed,
+    )
     confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
         mergedClosed,
         ledgerIncludeAuto,

@@ -159,6 +159,11 @@ internal suspend fun runSandboxAutoExitIfNeeded(
     val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
     val app = context.applicationContext
     return try {
+        val brokerBeforeClose = if (mode == TinkoffExecutionMode.Prod) {
+            loadProdSpreadLegBrokerPnl(app, openTrade.signalType)
+        } else {
+            null
+        }
         val legs = executeSpreadExitDetailedForConfiguredMode(
             app,
             openTrade.signalType,
@@ -175,6 +180,15 @@ internal suspend fun runSandboxAutoExitIfNeeded(
             exitZScore = zScore,
             exitTimestampMillis = barTimestampMillis,
         ).getOrThrow()
+        brokerBeforeClose?.let { brokerPnl ->
+            TinkoffClosedSpreadExecLog.recordClose(
+                context = app,
+                execution = openTrade,
+                brokerPnl = brokerPnl,
+                exitTimestampMillis = barTimestampMillis,
+                exitZScore = zScore,
+            )
+        }
         notifySandboxTradeClosedAfterClose(
             context = app,
             execution = openTrade,
@@ -184,6 +198,7 @@ internal suspend fun runSandboxAutoExitIfNeeded(
             exitLegs = legs,
             notionalRub = tradeExecutionNotionalRub(openTrade, DEFAULT_PORTFOLIO_NOTIONAL_RUB),
             leverage = leverage,
+            brokerPnlBeforeClose = brokerBeforeClose,
         )
         true
     } catch (e: Exception) {
