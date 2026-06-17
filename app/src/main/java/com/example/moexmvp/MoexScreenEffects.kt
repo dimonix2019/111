@@ -522,6 +522,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) continue
             runCatching {
                 refreshMarketsIntraday1mQuotes(reason = "auto_poll_1m")
+                refreshM15LiveFormingTail(reason = "auto_poll_1m_z")
             }.onFailure { t ->
                 MoexDiagnostics.logError(context, "quotes", t, "auto_poll_1m loop")
             }

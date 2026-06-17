@@ -58,6 +58,38 @@ class MoexMarketsIntraday1mTest {
     }
 
     @Test
+    fun appendFormingIntraday1mFrom10m_addsCurrentMinuteFrom10m() {
+        val now = ZonedDateTime.of(LocalDate.of(2026, 6, 17), LocalTime.of(10, 7, 30), zone)
+        val minute = now.withSecond(0).withNano(0).toLocalDateTime()
+        val bars1m = listOf(
+            CandleBar(minute.minusMinutes(1), 100.0, 101.0, 99.0, 100.5),
+        )
+        val bars10m = listOf(
+            CandleBar(minute, 100.5, 102.0, 100.0, 101.2),
+        )
+        val out = appendFormingIntraday1mFrom10m(bars1m, bars10m, now)
+        assertEquals(2, out.size)
+        assertEquals(101.2, out.last().close, 1e-9)
+        assertEquals(minute, out.last().timestamp)
+    }
+
+    @Test
+    fun appendFormingIntraday1mFrom10m_updatesFormingMinuteClose() {
+        val now = ZonedDateTime.of(LocalDate.of(2026, 6, 17), LocalTime.of(10, 7, 30), zone)
+        val minute = now.withSecond(0).withNano(0).toLocalDateTime()
+        val bars1m = listOf(
+            CandleBar(minute, 100.0, 100.5, 99.5, 100.2),
+        )
+        val bars10m = listOf(
+            CandleBar(minute.minusMinutes(7), 99.0, 100.0, 98.0, 99.5),
+            CandleBar(minute, 100.0, 101.5, 99.8, 101.0),
+        )
+        val out = appendFormingIntraday1mFrom10m(bars1m, bars10m, now)
+        assertEquals(1, out.size)
+        assertEquals(101.0, out.last().close, 1e-9)
+    }
+
+    @Test
     fun candleBarsToIntradayCandlePoints_sortedByTime() {
         val bars = listOf(
             CandleBar(

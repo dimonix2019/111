@@ -155,7 +155,11 @@ internal fun loadCandleBars(
             append("&limit=").append(pageSize)
             append("&start=").append(start)
         }
-        val request = Request.Builder().url(url).build()
+        val request = Request.Builder()
+            .url(url)
+            .header("Cache-Control", "no-cache")
+            .header("Pragma", "no-cache")
+            .build()
         var lastError: IOException? = null
         var page: List<CandleBar> = emptyList()
         for (attempt in 0 until 3) {

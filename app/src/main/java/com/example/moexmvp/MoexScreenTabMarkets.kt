@@ -233,10 +233,10 @@ internal fun MoexScreenTabMarkets(
                         } else {
                         val tatn1m = marketsIntraday1mTatn
                         val tatnp1m = marketsIntraday1mTatnp
-                        val tatn1mWindow = remember(tatn1m) {
+                        val tatn1mWindow = remember(tatn1m, marketsIntraday1mEpoch) {
                             intraday1mChartInitialWindow(tatn1m.size, visibleBars = 120)
                         }
-                        val tatnp1mWindow = remember(tatnp1m) {
+                        val tatnp1mWindow = remember(tatnp1m, marketsIntraday1mEpoch) {
                             intraday1mChartInitialWindow(tatnp1m.size, visibleBars = 120)
                         }
                         LazyColumn(

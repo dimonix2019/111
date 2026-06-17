@@ -68,13 +68,14 @@ internal suspend fun MoexScreenState.refreshMarketsDailyOnly(period: Period) {
 /** 1м TATN/TATNP за сегодня (МСК) + журнал [quotes] при новых барах. */
 internal suspend fun MoexScreenState.refreshMarketsIntraday1mQuotes(reason: String) {
     if (!activityResumed) return
-    if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) return
+    if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) return
     try {
-        val snap = withContext(Dispatchers.IO) { fetchMarketsIntraday1mDay() }
+        val snap = withContext(Dispatchers.IO) { fetchMarketsIntraday1mLive() }
         if (snap.tatn.isEmpty() && snap.tatnp.isEmpty()) {
-            MoexDiagnostics.log(context, "quotes", "empty 1m day fetch reason=$reason")
+            MoexDiagnostics.log(context, "quotes", "empty 1m fetch reason=$reason")
             return
         }
+        val prevLast = marketsIntraday1mLastBarMillis
         marketsIntraday1mTatn = snap.tatn
         marketsIntraday1mTatnp = snap.tatnp
         marketsIntraday1mLastBarMillis = maxOf(snap.tatnLastBarMillis, snap.tatnpLastBarMillis)
@@ -82,8 +83,11 @@ internal suspend fun MoexScreenState.refreshMarketsIntraday1mQuotes(reason: Stri
         marketsIntraday1mEpoch++
         val m15Last = marketsM15Source().lastOrNull()
         MarketsQuotesDiagnostics.logQuoteUpdate(context, snap, m15Last, reason)
-        val newest1m = marketsIntraday1mLastBarMillis
-        if (m15Last != null && newest1m > m15Last.timestampMillis + 5 * 60_000L) {
+        if (marketsIntraday1mLastBarMillis > prevLast) {
+            refreshM15LiveFormingTail(reason = "1m_new_bar_$reason")
+        } else if (m15Last != null &&
+            marketsIntraday1mLastBarMillis > m15Last.timestampMillis + 5 * 60_000L
+        ) {
             refreshM15LiveFormingTail(reason = "1m_ahead_$reason")
         }
     } catch (t: Throwable) {

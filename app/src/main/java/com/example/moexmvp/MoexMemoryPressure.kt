@@ -32,6 +32,10 @@ internal object MoexMemoryPressure {
     fun shouldPauseAutoRefresh(level: Int = lastLevel): Boolean =
         level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
 
+    /** 1м котировки на «Рынок» — пауза только при критическом давлении памяти. */
+    fun shouldPauseMarkets1mQuotesRefresh(level: Int = lastLevel): Boolean =
+        level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+
     fun autoPollIntervalMs(level: Int = lastLevel): Long = when {
         level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> 0L
         level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> 15_000L
