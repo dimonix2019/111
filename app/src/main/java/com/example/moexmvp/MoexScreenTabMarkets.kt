@@ -137,7 +137,14 @@ internal fun MoexScreenTabMarkets(
                         val last = marketsM15ChartPoints.lastOrNull()
                             ?: chartSuccess?.points?.lastOrNull()
                         val displayZ = marketsLiveZScore ?: last?.zScore
-                        val loadedAtLabel = resolveMarketsLoadedAtLabel(
+                        val displaySpread = marketsM15SourcePoints.lastOrNull()?.spreadPercent
+                            ?: last?.spreadPercent
+                        val loadedAtLabel = marketsLiveZBarAt?.let { bar ->
+                            runCatching {
+                                java.time.LocalDateTime.parse(bar, portfolio15mLabelFormatter)
+                                    .format(updatedAtFormatter)
+                            }.getOrNull()
+                        } ?: resolveMarketsLoadedAtLabel(
                             m15Points = marketsM15SourcePoints,
                             dailyLoadedAt = chartSuccess?.loadedAt,
                         )
@@ -146,7 +153,7 @@ internal fun MoexScreenTabMarkets(
                         val intraday1mStaleMin = intraday1mLastBarAgeMinutes(marketsIntraday1mLastBarMillis)
                         MarketsSummaryStrip(
                             z = displayZ,
-                            spread = last?.spreadPercent,
+                            spread = displaySpread,
                             position = zStrategyPosition,
                             signalsToday = dailySignalLimit.sentCount,
                             signalsMax = DAILY_SIGNAL_MAX_PER_DAY,

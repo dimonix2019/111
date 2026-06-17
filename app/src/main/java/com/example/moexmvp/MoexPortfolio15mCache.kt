@@ -67,6 +67,16 @@ private val portfolioM15LoadMutex = Mutex()
 internal suspend fun <T> withPortfolioM15LoadLock(block: suspend () -> T): T =
     portfolioM15LoadMutex.withLock { block() }
 
+/** UI-фон: не ждём lock — монитор сигналов (сделки) имеет приоритет. */
+internal suspend fun <T> tryWithPortfolioM15LoadLock(block: suspend () -> T): T? {
+    if (!portfolioM15LoadMutex.tryLock()) return null
+    return try {
+        block()
+    } finally {
+        portfolioM15LoadMutex.unlock()
+    }
+}
+
 /**
  * Загрузка спрэда 15м с MOEX кусками по [chunkDays] календарных дней.
  */

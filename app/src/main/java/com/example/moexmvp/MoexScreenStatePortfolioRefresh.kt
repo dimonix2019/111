@@ -233,7 +233,9 @@ internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
 
 /** Догрузка 15м с MOEX, если хвост устарел или нет баров за сегодня (МСК). */
 internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: String) {
-    refreshM15LiveFormingTail(reason = "${reason}_forming")
+    if (selectedTab != MainTab.Markets) {
+        refreshM15LiveFormingTail(reason = "${reason}_forming")
+    }
     val src = when (selectedTab) {
         MainTab.Markets -> marketsM15Source().takeIf { it.size >= 2 } ?: portfolioM15Points
         else -> portfolioM15Points.takeIf { it.size >= 2 } ?: marketsM15Source()
@@ -715,7 +717,7 @@ internal suspend fun MoexScreenState.refreshData(
         if (!blockUi) isRefreshing = true
         try {
             performRefresh()
-            refreshMarketsLiveQuotesBundle(reason = "refreshData")
+            refreshMarketsLiveQuotesBundle(reason = "refreshData", scope = launchScope)
         } finally {
             isRefreshing = false
             MoexDiagnostics.log(

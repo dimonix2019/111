@@ -67,14 +67,20 @@ internal fun MoexScreen() {
             )
         }
     }
-    val marketsChartSeries = if (onMarketsTab) {
+    val marketsChartBase = if (onMarketsTab) {
         rememberM15ZChartSeries(
             simPoints = marketsM15SimPoints,
             dataEpoch = screen.marketsM15DataEpoch,
-            liveZ = screen.marketsLiveZScore,
         )
     } else {
         emptyList<DataPoint>() to emptyList()
+    }
+    val marketsChartSeries = remember(marketsChartBase, screen.marketsLiveZScore) {
+        applyLiveZToM15ChartSeries(
+            marketsChartBase.first,
+            marketsChartBase.second,
+            screen.marketsLiveZScore,
+        )
     }
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second

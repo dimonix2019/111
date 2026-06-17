@@ -5,6 +5,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import java.time.LocalDate
 
@@ -73,6 +74,8 @@ internal class MoexScreenState(val context: Context) {
     var marketsIntraday1mEpoch by mutableStateOf(0)
     var marketsM15SessionCache: List<DataPoint> = emptyList()
     var marketsM15DataEpoch by mutableStateOf(0)
+    /** Single-flight: отложенная MOEX 15м догрузка с «Рынок» (не блокирует UI). */
+    var marketsM15CatchupJob: Job? = null
     var portfolioM15Points by mutableStateOf<List<DataPoint>>(emptyList())
     /** Полный 15м ряд (~255д) для симуляции — не в Compose state (OOM). */
     var strategyTestM15SessionCache: List<DataPoint> = emptyList()

@@ -141,6 +141,10 @@ internal const val M15_LIVE_Z_TAIL_BARS = 8
 internal const val MARKETS_M15_Z_FORCE_REFRESH_MS = 5L * 60L * 1000L
 /** Интервал опроса 1м TATN/TATNP на вкладке «Рынок». */
 internal const val MARKETS_INTRADAY_1M_POLL_MS = 15_000L
+/** Debounce перед тяжёлой MOEX 15м догрузкой с UI (не блокировать 1м опрос). */
+internal const val M15_MOEX_UI_CATCHUP_DEBOUNCE_MS = 3_000L
+/** «Realtime» на «Рынок»: только дневной спрэд, не полный refreshData каждые 5 с. */
+internal const val MARKETS_REALTIME_DAILY_REFRESH_MS = 10L * 60L * 1000L
 /** Prod: авто-обновление PnL/цен открытых ног с GetPortfolio на вкладке «Портфель». */
 internal const val PROD_BROKER_PORTFOLIO_POLL_MS = 15_000L
 internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
@@ -153,6 +157,8 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.197 — Анти-ANR: убран refreshData каждые 5 с; Z из 1м без пересборки графика; MOEX 15м отложенно (tryLock).
+1.7.196 — Z-score на «Рынок»: live пересчёт из 1м TATN/TATNP каждые 15 с (без тяжёлого MOEX 15м); хвост Z-графика обновляется.
 1.7.195 — Z-score: хвост ~2 ч без persisted; live Z в сводке; INCREMENTAL 15м каждые 5 мин; диалог обновления при открытии приложения.
 1.7.194 — Рынок 1м: хвост из 10м MOEX (между минутками), опрос 15 с, no-cache HTTP; Z-хвост в том же цикле.
 1.7.193 — Рынок: 1м опрос каждые 30 с; «Обновить MOEX» тоже тянет 1м; в сводке время 1м и предупреждение о залипании.
