@@ -20,10 +20,15 @@ internal suspend fun buildM15ZChartSeriesForUi(
 @Composable
 internal fun rememberM15ZChartSeries(
     simPoints: List<DataPoint>,
+    dataEpoch: Int = 0,
+    liveZ: Double? = null,
 ): Pair<List<DataPoint>, List<CandlePoint>> {
     val series by produceState(
         initialValue = emptyList<DataPoint>() to emptyList<CandlePoint>(),
         simPoints,
+        dataEpoch,
+        liveZ,
+        simPoints.lastOrNull()?.spreadPercent,
     ) {
         value = withContext(Dispatchers.Default) {
             buildM15ZChartSeriesForUi(simPoints)

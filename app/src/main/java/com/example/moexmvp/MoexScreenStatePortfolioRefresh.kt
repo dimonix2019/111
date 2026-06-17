@@ -168,23 +168,35 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     refreshPortfolio(mode, trackProgress = false)
 }
 
+internal fun MoexScreenState.publishMarketsLiveZFromPoints(points: List<DataPoint>) {
+    val last = points.lastOrNull() ?: return
+    marketsLiveZScore = last.zScore
+    marketsLiveZBarAt = last.tradeDate
+}
+
 /**
- * Каждую минуту: 10м→15м с MOEX + пересчёт Z на формирующемся баре (без ожидания 20 мин stale).
+ * Каждые 15–30 с: 10м→15м с MOEX + пересчёт Z на хвосте ~2 ч (без persisted).
  */
 internal suspend fun MoexScreenState.refreshM15LiveFormingTail(reason: String) {
     if (!activityResumed) return
-    if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) return
+    if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) return
     val lookback = when (selectedTab) {
         MainTab.Markets -> marketsM15LookbackDays(selectedPeriod.coerceToMarketsUiPeriod())
             .coerceAtLeast(portfolioLookbackDays)
         else -> portfolioLookbackDays
     }
-    val loaded = refreshPortfolio15mLiveFormingTailFromMoex(context, lookback) ?: run {
+    val loaded = try {
+        refreshPortfolio15mLiveFormingTailFromMoex(context, lookback)
+    } catch (t: Throwable) {
+        MoexDiagnostics.logError(context, "m15_z", t, "live_tail failed reason=$reason")
+        null
+    } ?: run {
         MoexDiagnostics.log(context, "m15_tail", "live_forming_skip no_rows lookback=$lookback reason=$reason")
         return
     }
     MoexDiagnostics.log(context, "m15_tail", "live_forming reason=$reason tab=${selectedTab.label}")
     portfolioM15Points = loaded
+    publishMarketsLiveZFromPoints(loaded)
     when (selectedTab) {
         MainTab.Markets -> storeMarketsM15(loaded)
         MainTab.Portfolio -> {
@@ -237,6 +249,7 @@ internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: Strin
             if (loaded.size >= 2) {
                 storeMarketsM15(loaded)
                 portfolioM15Points = loaded
+                publishMarketsLiveZFromPoints(loaded)
             }
         }
         MainTab.Portfolio -> refreshPortfolioM15TailSilent()

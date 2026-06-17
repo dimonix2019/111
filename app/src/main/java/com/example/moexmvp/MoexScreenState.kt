@@ -66,6 +66,9 @@ internal class MoexScreenState(val context: Context) {
     var marketsIntraday1mTatnp by mutableStateOf<List<CandlePoint>>(emptyList())
     var marketsIntraday1mLastBarMillis by mutableStateOf(0L)
     var marketsIntraday1mFetchedAtMillis by mutableStateOf(0L)
+    /** Живой Z с последнего 15м refresh (сводка «Рынок»), не из persisted. */
+    var marketsLiveZScore by mutableStateOf<Double?>(null)
+    var marketsLiveZBarAt by mutableStateOf<String?>(null)
     /** Инкремент при обновлении 1м котировок на «Рынок». */
     var marketsIntraday1mEpoch by mutableStateOf(0)
     var marketsM15SessionCache: List<DataPoint> = emptyList()

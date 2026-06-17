@@ -135,6 +135,10 @@ internal const val PORTFOLIO_M15_INTRADAY_STALE_MS = 20L * 60L * 1000L
 internal const val PORTFOLIO_M15_INTRADAY_POLL_MS = 60_000L
 /** Лёгкая догрузка MOEX для формирующегося 15м бара (10м→15м), без ожидания 20 мин stale. */
 internal const val PORTFOLIO_M15_LIVE_FORMING_REFETCH_DAYS = 2L
+/** Хвост 15м баров: Z/spread пересчитываются live (игнор persisted) — ~2 ч. */
+internal const val M15_LIVE_Z_TAIL_BARS = 8
+/** Принудительный INCREMENTAL 15м на «Рынок» для живого Z. */
+internal const val MARKETS_M15_Z_FORCE_REFRESH_MS = 5L * 60L * 1000L
 /** Интервал опроса 1м TATN/TATNP на вкладке «Рынок». */
 internal const val MARKETS_INTRADAY_1M_POLL_MS = 15_000L
 /** Prod: авто-обновление PnL/цен открытых ног с GetPortfolio на вкладке «Портфель». */
@@ -149,6 +153,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.195 — Z-score: хвост ~2 ч без persisted; live Z в сводке; INCREMENTAL 15м каждые 5 мин; диалог обновления при открытии приложения.
 1.7.194 — Рынок 1м: хвост из 10м MOEX (между минутками), опрос 15 с, no-cache HTTP; Z-хвост в том же цикле.
 1.7.193 — Рынок: 1м опрос каждые 30 с; «Обновить MOEX» тоже тянет 1м; в сводке время 1м и предупреждение о залипании.
 1.7.192 — «О приложении»: скачать журнал в Загрузки / «Сохранить как…» / отправить .txt файлом.

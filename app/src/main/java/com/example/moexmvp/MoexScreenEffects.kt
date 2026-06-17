@@ -403,6 +403,18 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         syncSandboxExecutionsEnrichment()
     }
 
+    LaunchedEffect(activityResumed) {
+        if (!activityResumed) return@LaunchedEffect
+        val remote = withContext(Dispatchers.IO) {
+            checkRemoteAppUpdateAndNotify(context)
+        }
+        if (remote != null &&
+            (pendingAppUpdate == null || pendingAppUpdate!!.versionCode < remote.versionCode)
+        ) {
+            pendingAppUpdate = remote
+        }
+    }
+
     LaunchedEffect(selectedTab) {
         MoexDiagnostics.log(context, "ui", "tab=${selectedTab.label}")
         if (selectedTab != MainTab.Markets) {
@@ -512,19 +524,34 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             )
         }
     }
-    /** 1м TATN/TATNP — каждые 30 с на «Рынок» (отдельно от 15м). */
+    /** 1м TATN/TATNP — каждые 15 с на «Рынок» (отдельно от 15м). */
     LaunchedEffect(selectedTab, activityResumed, memoryPressureLevel) {
         if (!activityResumed) return@LaunchedEffect
         while (true) {
             delay(MARKETS_INTRADAY_1M_POLL_MS)
             if (!activityResumed) continue
             if (selectedTab != MainTab.Markets) continue
-            if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) continue
+            if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) continue
             runCatching {
                 refreshMarketsIntraday1mQuotes(reason = "auto_poll_1m")
                 refreshM15LiveFormingTail(reason = "auto_poll_1m_z")
             }.onFailure { t ->
                 MoexDiagnostics.logError(context, "quotes", t, "auto_poll_1m loop")
+            }
+        }
+    }
+    /** Принудительный INCREMENTAL 15м + live Z каждые 5 мин на «Рынок». */
+    LaunchedEffect(selectedTab, activityResumed, memoryPressureLevel) {
+        if (!activityResumed) return@LaunchedEffect
+        while (true) {
+            delay(MARKETS_M15_Z_FORCE_REFRESH_MS)
+            if (!activityResumed) continue
+            if (selectedTab != MainTab.Markets) continue
+            if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) continue
+            runCatching {
+                refreshMarketsM15ZForceIncremental(reason = "auto_force_5m")
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "m15_z", t, "auto_force_5m loop")
             }
         }
     }

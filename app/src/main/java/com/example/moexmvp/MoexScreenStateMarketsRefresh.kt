@@ -95,6 +95,36 @@ internal suspend fun MoexScreenState.refreshMarketsIntraday1mQuotes(reason: Stri
     }
 }
 
+/** Принудительный INCREMENTAL 15м + live Z (каждые 5 мин на «Рынок»). */
+internal suspend fun MoexScreenState.refreshMarketsM15ZForceIncremental(reason: String) {
+    if (!activityResumed || selectedTab != MainTab.Markets) return
+    if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) return
+    try {
+        withContext(Dispatchers.IO) {
+            clearM15LiveTailPersistedZ(PortfolioM15Database.get(context.applicationContext).dao())
+        }
+        val loaded = loadM15ForMarkets(
+            mode = PortfolioM15LoadMode.INCREMENTAL,
+            wrapInSession = false,
+        )
+        if (loaded.size < 2) {
+            MoexDiagnostics.log(context, "m15_z", "force_incr empty reason=$reason")
+            return
+        }
+        portfolioM15Points = loaded
+        publishMarketsLiveZFromPoints(loaded)
+        storeMarketsM15(loaded)
+        MoexDiagnostics.log(
+            context,
+            "m15_z",
+            "force_incr z=${"%.2f".format(Locale.US, loaded.last().zScore)} " +
+                "bar=${loaded.last().tradeDate} reason=$reason",
+        )
+    } catch (t: Throwable) {
+        MoexDiagnostics.logError(context, "m15_z", t, "force_incr failed reason=$reason")
+    }
+}
+
 /** После refreshData / pull-refresh: 1м + живой хвост 15м Z. */
 internal suspend fun MoexScreenState.refreshMarketsLiveQuotesBundle(reason: String) {
     if (selectedTab != MainTab.Markets) return

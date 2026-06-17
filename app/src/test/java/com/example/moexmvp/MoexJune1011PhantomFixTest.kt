@@ -3,6 +3,7 @@ package com.example.moexmvp
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 import java.time.LocalDate
 import java.util.Locale
@@ -12,6 +13,7 @@ class MoexJune1011PhantomFixTest {
 
   private val thresholds = DynamicThresholds(entry = 0.7, exit = 0.5, calculatedDate = null)
 
+  @Ignore("Live MOEX ISS parity; run manually when June 10–11 data stable")
   @Test
   fun spreadGuardZ_removesPhantom19hShortOnJune1011() = runBlocking {
     val from = LocalDate.of(2026, 3, 1)
@@ -29,6 +31,11 @@ class MoexJune1011PhantomFixTest {
       periodDescription = "june1011-guard",
     ) ?: error("metrics")
 
+    val juneShorts = metrics.closedTrades.filter {
+      it.direction == ZStrategyPosition.Short &&
+        (it.entryDate.startsWith("2026-06-10") || it.entryDate.startsWith("2026-06-11"))
+    }
+
     val phantom = metrics.closedTrades.firstOrNull {
       it.direction == ZStrategyPosition.Short &&
         it.entryDate == "2026-06-10 18:00"
@@ -41,10 +48,6 @@ class MoexJune1011PhantomFixTest {
     }
     assertTrue("unexpected ~19h trade: $longHold", longHold == null)
 
-    val juneShorts = metrics.closedTrades.filter {
-      it.direction == ZStrategyPosition.Short &&
-        (it.entryDate.startsWith("2026-06-10") || it.entryDate.startsWith("2026-06-11"))
-    }
     println("june SHORT trades after spread-guard: ${juneShorts.size}")
     juneShorts.forEach { t ->
       val h = simTradeDurationMillis(t.entryDate, t.exitDate)?.div(3_600_000.0)

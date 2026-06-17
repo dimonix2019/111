@@ -26,6 +26,23 @@ internal fun isM15FormingBarTimestamp(
 internal fun isM15FormingBarIndex(points: List<DataPoint>, index: Int): Boolean =
     index == points.lastIndex && isM15FormingBarTimestamp(points[index].timestampMillis)
 
+/** Последние [M15_LIVE_Z_TAIL_BARS] 15м — live Z на «Рынок», без persisted-снимков. */
+internal fun isM15LiveZTailIndex(points: List<DataPoint>, index: Int): Boolean {
+    if (points.isEmpty() || index !in points.indices) return false
+    val tailStart = (points.size - M15_LIVE_Z_TAIL_BARS).coerceAtLeast(0)
+    return index >= tailStart
+}
+
+/** По времени бара (МСК): хвост ~2 ч для сброса persisted в SQLite. */
+internal fun isM15LiveZTailBarTimestamp(
+    tsMillis: Long,
+    now: Instant = Instant.now(),
+    zone: ZoneId = moexZoneId,
+): Boolean {
+    val tailStart = currentM15BucketStartMillis(now, zone) - (M15_LIVE_Z_TAIL_BARS - 1) * 15L * 60_000L
+    return tsMillis >= tailStart
+}
+
 internal fun isSameM15TradeDateDay(a: DataPoint, b: DataPoint): Boolean =
     a.tradeDate.take(10) == b.tradeDate.take(10)
 
@@ -100,6 +117,7 @@ internal fun spreadForRollingZAt(
     points: List<DataPoint>,
     entities: List<PortfolioM15SpreadEntity>,
 ): Double {
+    if (isM15FormingBarIndex(points, index)) return points[index].spreadPercent
     val entity = entities[index]
     if (entity.spreadAtZSnapshot != null && !isM15SpreadRevisionSpike(index, points, entities)) {
         return entity.spreadAtZSnapshot
@@ -120,15 +138,14 @@ internal fun fillM15ZScoresInPlace(
 ): Boolean {
     if (entities.size != points.size || points.isEmpty()) return false
     val beforeZ = points.map { it.zScore }
-    val formingIdx = points.lastIndex.takeIf { isM15FormingBarIndex(points, it) }
     applyZScoresDefaultInPlace(points)
     val keepPersisted = BooleanArray(points.size) { i ->
-        if (i == formingIdx) false
+        if (isM15FormingBarIndex(points, i)) false
         else entities[i].persistedZScore != null && !isM15SpreadRevisionSpike(i, points, entities)
     }
     val keptZ = DoubleArray(points.size) { points[it].zScore }
     for (i in points.indices) {
-        if (i == formingIdx) continue
+        if (!keepPersisted[i]) continue
         val snapZ = entities[i].persistedZScore
         if (snapZ != null && !isM15SpreadRevisionSpike(i, points, entities)) {
             points[i] = points[i].copy(zScore = snapZ)
@@ -381,7 +398,7 @@ internal suspend fun persistM15ZScoreSnapshots(
     val firstStale = entities.indexOfFirst { it.persistedZScore == null }
     if (firstStale < 0) return
     val updated = (firstStale until entities.size).mapNotNull { i ->
-        if (isM15FormingBarTimestamp(entities[i].tsMillis)) return@mapNotNull null
+        if (isM15LiveZTailIndex(points, i)) return@mapNotNull null
         entities[i].copy(
             persistedZScore = points[i].zScore,
             spreadAtZSnapshot = entities[i].spreadAtZSnapshot ?: points[i].spreadPercent,
@@ -400,7 +417,7 @@ internal suspend fun mergePortfolioM15InsertPreservingSnapshots(
         val merged = batch.map { row ->
             val prev = existing[row.tsMillis]
             if (prev == null) row
-            else if (isM15FormingBarTimestamp(row.tsMillis)) {
+            else if (isM15FormingBarTimestamp(row.tsMillis) || isM15LiveZTailBarTimestamp(row.tsMillis)) {
                 row.copy(
                     persistedZScore = null,
                     spreadAtZSnapshot = null,

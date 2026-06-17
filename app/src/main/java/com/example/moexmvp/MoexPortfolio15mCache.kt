@@ -41,6 +41,24 @@ internal suspend fun clearM15FormingBarPersistedZ(dao: PortfolioM15Dao) {
     )
 }
 
+/** Сброс persisted Z/spread на хвосте ~2 ч — live-пересчёт на «Рынок». */
+internal suspend fun clearM15LiveTailPersistedZ(
+    dao: PortfolioM15Dao,
+    tailBars: Int = M15_LIVE_Z_TAIL_BARS,
+) {
+    val maxTs = dao.maxTsMillis() ?: return
+    val fromMillis = maxTs - tailBars * 15L * 60_000L
+    val rows = dao.getSince(fromMillis)
+    if (rows.isEmpty()) return
+    val updated = rows.mapNotNull { row ->
+        if (row.persistedZScore == null && row.spreadAtZSnapshot == null) return@mapNotNull null
+        row.copy(persistedZScore = null, spreadAtZSnapshot = null)
+    }
+    if (updated.isNotEmpty()) {
+        dao.insertAll(updated)
+    }
+}
+
 /** Если последний бар в кэше старше — не CACHE_ONLY, а догрузка с MOEX. */
 internal const val PORTFOLIO_M15_CACHE_STALE_MS = PORTFOLIO_M15_INTRADAY_STALE_MS
 

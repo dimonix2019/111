@@ -402,7 +402,7 @@ internal suspend fun refreshPortfolio15mLiveFormingTailFromMoex(
     withPortfolioM15LoadLock {
         val dao = PortfolioM15Database.get(context.applicationContext).dao()
         mergePortfolio15mLiveFormingBarFromMoex(dao)
-        clearM15FormingBarPersistedZ(dao)
+        clearM15LiveTailPersistedZ(dao)
         val till = LocalDate.now(moexZoneId)
         val from = till.minusDays(lookbackDays)
         val queryCutoffMillis = from.atStartOfDay(moexZoneId).toInstant().toEpochMilli()
@@ -411,14 +411,14 @@ internal suspend fun refreshPortfolio15mLiveFormingTailFromMoex(
         val points = ArrayList(rows.map { it.toDataPoint() })
         val recalculated = fillM15ZScoresInPlace(points, rows)
         persistM15ZScoreSnapshots(dao, rows, points)
-        if (recalculated) {
-            MoexDiagnostics.log(
-                context.applicationContext,
-                "m15_z",
-                "live_forming_tail z=${"%.2f".format(Locale.US, points.last().zScore)} " +
-                    "spread=${"%.2f".format(Locale.US, points.last().spreadPercent)}",
-            )
-        }
+        val last = points.last()
+        MoexDiagnostics.log(
+            context.applicationContext,
+            "m15_z",
+            "live_tail z=${"%.2f".format(Locale.US, last.zScore)} " +
+                "spread=${"%.2f".format(Locale.US, last.spreadPercent)} " +
+                "bar=${last.tradeDate} changed=$recalculated",
+        )
         points
     }
 }

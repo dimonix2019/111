@@ -68,7 +68,11 @@ internal fun MoexScreen() {
         }
     }
     val marketsChartSeries = if (onMarketsTab) {
-        rememberM15ZChartSeries(marketsM15SimPoints)
+        rememberM15ZChartSeries(
+            simPoints = marketsM15SimPoints,
+            dataEpoch = screen.marketsM15DataEpoch,
+            liveZ = screen.marketsLiveZScore,
+        )
     } else {
         emptyList<DataPoint>() to emptyList()
     }
@@ -232,7 +236,13 @@ internal fun MoexScreen() {
 
     MoexScreenEffects(screen, scope)
 
-    AppUpdateBackgroundChecker()
+    AppUpdateBackgroundChecker(
+        onUpdateFound = { remote ->
+            if (screen.pendingAppUpdate == null || screen.pendingAppUpdate!!.versionCode < remote.versionCode) {
+                screen.pendingAppUpdate = remote
+            }
+        },
+    )
 
     AppUpdateDialogHost(
         pendingUpdate = screen.pendingAppUpdate,
