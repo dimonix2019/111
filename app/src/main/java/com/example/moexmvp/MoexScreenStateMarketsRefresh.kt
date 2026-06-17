@@ -69,18 +69,31 @@ internal suspend fun MoexScreenState.refreshMarketsDailyOnly(period: Period) {
 internal suspend fun MoexScreenState.refreshMarketsIntraday1mQuotes(reason: String) {
     if (!activityResumed) return
     if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) return
-    val snap = withContext(Dispatchers.IO) { fetchMarketsIntraday1mDay() }
-    if (snap.tatn.isEmpty() && snap.tatnp.isEmpty()) {
-        MoexDiagnostics.log(context, "quotes", "empty 1m day fetch reason=$reason")
-        return
+    try {
+        val snap = withContext(Dispatchers.IO) { fetchMarketsIntraday1mDay() }
+        if (snap.tatn.isEmpty() && snap.tatnp.isEmpty()) {
+            MoexDiagnostics.log(context, "quotes", "empty 1m day fetch reason=$reason")
+            return
+        }
+        marketsIntraday1mTatn = snap.tatn
+        marketsIntraday1mTatnp = snap.tatnp
+        marketsIntraday1mLastBarMillis = maxOf(snap.tatnLastBarMillis, snap.tatnpLastBarMillis)
+        marketsIntraday1mFetchedAtMillis = snap.fetchedAtMillis
+        marketsIntraday1mEpoch++
+        val m15Last = marketsM15Source().lastOrNull()
+        MarketsQuotesDiagnostics.logQuoteUpdate(context, snap, m15Last, reason)
+        val newest1m = marketsIntraday1mLastBarMillis
+        if (m15Last != null && newest1m > m15Last.timestampMillis + 5 * 60_000L) {
+            refreshM15LiveFormingTail(reason = "1m_ahead_$reason")
+        }
+    } catch (t: Throwable) {
+        MoexDiagnostics.logError(context, "quotes", t, "fetch failed reason=$reason")
     }
-    marketsIntraday1mTatn = snap.tatn
-    marketsIntraday1mTatnp = snap.tatnp
-    marketsIntraday1mEpoch++
-    val m15Last = marketsM15Source().lastOrNull()
-    MarketsQuotesDiagnostics.logQuoteUpdate(context, snap, m15Last, reason)
-    val newest1m = maxOf(snap.tatnLastBarMillis, snap.tatnpLastBarMillis)
-    if (m15Last != null && newest1m > m15Last.timestampMillis + 5 * 60_000L) {
-        refreshM15LiveFormingTail(reason = "1m_ahead_$reason")
-    }
+}
+
+/** После refreshData / pull-refresh: 1м + живой хвост 15м Z. */
+internal suspend fun MoexScreenState.refreshMarketsLiveQuotesBundle(reason: String) {
+    if (selectedTab != MainTab.Markets) return
+    refreshMarketsIntraday1mQuotes(reason = reason)
+    refreshM15LiveFormingTail(reason = reason)
 }

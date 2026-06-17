@@ -512,6 +512,21 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             )
         }
     }
+    /** 1м TATN/TATNP — каждые 30 с на «Рынок» (отдельно от 15м). */
+    LaunchedEffect(selectedTab, activityResumed, memoryPressureLevel) {
+        if (!activityResumed) return@LaunchedEffect
+        while (true) {
+            delay(MARKETS_INTRADAY_1M_POLL_MS)
+            if (!activityResumed) continue
+            if (selectedTab != MainTab.Markets) continue
+            if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) continue
+            runCatching {
+                refreshMarketsIntraday1mQuotes(reason = "auto_poll_1m")
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "quotes", t, "auto_poll_1m loop")
+            }
+        }
+    }
     /** 15м хвост — даже если realtime на «Рынок» выключен (ночь offline → утро). */
     LaunchedEffect(selectedTab, activityResumed, memoryPressureLevel) {
         if (!activityResumed) return@LaunchedEffect
@@ -525,9 +540,10 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             ) {
                 continue
             }
-            refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}")
-            if (selectedTab == MainTab.Markets) {
-                refreshMarketsIntraday1mQuotes(reason = "auto_poll_Markets")
+            runCatching {
+                refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}")
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "m15_tail", t, "auto_poll loop tab=${selectedTab.name}")
             }
             if (selectedTab == MainTab.Portfolio && portfolioTabUiBuiltKey != 0L) {
                 refreshPortfolioAfterJournalChange(refreshTailIfStale = false)

@@ -140,6 +140,9 @@ internal fun MoexScreenTabMarkets(
                             m15Points = marketsM15SourcePoints,
                             dailyLoadedAt = chartSuccess?.loadedAt,
                         )
+                        val intraday1mLastAt = formatIntraday1mLastBarLabel(marketsIntraday1mLastBarMillis)
+                            ?: marketsIntraday1mTatn.lastOrNull()?.label
+                        val intraday1mStaleMin = intraday1mLastBarAgeMinutes(marketsIntraday1mLastBarMillis)
                         MarketsSummaryStrip(
                             z = last?.zScore,
                             spread = last?.spreadPercent,
@@ -151,7 +154,9 @@ internal fun MoexScreenTabMarkets(
                             stale = staleMarkets,
                             onMoexRefresh = {
                                 scope.launch { refreshData(showLoading = state !is UiState.Success, launchScope = scope, selectedPeriod = selectedPeriod) }
-                            }
+                            },
+                            intraday1mLastAt = intraday1mLastAt,
+                            intraday1mStaleMinutes = intraday1mStaleMin,
                         )
                         if (realtimeError != null && chartSuccess != null) {
                             Text(

@@ -702,6 +702,7 @@ internal suspend fun MoexScreenState.refreshData(
         if (!blockUi) isRefreshing = true
         try {
             performRefresh()
+            refreshMarketsLiveQuotesBundle(reason = "refreshData")
         } finally {
             isRefreshing = false
             MoexDiagnostics.log(

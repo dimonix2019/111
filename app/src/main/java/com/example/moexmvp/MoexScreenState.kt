@@ -64,6 +64,8 @@ internal class MoexScreenState(val context: Context) {
     var marketsM15Points by mutableStateOf<List<DataPoint>>(emptyList())
     var marketsIntraday1mTatn by mutableStateOf<List<CandlePoint>>(emptyList())
     var marketsIntraday1mTatnp by mutableStateOf<List<CandlePoint>>(emptyList())
+    var marketsIntraday1mLastBarMillis by mutableStateOf(0L)
+    var marketsIntraday1mFetchedAtMillis by mutableStateOf(0L)
     /** Инкремент при обновлении 1м котировок на «Рынок». */
     var marketsIntraday1mEpoch by mutableStateOf(0)
     var marketsM15SessionCache: List<DataPoint> = emptyList()

@@ -34,6 +34,23 @@ class MoexMarketsIntraday1mTest {
     }
 
     @Test
+    fun isMoexQuotesSessionLikelyOpen_earlyMorning() {
+        val morning = ZonedDateTime.of(
+            LocalDate.of(2026, 6, 17),
+            LocalTime.of(7, 50),
+            zone,
+        )
+        assertTrue(isMoexQuotesSessionLikelyOpen(morning))
+    }
+
+    @Test
+    fun intraday1mLastBarAgeMinutes_positive() {
+        val now = ZonedDateTime.of(LocalDate.of(2026, 6, 17), LocalTime.of(7, 50), zone).toInstant().toEpochMilli()
+        val bar = ZonedDateTime.of(LocalDate.of(2026, 6, 17), LocalTime.of(7, 34), zone).toInstant().toEpochMilli()
+        assertEquals(16L, intraday1mLastBarAgeMinutes(bar, now))
+    }
+
+    @Test
     fun intraday1mChartInitialWindow_showsTail() {
         val (w, start) = intraday1mChartInitialWindow(barCount = 400, visibleBars = 120)
         assertEquals(0.3f, w, 0.001f)

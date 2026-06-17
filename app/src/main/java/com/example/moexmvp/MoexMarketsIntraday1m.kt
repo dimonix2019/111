@@ -41,6 +41,30 @@ internal fun isMoexMainSessionLikelyOpen(
     return !t.isBefore(LocalTime.of(10, 0)) && t.isBefore(LocalTime.of(18, 50))
 }
 
+/** Утро/день/вечер MOEX — для предупреждения о залипании 1м котировок. */
+internal fun isMoexQuotesSessionLikelyOpen(
+    now: ZonedDateTime = ZonedDateTime.now(moexZoneId),
+): Boolean {
+    when (now.dayOfWeek) {
+        DayOfWeek.SATURDAY, DayOfWeek.SUNDAY -> return false
+        else -> Unit
+    }
+    val t = now.toLocalTime()
+    if (t.isBefore(LocalTime.of(7, 0))) return false
+    if (!t.isBefore(LocalTime.of(18, 50))) return !t.isBefore(LocalTime.of(19, 0)) && t.isBefore(LocalTime.of(23, 55))
+    return true
+}
+
+internal fun intraday1mLastBarAgeMinutes(lastBarMillis: Long, nowMs: Long = System.currentTimeMillis()): Long? {
+    if (lastBarMillis <= 0L) return null
+    return ((nowMs - lastBarMillis) / 60_000L).coerceAtLeast(0L)
+}
+
+internal fun formatIntraday1mLastBarLabel(lastBarMillis: Long, zone: ZoneId = moexZoneId): String? {
+    if (lastBarMillis <= 0L) return null
+    return Instant.ofEpochMilli(lastBarMillis).atZone(zone).format(quotesLogTimeFmt)
+}
+
 internal fun candleBarsToIntradayCandlePoints(bars: List<CandleBar>): List<CandlePoint> =
     bars.sortedBy { it.timestamp }.map { bar ->
         CandlePoint(
@@ -126,7 +150,7 @@ internal object MarketsQuotesDiagnostics {
         }
 
         val newest1m = maxOf(snap.tatnLastBarMillis, snap.tatnpLastBarMillis)
-        if (newest1m > 0L && isMoexMainSessionLikelyOpen()) {
+        if (newest1m > 0L && isMoexQuotesSessionLikelyOpen()) {
             val age1mMs = nowMs - newest1m
             if (age1mMs > MARKETS_QUOTES_STALE_WARN_MS &&
                 nowMs - lastStaleWarnAtMs > QUOTES_STALE_WARN_THROTTLE_MS
