@@ -241,11 +241,11 @@ internal fun MoexScreenTabMarkets(
                         } else {
                         val tatn1m = marketsIntraday1mTatn
                         val tatnp1m = marketsIntraday1mTatnp
-                        val tatn1mWindow = remember(tatn1m, marketsIntraday1mEpoch) {
-                            intraday1mChartInitialWindow(tatn1m.size, visibleBars = 120)
+                        val intraday1mAlignedCount = remember(tatn1m, tatnp1m) {
+                            alignIntraday1mCloseSeries(tatn1m, tatnp1m)?.labels?.size ?: 0
                         }
-                        val tatnp1mWindow = remember(tatnp1m, marketsIntraday1mEpoch) {
-                            intraday1mChartInitialWindow(tatnp1m.size, visibleBars = 120)
+                        val intraday1mWindow = remember(intraday1mAlignedCount, marketsIntraday1mEpoch) {
+                            intraday1mChartInitialWindow(intraday1mAlignedCount, visibleBars = 120)
                         }
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -377,35 +377,15 @@ internal fun MoexScreenTabMarkets(
                                     fontSize = 11.sp,
                                 )
                             }
-                            if (tatn1m.isNotEmpty()) {
-                                item {
-                                    CandlestickChartCard(
-                                        title = "TATN · 1м",
-                                        candles = tatn1m,
-                                        chartHeightDp = 200,
-                                        enableZoomPan = true,
-                                        showZoomHint = true,
-                                        compactLayout = true,
-                                        initialWindowWidth = tatn1mWindow.first,
-                                        initialWindowStart = tatn1mWindow.second,
-                                        xLabelStyle = ChartXLabelStyleHorizontal,
-                                    )
-                                }
-                            }
-                            if (tatnp1m.isNotEmpty()) {
-                                item {
-                                    CandlestickChartCard(
-                                        title = "TATNP · 1м",
-                                        candles = tatnp1m,
-                                        chartHeightDp = 200,
-                                        enableZoomPan = true,
-                                        showZoomHint = true,
-                                        compactLayout = true,
-                                        initialWindowWidth = tatnp1mWindow.first,
-                                        initialWindowStart = tatnp1mWindow.second,
-                                        xLabelStyle = ChartXLabelStyleHorizontal,
-                                    )
-                                }
+                            item {
+                                IntradayQuotesLineChartCard(
+                                    title = "TATN / TATNP · 1м",
+                                    tatn = tatn1m,
+                                    tatnp = tatnp1m,
+                                    chartHeightDp = 220,
+                                    initialWindowWidth = intraday1mWindow.first,
+                                    initialWindowStart = intraday1mWindow.second,
+                                )
                             }
                         }
                         val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()

@@ -79,16 +79,19 @@ internal fun candleBarsToIntradayCandlePoints(bars: List<CandleBar>): List<Candl
 internal fun lastCandleBarMillis(bars: List<CandleBar>, zone: ZoneId = moexZoneId): Long =
     bars.maxOfOrNull { it.timestamp.atZone(zone).toInstant().toEpochMilli() } ?: 0L
 
-/** Окно графика: последние [visibleBars] свечей (для 1м дня). */
+/** Окно графика: последние [visibleBars] минут + отступ справа (как Z-score). */
 internal fun intraday1mChartInitialWindow(
     barCount: Int,
     visibleBars: Int = 120,
 ): Pair<Float, Float> {
     if (barCount <= 0) return 1f to 0f
-    if (barCount <= visibleBars) return 1f to 0f
-    val w = visibleBars.toFloat() / barCount.toFloat()
-    val start = 1f - w
-    return w.coerceIn(0.05f, 1f) to start.coerceIn(0f, 1f)
+    val width = if (barCount <= visibleBars) {
+        1f
+    } else {
+        visibleBars.toFloat() / barCount.toFloat()
+    }.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f)
+    val start = chartInitialWindowStartWithRightGap(width)
+    return width to start
 }
 
 internal fun appendFormingIntraday1mFrom10m(

@@ -51,10 +51,27 @@ class MoexMarketsIntraday1mTest {
     }
 
     @Test
-    fun intraday1mChartInitialWindow_showsTail() {
+    fun intraday1mChartInitialWindow_showsTailWithRightGap() {
         val (w, start) = intraday1mChartInitialWindow(barCount = 400, visibleBars = 120)
         assertEquals(0.3f, w, 0.001f)
-        assertEquals(0.7f, start, 0.001f)
+        assertEquals(0.754f, start, 0.001f)
+    }
+
+    @Test
+    fun alignIntraday1mCloseSeries_mergesByTimeLabel() {
+        val tatn = listOf(
+            CandlePoint("10:00", 100.0, 101.0, 99.0, 100.5),
+            CandlePoint("10:01", 100.5, 101.5, 100.0, 101.0),
+        )
+        val tatnp = listOf(
+            CandlePoint("10:00", 50.0, 51.0, 49.0, 50.2),
+            CandlePoint("10:02", 50.2, 51.0, 50.0, 50.8),
+        )
+        val aligned = alignIntraday1mCloseSeries(tatn, tatnp)
+        requireNotNull(aligned)
+        assertEquals(listOf("10:00", "10:01", "10:02"), aligned.labels)
+        assertEquals(listOf(100.5, 101.0, 101.0), aligned.tatnCloses)
+        assertEquals(listOf(50.2, 50.2, 50.8), aligned.tatnpCloses)
     }
 
     @Test
