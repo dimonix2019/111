@@ -40,6 +40,37 @@ class MoexMarketsLiveZTest {
     }
 
     @Test
+    fun liveZScoreFromIntraday1m_recomputesFormingBar() {
+        val step = 15 * 60_000L
+        val bucket = currentM15BucketStartMillis()
+        val ts0 = bucket - 80 * step
+        val history = (0 until 80).map { i ->
+            point(ts0 + i * step, 7.0 + i * 0.01, z = 0.1)
+        }
+        val snap = MarketsIntraday1mSnapshot(
+            tatn = listOf(CandlePoint("10:00", 680.0, 681.0, 679.0, 680.0)),
+            tatnp = listOf(CandlePoint("10:00", 600.0, 601.0, 599.0, 600.0)),
+            tatnLastBarMillis = bucket,
+            tatnpLastBarMillis = bucket,
+        )
+        val z = liveZScoreFromIntraday1m(history, snap)
+        requireNotNull(z)
+        assertNotEquals(0.1, z, 1e-9)
+    }
+
+    @Test
+    fun m15PointsWithLiveFormingFromIntraday1m_fallsBackWhenSnapEmpty() {
+        val history = listOf(point(0L, 7.0, z = 0.2))
+        val snap = MarketsIntraday1mSnapshot(
+            tatn = emptyList(),
+            tatnp = emptyList(),
+            tatnLastBarMillis = 0L,
+            tatnpLastBarMillis = 0L,
+        )
+        assertEquals(history, m15PointsWithLiveFormingFromIntraday1m(history, snap))
+    }
+
+    @Test
     fun applyLiveZToM15ChartSeries_patchesLastCandleClose() {
         val pts = listOf(
             point(0L, 7.0, z = 0.2),

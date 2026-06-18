@@ -157,6 +157,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.199 — Шторка: live Z из 1м TATN/TATNP; Z-score на «Рынке» — отступ справа как у графика 1м.
 1.7.198 — Рынок 1м: TATN и TATNP на одном линейном графике; отступ справа и текущие цены как у Z-score.
 1.7.197 — Анти-ANR: убран refreshData каждые 5 с; Z из 1м без пересборки графика; MOEX 15м отложенно (tryLock).
 1.7.196 — Z-score на «Рынок»: live пересчёт из 1м TATN/TATNP каждые 15 с (без тяжёлого MOEX 15м); хвост Z-графика обновляется.

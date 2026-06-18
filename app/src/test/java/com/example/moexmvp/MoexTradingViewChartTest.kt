@@ -53,6 +53,13 @@ class MoexTradingViewChartTest {
         assertEquals(1, json.getJSONArray("hlines").length())
         assertEquals(1, json.getJSONArray("markers").length())
         assertEquals(0.2, json.getJSONObject("window").getDouble("start"), 0.001)
+        assertTrue(json.getInt("rightOffsetBars") >= 12)
+    }
+
+    @Test
+    fun tradingViewZChartRightOffsetBars_usesTenPercentVisibleBars() {
+        assertEquals(12, tradingViewZChartRightOffsetBars(barCount = 50, windowWidth = 0.2f))
+        assertEquals(20, tradingViewZChartRightOffsetBars(barCount = 200, windowWidth = 1f))
     }
 
     @Test

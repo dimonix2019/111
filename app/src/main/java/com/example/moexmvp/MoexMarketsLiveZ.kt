@@ -84,6 +84,26 @@ internal fun rollingZAtBarIndex(points: List<DataPoint>, index: Int): Double? {
     return zScoreAtSpread(points[index].spreadPercent, stats)
 }
 
+/** Live Z из 1м TATN/TATNP поверх кэшированного 15м ряда (сводка, шторка, монитор). */
+internal fun liveZScoreFromIntraday1m(
+    m15Points: List<DataPoint>,
+    snap: MarketsIntraday1mSnapshot,
+): Double? {
+    val tatnClose = snap.tatn.lastOrNull()?.close ?: return null
+    val tatnpClose = snap.tatnp.lastOrNull()?.close ?: return null
+    return buildM15PointsWithLiveFormingFrom1m(m15Points, tatnClose, tatnpClose)?.last()?.zScore
+}
+
+/** 15м ряд с актуальным формирующимся баром из 1м (для фонового монитора). */
+internal fun m15PointsWithLiveFormingFromIntraday1m(
+    m15Points: List<DataPoint>,
+    snap: MarketsIntraday1mSnapshot,
+): List<DataPoint> {
+    val tatnClose = snap.tatn.lastOrNull()?.close ?: return m15Points
+    val tatnpClose = snap.tatnp.lastOrNull()?.close ?: return m15Points
+    return buildM15PointsWithLiveFormingFrom1m(m15Points, tatnClose, tatnpClose) ?: m15Points
+}
+
 /** Применить live Z из 1м котировок к in-memory 15м (сводка + Z-график). */
 internal fun MoexScreenState.applyMarketsLiveZFromIntraday1mSnap(snap: MarketsIntraday1mSnapshot) {
     val tatnClose = snap.tatn.lastOrNull()?.close ?: return
