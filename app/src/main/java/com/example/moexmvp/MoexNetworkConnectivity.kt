@@ -6,10 +6,11 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import android.os.SystemClock
 
 /**
  * Слушает восстановление интернета (типичный сценарий: ночь offline → утром включили сеть без перезапуска приложения).
- * [onNetworkRestored] вызывается на main thread из NetworkCallback.
+ * [onNetworkRestored] вызывается на main thread из NetworkCallback (с debounce).
  */
 internal class MoexNetworkConnectivityMonitor(
     context: Context,
@@ -19,7 +20,8 @@ internal class MoexNetworkConnectivityMonitor(
     private val connectivityManager =
         appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-    private var lastOnline = isNetworkValidated()
+    private var lastOnline = isMoexNetworkAvailable(appContext)
+    private var lastRestoreNotifyAtMs = 0L
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -31,12 +33,12 @@ internal class MoexNetworkConnectivityMonitor(
         }
 
         override fun onLost(network: Network) {
-            lastOnline = isNetworkValidated()
+            lastOnline = isMoexNetworkAvailable(appContext)
         }
     }
 
     fun start() {
-        lastOnline = isNetworkValidated()
+        lastOnline = isMoexNetworkAvailable(appContext)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             runCatching { connectivityManager.registerDefaultNetworkCallback(callback) }
         } else {
@@ -52,23 +54,30 @@ internal class MoexNetworkConnectivityMonitor(
     }
 
     private fun notifyIfRestored() {
-        val online = isNetworkValidated()
+        val online = isMoexNetworkAvailable(appContext)
         if (online && !lastOnline) {
             lastOnline = true
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastRestoreNotifyAtMs < NETWORK_RESTORE_DEBOUNCE_MS) return
+            lastRestoreNotifyAtMs = now
             onNetworkRestored()
         } else if (!online) {
             lastOnline = false
         }
     }
+}
 
-    private fun isNetworkValidated(): Boolean {
-        val network = connectivityManager.activeNetwork ?: return false
-        val caps = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            (
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-                )
-    }
+/** Есть ли сейчас маршрут в интернет (без блокирующих HTTP-запросов). */
+internal fun isMoexNetworkAvailable(context: Context): Boolean {
+    val connectivityManager =
+        context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+    val network = connectivityManager.activeNetwork ?: return false
+    val caps = connectivityManager.getNetworkCapabilities(network) ?: return false
+    return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        (
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+            )
 }

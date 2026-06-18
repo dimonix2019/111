@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 import java.time.ZoneId
 
 class MoexMarketsLiveZTest {
@@ -68,6 +69,33 @@ class MoexMarketsLiveZTest {
             tatnpLastBarMillis = 0L,
         )
         assertEquals(history, m15PointsWithLiveFormingFromIntraday1m(history, snap))
+    }
+
+    @Test
+    fun buildIntraday1mZScoreSeries_replaysMinuteSpreads() {
+        val step = 15 * 60_000L
+        val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+        val history = (0 until 80).map { i ->
+            point(todayStart - (80 - i) * step, 7.0 + i * 0.01, z = 0.1)
+        }
+        val aligned = AlignedIntraday1mQuotes(
+            labels = listOf("10:00", "10:01", "10:02"),
+            tatnCloses = listOf(650.0, 651.0, 652.0),
+            tatnpCloses = listOf(600.0, 600.5, 601.0),
+        )
+        val series = buildIntraday1mZScoreSeries(history, aligned, zone = zone)
+        requireNotNull(series)
+        assertEquals(3, series.labels.size)
+        assertEquals(3, series.zScores.size)
+        assertTrue(series.zScores.all { it.isFinite() })
+    }
+
+    @Test
+    fun intraday1mLabelToM15BucketMs_floorsToQuarterHour() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val ms10 = intraday1mLabelToM15BucketMs("10:07", zone)
+        val ms14 = intraday1mLabelToM15BucketMs("10:14", zone)
+        assertEquals(ms10, ms14)
     }
 
     @Test

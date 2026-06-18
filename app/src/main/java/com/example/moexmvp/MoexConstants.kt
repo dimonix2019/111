@@ -101,6 +101,16 @@ internal const val CHART_Z_INTRABAR_WICK_MAX = 0.22
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 
+/** Высоты графиков на вкладке «Рынок» (портрет). */
+internal const val MARKETS_INTRADAY_QUOTES_CHART_HEIGHT_DP = 110
+/** Z-score 1м — в 3 раза ниже котировок TATN/TATNP. */
+internal const val MARKETS_INTRADAY_Z1M_CHART_HEIGHT_DP = MARKETS_INTRADAY_QUOTES_CHART_HEIGHT_DP / 3
+internal const val MARKETS_SPREAD_CHART_HEIGHT_DP = 104
+internal const val MARKETS_VOLATILITY_CHART_HEIGHT_DP = 66
+
+/** Мин. интервал между refresh после восстановления сети (защита от шторма callback). */
+internal const val NETWORK_RESTORE_DEBOUNCE_MS = 4_000L
+
 /** Заливка под Z на графике «Тест страт.» (TradingView Area). */
 internal const val STRATEGY_TEST_Z_CHART_AREA_FILL_HEX = "#14532D"
 internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
@@ -157,6 +167,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.200 — Рынок: компактные 1м/Spread/σ; Z-score 1м; защита от вылетов при нестабильной сети.
 1.7.199 — Шторка: live Z из 1м TATN/TATNP; Z-score на «Рынке» — отступ справа как у графика 1м.
 1.7.198 — Рынок 1м: TATN и TATNP на одном линейном графике; отступ справа и текущие цены как у Z-score.
 1.7.197 — Анти-ANR: убран refreshData каждые 5 с; Z из 1м без пересборки графика; MOEX 15м отложенно (tryLock).

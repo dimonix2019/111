@@ -1,6 +1,8 @@
 package com.example.moexmvp
 
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 
 internal fun spreadPercentFromPairCloses(tatnClose: Double, tatnpClose: Double): Double? {
@@ -82,6 +84,64 @@ internal fun rollingZAtBarIndex(points: List<DataPoint>, index: Int): Double? {
     if (index !in points.indices) return null
     val stats = RollingSpreadStatsCache.from(points).at(index) ?: return null
     return zScoreAtSpread(points[index].spreadPercent, stats)
+}
+
+/** Метка 1м (HH:mm, сегодня МСК) → начало 15м слота в epoch ms. */
+internal fun intraday1mLabelToM15BucketMs(label: String, zone: ZoneId = moexZoneId): Long {
+    val today = LocalDate.now(zone)
+    val time = LocalTime.parse(label.trim(), intradayLabelFormatter)
+    val bucketMinute = (time.minute / 15) * 15
+    return today.atTime(time.hour, bucketMinute)
+        .atZone(zone)
+        .toInstant()
+        .toEpochMilli()
+}
+
+internal data class Intraday1mZSeries(
+    val labels: List<String>,
+    val zScores: List<Double>,
+)
+
+/**
+ * Z-score по минуткам за сегодня: rolling-Z на базе 15м истории + replay 1м spread.
+ */
+internal fun buildIntraday1mZScoreSeries(
+    m15Points: List<DataPoint>,
+    aligned: AlignedIntraday1mQuotes,
+    zone: ZoneId = moexZoneId,
+): Intraday1mZSeries? {
+    if (aligned.labels.isEmpty()) return null
+    val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+    var base = m15Points.filter { it.timestampMillis < todayStart }
+    if (base.size < Z_SCORE_ROLLING_MIN_BARS) {
+        if (m15Points.size < Z_SCORE_ROLLING_MIN_BARS) return null
+        base = m15Points.dropLastWhile { it.timestampMillis >= todayStart }
+    }
+    if (base.size < Z_SCORE_ROLLING_MIN_BARS) return null
+    val mutable = base.toMutableList()
+    val labels = mutableListOf<String>()
+    val zScores = mutableListOf<Double>()
+    aligned.labels.indices.forEach { i ->
+        val label = aligned.labels[i]
+        val spread = spreadPercentFromPairCloses(aligned.tatnCloses[i], aligned.tatnpCloses[i]) ?: return@forEach
+        val bucketMs = intraday1mLabelToM15BucketMs(label, zone)
+        if (!patchFormingM15BarInPlace(
+                mutable,
+                bucketMs,
+                aligned.tatnCloses[i],
+                aligned.tatnpCloses[i],
+                spread,
+                zone,
+            )
+        ) {
+            return@forEach
+        }
+        val z = rollingZAtBarIndex(mutable, mutable.lastIndex) ?: return@forEach
+        labels += label
+        zScores += z
+    }
+    if (labels.isEmpty()) return null
+    return Intraday1mZSeries(labels, zScores)
 }
 
 /** Live Z из 1м TATN/TATNP поверх кэшированного 15м ряда (сводка, шторка, монитор). */

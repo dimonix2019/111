@@ -382,10 +382,21 @@ internal fun MoexScreenTabMarkets(
                                     title = "TATN / TATNP · 1м",
                                     tatn = tatn1m,
                                     tatnp = tatnp1m,
-                                    chartHeightDp = 220,
                                     initialWindowWidth = intraday1mWindow.first,
                                     initialWindowStart = intraday1mWindow.second,
                                 )
+                            }
+                            if (marketsM15SourcePoints.size >= Z_SCORE_ROLLING_MIN_BARS) {
+                                item {
+                                    IntradayZScoreLineChartCard(
+                                        title = "Z-score · 1м",
+                                        tatn = tatn1m,
+                                        tatnp = tatnp1m,
+                                        m15Points = marketsM15SourcePoints,
+                                        initialWindowWidth = intraday1mWindow.first,
+                                        initialWindowStart = intraday1mWindow.second,
+                                    )
+                                }
                             }
                         }
                         val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()
@@ -415,7 +426,7 @@ internal fun MoexScreenTabMarkets(
                                         )
                                     ),
                                     labels = marketsM15ChartPoints.map { it.tradeDate },
-                                    chartHeightDp = 208,
+                                    chartHeightDp = MARKETS_SPREAD_CHART_HEIGHT_DP,
                                     rightAxisPercentBase = spreadPercentBaseForChartRightAxis(marketsM15ChartPoints),
                                     yScale = YAxisScale.Auto,
                                     showLegend = false,
@@ -428,7 +439,10 @@ internal fun MoexScreenTabMarkets(
                             }
                             spreadHourlyVolatility?.let { hourlyVolatility ->
                                 item {
-                                    SpreadHourlyVolatilityChartCard(report = hourlyVolatility)
+                                    SpreadHourlyVolatilityChartCard(
+                                        report = hourlyVolatility,
+                                        chartHeightDp = MARKETS_VOLATILITY_CHART_HEIGHT_DP,
+                                    )
                                 }
                             }
                         } else if (waitingM15) {

@@ -706,7 +706,10 @@ internal suspend fun MoexScreenState.refreshData(
                 if (!mayRefreshMarkets(refreshPolicy)) return@launch
                 isRefreshing = true
                 try {
-                    performRefresh()
+                    runCatching { performRefresh() }
+                        .onFailure { t ->
+                            MoexDiagnostics.logError(context, "ui", t, "refreshData bg performRefresh")
+                        }
                 } finally {
                     isRefreshing = false
                 }
@@ -716,8 +719,26 @@ internal suspend fun MoexScreenState.refreshData(
 
         if (!blockUi) isRefreshing = true
         try {
-            performRefresh()
-            refreshMarketsLiveQuotesBundle(reason = "refreshData", scope = launchScope)
+            runCatching { performRefresh() }
+                .onFailure { t ->
+                    MoexDiagnostics.logError(context, "ui", t, "refreshData performRefresh")
+                    if (MoexDiagnostics.isTransientNetworkError(t)) {
+                        realtimeError = "Сеть недоступна или нестабильна"
+                        lastGoodMarkets?.let {
+                            marketsStale = true
+                            state = it
+                        }
+                    } else if (lastGoodMarkets != null) {
+                        marketsStale = true
+                        state = lastGoodMarkets!!
+                        realtimeError = t.message?.take(120)
+                    }
+                }
+            runCatching {
+                refreshMarketsLiveQuotesBundle(reason = "refreshData", scope = launchScope)
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "quotes", t, "refreshData live_quotes")
+            }
         } finally {
             isRefreshing = false
             MoexDiagnostics.log(

@@ -173,10 +173,13 @@ class SignalForegroundService : Service() {
             return@withContext
         }
 
-        val monitorPoints = runCatching { fetchMarketsIntraday1mLive() }
-            .getOrNull()
-            ?.let { snap -> m15PointsWithLiveFormingFromIntraday1m(points, snap) }
-            ?: points
+        val monitorPoints = if (isMoexNetworkAvailable(applicationContext)) {
+            runCatching { fetchMarketsIntraday1mLive() }
+                .getOrNull()
+                ?.let { snap -> m15PointsWithLiveFormingFromIntraday1m(points, snap) }
+        } else {
+            null
+        } ?: points
 
         lastForegroundZScore = monitorPoints.last().zScore
         lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, monitorPoints)

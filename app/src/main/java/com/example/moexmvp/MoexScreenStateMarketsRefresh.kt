@@ -72,6 +72,10 @@ internal suspend fun MoexScreenState.refreshMarketsIntraday1mQuotes(
 ) {
     if (!activityResumed) return
     if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) return
+    if (!isMoexNetworkAvailable(context)) {
+        MoexDiagnostics.log(context, "quotes", "skip 1m fetch offline reason=$reason")
+        return
+    }
     try {
         val snap = withContext(Dispatchers.IO) { fetchMarketsIntraday1mLive() }
         if (snap.tatn.isEmpty() && snap.tatnp.isEmpty()) {
