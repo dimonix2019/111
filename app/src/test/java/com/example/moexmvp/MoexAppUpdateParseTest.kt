@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class MoexAppUpdateParseTest {
 
@@ -67,11 +68,52 @@ class MoexAppUpdateParseTest {
     }
 
     @Test
-    fun apkDownloadUrlCandidates_includesGhPagesAndReleaseFallbacks() {
+    fun apkDownloadUrlCandidates_prefersGhPagesFirst() {
         val urls = apkDownloadUrlCandidates(APK_DOWNLOAD_DIRECT_URL)
-        assertEquals(APK_DOWNLOAD_DIRECT_URL, urls.first())
-        assertTrue(urls.contains(APP_UPDATE_PUBLIC_APK_URL))
-        assertEquals(2, urls.size)
+        assertEquals(APP_UPDATE_PUBLIC_APK_URL, urls.first())
+        assertTrue(urls.contains(APK_DOWNLOAD_DIRECT_URL))
+    }
+
+    @Test
+    fun preferredInAppApkDownloadUrl_usesGhPagesForReleaseLink() {
+        assertEquals(
+            APP_UPDATE_PUBLIC_APK_URL,
+            preferredInAppApkDownloadUrl(APK_DOWNLOAD_DIRECT_URL),
+        )
+    }
+
+    @Test
+    fun selectBestRemoteAppUpdate_rewritesDownloadToGhPages() {
+        val best = selectBestRemoteAppUpdate(
+            listOf(
+                AppRemoteUpdate(135, "1.7.17", APK_DOWNLOAD_DIRECT_URL),
+            )
+        )
+        assertEquals(APP_UPDATE_PUBLIC_APK_URL, best!!.apkDownloadUrl)
+    }
+
+    @Test
+    fun validateDownloadedAppUpdateApkStructure_rejectsTinyFile() {
+        val dir = createTempDir()
+        try {
+            val f = File(dir, "tiny.apk")
+            f.writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x00))
+            assertNotNull(validateDownloadedAppUpdateApkStructure(f))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun validateDownloadedAppUpdateApkStructure_rejectsHtml() {
+        val dir = createTempDir()
+        try {
+            val f = File(dir, "fake.apk")
+            f.writeText("<html><body>login</body></html>".padEnd(6_000_000, 'x'))
+            assertNotNull(validateDownloadedAppUpdateApkStructure(f))
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     @Test
@@ -106,16 +148,17 @@ class MoexAppUpdateParseTest {
 
     @Test
     fun selectBestRemoteAppUpdate_picksHighestVersionCode() {
+        val ghApk = "https://raw.githubusercontent.com/dimonix2019/111/gh-pages/moexmvp-debug.apk"
         val best = selectBestRemoteAppUpdate(
             listOf(
-                AppRemoteUpdate(132, "1.7.14", "https://gh-pages/apk"),
-                AppRemoteUpdate(135, "1.7.17", "https://release/apk"),
+                AppRemoteUpdate(132, "1.7.14", ghApk),
+                AppRemoteUpdate(135, "1.7.17", ghApk),
             )
         )
         assertNotNull(best)
         assertEquals(135, best!!.versionCode)
         assertEquals("1.7.17", best.versionName)
-        assertEquals("https://release/apk", best.apkDownloadUrl)
+        assertEquals(ghApk, best.apkDownloadUrl)
     }
 
     @Test

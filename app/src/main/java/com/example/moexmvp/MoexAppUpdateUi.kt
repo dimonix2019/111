@@ -182,7 +182,13 @@ internal fun AppUpdateDialogHost(
                                             }
                                         }
                                     }
-                                    readyApk = dest
+                                    when (val validation = validateDownloadedAppUpdateApk(context, dest)) {
+                                        is AppUpdateApkValidation.Valid -> readyApk = dest
+                                        is AppUpdateApkValidation.Failed -> {
+                                            dest.delete()
+                                            errorText = validation.message
+                                        }
+                                    }
                                     downloading = false
                                 } catch (e: Exception) {
                                     downloading = false
