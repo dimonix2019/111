@@ -155,17 +155,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         strategyTestCompoundReturns,
         strategyTestAccountSizeRub,
         strategyTestCapitalUsagePercent,
+        strategyTestSimComputing,
+        strategyTestM15Loading,
     ) {
         if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
-        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
         if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
-        delay(STRATEGY_TEST_RESIM_DEBOUNCE_MS)
-        if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
-        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
-        if (strategyTestM15Loading || strategyTestSimComputing) return@LaunchedEffect
-        if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
-        if (strategyTestVisibleResultsFresh()) return@LaunchedEffect
-        scheduleStrategyTestResimOnly(reason = "params_change")
+        requestStrategyTestResimAfterParamsChange(reason = "params_change")
     }
 
     LaunchedEffect(Unit) {

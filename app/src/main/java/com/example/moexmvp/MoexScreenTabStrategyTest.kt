@@ -140,9 +140,17 @@ internal fun MoexScreenTabStrategyTest(
                         onExcludeRedZoneChange = { strategyTestExcludeRedZone = it },
                         onLeverageChange = { portfolioLeverage = it },
                         onCommissionChange = { portfolioCommissionPercent = it },
-                        onAccountSizeChange = { strategyTestAccountSizeRub = it.coerceIn(1_000.0, 10_000_000.0) },
-                        onCapitalUsageChange = {
-                            strategyTestCapitalUsagePercent = it.coerceIn(10.0, 100.0)
+                        onAccountSizeChange = { newRub ->
+                            strategyTestAccountSizeRub = newRub.coerceIn(1_000.0, 10_000_000.0)
+                            scope.launch {
+                                requestStrategyTestResimAfterParamsChange(reason = "account_size")
+                            }
+                        },
+                        onCapitalUsageChange = { newPct ->
+                            strategyTestCapitalUsagePercent = newPct.coerceIn(10.0, 100.0)
+                            scope.launch {
+                                requestStrategyTestResimAfterParamsChange(reason = "capital_usage")
+                            }
                         },
                         onEntryThresholdChange = { newEntry ->
                             strategyTestEntryThreshold = newEntry.coerceIn(

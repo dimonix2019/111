@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -170,6 +171,32 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
     } finally {
         strategyTestSimComputing = false
     }
+    if (
+        isStrategyTestWorkCurrent(workId) &&
+        isOnStrategyTestTab() &&
+        !strategyTestM15Loading &&
+        strategyTestM15SessionCache.sufficientForStrategyTestSimulation() &&
+        !strategyTestVisibleResultsFresh()
+    ) {
+        scheduleStrategyTestResimOnly(reason = "params_stale_after_sim")
+    }
+}
+
+/**
+ * Debounced пересчёт после смены «Размер счёта» / % капитала / порогов и т.д.
+ * Ждёт завершения текущей симуляции, чтобы не потерять последнее значение параметра.
+ */
+internal suspend fun MoexScreenState.requestStrategyTestResimAfterParamsChange(reason: String) {
+    if (!isOnStrategyTestTab()) return
+    if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return
+    delay(STRATEGY_TEST_RESIM_DEBOUNCE_MS)
+    while (strategyTestM15Loading || strategyTestSimComputing) {
+        delay(50)
+        if (!isOnStrategyTestTab()) return
+    }
+    if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return
+    if (strategyTestVisibleResultsFresh()) return
+    scheduleStrategyTestResimOnly(reason = reason)
 }
 
 /** Только пересчёт симуляции из кэша (без SQLite/MOEX). */
