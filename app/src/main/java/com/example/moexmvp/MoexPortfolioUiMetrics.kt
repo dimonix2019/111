@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.AlertDialog
@@ -32,6 +33,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -50,6 +52,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -448,7 +452,9 @@ internal fun ParamRubInputStepper(
     containerColor: Color = Color(0xFF1E1E1E),
     titleColor: Color = Color(0xFF9E9E9E),
 ) {
-    var draft by remember(valueRub) { mutableStateOf(formatStrategyTestAccountRubInput(valueRub)) }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var draft by remember { mutableStateOf(formatStrategyTestAccountRubInput(valueRub)) }
     var editing by remember { mutableStateOf(false) }
 
     LaunchedEffect(valueRub) {
@@ -457,13 +463,32 @@ internal fun ParamRubInputStepper(
         }
     }
 
+    fun dismissEditor() {
+        keyboardController?.hide()
+        focusManager.clearFocus(force = true)
+    }
+
     fun commitDraft() {
+        editing = false
         val parsed = parseStrategyTestAccountRubInput(draft, minRub, maxRub)
         if (parsed != null) {
-            onValueChange(parsed)
             draft = formatStrategyTestAccountRubInput(parsed)
+            if (parsed != valueRub) {
+                onValueChange(parsed)
+            }
         } else {
             draft = formatStrategyTestAccountRubInput(valueRub)
+        }
+        dismissEditor()
+    }
+
+    fun applyStep(nextRub: Double) {
+        editing = false
+        val coerced = nextRub.coerceIn(minRub, maxRub)
+        draft = formatStrategyTestAccountRubInput(coerced)
+        dismissEditor()
+        if (coerced != valueRub) {
+            onValueChange(coerced)
         }
     }
 
@@ -476,19 +501,31 @@ internal fun ParamRubInputStepper(
         Text(title, color = titleColor, fontSize = 10.sp)
         OutlinedTextField(
             value = draft,
-            onValueChange = { draft = it.filter { ch -> ch.isDigit() } },
+            onValueChange = {
+                editing = true
+                draft = it.filter { ch -> ch.isDigit() }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { focus ->
                     if (focus.isFocused) {
                         editing = true
                     } else if (editing) {
-                        editing = false
                         commitDraft()
                     }
                 },
             singleLine = true,
             suffix = { Text("₽", color = Color(0xFFBDBDBD), fontSize = 12.sp) },
+            trailingIcon = {
+                IconButton(onClick = { commitDraft() }) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = "Применить",
+                        tint = Color(0xFF81D4FA),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            },
             textStyle = MaterialTheme.typography.bodyMedium.copy(
                 color = Color.White,
                 fontWeight = FontWeight.Medium,
@@ -498,10 +535,7 @@ internal fun ParamRubInputStepper(
                 keyboardType = KeyboardType.Number,
                 imeAction = ImeAction.Done,
             ),
-            keyboardActions = KeyboardActions(onDone = {
-                editing = false
-                commitDraft()
-            }),
+            keyboardActions = KeyboardActions(onDone = { commitDraft() }),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Color(0xFF81D4FA),
                 unfocusedBorderColor = Color(0xFF424242),
@@ -510,18 +544,14 @@ internal fun ParamRubInputStepper(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(
-                onClick = {
-                    onValueChange((valueRub - stepRub).coerceIn(minRub, maxRub))
-                },
+                onClick = { applyStep(valueRub - stepRub) },
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(0.dp),
             ) {
                 Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(20.dp))
             }
             Button(
-                onClick = {
-                    onValueChange((valueRub + stepRub).coerceIn(minRub, maxRub))
-                },
+                onClick = { applyStep(valueRub + stepRub) },
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(0.dp),
             ) {

@@ -1,5 +1,6 @@
 package com.example.moexmvp
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,7 +11,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.Color
 import android.widget.Toast
 import androidx.compose.ui.unit.dp
@@ -90,10 +93,15 @@ internal fun MoexScreenTabStrategyTest(
         return
     }
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     Column(modifier.fillMaxSize()) {
         with(screen) {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(focusManager) {
+                        detectTapGestures(onTap = { focusManager.clearFocus(force = true) })
+                    },
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item {
