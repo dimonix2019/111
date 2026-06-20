@@ -447,12 +447,13 @@ internal fun applySpreadGuardZScoresInPlace(points: MutableList<DataPoint>) {
     recomputeZForwardFromRecentSpikes(points, listOf(latestRecentSpike))
 }
 
-/** Точки для симуляции «Тест страт.»: Z из SQLite + журнал + guard spread. */
+/** Точки для симуляции «Тест страт.»: Z из SQLite + guard spread; опционально overlay журнала. */
 internal fun prepareM15PointsForZStrategySim(
     points: List<DataPoint>,
     entities: List<PortfolioM15SpreadEntity> = emptyList(),
     journalEvents: List<StrategySignalEvent> = emptyList(),
     journalThresholds: DynamicThresholds? = null,
+    applyJournalOverlay: Boolean = true,
 ): List<DataPoint> {
     if (points.size < 2) return points
     val mutable = points.map { it.copy(zScore = 0.0) }.toMutableList()
@@ -461,6 +462,8 @@ internal fun prepareM15PointsForZStrategySim(
     } else {
         applySpreadGuardZScoresInPlace(mutable)
     }
-    applyJournalObservedZOverlay(mutable, journalEvents, journalThresholds)
+    if (applyJournalOverlay && journalEvents.isNotEmpty() && journalThresholds != null) {
+        applyJournalObservedZOverlay(mutable, journalEvents, journalThresholds)
+    }
     return mutable
 }

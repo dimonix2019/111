@@ -59,6 +59,14 @@ internal fun StrategyTestTabContent(
     capitalUsagePercent: Double,
     applyProdLotCap: Boolean = true,
     onApplyProdLotCapChange: (Boolean) -> Unit = {},
+    usePortfolioThresholds: Boolean = true,
+    onUsePortfolioThresholdsChange: (Boolean) -> Unit = {},
+    useLiveZSignals: Boolean = true,
+    onUseLiveZSignalsChange: (Boolean) -> Unit = {},
+    parityItems: List<StrategyTestProdParityItem> = emptyList(),
+    onApplyProdAccountCash: (() -> Unit)? = null,
+    onApplyProdReservePercent: (() -> Unit)? = null,
+    simCommissionPercentPerSide: Double,
     execLogSummary: String,
     entryThreshold: Double,
     exitThreshold: Double,
@@ -140,10 +148,19 @@ internal fun StrategyTestTabContent(
             )
         }
         Text(
-            text = "${"%.0f".format(Locale.US, accountSizeRub)} ₽ · ${"%.0f".format(Locale.US, capitalUsagePercent)}% капитала · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · Prod-like",
+            text = "${"%.0f".format(Locale.US, accountSizeRub)} ₽ · ${"%.0f".format(Locale.US, capitalUsagePercent)}% капитала · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", simCommissionPercentPerSide)}% комиссия/стор · боевой режим",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
             maxLines = 3
+        )
+        StrategyTestProdParityPanel(
+            items = parityItems,
+            usePortfolioThresholds = usePortfolioThresholds,
+            onUsePortfolioThresholdsChange = onUsePortfolioThresholdsChange,
+            useLiveZSignals = useLiveZSignals,
+            onUseLiveZSignalsChange = onUseLiveZSignalsChange,
+            onApplyProdAccountCash = onApplyProdAccountCash,
+            onApplyProdReservePercent = onApplyProdReservePercent,
         )
         if (execLogSummary.isNotBlank()) {
             Text(
@@ -154,7 +171,7 @@ internal fun StrategyTestTabContent(
             )
         }
         Text(
-            text = "Симуляция: lot sizing как Prod, PnL по номиналу лотов (не ×7). Money-stop 4000₽/сделку — убытки не масштабируются с депозитом.",
+            text = "PnL по MOEX-spread × номинал лотов (не broker MTM). Выход: порог Z + money-stop ${PROD_MONEY_STOP_PER_TRADE_RUB.toInt()} ₽/сделку.",
             color = Color(0xFFF48FB1),
             fontSize = 10.sp,
             maxLines = 4
@@ -768,6 +785,78 @@ internal fun StrategyExitModeButton(
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
     ) {
         Text(text, fontSize = 10.sp, maxLines = 1)
+    }
+}
+
+@Composable
+internal fun StrategyTestProdParityPanel(
+    items: List<StrategyTestProdParityItem>,
+    usePortfolioThresholds: Boolean,
+    onUsePortfolioThresholdsChange: (Boolean) -> Unit,
+    useLiveZSignals: Boolean,
+    onUseLiveZSignalsChange: (Boolean) -> Unit,
+    onApplyProdAccountCash: (() -> Unit)?,
+    onApplyProdReservePercent: (() -> Unit)?,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1A2332), RoundedCornerShape(8.dp))
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "Боевой режим симуляции",
+            color = Color(0xFF81D4FA),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        items.forEach { item ->
+            Text(
+                text = "${if (item.ok) "✓" else "○"} ${item.label}",
+                color = if (item.ok) Color(0xFF80CBC4) else Color(0xFFFFCC80),
+                fontSize = 9.sp,
+                maxLines = 2,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Пороги = Портфель", color = Color(0xFFE0E0E0), fontSize = 10.sp)
+            Switch(checked = usePortfolioThresholds, onCheckedChange = onUsePortfolioThresholdsChange)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Z как live (без журнала)", color = Color(0xFFE0E0E0), fontSize = 10.sp)
+            Switch(checked = useLiveZSignals, onCheckedChange = onUseLiveZSignalsChange)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            onApplyProdAccountCash?.let { applyCash ->
+                OutlinedButton(
+                    onClick = applyCash,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA)),
+                ) {
+                    Text("Cash Prod", fontSize = 9.sp, maxLines = 1)
+                }
+            }
+            onApplyProdReservePercent?.let { applyReserve ->
+                OutlinedButton(
+                    onClick = applyReserve,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA)),
+                ) {
+                    Text("Резерв ${"%.0f".format(Locale.US, PROD_EFFECTIVE_CAPITAL_USAGE_PERCENT)}%", fontSize = 9.sp, maxLines = 1)
+                }
+            }
+        }
     }
 }
 

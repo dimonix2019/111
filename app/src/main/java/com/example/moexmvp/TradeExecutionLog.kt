@@ -120,6 +120,19 @@ internal object TradeExecutionLog {
         return "$px ₽ · $lots лот$slip$partial"
     }
 
+    fun medianCommissionPercentPerSide(context: Context, minSamples: Int = 3): Double? {
+        val pcts = loadRecent(context).mapNotNull { r ->
+            val price = r.fillPriceRub ?: return@mapNotNull null
+            val lots = r.executedLots.coerceAtLeast(1)
+            val comm = r.commissionRub ?: return@mapNotNull null
+            if (price <= 0.0 || comm <= 0.0) return@mapNotNull null
+            val notional = price * lots
+            (comm / notional) * 100.0
+        }.filter { it in 0.0..1.0 }
+        if (pcts.size < minSamples) return null
+        return pcts.sorted()[pcts.size / 2]
+    }
+
     fun medianSlippageSpreadPts(context: Context, minSamples: Int = 3): Double? {
         val pts = loadRecent(context)
             .mapNotNull { it.slippageSpreadPts?.takeIf { v -> !v.isNaN() && abs(v) < 5.0 } }
@@ -138,10 +151,12 @@ internal object TradeExecutionLog {
         val n = loadRecent(context).size
         val spreadSlip = medianSlippageSpreadPts(context)
         val bpsSlip = medianSlippagePriceBps(context)
+        val commPct = medianCommissionPercentPerSide(context)
         return buildString {
             append("лог $n ног")
             spreadSlip?.let { append(" · мед. slip спреда ${"%.3f".format(Locale.US, it)} п") }
             bpsSlip?.let { append(" · мед. slip ${"%.1f".format(Locale.US, it)} bps") }
+            commPct?.let { append(" · мед. комиссия ${"%.3f".format(Locale.US, it)}%/стор") }
         }
     }
 

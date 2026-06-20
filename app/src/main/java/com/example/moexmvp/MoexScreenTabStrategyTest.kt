@@ -96,6 +96,31 @@ internal fun MoexScreenTabStrategyTest(
     val focusManager = LocalFocusManager.current
     Column(modifier.fillMaxSize()) {
         with(screen) {
+            val simThresholds = resolveStrategyTestSimThresholds()
+            val simCommission = buildStrategyTestCommissionPercentPerSide(context, portfolioCommissionPercent)
+            val parityItems = remember(
+                strategyTestAccountSizeRub,
+                strategyTestCapitalUsagePercent,
+                strategyTestApplyProdLotCap,
+                strategyTestUsePortfolioThresholds,
+                strategyTestUseLiveZSignals,
+                portfolioCommissionPercent,
+                realTradeEntryThreshold,
+                realTradeExitThreshold,
+                strategyTestEntryThreshold,
+                strategyTestExitThreshold,
+            ) {
+                buildStrategyTestProdParityChecklist(
+                    context = context,
+                    accountSizeRub = strategyTestAccountSizeRub,
+                    capitalUsagePercent = strategyTestCapitalUsagePercent,
+                    usePortfolioThresholds = strategyTestUsePortfolioThresholds,
+                    useLiveZSignals = strategyTestUseLiveZSignals,
+                    applyProdLotCap = strategyTestApplyProdLotCap,
+                    commissionPercentPerSide = simCommission,
+                    thresholdsMatchPortfolio = strategyTestThresholdsMatchPortfolio(),
+                )
+            }
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -145,11 +170,49 @@ internal fun MoexScreenTabStrategyTest(
                                 requestStrategyTestResimAfterParamsChange(reason = "prod_lot_cap")
                             }
                         },
+                        usePortfolioThresholds = strategyTestUsePortfolioThresholds,
+                        onUsePortfolioThresholdsChange = { enabled ->
+                            strategyTestUsePortfolioThresholds = enabled
+                            invalidateStrategyTestSimResults()
+                            scope.launch {
+                                requestStrategyTestResimAfterParamsChange(reason = "portfolio_thresholds")
+                            }
+                        },
+                        useLiveZSignals = strategyTestUseLiveZSignals,
+                        onUseLiveZSignalsChange = { enabled ->
+                            strategyTestUseLiveZSignals = enabled
+                            invalidateStrategyTestSimResults()
+                            scope.launch {
+                                requestStrategyTestResimAfterParamsChange(reason = "live_z")
+                            }
+                        },
+                        parityItems = parityItems,
+                        onApplyProdAccountCash = {
+                            loadLastProdPortfolioCashRub(context)?.let { cash ->
+                                invalidateStrategyTestSimResults()
+                                strategyTestAccountSizeRub = cash.coerceIn(
+                                    STRATEGY_TEST_ACCOUNT_RUB_MIN,
+                                    STRATEGY_TEST_ACCOUNT_RUB_MAX,
+                                )
+                                scope.launch {
+                                    requestStrategyTestResimAfterParamsChange(reason = "prod_cash")
+                                }
+                            }
+                        },
+                        onApplyProdReservePercent = {
+                            val pct = PROD_EFFECTIVE_CAPITAL_USAGE_PERCENT
+                            if (pct != strategyTestCapitalUsagePercent) {
+                                invalidateStrategyTestSimResults()
+                                strategyTestCapitalUsagePercent = pct
+                                scope.launch {
+                                    requestStrategyTestResimAfterParamsChange(reason = "prod_reserve")
+                                }
+                            }
+                        },
+                        simCommissionPercentPerSide = simCommission,
                         execLogSummary = TradeExecutionLog.calibrationSummary(context),
-                        entryThreshold = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-                            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                        exitThreshold = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+                        entryThreshold = simThresholds.entry,
+                        exitThreshold = simThresholds.exit,
                         compoundReturns = strategyTestCompoundReturns,
                         onCompoundReturnsChange = { strategyTestCompoundReturns = it },
                         excludeRedZone = strategyTestExcludeRedZone,
@@ -180,23 +243,42 @@ internal fun MoexScreenTabStrategyTest(
                             }
                         },
                         onEntryThresholdChange = { newEntry ->
-                            strategyTestEntryThreshold = newEntry.coerceIn(
+                            val v = newEntry.coerceIn(
                                 PORTFOLIO_Z_THRESHOLD_MIN,
-                                PORTFOLIO_Z_THRESHOLD_MAX
+                                PORTFOLIO_Z_THRESHOLD_MAX,
                             )
+                            if (strategyTestUsePortfolioThresholds) {
+                                realTradeEntryThreshold = v
+                            } else {
+                                strategyTestEntryThreshold = v
+                            }
+                            invalidateStrategyTestSimResults()
+                            scope.launch {
+                                requestStrategyTestResimAfterParamsChange(reason = "entry_threshold")
+                            }
                         },
                         onExitThresholdChange = { newExit ->
-                            strategyTestExitThreshold = newExit.coerceIn(
+                            val v = newExit.coerceIn(
                                 PORTFOLIO_Z_THRESHOLD_MIN,
-                                PORTFOLIO_Z_THRESHOLD_MAX
+                                PORTFOLIO_Z_THRESHOLD_MAX,
                             )
+                            if (strategyTestUsePortfolioThresholds) {
+                                realTradeExitThreshold = v
+                            } else {
+                                strategyTestExitThreshold = v
+                            }
+                            invalidateStrategyTestSimResults()
+                            scope.launch {
+                                requestStrategyTestResimAfterParamsChange(reason = "exit_threshold")
+                            }
                         },
                         onExportCompareCsv = {
                             scope.launch {
-                                val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-                                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-                                val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+                                val thresholds = resolveStrategyTestSimThresholds()
+                                val comm = buildStrategyTestCommissionPercentPerSide(
+                                    context,
+                                    portfolioCommissionPercent,
+                                )
                                 val csv = withContext(Dispatchers.IO) {
                                     buildStrategyTestCompareCsvFromState(
                                         context = context,
@@ -205,10 +287,14 @@ internal fun MoexScreenTabStrategyTest(
                                         accountSizeRub = strategyTestAccountSizeRub,
                                         capitalUsagePercent = strategyTestCapitalUsagePercent,
                                         leverageForLots = portfolioLeverage,
-                                        commissionPercentPerSide = portfolioCommissionPercent,
-                                        entryThreshold = entry,
-                                        exitThreshold = exit,
+                                        commissionPercentPerSide = comm,
+                                        entryThreshold = thresholds.entry,
+                                        exitThreshold = thresholds.exit,
                                         compoundReturns = strategyTestCompoundReturns,
+                                        applyProdLotCap = strategyTestApplyProdLotCap,
+                                        usePortfolioThresholds = strategyTestUsePortfolioThresholds,
+                                        useLiveZSignals = strategyTestUseLiveZSignals,
+                                        thresholdSource = thresholds.source.name,
                                     )?.also { persist ->
                                         StrategyTestExportStore.saveCompareCsv(context, persist)
                                     }

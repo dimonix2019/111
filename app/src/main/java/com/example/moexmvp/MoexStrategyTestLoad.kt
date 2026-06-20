@@ -72,25 +72,24 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
         }
         if (!isStrategyTestWorkCurrent(workId)) return
         strategyTestM15ChartTail = chartTail
-        val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-        val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+        val simThresholds = resolveStrategyTestSimThresholds()
+        val entry = simThresholds.entry
+        val exit = simThresholds.exit
+        val commissionPct = buildStrategyTestCommissionPercentPerSide(context, portfolioCommissionPercent)
         val metrics = withContext(Dispatchers.Default) {
             if (!points.sufficientForStrategyTestSimulation()) return@withContext null
-            val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
             val simPoints = prepareM15PointsForZStrategySim(
                 points = points,
                 journalEvents = signalEvents,
                 journalThresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
+                applyJournalOverlay = !strategyTestUseLiveZSignals,
             )
             buildZStrategyPortfolioMetrics(
                 points = simPoints,
                 thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
                 notionalRub = strategyTestAccountSizeRub,
                 leverage = 1.0,
-                commissionPercentPerSide = portfolioCommissionPercent,
+                commissionPercentPerSide = commissionPct,
                 periodDescription = buildStrategyTestPeriodDescription(context),
                 compoundReturns = strategyTestCompoundReturns,
                 exitMode = ZStrategyExitMode.FixedThreshold,
@@ -151,10 +150,14 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                     accountSizeRub = strategyTestAccountSizeRub,
                     capitalUsagePercent = strategyTestCapitalUsagePercent,
                     leverageForLots = portfolioLeverage,
-                    commissionPercentPerSide = portfolioCommissionPercent,
+                    commissionPercentPerSide = commissionPct,
                     entryThreshold = entry,
                     exitThreshold = exit,
                     compoundReturns = strategyTestCompoundReturns,
+                    applyProdLotCap = strategyTestApplyProdLotCap,
+                    usePortfolioThresholds = strategyTestUsePortfolioThresholds,
+                    useLiveZSignals = strategyTestUseLiveZSignals,
+                    thresholdSource = simThresholds.source.name,
                 )
                 persistStrategyTestCompareExport(context, metrics, tradeItems, exportConfig)
             }

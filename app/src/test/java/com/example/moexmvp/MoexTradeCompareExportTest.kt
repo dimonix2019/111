@@ -46,6 +46,33 @@ class MoexTradeCompareExportTest {
     )
 
     @Test
+    fun exportStrategyTestCompareCsv_includesProdParityMeta() {
+        val trades = listOf(sampleTrade())
+        val items = trades.map { StrategyTestTradeItem(trade = it) }
+        val csv = exportStrategyTestCompareCsv(
+            metrics = sampleMetrics(trades),
+            tradeItems = items,
+            config = StrategyTestExportConfig(
+                accountSizeRub = 10_000.0,
+                capitalUsagePercent = 75.0,
+                leverageForLots = 7.0,
+                commissionPercentPerSide = 0.04,
+                entryThreshold = 2.0,
+                exitThreshold = 0.5,
+                slippageSpreadPts = 0.02,
+                compoundReturns = false,
+                applyProdLotCap = true,
+                usePortfolioThresholds = true,
+                useLiveZSignals = true,
+                thresholdSource = "PortfolioProd",
+            ),
+        )
+        assertTrue(csv.lines().any { it.contains("prod_lot_cap=true") })
+        assertTrue(csv.lines().any { it.contains("live_z=true") })
+        assertTrue(csv.lines().any { it.contains("threshold_source=PortfolioProd") })
+    }
+
+    @Test
     fun exportStrategyTestCompareCsv_hasUnifiedHeaderAndTradeRows() {
         val trades = listOf(
             sampleTrade(),
