@@ -137,6 +137,14 @@ internal fun MoexScreenTabStrategyTest(
                         commissionPercentPerSide = portfolioCommissionPercent,
                         accountSizeRub = strategyTestAccountSizeRub,
                         capitalUsagePercent = strategyTestCapitalUsagePercent,
+                        applyProdLotCap = strategyTestApplyProdLotCap,
+                        onApplyProdLotCapChange = { enabled ->
+                            strategyTestApplyProdLotCap = enabled
+                            invalidateStrategyTestSimResults()
+                            scope.launch {
+                                requestStrategyTestResimAfterParamsChange(reason = "prod_lot_cap")
+                            }
+                        },
                         execLogSummary = TradeExecutionLog.calibrationSummary(context),
                         entryThreshold = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
                             .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
@@ -149,18 +157,26 @@ internal fun MoexScreenTabStrategyTest(
                         onLeverageChange = { portfolioLeverage = it },
                         onCommissionChange = { portfolioCommissionPercent = it },
                         onAccountSizeChange = { newRub ->
-                            strategyTestAccountSizeRub = newRub.coerceIn(
+                            val coerced = newRub.coerceIn(
                                 STRATEGY_TEST_ACCOUNT_RUB_MIN,
                                 STRATEGY_TEST_ACCOUNT_RUB_MAX,
                             )
-                            scope.launch {
-                                requestStrategyTestResimAfterParamsChange(reason = "account_size")
+                            if (coerced != strategyTestAccountSizeRub) {
+                                invalidateStrategyTestSimResults()
+                                strategyTestAccountSizeRub = coerced
+                                scope.launch {
+                                    requestStrategyTestResimAfterParamsChange(reason = "account_size")
+                                }
                             }
                         },
                         onCapitalUsageChange = { newPct ->
-                            strategyTestCapitalUsagePercent = newPct.coerceIn(10.0, 100.0)
-                            scope.launch {
-                                requestStrategyTestResimAfterParamsChange(reason = "capital_usage")
+                            val coerced = newPct.coerceIn(10.0, 100.0)
+                            if (coerced != strategyTestCapitalUsagePercent) {
+                                invalidateStrategyTestSimResults()
+                                strategyTestCapitalUsagePercent = coerced
+                                scope.launch {
+                                    requestStrategyTestResimAfterParamsChange(reason = "capital_usage")
+                                }
                             }
                         },
                         onEntryThresholdChange = { newEntry ->

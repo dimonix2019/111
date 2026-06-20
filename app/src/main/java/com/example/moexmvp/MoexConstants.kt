@@ -76,6 +76,8 @@ internal const val SPREAD_LOT_MARGIN_RATE_PER_LEG = 0.30
 internal const val SPREAD_LOT_COMMISSION_BUFFER_FRACTION = 0.002
 internal const val SPREAD_LOT_MIN_LOTS = 1
 internal const val SPREAD_LOT_MAX_LOTS = 80
+/** «Тест страт.» без Prod-cap: верхняя граница лотов для проекции крупного депозита. */
+internal const val STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED = 999
 /** Prod: доля номинала пары на прирост скорректированной маржи (эмпирика ~10+10 → 5.4k). */
 internal const val SPREAD_LOT_MARGIN_PAIR_FRACTION = 0.50
 /** Prod: плечо для расчёта целевого номинала = liquid × leverage / pairNotional. */
@@ -175,6 +177,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.209 — «Тест страт.»: пояснение лимита 80 л (PnL 10k≈100k на Prod); переключатель cap; ср. номинал сделки.
 1.7.208 — Fix «Тест страт.»: поле суммы — снятие фокуса, ✓/Done, пересчёт симуляции.
 1.7.207 — «Тест страт.»: «Размер счёта» — ручной ввод суммы (не только +/-), пересчёт симуляции.
 1.7.206 — Fix «Тест страт.»: смена «Размер счёта» / % капитала снова пересчитывает симуляцию.

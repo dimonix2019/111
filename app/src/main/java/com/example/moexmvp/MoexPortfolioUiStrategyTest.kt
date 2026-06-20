@@ -57,6 +57,8 @@ internal fun StrategyTestTabContent(
     commissionPercentPerSide: Double,
     accountSizeRub: Double,
     capitalUsagePercent: Double,
+    applyProdLotCap: Boolean = true,
+    onApplyProdLotCapChange: (Boolean) -> Unit = {},
     execLogSummary: String,
     entryThreshold: Double,
     exitThreshold: Double,
@@ -94,6 +96,32 @@ internal fun StrategyTestTabContent(
     val displayMetrics = remember(metrics, displayTradeItems, excludeRedZone) {
         strategyTestMetricsForDisplay(metrics, displayTradeItems, excludeRedZone)
     }
+    val sizingSampleBar = remember(m15ChartPoints) {
+        m15ChartPoints.lastOrNull { it.tatnClose > 0.0 && it.tatnpClose > 0.0 }
+    }
+    val sizingPreview = remember(
+        sizingSampleBar,
+        accountSizeRub,
+        capitalUsagePercent,
+        leverage,
+        applyProdLotCap,
+    ) {
+        sizingSampleBar?.let { bar ->
+            previewStrategyTestEntrySizing(
+                bar = bar,
+                accountSizeRub = accountSizeRub,
+                capitalUsagePercent = capitalUsagePercent,
+                leverageForLots = leverage,
+                applyProdLotCap = applyProdLotCap,
+            )
+        }
+    }
+    val avgTradeNotional = remember(metrics) {
+        metrics?.closedTrades?.let { strategyTestAvgExecutionNotionalRub(it) }
+    }
+    val sizingHint = remember(sizingPreview, avgTradeNotional, applyProdLotCap) {
+        formatStrategyTestSizingHint(sizingPreview, avgTradeNotional, applyProdLotCap)
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
@@ -126,11 +154,32 @@ internal fun StrategyTestTabContent(
             )
         }
         Text(
-            text = "Симуляция: lot sizing как Prod (счёт×%×плечо), PnL без ×7, slippage и money-stop 4000₽ из лога.",
+            text = "Симуляция: lot sizing как Prod, PnL по номиналу лотов (не ×7). Money-stop 4000₽/сделку — убытки не масштабируются с депозитом.",
             color = Color(0xFFF48FB1),
             fontSize = 10.sp,
-            maxLines = 3
+            maxLines = 4
         )
+        sizingHint?.let { hint ->
+            Text(
+                text = hint,
+                color = if (applyProdLotCap && sizingPreview?.cappedByProdMaxLots == true) {
+                    Color(0xFFFFCC80)
+                } else {
+                    Color(0xFF80CBC4)
+                },
+                fontSize = 10.sp,
+                maxLines = 4,
+            )
+        }
+        displayMetrics?.let { m ->
+            Text(
+                text = "PnL ${"%.0f".format(Locale.US, m.totalPnlRubApprox)} ₽ · доходность ${"%.2f".format(Locale.US, m.totalReturnPercent)}% от счёта ${"%.0f".format(Locale.US, accountSizeRub)} ₽",
+                color = rubDeltaColor(m.totalPnlRubApprox),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+            )
+        }
         PortfolioParamsControls(
             leverage = leverage,
             commissionPercentPerSide = commissionPercentPerSide,
@@ -146,6 +195,8 @@ internal fun StrategyTestTabContent(
         StrategyTestProdParamsControls(
             accountSizeRub = accountSizeRub,
             capitalUsagePercent = capitalUsagePercent,
+            applyProdLotCap = applyProdLotCap,
+            onApplyProdLotCapChange = onApplyProdLotCapChange,
             onAccountSizeChange = onAccountSizeChange,
             onCapitalUsageChange = onCapitalUsageChange,
         )
@@ -724,23 +775,50 @@ internal fun StrategyExitModeButton(
 internal fun StrategyTestProdParamsControls(
     accountSizeRub: Double,
     capitalUsagePercent: Double,
+    applyProdLotCap: Boolean,
+    onApplyProdLotCapChange: (Boolean) -> Unit,
     onAccountSizeChange: (Double) -> Unit,
     onCapitalUsageChange: (Double) -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-        ParamRubInputStepper(
-            title = "Размер счёта",
-            valueRub = accountSizeRub,
-            onValueChange = onAccountSizeChange,
-            modifier = Modifier.weight(1f),
-        )
-        ParamStepper(
-            title = "% капитала",
-            valueLabel = "${"%.0f".format(Locale.US, capitalUsagePercent)}%",
-            onMinus = { onCapitalUsageChange((capitalUsagePercent - 5.0).coerceAtLeast(10.0)) },
-            onPlus = { onCapitalUsageChange((capitalUsagePercent + 5.0).coerceAtMost(100.0)) },
-            modifier = Modifier.weight(1f),
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            ParamRubInputStepper(
+                title = "Размер счёта",
+                valueRub = accountSizeRub,
+                onValueChange = onAccountSizeChange,
+                modifier = Modifier.weight(1f),
+            )
+            ParamStepper(
+                title = "% капитала",
+                valueLabel = "${"%.0f".format(Locale.US, capitalUsagePercent)}%",
+                onMinus = { onCapitalUsageChange((capitalUsagePercent - 5.0).coerceAtLeast(10.0)) },
+                onPlus = { onCapitalUsageChange((capitalUsagePercent + 5.0).coerceAtMost(100.0)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Лимит ${SPREAD_LOT_MAX_LOTS} л (Prod)",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 11.sp,
+                )
+                Text(
+                    text = "Выкл. — проекция PnL при росте депозита без cap брокера",
+                    color = Color(0xFF757575),
+                    fontSize = 9.sp,
+                    maxLines = 2,
+                )
+            }
+            Switch(
+                checked = applyProdLotCap,
+                onCheckedChange = onApplyProdLotCapChange,
+            )
+        }
     }
 }
 

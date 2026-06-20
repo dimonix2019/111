@@ -33,6 +33,8 @@ internal class MoexScreenState(val context: Context) {
     var portfolioCommissionPercent by mutableStateOf(0.04)
     var strategyTestAccountSizeRub by mutableStateOf(DEFAULT_STRATEGY_TEST_ACCOUNT_RUB)
     var strategyTestCapitalUsagePercent by mutableStateOf(DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT)
+    /** true = лимит 80 л как на Prod; false = проекция без cap для крупного депозита. */
+    var strategyTestApplyProdLotCap by mutableStateOf(true)
     var realTradeEntryThreshold by mutableStateOf<Double?>(null)
     var realTradeExitThreshold by mutableStateOf<Double?>(null)
     var strategyTestEntryThreshold by mutableStateOf<Double?>(null)

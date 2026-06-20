@@ -64,6 +64,42 @@ class MoexStrategyTestSizingTest {
     }
 
     @Test
+    fun previewStrategyTestEntrySizing_100kHitsProdLotCap() {
+        val bar = DataPoint(
+            timestampMillis = 1L,
+            tradeDate = "2026-06-18 07:00",
+            tatnClose = 537.9,
+            tatnpClose = 506.5,
+            spreadPercent = 6.20,
+            diff = 0.0,
+            zScore = -1.21,
+        )
+        val small = previewStrategyTestEntrySizing(bar, 10_000.0, 80.0, 7.0, applyProdLotCap = true)!!
+        val large = previewStrategyTestEntrySizing(bar, 100_000.0, 80.0, 7.0, applyProdLotCap = true)!!
+        assertTrue(small.quantityLots in 50..75)
+        assertEquals(SPREAD_LOT_MAX_LOTS, large.quantityLots)
+        assertTrue(large.cappedByProdMaxLots)
+        assertTrue(large.executionNotionalRub < small.executionNotionalRub * 2.0)
+    }
+
+    @Test
+    fun previewStrategyTestEntrySizing_uncappedScalesWithAccount() {
+        val bar = DataPoint(
+            timestampMillis = 1L,
+            tradeDate = "2026-06-18 07:00",
+            tatnClose = 537.9,
+            tatnpClose = 506.5,
+            spreadPercent = 6.20,
+            diff = 0.0,
+            zScore = -1.21,
+        )
+        val small = previewStrategyTestEntrySizing(bar, 10_000.0, 80.0, 7.0, applyProdLotCap = false)!!
+        val large = previewStrategyTestEntrySizing(bar, 100_000.0, 80.0, 7.0, applyProdLotCap = false)!!
+        assertTrue(large.executionNotionalRub > small.executionNotionalRub * 5.0)
+        assertTrue(large.quantityLots > small.quantityLots * 5)
+    }
+
+    @Test
     fun buildZStrategyPortfolioMetrics_scalesPnlWithAccountSize() {
         val points = (0 until 80).map { i ->
             val z = when {

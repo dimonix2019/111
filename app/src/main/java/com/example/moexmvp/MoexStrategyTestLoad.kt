@@ -99,6 +99,11 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                     accountSizeRub = strategyTestAccountSizeRub,
                     capitalUsagePercent = strategyTestCapitalUsagePercent,
                     leverageForLots = portfolioLeverage,
+                    maxLots = if (strategyTestApplyProdLotCap) {
+                        SPREAD_LOT_MAX_LOTS
+                    } else {
+                        STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED
+                    },
                 ),
             )
         }
@@ -180,6 +185,19 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
     ) {
         scheduleStrategyTestResimOnly(reason = "params_stale_after_sim")
     }
+}
+
+/** Сброс метрик симуляции при смене параметров (не трогаем кэш 15м). */
+internal fun MoexScreenState.invalidateStrategyTestSimResults() {
+    strategyTestPortfolioMetrics = null
+    strategyTestChartMarkers = emptyList()
+    strategyTestChartTradeSegments = emptyList()
+    strategyTestTradeRiskAssessments = emptyList()
+    strategyTestDurationSummary = null
+    strategyTestMonthlyReturnSummary = null
+    strategyTestSpreadHourlyVolatility = null
+    strategyTestVisibleSessionCache = null
+    strategyTestLastSimKey = 0L
 }
 
 /**

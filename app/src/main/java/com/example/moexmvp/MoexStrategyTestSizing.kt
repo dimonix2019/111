@@ -8,7 +8,55 @@ internal data class ZStrategyProdLikeSizing(
     val accountSizeRub: Double,
     val capitalUsagePercent: Double,
     val leverageForLots: Double,
+    /** Prod лимит 80 л; для «Тест страт.» можно снять и смотреть линейное масштабирование. */
+    val maxLots: Int = SPREAD_LOT_MAX_LOTS,
 )
+
+internal data class StrategyTestEntrySizingPreview(
+    val quantityLots: Int,
+    val executionNotionalRub: Double,
+    val lotsFromLeverage: Int,
+    val cappedByProdMaxLots: Boolean,
+)
+
+/** Оценка лотов/номинала на входе (последние цены TATN/TATNP). */
+internal fun previewStrategyTestEntrySizing(
+    bar: DataPoint,
+    accountSizeRub: Double,
+    capitalUsagePercent: Double,
+    leverageForLots: Double,
+    applyProdLotCap: Boolean = true,
+): StrategyTestEntrySizingPreview? {
+    if (bar.tatnClose <= 0.0 || bar.tatnpClose <= 0.0) return null
+    val maxLots = if (applyProdLotCap) SPREAD_LOT_MAX_LOTS else STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED
+    val reserveFraction = (1.0 - capitalUsagePercent / 100.0).coerceIn(0.0, 0.95)
+    val cash = accountSizeRub.coerceAtLeast(1.0)
+    val sizing = computeSpreadQuantityLots(
+        SpreadLotSizingInput(
+            cashRub = cash,
+            priceTatN = bar.tatnClose,
+            priceTatNp = bar.tatnpClose,
+            lotSize = 1,
+            reserveFraction = reserveFraction,
+            reserveMinRub = minOf(SPREAD_LOT_RESERVE_MIN_RUB, cash * 0.5),
+            liquidPortfolioRub = cash,
+            correctedMarginRub = 0.0,
+            leverageForNotional = leverageForLots.coerceAtLeast(1.0),
+            maxLots = maxLots,
+        )
+    )
+    val uncappedLeverageLots = if (sizing.pairNotionalPerLotRub > 0.0) {
+        kotlin.math.floor(cash * leverageForLots.coerceAtLeast(1.0) / sizing.pairNotionalPerLotRub).toInt()
+    } else {
+        0
+    }
+    return StrategyTestEntrySizingPreview(
+        quantityLots = sizing.quantityLots,
+        executionNotionalRub = sizing.executionNotionalRub,
+        lotsFromLeverage = sizing.lotsFromLeverage,
+        cappedByProdMaxLots = applyProdLotCap && uncappedLeverageLots > SPREAD_LOT_MAX_LOTS,
+    )
+}
 
 /** Номинал пары на баре — как Prod lot sizing (cash × usage%, плечо на liquid). */
 internal fun strategyTestPairNotionalRub(
@@ -16,6 +64,7 @@ internal fun strategyTestPairNotionalRub(
     accountSizeRub: Double,
     capitalUsagePercent: Double,
     leverageForLots: Double,
+    maxLots: Int = SPREAD_LOT_MAX_LOTS,
 ): Double {
     if (bar.tatnClose <= 0.0 || bar.tatnpClose <= 0.0) return accountSizeRub.coerceAtLeast(1.0)
     val reserveFraction = (1.0 - capitalUsagePercent / 100.0).coerceIn(0.0, 0.95)
@@ -31,6 +80,7 @@ internal fun strategyTestPairNotionalRub(
             liquidPortfolioRub = cash,
             correctedMarginRub = 0.0,
             leverageForNotional = leverageForLots.coerceAtLeast(1.0),
+            maxLots = maxLots.coerceAtLeast(SPREAD_LOT_MIN_LOTS),
         )
     )
     return max(sizing.executionNotionalRub, spreadPairNotionalRub(
@@ -39,6 +89,29 @@ internal fun strategyTestPairNotionalRub(
         1,
         SPREAD_LOT_MIN_LOTS,
     ))
+}
+
+internal fun strategyTestAvgExecutionNotionalRub(trades: List<PortfolioClosedTrade>): Double? {
+    val notionals = trades.map { it.executionNotionalRub }.filter { it > 0.0 }
+    return notionals.average().takeIf { notionals.isNotEmpty() && !it.isNaN() }
+}
+
+internal fun formatStrategyTestSizingHint(
+    preview: StrategyTestEntrySizingPreview?,
+    avgNotionalRub: Double?,
+    applyProdLotCap: Boolean,
+): String? {
+    preview ?: return null
+    val avgPart = avgNotionalRub?.let { avg ->
+        " · ср. номинал сделки ${"%.0f".format(Locale.US, avg)} ₽"
+    }.orEmpty()
+    val capPart = when {
+        !applyProdLotCap -> " · без лимита 80 л (проекция)"
+        preview.cappedByProdMaxLots ->
+            " · ⚠ лимит Prod ${SPREAD_LOT_MAX_LOTS} л — PnL почти не растёт при депозите >~15k"
+        else -> ""
+    }
+    return "~${preview.quantityLots} л · ~${"%.0f".format(Locale.US, preview.executionNotionalRub)} ₽ номинал$avgPart$capPart"
 }
 
 internal fun buildStrategyTestSimOptions(context: Context): ZStrategySimOptions {

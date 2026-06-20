@@ -155,6 +155,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         strategyTestCompoundReturns,
         strategyTestAccountSizeRub,
         strategyTestCapitalUsagePercent,
+        strategyTestApplyProdLotCap,
         strategyTestSimComputing,
         strategyTestM15Loading,
     ) {

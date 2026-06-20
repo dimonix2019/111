@@ -73,6 +73,7 @@ internal fun buildZStrategyPortfolioMetrics(
             accountSizeRub = cashBase,
             capitalUsagePercent = prod.capitalUsagePercent,
             leverageForLots = prod.leverageForLots,
+            maxLots = prod.maxLots,
         )
         tradeEffNotionalRub = positionNotionalRub
         tradeCommissionPerSideRub = positionNotionalRub * (commissionPercentPerSide / 100.0)
@@ -273,7 +274,8 @@ internal fun buildZStrategyPortfolioMetrics(
             grossPnlRubApprox = grossPnlRub,
             commissionRubApprox = commissionRub,
             overnightRubApprox = overnightRub,
-            pnlRubApprox = netTradeRub
+            pnlRubApprox = netTradeRub,
+            executionNotionalRub = tradeEffNotionalRub,
         )
         position = ZStrategyPosition.Flat
         resetFlatState()
@@ -301,7 +303,8 @@ internal fun buildZStrategyPortfolioMetrics(
             grossPnlRubApprox = grossPnlRub,
             commissionRubApprox = commissionRub,
             overnightRubApprox = overnightRub,
-            pnlRubApprox = netTradeRub
+            pnlRubApprox = netTradeRub,
+            executionNotionalRub = tradeEffNotionalRub,
         )
         position = ZStrategyPosition.Flat
         resetFlatState()
