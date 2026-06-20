@@ -135,14 +135,10 @@ internal suspend fun loadOpenPortfolioTradeGroupsForRiskMonitor(
         opensAfterJournalClose,
         ledgerIncludeAuto,
     )
-    val enriched = TinkoffSandboxSpreadExecLog.enrichForDisplay(
+    val enriched = enrichOpenExecutionsForBackgroundMonitor(
         context = context,
         executions = modeFiltered,
         points = points,
-        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-        leverage = 7.0,
-        commissionPercentPerSide = 0.04,
-        journalEvents = eventsAll,
     )
     filterSandboxExecutionsForTradesTable(enriched, autoOnly = false)
         .asReversed()
