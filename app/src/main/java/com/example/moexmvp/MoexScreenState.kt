@@ -33,8 +33,6 @@ internal class MoexScreenState(val context: Context) {
     var portfolioCommissionPercent by mutableStateOf(0.04)
     var strategyTestAccountSizeRub by mutableStateOf(DEFAULT_STRATEGY_TEST_ACCOUNT_RUB)
     var strategyTestCapitalUsagePercent by mutableStateOf(DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT)
-    /** true = лимит 80 л как на Prod; false = проекция без cap для крупного депозита. */
-    var strategyTestApplyProdLotCap by mutableStateOf(true)
     /** Симуляция использует пороги Z с «Портфеля» (боевые), не отдельные prefs теста. */
     var strategyTestUsePortfolioThresholds by mutableStateOf(true)
     /** Z как live-монитор: без overlay журнала на истории. */

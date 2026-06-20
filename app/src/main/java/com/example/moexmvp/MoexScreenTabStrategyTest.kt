@@ -101,7 +101,6 @@ internal fun MoexScreenTabStrategyTest(
             val parityItems = remember(
                 strategyTestAccountSizeRub,
                 strategyTestCapitalUsagePercent,
-                strategyTestApplyProdLotCap,
                 strategyTestUsePortfolioThresholds,
                 strategyTestUseLiveZSignals,
                 portfolioCommissionPercent,
@@ -116,7 +115,6 @@ internal fun MoexScreenTabStrategyTest(
                     capitalUsagePercent = strategyTestCapitalUsagePercent,
                     usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                     useLiveZSignals = strategyTestUseLiveZSignals,
-                    applyProdLotCap = strategyTestApplyProdLotCap,
                     commissionPercentPerSide = simCommission,
                     thresholdsMatchPortfolio = strategyTestThresholdsMatchPortfolio(),
                 )
@@ -162,14 +160,6 @@ internal fun MoexScreenTabStrategyTest(
                         commissionPercentPerSide = portfolioCommissionPercent,
                         accountSizeRub = strategyTestAccountSizeRub,
                         capitalUsagePercent = strategyTestCapitalUsagePercent,
-                        applyProdLotCap = strategyTestApplyProdLotCap,
-                        onApplyProdLotCapChange = { enabled ->
-                            strategyTestApplyProdLotCap = enabled
-                            invalidateStrategyTestSimResults()
-                            scope.launch {
-                                requestStrategyTestResimAfterParamsChange(reason = "prod_lot_cap")
-                            }
-                        },
                         usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                         onUsePortfolioThresholdsChange = { enabled ->
                             strategyTestUsePortfolioThresholds = enabled
@@ -291,7 +281,6 @@ internal fun MoexScreenTabStrategyTest(
                                         entryThreshold = thresholds.entry,
                                         exitThreshold = thresholds.exit,
                                         compoundReturns = strategyTestCompoundReturns,
-                                        applyProdLotCap = strategyTestApplyProdLotCap,
                                         usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                                         useLiveZSignals = strategyTestUseLiveZSignals,
                                         thresholdSource = thresholds.source.name,

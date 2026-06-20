@@ -8,15 +8,14 @@ internal data class ZStrategyProdLikeSizing(
     val accountSizeRub: Double,
     val capitalUsagePercent: Double,
     val leverageForLots: Double,
-    /** Prod лимит 80 л; для «Тест страт.» можно снять и смотреть линейное масштабирование. */
-    val maxLots: Int = SPREAD_LOT_MAX_LOTS,
+    /** В симуляции лимит только % капитала и плечо — без cap брокера. */
+    val maxLots: Int = STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED,
 )
 
 internal data class StrategyTestEntrySizingPreview(
     val quantityLots: Int,
     val executionNotionalRub: Double,
     val lotsFromLeverage: Int,
-    val cappedByProdMaxLots: Boolean,
 )
 
 /** Оценка лотов/номинала на входе (последние цены TATN/TATNP). */
@@ -25,10 +24,9 @@ internal fun previewStrategyTestEntrySizing(
     accountSizeRub: Double,
     capitalUsagePercent: Double,
     leverageForLots: Double,
-    applyProdLotCap: Boolean = true,
 ): StrategyTestEntrySizingPreview? {
     if (bar.tatnClose <= 0.0 || bar.tatnpClose <= 0.0) return null
-    val maxLots = if (applyProdLotCap) SPREAD_LOT_MAX_LOTS else STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED
+    val maxLots = STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED
     val reserveFraction = (1.0 - capitalUsagePercent / 100.0).coerceIn(0.0, 0.95)
     val cash = accountSizeRub.coerceAtLeast(1.0)
     val sizing = computeSpreadQuantityLots(
@@ -45,16 +43,10 @@ internal fun previewStrategyTestEntrySizing(
             maxLots = maxLots,
         )
     )
-    val uncappedLeverageLots = if (sizing.pairNotionalPerLotRub > 0.0) {
-        kotlin.math.floor(cash * leverageForLots.coerceAtLeast(1.0) / sizing.pairNotionalPerLotRub).toInt()
-    } else {
-        0
-    }
     return StrategyTestEntrySizingPreview(
         quantityLots = sizing.quantityLots,
         executionNotionalRub = sizing.executionNotionalRub,
         lotsFromLeverage = sizing.lotsFromLeverage,
-        cappedByProdMaxLots = applyProdLotCap && uncappedLeverageLots > SPREAD_LOT_MAX_LOTS,
     )
 }
 
@@ -64,7 +56,7 @@ internal fun strategyTestPairNotionalRub(
     accountSizeRub: Double,
     capitalUsagePercent: Double,
     leverageForLots: Double,
-    maxLots: Int = SPREAD_LOT_MAX_LOTS,
+    maxLots: Int = STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED,
 ): Double {
     if (bar.tatnClose <= 0.0 || bar.tatnpClose <= 0.0) return accountSizeRub.coerceAtLeast(1.0)
     val reserveFraction = (1.0 - capitalUsagePercent / 100.0).coerceIn(0.0, 0.95)
@@ -99,19 +91,12 @@ internal fun strategyTestAvgExecutionNotionalRub(trades: List<PortfolioClosedTra
 internal fun formatStrategyTestSizingHint(
     preview: StrategyTestEntrySizingPreview?,
     avgNotionalRub: Double?,
-    applyProdLotCap: Boolean,
 ): String? {
     preview ?: return null
     val avgPart = avgNotionalRub?.let { avg ->
         " · ср. номинал сделки ${"%.0f".format(Locale.US, avg)} ₽"
     }.orEmpty()
-    val capPart = when {
-        !applyProdLotCap -> " · без лимита 80 л (проекция)"
-        preview.cappedByProdMaxLots ->
-            " · ⚠ лимит Prod ${SPREAD_LOT_MAX_LOTS} л — PnL почти не растёт при депозите >~15k"
-        else -> ""
-    }
-    return "~${preview.quantityLots} л · ~${"%.0f".format(Locale.US, preview.executionNotionalRub)} ₽ номинал$avgPart$capPart"
+    return "~${preview.quantityLots} л · ~${"%.0f".format(Locale.US, preview.executionNotionalRub)} ₽ номинал$avgPart"
 }
 
 internal fun buildStrategyTestSimOptions(context: Context): ZStrategySimOptions {

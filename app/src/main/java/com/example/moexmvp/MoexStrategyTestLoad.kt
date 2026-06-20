@@ -98,11 +98,6 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                     accountSizeRub = strategyTestAccountSizeRub,
                     capitalUsagePercent = strategyTestCapitalUsagePercent,
                     leverageForLots = portfolioLeverage,
-                    maxLots = if (strategyTestApplyProdLotCap) {
-                        SPREAD_LOT_MAX_LOTS
-                    } else {
-                        STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED
-                    },
                 ),
             )
         }
@@ -154,7 +149,6 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                     entryThreshold = entry,
                     exitThreshold = exit,
                     compoundReturns = strategyTestCompoundReturns,
-                    applyProdLotCap = strategyTestApplyProdLotCap,
                     usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                     useLiveZSignals = strategyTestUseLiveZSignals,
                     thresholdSource = simThresholds.source.name,

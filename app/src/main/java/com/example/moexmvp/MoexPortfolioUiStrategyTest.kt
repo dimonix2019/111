@@ -57,8 +57,6 @@ internal fun StrategyTestTabContent(
     commissionPercentPerSide: Double,
     accountSizeRub: Double,
     capitalUsagePercent: Double,
-    applyProdLotCap: Boolean = true,
-    onApplyProdLotCapChange: (Boolean) -> Unit = {},
     usePortfolioThresholds: Boolean = true,
     onUsePortfolioThresholdsChange: (Boolean) -> Unit = {},
     useLiveZSignals: Boolean = true,
@@ -112,7 +110,6 @@ internal fun StrategyTestTabContent(
         accountSizeRub,
         capitalUsagePercent,
         leverage,
-        applyProdLotCap,
     ) {
         sizingSampleBar?.let { bar ->
             previewStrategyTestEntrySizing(
@@ -120,15 +117,14 @@ internal fun StrategyTestTabContent(
                 accountSizeRub = accountSizeRub,
                 capitalUsagePercent = capitalUsagePercent,
                 leverageForLots = leverage,
-                applyProdLotCap = applyProdLotCap,
             )
         }
     }
     val avgTradeNotional = remember(metrics) {
         metrics?.closedTrades?.let { strategyTestAvgExecutionNotionalRub(it) }
     }
-    val sizingHint = remember(sizingPreview, avgTradeNotional, applyProdLotCap) {
-        formatStrategyTestSizingHint(sizingPreview, avgTradeNotional, applyProdLotCap)
+    val sizingHint = remember(sizingPreview, avgTradeNotional) {
+        formatStrategyTestSizingHint(sizingPreview, avgTradeNotional)
     }
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -179,11 +175,7 @@ internal fun StrategyTestTabContent(
         sizingHint?.let { hint ->
             Text(
                 text = hint,
-                color = if (applyProdLotCap && sizingPreview?.cappedByProdMaxLots == true) {
-                    Color(0xFFFFCC80)
-                } else {
-                    Color(0xFF80CBC4)
-                },
+                color = Color(0xFF80CBC4),
                 fontSize = 10.sp,
                 maxLines = 4,
             )
@@ -212,8 +204,6 @@ internal fun StrategyTestTabContent(
         StrategyTestProdParamsControls(
             accountSizeRub = accountSizeRub,
             capitalUsagePercent = capitalUsagePercent,
-            applyProdLotCap = applyProdLotCap,
-            onApplyProdLotCapChange = onApplyProdLotCapChange,
             onAccountSizeChange = onAccountSizeChange,
             onCapitalUsageChange = onCapitalUsageChange,
         )
@@ -864,8 +854,6 @@ internal fun StrategyTestProdParityPanel(
 internal fun StrategyTestProdParamsControls(
     accountSizeRub: Double,
     capitalUsagePercent: Double,
-    applyProdLotCap: Boolean,
-    onApplyProdLotCapChange: (Boolean) -> Unit,
     onAccountSizeChange: (Double) -> Unit,
     onCapitalUsageChange: (Double) -> Unit,
 ) {
@@ -883,29 +871,6 @@ internal fun StrategyTestProdParamsControls(
                 onMinus = { onCapitalUsageChange((capitalUsagePercent - 5.0).coerceAtLeast(10.0)) },
                 onPlus = { onCapitalUsageChange((capitalUsagePercent + 5.0).coerceAtMost(100.0)) },
                 modifier = Modifier.weight(1f),
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Лимит ${SPREAD_LOT_MAX_LOTS} л (Prod)",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 11.sp,
-                )
-                Text(
-                    text = "Выкл. — проекция PnL при росте депозита без cap брокера",
-                    color = Color(0xFF757575),
-                    fontSize = 9.sp,
-                    maxLines = 2,
-                )
-            }
-            Switch(
-                checked = applyProdLotCap,
-                onCheckedChange = onApplyProdLotCapChange,
             )
         }
     }

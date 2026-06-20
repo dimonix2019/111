@@ -70,7 +70,6 @@ internal fun buildStrategyTestProdParityChecklist(
     capitalUsagePercent: Double,
     usePortfolioThresholds: Boolean,
     useLiveZSignals: Boolean,
-    applyProdLotCap: Boolean,
     commissionPercentPerSide: Double,
     thresholdsMatchPortfolio: Boolean,
 ): List<StrategyTestProdParityItem> = listOf(
@@ -80,7 +79,10 @@ internal fun buildStrategyTestProdParityChecklist(
         kotlin.math.abs(capitalUsagePercent - PROD_EFFECTIVE_CAPITAL_USAGE_PERCENT) <= 1.0,
         "Резерв капитала ≈ Prod (${"%.0f".format(Locale.US, PROD_EFFECTIVE_CAPITAL_USAGE_PERCENT)}%)",
     ),
-    StrategyTestProdParityItem(applyProdLotCap, "Лимит ${SPREAD_LOT_MAX_LOTS} л (Prod)"),
+    StrategyTestProdParityItem(
+        capitalUsagePercent in 10.0..100.0,
+        "Размер позиции по % капитала (${"%.0f".format(Locale.US, capitalUsagePercent)}%)",
+    ),
     StrategyTestProdParityItem(
         TradeExecutionLog.medianSlippageSpreadPts(context) != null,
         "Slippage из лога исполнений",

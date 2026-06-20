@@ -64,7 +64,7 @@ class MoexStrategyTestSizingTest {
     }
 
     @Test
-    fun previewStrategyTestEntrySizing_100kHitsProdLotCap() {
+    fun previewStrategyTestEntrySizing_scalesWithAccount() {
         val bar = DataPoint(
             timestampMillis = 1L,
             tradeDate = "2026-06-18 07:00",
@@ -74,16 +74,15 @@ class MoexStrategyTestSizingTest {
             diff = 0.0,
             zScore = -1.21,
         )
-        val small = previewStrategyTestEntrySizing(bar, 10_000.0, 80.0, 7.0, applyProdLotCap = true)!!
-        val large = previewStrategyTestEntrySizing(bar, 100_000.0, 80.0, 7.0, applyProdLotCap = true)!!
+        val small = previewStrategyTestEntrySizing(bar, 10_000.0, 80.0, 7.0)!!
+        val large = previewStrategyTestEntrySizing(bar, 100_000.0, 80.0, 7.0)!!
         assertTrue(small.quantityLots in 50..75)
-        assertEquals(SPREAD_LOT_MAX_LOTS, large.quantityLots)
-        assertTrue(large.cappedByProdMaxLots)
-        assertTrue(large.executionNotionalRub < small.executionNotionalRub * 2.0)
+        assertTrue(large.quantityLots > small.quantityLots * 5)
+        assertTrue(large.executionNotionalRub > small.executionNotionalRub * 5.0)
     }
 
     @Test
-    fun previewStrategyTestEntrySizing_uncappedScalesWithAccount() {
+    fun previewStrategyTestEntrySizing_capitalPercentLimitsNotional() {
         val bar = DataPoint(
             timestampMillis = 1L,
             tradeDate = "2026-06-18 07:00",
@@ -93,56 +92,25 @@ class MoexStrategyTestSizingTest {
             diff = 0.0,
             zScore = -1.21,
         )
-        val small = previewStrategyTestEntrySizing(bar, 10_000.0, 80.0, 7.0, applyProdLotCap = false)!!
-        val large = previewStrategyTestEntrySizing(bar, 100_000.0, 80.0, 7.0, applyProdLotCap = false)!!
-        assertTrue(large.executionNotionalRub > small.executionNotionalRub * 5.0)
-        assertTrue(large.quantityLots > small.quantityLots * 5)
+        val lowUsage = previewStrategyTestEntrySizing(bar, 100_000.0, 40.0, 1.0)!!
+        val highUsage = previewStrategyTestEntrySizing(bar, 100_000.0, 80.0, 1.0)!!
+        assertTrue(highUsage.executionNotionalRub > lowUsage.executionNotionalRub)
+        assertTrue(highUsage.quantityLots > lowUsage.quantityLots)
     }
 
     @Test
-    fun buildZStrategyPortfolioMetrics_scalesPnlWithAccountSize() {
-        val points = (0 until 80).map { i ->
-            val z = when {
-                i == 20 -> -2.5
-                i == 25 -> -0.4
-                i == 40 -> 2.5
-                i == 45 -> 0.4
-                else -> 0.0
-            }
-            DataPoint(
-                timestampMillis = i * 900_000L,
-                tradeDate = "2026-01-01 ${"%02d".format(10 + i / 4)}:${"%02d".format((i % 4) * 15)}",
-                tatnClose = 530.0,
-                tatnpClose = 500.0,
-                spreadPercent = 6.0,
-                diff = 0.0,
-                zScore = z,
-            )
-        }
-        val thresholds = DynamicThresholds(2.0, 0.5, null)
-        val prodLike = ZStrategyProdLikeSizing(
-            accountSizeRub = 10_000.0,
-            capitalUsagePercent = 80.0,
-            leverageForLots = 7.0,
+    fun strategyTestPairNotional_scalesLinearlyWithAccount() {
+        val bar = DataPoint(
+            timestampMillis = 1L,
+            tradeDate = "2026-06-18 07:00",
+            tatnClose = 537.9,
+            tatnpClose = 506.5,
+            spreadPercent = 6.20,
+            diff = 0.0,
+            zScore = -1.21,
         )
-        fun metricsFor(accountRub: Double): PortfolioMetrics? =
-            buildZStrategyPortfolioMetrics(
-                points = points,
-                thresholds = thresholds,
-                notionalRub = accountRub,
-                leverage = 1.0,
-                commissionPercentPerSide = 0.04,
-                periodDescription = "test",
-                compoundReturns = false,
-                exitMode = ZStrategyExitMode.FixedThreshold,
-                prodLikeSizing = prodLike.copy(accountSizeRub = accountRub),
-            )
-        val small = metricsFor(10_000.0)
-        val large = metricsFor(20_000.0)
-        assertNotNull(small)
-        assertNotNull(large)
-        if (small!!.closedTrades.isNotEmpty() && large!!.closedTrades.isNotEmpty()) {
-            assertTrue(large.totalPnlRubApprox > small.totalPnlRubApprox * 1.5)
-        }
+        val small = strategyTestPairNotionalRub(bar, 10_000.0, 80.0, 7.0)
+        val large = strategyTestPairNotionalRub(bar, 100_000.0, 80.0, 7.0)
+        assertTrue(large > small * 5.0)
     }
 }
