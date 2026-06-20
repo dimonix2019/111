@@ -87,12 +87,18 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
             buildZStrategyPortfolioMetrics(
                 points = simPoints,
                 thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                leverage = portfolioLeverage,
+                notionalRub = strategyTestAccountSizeRub,
+                leverage = 1.0,
                 commissionPercentPerSide = portfolioCommissionPercent,
-                periodDescription = "Тест страт. · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+                periodDescription = buildStrategyTestPeriodDescription(context),
                 compoundReturns = strategyTestCompoundReturns,
                 exitMode = ZStrategyExitMode.FixedThreshold,
+                simOptions = buildStrategyTestSimOptions(context),
+                prodLikeSizing = ZStrategyProdLikeSizing(
+                    accountSizeRub = strategyTestAccountSizeRub,
+                    capitalUsagePercent = strategyTestCapitalUsagePercent,
+                    leverageForLots = portfolioLeverage,
+                ),
             )
         }
         if (!isStrategyTestWorkCurrent(workId)) return

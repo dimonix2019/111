@@ -31,6 +31,8 @@ internal class MoexScreenState(val context: Context) {
     var portfolioLookbackDays by mutableStateOf(loadPortfolioLookbackDays(context))
     var portfolioLeverage by mutableStateOf(7.0)
     var portfolioCommissionPercent by mutableStateOf(0.04)
+    var strategyTestAccountSizeRub by mutableStateOf(DEFAULT_STRATEGY_TEST_ACCOUNT_RUB)
+    var strategyTestCapitalUsagePercent by mutableStateOf(DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT)
     var realTradeEntryThreshold by mutableStateOf<Double?>(null)
     var realTradeExitThreshold by mutableStateOf<Double?>(null)
     var strategyTestEntryThreshold by mutableStateOf<Double?>(null)

@@ -23,6 +23,8 @@ internal fun MoexScreenState.strategyTestSimulationKey(): Long {
     hash = 31 * hash + exit.toBits()
     hash = 31 * hash + portfolioLeverage.toBits()
     hash = 31 * hash + portfolioCommissionPercent.toBits()
+    hash = 31 * hash + strategyTestAccountSizeRub.toBits()
+    hash = 31 * hash + strategyTestCapitalUsagePercent.toBits()
     hash = 31 * hash + strategyTestCompoundReturns.hashCode()
     hash = 31 * hash + strategyTestM15SessionCache.size
     hash = 31 * hash + (strategyTestM15SessionCache.firstOrNull()?.timestampMillis ?: 0L)

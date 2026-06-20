@@ -57,6 +57,14 @@ internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 /** Debounce rapid threshold/leverage tweaks on «Тест страт.» before rerunning simulation. */
 internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 750L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
+/** «Тест страт.»: размер счёта по умолчанию (как субсчёт «Арбитраж» ~10k). */
+internal const val DEFAULT_STRATEGY_TEST_ACCOUNT_RUB = 10_000.0
+/** «Тест страт.»: доля капитала в сделку (остальное — резерв), parity Prod ≈80%. */
+internal const val DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT = 80.0
+/** Slippage по умолчанию (п.п. спреда), если лог сделок ещё пуст. */
+internal const val DEFAULT_STRATEGY_TEST_SLIPPAGE_SPREAD_PTS = 0.05
+internal const val PREF_STRATEGY_TEST_ACCOUNT_RUB = "strategy_test_account_rub"
+internal const val PREF_STRATEGY_TEST_CAPITAL_USAGE_PCT = "strategy_test_capital_usage_pct"
 internal const val PROD_MONEY_STOP_PER_TRADE_RUB = 4_000.0
 /** Доля свободных денег, которую не тратим на вход (резерв под ГО/комиссии). */
 internal const val SPREAD_LOT_RESERVE_CASH_FRACTION = 0.25
@@ -167,6 +175,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.204 — Лог сделок (3 фазы): fill/slip/частично, CSV; «Тест страт.» Prod-like (10k, 80%, lot sizing, slip из лога).
 1.7.203 — «Закрыть все сделки»: не удаляет историю закрытых Prod-сделок; закрытие через closePortfolioOpenTrade.
 1.7.202 — Шторка/red-risk: PnL на Prod из GetPortfolio (expectedYield), как T‑Invest; не MOEX-симуляция ×100k.
 1.7.201 — Обновление APK: проверка целостности, gh-pages зеркало, подпись; fix «Невозможно обработать пакет».

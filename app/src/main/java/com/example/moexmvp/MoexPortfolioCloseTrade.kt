@@ -44,6 +44,24 @@ internal suspend fun closePortfolioOpenTrade(
     val legs = executeSpreadExitIfConfigured(context, entrySignal, execution.quantityLots)
     val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
     val (exitTs, exitZ) = resolveExitBarForPortfolioClose(context, execution, null, null)
+    if (legs.isNotEmpty()) {
+        val app = context.applicationContext
+        val bar = loadZStrategySignalSeries(app, PortfolioM15LoadMode.CACHE_ONLY)
+            .minByOrNull { kotlin.math.abs(it.timestampMillis - exitTs) }
+        TradeExecutionLog.recordSpreadLegFills(
+            context = app,
+            tradeId = execution.tradeId,
+            phase = TradeExecPhase.Exit,
+            legs = legs,
+            executionMode = mode,
+            signalBarMillis = exitTs,
+            zScore = exitZ,
+            refTatnPriceRub = bar?.tatnClose,
+            refTatnpPriceRub = bar?.tatnpClose,
+            refSpreadPercent = bar?.spreadPercent,
+            source = "portfolio_close",
+        )
+    }
     val closedRecord = if (mode == TinkoffExecutionMode.Prod) {
         recordProdClosedTradeAfterExit(
             context = context,

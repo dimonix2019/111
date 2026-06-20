@@ -10,7 +10,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
@@ -85,6 +87,7 @@ internal fun MoexScreenTabStrategyTest(
         }
         return
     }
+    val context = LocalContext.current
     Column(modifier.fillMaxSize()) {
         with(screen) {
             LazyColumn(
@@ -122,6 +125,9 @@ internal fun MoexScreenTabStrategyTest(
                         },
                         leverage = portfolioLeverage,
                         commissionPercentPerSide = portfolioCommissionPercent,
+                        accountSizeRub = strategyTestAccountSizeRub,
+                        capitalUsagePercent = strategyTestCapitalUsagePercent,
+                        execLogSummary = TradeExecutionLog.calibrationSummary(context),
                         entryThreshold = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
                             .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                         exitThreshold = (strategyTestExitThreshold ?: dynamicThresholds.exit)
@@ -132,6 +138,10 @@ internal fun MoexScreenTabStrategyTest(
                         onExcludeRedZoneChange = { strategyTestExcludeRedZone = it },
                         onLeverageChange = { portfolioLeverage = it },
                         onCommissionChange = { portfolioCommissionPercent = it },
+                        onAccountSizeChange = { strategyTestAccountSizeRub = it.coerceIn(1_000.0, 10_000_000.0) },
+                        onCapitalUsageChange = {
+                            strategyTestCapitalUsagePercent = it.coerceIn(10.0, 100.0)
+                        },
                         onEntryThresholdChange = { newEntry ->
                             strategyTestEntryThreshold = newEntry.coerceIn(
                                 PORTFOLIO_Z_THRESHOLD_MIN,

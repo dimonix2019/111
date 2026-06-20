@@ -54,6 +54,9 @@ internal fun StrategyTestTabContent(
     onMoex15mFullReload: () -> Unit,
     leverage: Double,
     commissionPercentPerSide: Double,
+    accountSizeRub: Double,
+    capitalUsagePercent: Double,
+    execLogSummary: String,
     entryThreshold: Double,
     exitThreshold: Double,
     compoundReturns: Boolean,
@@ -62,6 +65,8 @@ internal fun StrategyTestTabContent(
     onExcludeRedZoneChange: (Boolean) -> Unit = {},
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
+    onAccountSizeChange: (Double) -> Unit,
+    onCapitalUsageChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
     onExitThresholdChange: (Double) -> Unit,
     dailyReconciliation: DailyPortfolioReconciliation? = null,
@@ -105,13 +110,21 @@ internal fun StrategyTestTabContent(
             )
         }
         Text(
-            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · симуляция по Z",
+            text = "${"%.0f".format(Locale.US, accountSizeRub)} ₽ · ${"%.0f".format(Locale.US, capitalUsagePercent)}% капитала · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · Prod-like",
             color = Color(0xFF9E9E9E),
             fontSize = 10.sp,
-            maxLines = 2
+            maxLines = 3
         )
+        if (execLogSummary.isNotBlank()) {
+            Text(
+                text = "Лог исполнений: $execLogSummary",
+                color = Color(0xFF80CBC4),
+                fontSize = 10.sp,
+                maxLines = 2,
+            )
+        }
         Text(
-            text = "Симуляция: одно пересечение Z на бар; после выхода — новый вход только после возврата Z за полосу exit (re-arm).",
+            text = "Симуляция: lot sizing как Prod (счёт×%×плечо), PnL без ×7, slippage и money-stop 4000₽ из лога.",
             color = Color(0xFFF48FB1),
             fontSize = 10.sp,
             maxLines = 3
@@ -127,6 +140,12 @@ internal fun StrategyTestTabContent(
             onCommissionChange = onCommissionChange,
             onEntryThresholdChange = onEntryThresholdChange,
             onExitThresholdChange = onExitThresholdChange
+        )
+        StrategyTestProdParamsControls(
+            accountSizeRub = accountSizeRub,
+            capitalUsagePercent = capitalUsagePercent,
+            onAccountSizeChange = onAccountSizeChange,
+            onCapitalUsageChange = onCapitalUsageChange,
         )
         if (zScoreCandles.isNotEmpty() && chartThresholds != null) {
             val zReferenceLines = remember(chartThresholds) {
@@ -680,6 +699,31 @@ internal fun StrategyExitModeButton(
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
     ) {
         Text(text, fontSize = 10.sp, maxLines = 1)
+    }
+}
+
+@Composable
+internal fun StrategyTestProdParamsControls(
+    accountSizeRub: Double,
+    capitalUsagePercent: Double,
+    onAccountSizeChange: (Double) -> Unit,
+    onCapitalUsageChange: (Double) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        ParamStepper(
+            title = "Размер счёта",
+            valueLabel = "${"%.0f".format(Locale.US, accountSizeRub)} ₽",
+            onMinus = { onAccountSizeChange((accountSizeRub - 1_000.0).coerceAtLeast(1_000.0)) },
+            onPlus = { onAccountSizeChange((accountSizeRub + 1_000.0).coerceAtMost(10_000_000.0)) },
+            modifier = Modifier.weight(1f),
+        )
+        ParamStepper(
+            title = "% капитала",
+            valueLabel = "${"%.0f".format(Locale.US, capitalUsagePercent)}%",
+            onMinus = { onCapitalUsageChange((capitalUsagePercent - 5.0).coerceAtLeast(10.0)) },
+            onPlus = { onCapitalUsageChange((capitalUsagePercent + 5.0).coerceAtMost(100.0)) },
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

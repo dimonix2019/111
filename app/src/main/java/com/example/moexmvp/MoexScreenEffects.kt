@@ -153,6 +153,8 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         portfolioLeverage,
         portfolioCommissionPercent,
         strategyTestCompoundReturns,
+        strategyTestAccountSizeRub,
+        strategyTestCapitalUsagePercent,
     ) {
         if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
         if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
@@ -172,6 +174,18 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             val (t, a) = TinkoffSandboxStorage.hydrateCredentialsForUi(context, mode)
             sandboxTokenInput = t
             sandboxAccountInput = a
+        }
+    }
+
+    LaunchedEffect(strategyTestAccountSizeRub) {
+        withContext(Dispatchers.IO) {
+            saveStrategyTestAccountSizeRub(context, strategyTestAccountSizeRub)
+        }
+    }
+
+    LaunchedEffect(strategyTestCapitalUsagePercent) {
+        withContext(Dispatchers.IO) {
+            saveStrategyTestCapitalUsagePercent(context, strategyTestCapitalUsagePercent)
         }
     }
 

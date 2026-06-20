@@ -346,6 +346,34 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
                 Text("Текст", fontSize = 12.sp)
             }
         }
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    val csv = withContext(Dispatchers.IO) { TradeExecutionLog.exportCsv(context) }
+                    if (csv.lines().size <= 1) {
+                        Toast.makeText(context, "Лог сделок пуст", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    val clip = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    clip.setPrimaryClip(
+                        android.content.ClipData.newPlainText("moex_trade_log.csv", csv)
+                    )
+                    Toast.makeText(
+                        context,
+                        "CSV лога сделок (${csv.lines().size - 1} ног) в буфере",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            },
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF80CBC4)),
+        ) {
+            Text("CSV лог сделок (цена/slip/частично)", fontSize = 12.sp)
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End

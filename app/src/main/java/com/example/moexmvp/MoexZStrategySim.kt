@@ -25,6 +25,7 @@ internal fun buildZStrategyPortfolioMetrics(
     simLoopStartIndex: Int = 1,
     initialCarryOpen: PortfolioOpenPosition? = null,
     todaySliceOnly: Boolean = false,
+    prodLikeSizing: ZStrategyProdLikeSizing? = null,
 ): PortfolioMetrics? {
     if (points.size < 2) return null
     val loopStart = simLoopStartIndex.coerceIn(1, points.lastIndex)
@@ -52,12 +53,34 @@ internal fun buildZStrategyPortfolioMetrics(
     }
 
     var positionNotionalRub = notionalRub
-    var tradeEffNotionalRub = notionalRub * leverage
+    var tradeEffNotionalRub = if (prodLikeSizing != null) notionalRub else notionalRub * leverage
     var tradeCommissionPerSideRub = tradeEffNotionalRub * (commissionPercentPerSide / 100.0)
-    var tradeOvernightFeePerDayRub =
+    var tradeOvernightFeePerDayRub = if (prodLikeSizing != null) {
+        0.0
+    } else {
         notionalRub * (leverage - 1.0).coerceAtLeast(0.0) * (TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY / 100.0)
+    }
+
+    fun applyProdLikeSizingAtBar(bar: DataPoint) {
+        val prod = prodLikeSizing ?: return
+        val cashBase = if (compoundReturns) {
+            kotlin.math.max(prod.accountSizeRub, notionalRub + realizedRub)
+        } else {
+            prod.accountSizeRub
+        }
+        positionNotionalRub = strategyTestPairNotionalRub(
+            bar = bar,
+            accountSizeRub = cashBase,
+            capitalUsagePercent = prod.capitalUsagePercent,
+            leverageForLots = prod.leverageForLots,
+        )
+        tradeEffNotionalRub = positionNotionalRub
+        tradeCommissionPerSideRub = positionNotionalRub * (commissionPercentPerSide / 100.0)
+        tradeOvernightFeePerDayRub = 0.0
+    }
 
     fun refreshTradeFeesFromPositionNotional() {
+        if (prodLikeSizing != null) return
         tradeEffNotionalRub = positionNotionalRub * leverage
         tradeCommissionPerSideRub = tradeEffNotionalRub * (commissionPercentPerSide / 100.0)
         tradeOvernightFeePerDayRub =
@@ -286,6 +309,7 @@ internal fun buildZStrategyPortfolioMetrics(
 
     fun enterLongAtBar(bar: DataPoint) {
         applyTradeSizingFromRealized()
+        applyProdLikeSizingAtBar(bar)
         position = ZStrategyPosition.Long
         entrySpread = zSimEntrySpread(bar.spreadPercent, ZStrategyPosition.Long, slip)
         entryDate = bar.tradeDate
@@ -301,6 +325,7 @@ internal fun buildZStrategyPortfolioMetrics(
 
     fun enterShortAtBar(bar: DataPoint) {
         applyTradeSizingFromRealized()
+        applyProdLikeSizingAtBar(bar)
         position = ZStrategyPosition.Short
         entrySpread = zSimEntrySpread(bar.spreadPercent, ZStrategyPosition.Short, slip)
         entryDate = bar.tradeDate

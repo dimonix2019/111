@@ -236,6 +236,16 @@ internal suspend fun MoexScreenState.refreshProdOpenTradesFromBroker(
     journalEvents: List<StrategySignalEvent> = signalEvents,
 ) {
     if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) return
+    withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        runCatching {
+            TradeExecutionLog.backfillFromOperations(
+                context,
+                fromMillis = now - 30L * 24 * 60 * 60 * 1000,
+                toMillis = now,
+            )
+        }
+    }
     val ledgerIncludeAuto = portfolioLedgerIncludeAuto
     val raw = withContext(Dispatchers.IO) {
         TinkoffSandboxSpreadExecLog.loadRecent(context)

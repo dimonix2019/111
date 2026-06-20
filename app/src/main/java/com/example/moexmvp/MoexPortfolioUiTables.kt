@@ -150,6 +150,7 @@ internal fun PortfolioTradeOrdersGroupedTable(
     showLeadingOpenRiskIcon: Boolean = false,
 ) {
     if (groups.isEmpty()) return
+    val context = LocalContext.current
     val scroll = rememberScrollState()
     if (caption.isNotBlank()) {
         Text(
@@ -355,6 +356,21 @@ internal fun PortfolioTradeOrdersGroupedTable(
                             )
                         }
                     }
+                }
+                val execFills = remember(group.tradeId) {
+                    TradeExecutionLog.fillsForTrade(context, group.tradeId)
+                }
+                if (execFills.isNotEmpty()) {
+                    Text(
+                        text = execFills.joinToString(" · ") { fill ->
+                            "${fill.phase.name} ${fill.ticker}: ${TradeExecutionLog.formatLegFillSummary(fill)}"
+                        },
+                        color = Color(0xFF80CBC4),
+                        fontSize = 9.sp,
+                        lineHeight = 11.sp,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        maxLines = 4,
+                    )
                 }
             }
             Spacer(
