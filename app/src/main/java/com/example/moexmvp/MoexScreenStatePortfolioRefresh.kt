@@ -145,6 +145,8 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     if (portfolioTabUiBuiltKey == uiKey && portfolioM15Points.size >= 2) {
         if (portfolio15mSeriesIntradayStale(portfolioM15Points)) {
             refreshPortfolioM15TailSilent()
+        } else {
+            refreshM15LiveFormingTail(reason = "portfolio_tab")
         }
         return
     }
@@ -164,6 +166,48 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
 
     val mode = PortfolioM15LoadMode.CACHE_ONLY
     refreshPortfolio(mode, trackProgress = false)
+}
+
+internal fun MoexScreenState.publishMarketsLiveZFromPoints(points: List<DataPoint>) {
+    val last = points.lastOrNull() ?: return
+    marketsLiveZScore = last.zScore
+    marketsLiveZBarAt = last.tradeDate
+}
+
+/**
+ * Каждые 15–30 с: 10м→15м с MOEX + пересчёт Z на хвосте ~2 ч (без persisted).
+ */
+internal suspend fun MoexScreenState.refreshM15LiveFormingTail(reason: String) {
+    if (!activityResumed) return
+    if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) return
+    val lookback = when (selectedTab) {
+        MainTab.Markets -> marketsM15LookbackDays(selectedPeriod.coerceToMarketsUiPeriod())
+            .coerceAtLeast(portfolioLookbackDays)
+        else -> portfolioLookbackDays
+    }
+    val loaded = try {
+        refreshPortfolio15mLiveFormingTailFromMoex(context, lookback)
+    } catch (t: Throwable) {
+        MoexDiagnostics.logError(context, "m15_z", t, "live_tail failed reason=$reason")
+        null
+    } ?: run {
+        MoexDiagnostics.log(context, "m15_tail", "live_forming_skip no_rows lookback=$lookback reason=$reason")
+        return
+    }
+    MoexDiagnostics.log(context, "m15_tail", "live_forming reason=$reason tab=${selectedTab.label}")
+    portfolioM15Points = loaded
+    publishMarketsLiveZFromPoints(loaded)
+    when (selectedTab) {
+        MainTab.Markets -> storeMarketsM15(loaded)
+        MainTab.Portfolio -> {
+            if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
+            rebuildPortfolioUiFromPoints(loaded)
+        }
+        MainTab.Journal -> {
+            if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
+        }
+        else -> Unit
+    }
 }
 
 /** Фоновая догрузка хвоста 15м (MOEX INCREMENTAL) без progress overlay. */
@@ -189,6 +233,9 @@ internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
 
 /** Догрузка 15м с MOEX, если хвост устарел или нет баров за сегодня (МСК). */
 internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: String) {
+    if (selectedTab != MainTab.Markets) {
+        refreshM15LiveFormingTail(reason = "${reason}_forming")
+    }
     val src = when (selectedTab) {
         MainTab.Markets -> marketsM15Source().takeIf { it.size >= 2 } ?: portfolioM15Points
         else -> portfolioM15Points.takeIf { it.size >= 2 } ?: marketsM15Source()
@@ -204,6 +251,7 @@ internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: Strin
             if (loaded.size >= 2) {
                 storeMarketsM15(loaded)
                 portfolioM15Points = loaded
+                publishMarketsLiveZFromPoints(loaded)
             }
         }
         MainTab.Portfolio -> refreshPortfolioM15TailSilent()
@@ -658,7 +706,10 @@ internal suspend fun MoexScreenState.refreshData(
                 if (!mayRefreshMarkets(refreshPolicy)) return@launch
                 isRefreshing = true
                 try {
-                    performRefresh()
+                    runCatching { performRefresh() }
+                        .onFailure { t ->
+                            MoexDiagnostics.logError(context, "ui", t, "refreshData bg performRefresh")
+                        }
                 } finally {
                     isRefreshing = false
                 }
@@ -668,7 +719,26 @@ internal suspend fun MoexScreenState.refreshData(
 
         if (!blockUi) isRefreshing = true
         try {
-            performRefresh()
+            runCatching { performRefresh() }
+                .onFailure { t ->
+                    MoexDiagnostics.logError(context, "ui", t, "refreshData performRefresh")
+                    if (MoexDiagnostics.isTransientNetworkError(t)) {
+                        realtimeError = "Сеть недоступна или нестабильна"
+                        lastGoodMarkets?.let {
+                            marketsStale = true
+                            state = it
+                        }
+                    } else if (lastGoodMarkets != null) {
+                        marketsStale = true
+                        state = lastGoodMarkets!!
+                        realtimeError = t.message?.take(120)
+                    }
+                }
+            runCatching {
+                refreshMarketsLiveQuotesBundle(reason = "refreshData", scope = launchScope)
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "quotes", t, "refreshData live_quotes")
+            }
         } finally {
             isRefreshing = false
             MoexDiagnostics.log(

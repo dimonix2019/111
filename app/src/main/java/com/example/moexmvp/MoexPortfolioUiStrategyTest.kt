@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +55,18 @@ internal fun StrategyTestTabContent(
     onMoex15mFullReload: () -> Unit,
     leverage: Double,
     commissionPercentPerSide: Double,
+    accountSizeRub: Double,
+    capitalUsagePercent: Double,
+    maxLossDdPercent: Double,
+    usePortfolioThresholds: Boolean = true,
+    onUsePortfolioThresholdsChange: (Boolean) -> Unit = {},
+    useLiveZSignals: Boolean = true,
+    onUseLiveZSignalsChange: (Boolean) -> Unit = {},
+    parityItems: List<StrategyTestProdParityItem> = emptyList(),
+    onApplyProdAccountCash: (() -> Unit)? = null,
+    onApplyProdReservePercent: (() -> Unit)? = null,
+    simCommissionPercentPerSide: Double,
+    execLogSummary: String,
     entryThreshold: Double,
     exitThreshold: Double,
     compoundReturns: Boolean,
@@ -62,8 +75,12 @@ internal fun StrategyTestTabContent(
     onExcludeRedZoneChange: (Boolean) -> Unit = {},
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
+    onAccountSizeChange: (Double) -> Unit,
+    onCapitalUsageChange: (Double) -> Unit,
+    onMaxLossDdPercentChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
     onExitThresholdChange: (Double) -> Unit,
+    onExportCompareCsv: () -> Unit = {},
     dailyReconciliation: DailyPortfolioReconciliation? = null,
 ) {
     val (displayTradeItems, displayRiskAssessments) = remember(
@@ -87,6 +104,33 @@ internal fun StrategyTestTabContent(
     val displayMetrics = remember(metrics, displayTradeItems, excludeRedZone) {
         strategyTestMetricsForDisplay(metrics, displayTradeItems, excludeRedZone)
     }
+    val sizingSampleBar = remember(m15ChartPoints) {
+        m15ChartPoints.lastOrNull { it.tatnClose > 0.0 && it.tatnpClose > 0.0 }
+    }
+    val sizingPreview = remember(
+        sizingSampleBar,
+        accountSizeRub,
+        capitalUsagePercent,
+        leverage,
+    ) {
+        sizingSampleBar?.let { bar ->
+            previewStrategyTestEntrySizing(
+                bar = bar,
+                accountSizeRub = accountSizeRub,
+                capitalUsagePercent = capitalUsagePercent,
+                leverageForLots = leverage,
+            )
+        }
+    }
+    val avgTradeNotional = remember(metrics) {
+        metrics?.closedTrades?.let { strategyTestAvgExecutionNotionalRub(it) }
+    }
+    val sizingHint = remember(sizingPreview, avgTradeNotional) {
+        formatStrategyTestSizingHint(sizingPreview, avgTradeNotional)
+    }
+    val maxLossHint = remember(maxLossDdPercent, accountSizeRub) {
+        formatStrategyTestMaxLossDdHint(maxLossDdPercent, accountSizeRub)
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
@@ -104,18 +148,60 @@ internal fun StrategyTestTabContent(
                 fontSize = 11.sp
             )
         }
+        if (simulationComputing && metrics != null) {
+            Text(
+                text = "Пересчёт симуляции… таблица ниже — предыдущий результат до обновления.",
+                color = Color(0xFF9FA8DA),
+                fontSize = 10.sp,
+                maxLines = 2,
+            )
+        }
         Text(
-            text = "${"%.0f".format(Locale.US, metrics?.notionalRub ?: DEFAULT_PORTFOLIO_NOTIONAL_RUB)} ₽ · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", commissionPercentPerSide)}% / сторона · симуляция по Z",
+            text = "${"%.0f".format(Locale.US, accountSizeRub)} ₽ · ${"%.0f".format(Locale.US, capitalUsagePercent)}% капитала · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", simCommissionPercentPerSide)}% комиссия/стор · боевой режим",
             color = Color(0xFF9E9E9E),
-            fontSize = 10.sp,
-            maxLines = 2
-        )
-        Text(
-            text = "Симуляция: одно пересечение Z на бар; после выхода — новый вход только после возврата Z за полосу exit (re-arm).",
-            color = Color(0xFFF48FB1),
             fontSize = 10.sp,
             maxLines = 3
         )
+        StrategyTestProdParityPanel(
+            items = parityItems,
+            usePortfolioThresholds = usePortfolioThresholds,
+            onUsePortfolioThresholdsChange = onUsePortfolioThresholdsChange,
+            useLiveZSignals = useLiveZSignals,
+            onUseLiveZSignalsChange = onUseLiveZSignalsChange,
+            onApplyProdAccountCash = onApplyProdAccountCash,
+            onApplyProdReservePercent = onApplyProdReservePercent,
+        )
+        if (execLogSummary.isNotBlank()) {
+            Text(
+                text = "Лог исполнений: $execLogSummary",
+                color = Color(0xFF80CBC4),
+                fontSize = 10.sp,
+                maxLines = 2,
+            )
+        }
+        Text(
+            text = "PnL по MOEX-spread × номинал лотов (не broker MTM). Выход: порог Z + $maxLossHint",
+            color = Color(0xFFF48FB1),
+            fontSize = 10.sp,
+            maxLines = 4
+        )
+        sizingHint?.let { hint ->
+            Text(
+                text = hint,
+                color = Color(0xFF80CBC4),
+                fontSize = 10.sp,
+                maxLines = 4,
+            )
+        }
+        displayMetrics?.let { m ->
+            Text(
+                text = "PnL ${"%.0f".format(Locale.US, m.totalPnlRubApprox)} ₽ · доходность ${"%.2f".format(Locale.US, m.totalReturnPercent)}% от счёта ${"%.0f".format(Locale.US, accountSizeRub)} ₽",
+                color = rubDeltaColor(m.totalPnlRubApprox),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+            )
+        }
         PortfolioParamsControls(
             leverage = leverage,
             commissionPercentPerSide = commissionPercentPerSide,
@@ -127,6 +213,14 @@ internal fun StrategyTestTabContent(
             onCommissionChange = onCommissionChange,
             onEntryThresholdChange = onEntryThresholdChange,
             onExitThresholdChange = onExitThresholdChange
+        )
+        StrategyTestProdParamsControls(
+            accountSizeRub = accountSizeRub,
+            capitalUsagePercent = capitalUsagePercent,
+            maxLossDdPercent = maxLossDdPercent,
+            onAccountSizeChange = onAccountSizeChange,
+            onCapitalUsageChange = onCapitalUsageChange,
+            onMaxLossDdPercentChange = onMaxLossDdPercentChange,
         )
         if (zScoreCandles.isNotEmpty() && chartThresholds != null) {
             val zReferenceLines = remember(chartThresholds) {
@@ -243,13 +337,29 @@ internal fun StrategyTestTabContent(
                     )
                     PortfolioMetricGrid(m, showHeroDuplicate = false)
                 }
-                Text(
-                    text = "Сделки симуляции (${displayTradeItems.size}) · ${m.periodDescription}",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Сделки симуляции (${displayTradeItems.size}) · ${m.periodDescription}",
+                        color = Color(0xFFE0E0E0),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedButton(
+                        onClick = onExportCompareCsv,
+                        enabled = tradeItems.isNotEmpty(),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF80CBC4)),
+                    ) {
+                        Text("CSV сравнение", fontSize = 10.sp)
+                    }
+                }
                 if (excludeRedZone && displayTradeItems.size < tradeItems.size) {
                     Text(
                         text = "Скрыто ${tradeItems.size - displayTradeItems.size} сделок в красной зоне (≥4 балла).",
@@ -680,6 +790,117 @@ internal fun StrategyExitModeButton(
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
     ) {
         Text(text, fontSize = 10.sp, maxLines = 1)
+    }
+}
+
+@Composable
+internal fun StrategyTestProdParityPanel(
+    items: List<StrategyTestProdParityItem>,
+    usePortfolioThresholds: Boolean,
+    onUsePortfolioThresholdsChange: (Boolean) -> Unit,
+    useLiveZSignals: Boolean,
+    onUseLiveZSignalsChange: (Boolean) -> Unit,
+    onApplyProdAccountCash: (() -> Unit)?,
+    onApplyProdReservePercent: (() -> Unit)?,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF1A2332), RoundedCornerShape(8.dp))
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "Боевой режим симуляции",
+            color = Color(0xFF81D4FA),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        items.forEach { item ->
+            Text(
+                text = "${if (item.ok) "✓" else "○"} ${item.label}",
+                color = if (item.ok) Color(0xFF80CBC4) else Color(0xFFFFCC80),
+                fontSize = 9.sp,
+                maxLines = 2,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Пороги = Портфель", color = Color(0xFFE0E0E0), fontSize = 10.sp)
+            Switch(checked = usePortfolioThresholds, onCheckedChange = onUsePortfolioThresholdsChange)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Z как live (без журнала)", color = Color(0xFFE0E0E0), fontSize = 10.sp)
+            Switch(checked = useLiveZSignals, onCheckedChange = onUseLiveZSignalsChange)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            onApplyProdAccountCash?.let { applyCash ->
+                OutlinedButton(
+                    onClick = applyCash,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA)),
+                ) {
+                    Text("Cash Prod", fontSize = 9.sp, maxLines = 1)
+                }
+            }
+            onApplyProdReservePercent?.let { applyReserve ->
+                OutlinedButton(
+                    onClick = applyReserve,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA)),
+                ) {
+                    Text("Резерв ${"%.0f".format(Locale.US, PROD_EFFECTIVE_CAPITAL_USAGE_PERCENT)}%", fontSize = 9.sp, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun StrategyTestProdParamsControls(
+    accountSizeRub: Double,
+    capitalUsagePercent: Double,
+    maxLossDdPercent: Double,
+    onAccountSizeChange: (Double) -> Unit,
+    onCapitalUsageChange: (Double) -> Unit,
+    onMaxLossDdPercentChange: (Double) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            ParamRubInputStepper(
+                title = "Размер счёта",
+                valueRub = accountSizeRub,
+                onValueChange = onAccountSizeChange,
+                modifier = Modifier.weight(1f),
+            )
+            ParamStepper(
+                title = "% капитала",
+                valueLabel = "${"%.0f".format(Locale.US, capitalUsagePercent)}%",
+                onMinus = { onCapitalUsageChange((capitalUsagePercent - 5.0).coerceAtLeast(10.0)) },
+                onPlus = { onCapitalUsageChange((capitalUsagePercent + 5.0).coerceAtMost(100.0)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        ParamStepper(
+            title = "% DD / сделку",
+            valueLabel = if (maxLossDdPercent <= 0.0) {
+                "0% (выкл.)"
+            } else {
+                "${"%.1f".format(Locale.US, maxLossDdPercent)}% ≈ ${"%.0f".format(Locale.US, resolveStrategyTestMaxLossRub(accountSizeRub, maxLossDdPercent))} ₽"
+            },
+            onMinus = { onMaxLossDdPercentChange((maxLossDdPercent - 1.0).coerceAtLeast(0.0)) },
+            onPlus = { onMaxLossDdPercentChange((maxLossDdPercent + 1.0).coerceAtMost(50.0)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

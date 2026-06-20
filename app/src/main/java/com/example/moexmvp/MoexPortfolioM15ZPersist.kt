@@ -16,6 +16,33 @@ internal const val M15_SPREAD_REVISION_JUMP_PP = 0.35
 /** Календарных дней от spike до последнего бара: guard только у хвоста (не вся история). */
 internal const val M15_SPREAD_GUARD_RECENT_DAYS = 3L
 
+/** Текущий незакрытый 15м слот — Z и spread-снимок пересчитываются при каждой догрузке MOEX. */
+internal fun isM15FormingBarTimestamp(
+    tsMillis: Long,
+    now: Instant = Instant.now(),
+    zone: ZoneId = moexZoneId,
+): Boolean = tsMillis >= currentM15BucketStartMillis(now, zone)
+
+internal fun isM15FormingBarIndex(points: List<DataPoint>, index: Int): Boolean =
+    index == points.lastIndex && isM15FormingBarTimestamp(points[index].timestampMillis)
+
+/** Последние [M15_LIVE_Z_TAIL_BARS] 15м — live Z на «Рынок», без persisted-снимков. */
+internal fun isM15LiveZTailIndex(points: List<DataPoint>, index: Int): Boolean {
+    if (points.isEmpty() || index !in points.indices) return false
+    val tailStart = (points.size - M15_LIVE_Z_TAIL_BARS).coerceAtLeast(0)
+    return index >= tailStart
+}
+
+/** По времени бара (МСК): хвост ~2 ч для сброса persisted в SQLite. */
+internal fun isM15LiveZTailBarTimestamp(
+    tsMillis: Long,
+    now: Instant = Instant.now(),
+    zone: ZoneId = moexZoneId,
+): Boolean {
+    val tailStart = currentM15BucketStartMillis(now, zone) - (M15_LIVE_Z_TAIL_BARS - 1) * 15L * 60_000L
+    return tsMillis >= tailStart
+}
+
 internal fun isSameM15TradeDateDay(a: DataPoint, b: DataPoint): Boolean =
     a.tradeDate.take(10) == b.tradeDate.take(10)
 
@@ -90,6 +117,7 @@ internal fun spreadForRollingZAt(
     points: List<DataPoint>,
     entities: List<PortfolioM15SpreadEntity>,
 ): Double {
+    if (isM15FormingBarIndex(points, index)) return points[index].spreadPercent
     val entity = entities[index]
     if (entity.spreadAtZSnapshot != null && !isM15SpreadRevisionSpike(index, points, entities)) {
         return entity.spreadAtZSnapshot
@@ -112,10 +140,12 @@ internal fun fillM15ZScoresInPlace(
     val beforeZ = points.map { it.zScore }
     applyZScoresDefaultInPlace(points)
     val keepPersisted = BooleanArray(points.size) { i ->
-        entities[i].persistedZScore != null && !isM15SpreadRevisionSpike(i, points, entities)
+        if (isM15FormingBarIndex(points, i)) false
+        else entities[i].persistedZScore != null && !isM15SpreadRevisionSpike(i, points, entities)
     }
     val keptZ = DoubleArray(points.size) { points[it].zScore }
     for (i in points.indices) {
+        if (!keepPersisted[i]) continue
         val snapZ = entities[i].persistedZScore
         if (snapZ != null && !isM15SpreadRevisionSpike(i, points, entities)) {
             points[i] = points[i].copy(zScore = snapZ)
@@ -367,7 +397,8 @@ internal suspend fun persistM15ZScoreSnapshots(
     if (entities.isEmpty() || entities.size != points.size) return
     val firstStale = entities.indexOfFirst { it.persistedZScore == null }
     if (firstStale < 0) return
-    val updated = (firstStale until entities.size).map { i ->
+    val updated = (firstStale until entities.size).mapNotNull { i ->
+        if (isM15LiveZTailIndex(points, i)) return@mapNotNull null
         entities[i].copy(
             persistedZScore = points[i].zScore,
             spreadAtZSnapshot = entities[i].spreadAtZSnapshot ?: points[i].spreadPercent,
@@ -386,10 +417,17 @@ internal suspend fun mergePortfolioM15InsertPreservingSnapshots(
         val merged = batch.map { row ->
             val prev = existing[row.tsMillis]
             if (prev == null) row
-            else row.copy(
-                persistedZScore = row.persistedZScore ?: prev.persistedZScore,
-                spreadAtZSnapshot = row.spreadAtZSnapshot ?: prev.spreadAtZSnapshot,
-            )
+            else if (isM15FormingBarTimestamp(row.tsMillis) || isM15LiveZTailBarTimestamp(row.tsMillis)) {
+                row.copy(
+                    persistedZScore = null,
+                    spreadAtZSnapshot = null,
+                )
+            } else {
+                row.copy(
+                    persistedZScore = row.persistedZScore ?: prev.persistedZScore,
+                    spreadAtZSnapshot = row.spreadAtZSnapshot ?: prev.spreadAtZSnapshot,
+                )
+            }
         }
         dao.insertAll(merged)
     }
@@ -409,12 +447,13 @@ internal fun applySpreadGuardZScoresInPlace(points: MutableList<DataPoint>) {
     recomputeZForwardFromRecentSpikes(points, listOf(latestRecentSpike))
 }
 
-/** Точки для симуляции «Тест страт.»: Z из SQLite + журнал + guard spread. */
+/** Точки для симуляции «Тест страт.»: Z из SQLite + guard spread; опционально overlay журнала. */
 internal fun prepareM15PointsForZStrategySim(
     points: List<DataPoint>,
     entities: List<PortfolioM15SpreadEntity> = emptyList(),
     journalEvents: List<StrategySignalEvent> = emptyList(),
     journalThresholds: DynamicThresholds? = null,
+    applyJournalOverlay: Boolean = true,
 ): List<DataPoint> {
     if (points.size < 2) return points
     val mutable = points.map { it.copy(zScore = 0.0) }.toMutableList()
@@ -423,6 +462,8 @@ internal fun prepareM15PointsForZStrategySim(
     } else {
         applySpreadGuardZScoresInPlace(mutable)
     }
-    applyJournalObservedZOverlay(mutable, journalEvents, journalThresholds)
+    if (applyJournalOverlay && journalEvents.isNotEmpty() && journalThresholds != null) {
+        applyJournalObservedZOverlay(mutable, journalEvents, journalThresholds)
+    }
     return mutable
 }

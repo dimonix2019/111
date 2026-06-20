@@ -150,20 +150,20 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         activityResumed,
         strategyTestEntryThreshold,
         strategyTestExitThreshold,
+        realTradeEntryThreshold,
+        realTradeExitThreshold,
         portfolioLeverage,
         portfolioCommissionPercent,
         strategyTestCompoundReturns,
+        strategyTestAccountSizeRub,
+        strategyTestCapitalUsagePercent,
+        strategyTestMaxLossDdPercent,
+        strategyTestUsePortfolioThresholds,
+        strategyTestUseLiveZSignals,
     ) {
         if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
-        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
         if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
-        delay(STRATEGY_TEST_RESIM_DEBOUNCE_MS)
-        if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
-        if (strategyTestEntryThreshold == null || strategyTestExitThreshold == null) return@LaunchedEffect
-        if (strategyTestM15Loading || strategyTestSimComputing) return@LaunchedEffect
-        if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
-        if (strategyTestVisibleResultsFresh()) return@LaunchedEffect
-        scheduleStrategyTestResimOnly(reason = "params_change")
+        requestStrategyTestResimAfterParamsChange(reason = "params_change")
     }
 
     LaunchedEffect(Unit) {
@@ -172,6 +172,24 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             val (t, a) = TinkoffSandboxStorage.hydrateCredentialsForUi(context, mode)
             sandboxTokenInput = t
             sandboxAccountInput = a
+        }
+    }
+
+    LaunchedEffect(strategyTestAccountSizeRub) {
+        withContext(Dispatchers.IO) {
+            saveStrategyTestAccountSizeRub(context, strategyTestAccountSizeRub)
+        }
+    }
+
+    LaunchedEffect(strategyTestCapitalUsagePercent) {
+        withContext(Dispatchers.IO) {
+            saveStrategyTestCapitalUsagePercent(context, strategyTestCapitalUsagePercent)
+        }
+    }
+
+    LaunchedEffect(strategyTestMaxLossDdPercent) {
+        withContext(Dispatchers.IO) {
+            saveStrategyTestMaxLossDdPercent(context, strategyTestMaxLossDdPercent)
         }
     }
 
@@ -403,11 +421,28 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         syncSandboxExecutionsEnrichment()
     }
 
+    LaunchedEffect(activityResumed) {
+        if (!activityResumed) return@LaunchedEffect
+        val remote = withContext(Dispatchers.IO) {
+            checkRemoteAppUpdateAndNotify(context)
+        }
+        if (remote != null &&
+            (pendingAppUpdate == null || pendingAppUpdate!!.versionCode < remote.versionCode)
+        ) {
+            pendingAppUpdate = remote
+        }
+    }
+
     LaunchedEffect(selectedTab) {
         MoexDiagnostics.log(context, "ui", "tab=${selectedTab.label}")
         if (selectedTab != MainTab.Markets) {
             forceResetDataLoadUi()
         }
+    }
+
+    LaunchedEffect(selectedTab, activityResumed) {
+        if (selectedTab != MainTab.Markets || !activityResumed) return@LaunchedEffect
+        refreshMarketsIntraday1mQuotes(reason = "tab_open", scope = scope)
     }
 
     LaunchedEffect(dataLoadSessions, dataLoadProgress?.phase, selectedTab) {
@@ -495,16 +530,47 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     LaunchedEffect(realtimeEnabled, selectedTab, activityResumed, memoryPressureLevel) {
         if (!realtimeEnabled || selectedTab != MainTab.Markets || !activityResumed) return@LaunchedEffect
         while (true) {
-            val interval = MoexMemoryPressure.autoPollIntervalMs(memoryPressureLevel)
-            if (interval <= 0L) return@LaunchedEffect
-            delay(interval)
+            if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) {
+                delay(MARKETS_REALTIME_DAILY_REFRESH_MS)
+                continue
+            }
+            delay(MARKETS_REALTIME_DAILY_REFRESH_MS)
             if (!mayRefreshMarkets(MarketsRefreshPolicy.AutoPoll)) continue
-            refreshData(
-                showLoading = false,
-                launchScope = scope,
-                selectedPeriod = selectedPeriod,
-                refreshPolicy = MarketsRefreshPolicy.AutoPoll,
-            )
+            runCatching {
+                refreshMarketsDailyOnly(selectedPeriod.coerceToMarketsUiPeriod())
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "ui", t, "realtime_daily_refresh")
+            }
+        }
+    }
+    /** 1м TATN/TATNP — каждые 15 с на «Рынок» (отдельно от 15м). */
+    LaunchedEffect(selectedTab, activityResumed, memoryPressureLevel) {
+        if (!activityResumed) return@LaunchedEffect
+        while (true) {
+            delay(MARKETS_INTRADAY_1M_POLL_MS)
+            if (!activityResumed) continue
+            if (selectedTab != MainTab.Markets) continue
+            if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) continue
+            runCatching {
+                refreshMarketsIntraday1mQuotes(reason = "auto_poll_1m", scope = scope)
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "quotes", t, "auto_poll_1m loop")
+            }
+        }
+    }
+    /** Принудительный INCREMENTAL 15м + live Z каждые 5 мин на «Рынок». */
+    LaunchedEffect(selectedTab, activityResumed, memoryPressureLevel) {
+        if (!activityResumed) return@LaunchedEffect
+        while (true) {
+            delay(MARKETS_M15_Z_FORCE_REFRESH_MS)
+            if (!activityResumed) continue
+            if (selectedTab != MainTab.Markets) continue
+            if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) continue
+            runCatching {
+                refreshMarketsM15ZForceIncremental(reason = "auto_force_5m")
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "m15_z", t, "auto_force_5m loop")
+            }
         }
     }
     /** 15м хвост — даже если realtime на «Рынок» выключен (ночь offline → утро). */
@@ -520,7 +586,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             ) {
                 continue
             }
-            refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}")
+            runCatching {
+                refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}")
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "m15_tail", t, "auto_poll loop tab=${selectedTab.name}")
+            }
             if (selectedTab == MainTab.Portfolio && portfolioTabUiBuiltKey != 0L) {
                 refreshPortfolioAfterJournalChange(refreshTailIfStale = false)
             }

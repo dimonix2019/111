@@ -4,8 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
+import android.content.ContentValues
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.IOException
@@ -153,9 +157,63 @@ internal object MoexDiagnostics {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
-            putExtra(Intent.EXTRA_SUBJECT, "moex-event-log-${BuildConfig.VERSION_NAME}.txt")
+            putExtra(Intent.EXTRA_SUBJECT, eventLogExportFileName())
         }
         context.startActivity(Intent.createChooser(send, "Экспорт журнала событий"))
+    }
+
+    /** Имя файла: `moex-event-log-v1.7.192-20260616-214500.txt`. */
+    fun eventLogExportFileName(): String {
+        val stamp = Instant.now().atZone(zone)
+            .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+        return "moex-event-log-v${BuildConfig.VERSION_NAME}-$stamp.txt"
+    }
+
+    /**
+     * Сохранить в «Загрузки» (Android 10+, MediaStore, без разрешений).
+     * @return путь для пользователя или null
+     */
+    fun saveExportToDownloads(context: Context): String? {
+        val app = context.applicationContext
+        val fileName = eventLogExportFileName()
+        val content = exportText(context)
+        if (content.isBlank()) return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return runCatching {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val resolver = app.contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+            resolver.openOutputStream(uri)?.use { os ->
+                os.write(content.toByteArray(Charsets.UTF_8))
+            } ?: return null
+            values.clear()
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            log(app, "diag", "log saved Downloads/$fileName bytes=${content.length}")
+            "Загрузки/$fileName"
+        }.getOrElse {
+            logError(app, "diag", it, "saveExportToDownloads failed")
+            null
+        }
+    }
+
+    /** Запись в URI из диалога «Сохранить как…». */
+    fun writeExportToUri(context: Context, uri: Uri): Boolean = runCatching {
+        val content = exportText(context)
+        if (content.isBlank()) return false
+        context.contentResolver.openOutputStream(uri)?.use { os ->
+            os.write(content.toByteArray(Charsets.UTF_8))
+        } ?: return false
+        log(context.applicationContext, "diag", "log saved picker uri=$uri")
+        true
+    }.getOrElse {
+        logError(context.applicationContext, "diag", it, "writeExportToUri failed")
+        false
     }
 
     fun shareExportFile(context: Context): Boolean {
@@ -169,10 +227,11 @@ internal object MoexDiagnostics {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "moex-event-log-${BuildConfig.VERSION_NAME}.txt")
+            putExtra(Intent.EXTRA_SUBJECT, eventLogExportFileName())
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = ClipData.newUri(app.contentResolver, "event log", uri)
         }
-        context.startActivity(Intent.createChooser(send, "Экспорт файла журнала"))
+        context.startActivity(Intent.createChooser(send, "Отправить файл журнала"))
         return true
     }
 
@@ -196,7 +255,7 @@ internal object MoexDiagnostics {
     }
 
     private fun prepareExportFile(context: Context): File? = runCatching {
-        val out = File(context.cacheDir, "moex-event-log-export.txt")
+        val out = File(context.cacheDir, eventLogExportFileName())
         out.writeText(exportText(context))
         out
     }.getOrNull()

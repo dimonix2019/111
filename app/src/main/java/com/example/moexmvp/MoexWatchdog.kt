@@ -214,8 +214,8 @@ internal fun formatSignalMonitorOpenTradeLine(trade: SignalMonitorOpenTradeSnaps
     "${trade.badge} ${trade.openedAt} Z₀${"%.2f".format(Locale.US, trade.entryZ)} " +
         formatCompactSignedPnlRub(trade.pnlRub)
 
-/** Последняя открытая демо-сделка с актуальным MTM для шторки. */
-internal fun resolveSignalMonitorOpenTrade(
+/** Последняя открытая сделка с актуальным MTM для шторки. */
+internal suspend fun resolveSignalMonitorOpenTrade(
     context: Context,
     points: List<DataPoint>,
 ): SignalMonitorOpenTradeSnapshot? {
@@ -227,15 +227,10 @@ internal fun resolveSignalMonitorOpenTrade(
                 it.signalType == StrategySignalType.EnterShort
         }
     val latest = opens.maxByOrNull { it.barTimestampMillis } ?: return null
-    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(app)
-    val journal = loadStrategySignalEvents(app)
-    val enriched = TinkoffSandboxSpreadExecLog.enrichForDisplay(
+    val enriched = enrichOpenExecutionsForBackgroundMonitor(
         context = app,
         executions = listOf(latest),
         points = points,
-        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-        leverage = leverage,
-        journalEvents = journal,
     ).firstOrNull() ?: return null
     return signalMonitorOpenTradeSnapshot(enriched)
 }

@@ -14,15 +14,19 @@ internal data class StrategyTestVisibleSnapshot(
 )
 
 internal fun MoexScreenState.strategyTestSimulationKey(): Long {
-    val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-    val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val thresholds = resolveStrategyTestSimThresholds()
+    val entry = thresholds.entry
+    val exit = thresholds.exit
     var hash = 17L
     hash = 31 * hash + entry.toBits()
     hash = 31 * hash + exit.toBits()
     hash = 31 * hash + portfolioLeverage.toBits()
     hash = 31 * hash + portfolioCommissionPercent.toBits()
+    hash = 31 * hash + strategyTestAccountSizeRub.toBits()
+    hash = 31 * hash + strategyTestCapitalUsagePercent.toBits()
+    hash = 31 * hash + strategyTestMaxLossDdPercent.toBits()
+    hash = 31 * hash + strategyTestUsePortfolioThresholds.hashCode()
+    hash = 31 * hash + strategyTestUseLiveZSignals.hashCode()
     hash = 31 * hash + strategyTestCompoundReturns.hashCode()
     hash = 31 * hash + strategyTestM15SessionCache.size
     hash = 31 * hash + (strategyTestM15SessionCache.firstOrNull()?.timestampMillis ?: 0L)

@@ -3,7 +3,9 @@ package com.example.moexmvp
 import java.time.format.DateTimeFormatter
 import okhttp3.OkHttpClient
 
-internal val httpClient = OkHttpClient()
+internal val httpClient = OkHttpClient.Builder()
+    .cache(null)
+    .build()
 internal val tradeDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 internal val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 internal val candleTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
@@ -55,6 +57,18 @@ internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 /** Debounce rapid threshold/leverage tweaks on «Тест страт.» before rerunning simulation. */
 internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 750L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
+/** «Тест страт.»: размер счёта по умолчанию (как субсчёт «Арбитраж» ~10k). */
+internal const val DEFAULT_STRATEGY_TEST_ACCOUNT_RUB = 10_000.0
+/** «Тест страт.»: доля капитала в сделку (остальное — резерв), parity Prod ≈80%. */
+internal const val DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT = 80.0
+/** Slippage по умолчанию (п.п. спреда), если лог сделок ещё пуст. */
+internal const val DEFAULT_STRATEGY_TEST_SLIPPAGE_SPREAD_PTS = 0.05
+internal const val PREF_STRATEGY_TEST_ACCOUNT_RUB = "strategy_test_account_rub"
+internal const val PREF_STRATEGY_TEST_CAPITAL_USAGE_PCT = "strategy_test_capital_usage_pct"
+internal const val PREF_STRATEGY_TEST_MAX_LOSS_DD_PCT = "strategy_test_max_loss_dd_pct"
+/** 0 = без money-stop в симуляции. */
+internal const val DEFAULT_STRATEGY_TEST_MAX_LOSS_DD_PERCENT = 0.0
+/** @deprecated Prod auto-exit; симуляция использует [DEFAULT_STRATEGY_TEST_MAX_LOSS_DD_PERCENT]. */
 internal const val PROD_MONEY_STOP_PER_TRADE_RUB = 4_000.0
 /** Доля свободных денег, которую не тратим на вход (резерв под ГО/комиссии). */
 internal const val SPREAD_LOT_RESERVE_CASH_FRACTION = 0.25
@@ -66,6 +80,8 @@ internal const val SPREAD_LOT_MARGIN_RATE_PER_LEG = 0.30
 internal const val SPREAD_LOT_COMMISSION_BUFFER_FRACTION = 0.002
 internal const val SPREAD_LOT_MIN_LOTS = 1
 internal const val SPREAD_LOT_MAX_LOTS = 80
+/** «Тест страт.» без Prod-cap: верхняя граница лотов для проекции крупного депозита. */
+internal const val STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED = 999
 /** Prod: доля номинала пары на прирост скорректированной маржи (эмпирика ~10+10 → 5.4k). */
 internal const val SPREAD_LOT_MARGIN_PAIR_FRACTION = 0.50
 /** Prod: плечо для расчёта целевого номинала = liquid × leverage / pairNotional. */
@@ -99,6 +115,16 @@ internal const val CHART_Z_INTRABAR_WICK_MAX = 0.22
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 
+/** Высоты графиков на вкладке «Рынок» (портрет). */
+internal const val MARKETS_INTRADAY_QUOTES_CHART_HEIGHT_DP = 110
+/** Z-score 1м — в 3 раза ниже котировок TATN/TATNP. */
+internal const val MARKETS_INTRADAY_Z1M_CHART_HEIGHT_DP = MARKETS_INTRADAY_QUOTES_CHART_HEIGHT_DP / 3
+internal const val MARKETS_SPREAD_CHART_HEIGHT_DP = 104
+internal const val MARKETS_VOLATILITY_CHART_HEIGHT_DP = 66
+
+/** Мин. интервал между refresh после восстановления сети (защита от шторма callback). */
+internal const val NETWORK_RESTORE_DEBOUNCE_MS = 4_000L
+
 /** Заливка под Z на графике «Тест страт.» (TradingView Area). */
 internal const val STRATEGY_TEST_Z_CHART_AREA_FILL_HEX = "#14532D"
 internal const val DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL = 0.30
@@ -131,6 +157,18 @@ internal const val PORTFOLIO_M15_TAIL_MAX_AGE_MS = 40L * 60L * 60L * 1000L
 internal const val PORTFOLIO_M15_INTRADAY_STALE_MS = 20L * 60L * 1000L
 /** Интервал фоновой проверки хвоста 15м (Портфель / Рынок, приложение на экране). */
 internal const val PORTFOLIO_M15_INTRADAY_POLL_MS = 60_000L
+/** Лёгкая догрузка MOEX для формирующегося 15м бара (10м→15м), без ожидания 20 мин stale. */
+internal const val PORTFOLIO_M15_LIVE_FORMING_REFETCH_DAYS = 2L
+/** Хвост 15м баров: Z/spread пересчитываются live (игнор persisted) — ~2 ч. */
+internal const val M15_LIVE_Z_TAIL_BARS = 8
+/** Принудительный INCREMENTAL 15м на «Рынок» для живого Z. */
+internal const val MARKETS_M15_Z_FORCE_REFRESH_MS = 5L * 60L * 1000L
+/** Интервал опроса 1м TATN/TATNP на вкладке «Рынок». */
+internal const val MARKETS_INTRADAY_1M_POLL_MS = 15_000L
+/** Debounce перед тяжёлой MOEX 15м догрузкой с UI (не блокировать 1м опрос). */
+internal const val M15_MOEX_UI_CATCHUP_DEBOUNCE_MS = 3_000L
+/** «Realtime» на «Рынок»: только дневной спрэд, не полный refreshData каждые 5 с. */
+internal const val MARKETS_REALTIME_DAILY_REFRESH_MS = 10L * 60L * 1000L
 /** Prod: авто-обновление PnL/цен открытых ног с GetPortfolio на вкладке «Портфель». */
 internal const val PROD_BROKER_PORTFOLIO_POLL_MS = 15_000L
 internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
@@ -143,6 +181,30 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.213 — Fix «Тест страт.»: таблица сделок не пропадает при смене % DD (мягкий stale + resim).
+1.7.212 — «Тест страт.»: money-stop = % DD от счёта (0 = выкл), автосохранение; убран фикс 4000 ₽.
+1.7.211 — «Тест страт.»: убран лимит 80 л; размер позиции только по «Размер счёта» × «% капитала» × плечо.
+1.7.210 — «Тест страт.»: боевой режим симуляции — пороги Портфеля, Z live, комиссия/slip из лога, чеклист parity, CSV meta.
+1.7.209 — «Тест страт.»: пояснение лимита 80 л (PnL 10k≈100k на Prod); переключатель cap; ср. номинал сделки.
+1.7.208 — Fix «Тест страт.»: поле суммы — снятие фокуса, ✓/Done, пересчёт симуляции.
+1.7.207 — «Тест страт.»: «Размер счёта» — ручной ввод суммы (не только +/-), пересчёт симуляции.
+1.7.206 — Fix «Тест страт.»: смена «Размер счёта» / % капитала снова пересчитывает симуляцию.
+1.7.205 — CSV сравнение Prod vs «Тест страт.» (одинаковые столбцы); кнопка на вкладке и в «О приложении».
+1.7.204 — Лог сделок (3 фазы): fill/slip/частично, CSV; «Тест страт.» Prod-like (10k, 80%, lot sizing, slip из лога).
+1.7.203 — «Закрыть все сделки»: не удаляет историю закрытых Prod-сделок; закрытие через closePortfolioOpenTrade.
+1.7.202 — Шторка/red-risk: PnL на Prod из GetPortfolio (expectedYield), как T‑Invest; не MOEX-симуляция ×100k.
+1.7.201 — Обновление APK: проверка целостности, gh-pages зеркало, подпись; fix «Невозможно обработать пакет».
+1.7.200 — Рынок: компактные 1м/Spread/σ; Z-score 1м; защита от вылетов при нестабильной сети.
+1.7.199 — Шторка: live Z из 1м TATN/TATNP; Z-score на «Рынке» — отступ справа как у графика 1м.
+1.7.198 — Рынок 1м: TATN и TATNP на одном линейном графике; отступ справа и текущие цены как у Z-score.
+1.7.197 — Анти-ANR: убран refreshData каждые 5 с; Z из 1м без пересборки графика; MOEX 15м отложенно (tryLock).
+1.7.196 — Z-score на «Рынок»: live пересчёт из 1м TATN/TATNP каждые 15 с (без тяжёлого MOEX 15м); хвост Z-графика обновляется.
+1.7.195 — Z-score: хвост ~2 ч без persisted; live Z в сводке; INCREMENTAL 15м каждые 5 мин; диалог обновления при открытии приложения.
+1.7.194 — Рынок 1м: хвост из 10м MOEX (между минутками), опрос 15 с, no-cache HTTP; Z-хвост в том же цикле.
+1.7.193 — Рынок: 1м опрос каждые 30 с; «Обновить MOEX» тоже тянет 1м; в сводке время 1м и предупреждение о залипании.
+1.7.192 — «О приложении»: скачать журнал в Загрузки / «Сохранить как…» / отправить .txt файлом.
+1.7.191 — Рынок: 1м графики TATN/TATNP (день); журнал [quotes] при новых барах и залипании; догон Z если 1м впереди 15м.
+1.7.190 — Z-score: формирующийся 15м бар пересчитывается каждую минуту (MOEX 10м→15м), не залипает на persisted.
 1.7.189 — Prod закрытые: чистый PnL = Δ денег на счёте; ноги из GetOperations yield (не MTM).
 1.7.188 — Prod «Закрытые»: убраны строки «сигнал» (MOEX-симуляция 100k); только авто/брокер.
 1.7.187 — Prod: PnL закрытых сделок с GetPortfolio (expectedYield на выходе), не симуляция MOEX ×100k.

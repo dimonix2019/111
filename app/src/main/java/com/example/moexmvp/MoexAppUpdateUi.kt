@@ -182,7 +182,13 @@ internal fun AppUpdateDialogHost(
                                             }
                                         }
                                     }
-                                    readyApk = dest
+                                    when (val validation = validateDownloadedAppUpdateApk(context, dest)) {
+                                        is AppUpdateApkValidation.Valid -> readyApk = dest
+                                        is AppUpdateApkValidation.Failed -> {
+                                            dest.delete()
+                                            errorText = validation.message
+                                        }
+                                    }
                                     downloading = false
                                 } catch (e: Exception) {
                                     downloading = false
@@ -226,17 +232,21 @@ internal fun AppUpdateDialogHost(
     )
 }
 
-/** Фоновая проверка: push-уведомление раз в versionCode; диалог — только вручную или по тапу push. */
+/** Фоновая проверка: push + диалог при открытом приложении (раз в versionCode push). */
 @Composable
 internal fun AppUpdateBackgroundChecker(
     enabled: Boolean = true,
+    onUpdateFound: ((AppRemoteUpdate) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     LaunchedEffect(enabled) {
         if (!enabled) return@LaunchedEffect
         while (true) {
-            withContext(Dispatchers.IO) {
+            val remote = withContext(Dispatchers.IO) {
                 checkRemoteAppUpdateAndNotify(context)
+            }
+            if (remote != null) {
+                onUpdateFound?.invoke(remote)
             }
             delay(APP_UPDATE_CHECK_INTERVAL_MS)
         }

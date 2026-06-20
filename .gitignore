@@ -14,3 +14,4 @@ automation/.state/
 **/__pycache__/
 *.pyc
 .aider*
+strategy-web/data/strategy_optimize_run.log

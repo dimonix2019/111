@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -71,28 +72,37 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
         }
         if (!isStrategyTestWorkCurrent(workId)) return
         strategyTestM15ChartTail = chartTail
-        val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-        val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+        val simThresholds = resolveStrategyTestSimThresholds()
+        val entry = simThresholds.entry
+        val exit = simThresholds.exit
+        val commissionPct = buildStrategyTestCommissionPercentPerSide(context, portfolioCommissionPercent)
         val metrics = withContext(Dispatchers.Default) {
             if (!points.sufficientForStrategyTestSimulation()) return@withContext null
-            val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
             val simPoints = prepareM15PointsForZStrategySim(
                 points = points,
                 journalEvents = signalEvents,
                 journalThresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
+                applyJournalOverlay = !strategyTestUseLiveZSignals,
             )
             buildZStrategyPortfolioMetrics(
                 points = simPoints,
                 thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-                leverage = portfolioLeverage,
-                commissionPercentPerSide = portfolioCommissionPercent,
-                periodDescription = "Тест страт. · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+                notionalRub = strategyTestAccountSizeRub,
+                leverage = 1.0,
+                commissionPercentPerSide = commissionPct,
+                periodDescription = buildStrategyTestPeriodDescription(context),
                 compoundReturns = strategyTestCompoundReturns,
                 exitMode = ZStrategyExitMode.FixedThreshold,
+                simOptions = buildStrategyTestSimOptions(
+                    context = context,
+                    accountSizeRub = strategyTestAccountSizeRub,
+                    maxLossDdPercent = strategyTestMaxLossDdPercent,
+                ),
+                prodLikeSizing = ZStrategyProdLikeSizing(
+                    accountSizeRub = strategyTestAccountSizeRub,
+                    capitalUsagePercent = strategyTestCapitalUsagePercent,
+                    leverageForLots = portfolioLeverage,
+                ),
             )
         }
         if (!isStrategyTestWorkCurrent(workId)) return
@@ -131,6 +141,26 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
             )
         }
+        if (metrics != null) {
+            withContext(Dispatchers.IO) {
+                val tradeItems = buildStrategyTestTradeListFromSimulation(metrics.closedTrades)
+                val exportConfig = buildStrategyTestExportConfig(
+                    context = context,
+                    accountSizeRub = strategyTestAccountSizeRub,
+                    capitalUsagePercent = strategyTestCapitalUsagePercent,
+                    leverageForLots = portfolioLeverage,
+                    commissionPercentPerSide = commissionPct,
+                    entryThreshold = entry,
+                    exitThreshold = exit,
+                    compoundReturns = strategyTestCompoundReturns,
+                    maxLossDdPercent = strategyTestMaxLossDdPercent,
+                    usePortfolioThresholds = strategyTestUsePortfolioThresholds,
+                    useLiveZSignals = strategyTestUseLiveZSignals,
+                    thresholdSource = simThresholds.source.name,
+                )
+                persistStrategyTestCompareExport(context, metrics, tradeItems, exportConfig)
+            }
+        }
         val trades = metrics?.closedTrades?.size ?: 0
         MoexDiagnostics.log(context, "st_sim", "done id=$workId trades=$trades chartTail=${chartTail.size}")
     } catch (e: OutOfMemoryError) {
@@ -148,6 +178,53 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
     } finally {
         strategyTestSimComputing = false
     }
+    if (
+        isStrategyTestWorkCurrent(workId) &&
+        isOnStrategyTestTab() &&
+        !strategyTestM15Loading &&
+        strategyTestM15SessionCache.sufficientForStrategyTestSimulation() &&
+        !strategyTestVisibleResultsFresh()
+    ) {
+        scheduleStrategyTestResimOnly(reason = "params_stale_after_sim")
+    }
+}
+
+/** Сброс метрик симуляции при смене параметров (не трогаем кэш 15м). */
+internal fun MoexScreenState.invalidateStrategyTestSimResults() {
+    strategyTestPortfolioMetrics = null
+    strategyTestChartMarkers = emptyList()
+    strategyTestChartTradeSegments = emptyList()
+    strategyTestTradeRiskAssessments = emptyList()
+    strategyTestDurationSummary = null
+    strategyTestMonthlyReturnSummary = null
+    strategyTestSpreadHourlyVolatility = null
+    strategyTestVisibleSessionCache = null
+    strategyTestLastSimKey = 0L
+}
+
+/**
+ * Параметры симуляции изменились — пересчёт нужен, но таблицу/метрики не скрываем до нового результата.
+ */
+internal fun MoexScreenState.markStrategyTestSimParamsStale() {
+    strategyTestVisibleSessionCache = null
+    strategyTestLastSimKey = 0L
+}
+
+/**
+ * Debounced пересчёт после смены «Размер счёта» / % капитала / порогов и т.д.
+ * Ждёт завершения текущей симуляции, чтобы не потерять последнее значение параметра.
+ */
+internal suspend fun MoexScreenState.requestStrategyTestResimAfterParamsChange(reason: String) {
+    if (!isOnStrategyTestTab()) return
+    if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return
+    delay(STRATEGY_TEST_RESIM_DEBOUNCE_MS)
+    while (strategyTestM15Loading || strategyTestSimComputing) {
+        delay(50)
+        if (!isOnStrategyTestTab()) return
+    }
+    if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return
+    if (strategyTestVisibleResultsFresh()) return
+    scheduleStrategyTestResimOnly(reason = reason)
 }
 
 /** Только пересчёт симуляции из кэша (без SQLite/MOEX). */

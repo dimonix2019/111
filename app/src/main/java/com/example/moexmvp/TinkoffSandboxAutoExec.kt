@@ -91,6 +91,19 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
         )
         execution?.let { opened ->
             val lastLeg = legs.lastOrNull()
+            TradeExecutionLog.recordSpreadLegFills(
+                context = app,
+                tradeId = opened.tradeId,
+                phase = TradeExecPhase.Entry,
+                legs = legs,
+                executionMode = mode,
+                signalBarMillis = barTimestampMillis,
+                zScore = zScore,
+                refTatnPriceRub = sizing.priceTatN,
+                refTatnpPriceRub = sizing.priceTatNp,
+                refSpreadPercent = entrySpreadPercent,
+                source = "auto_entry",
+            )
             notifySandboxTradeOpened(
                 context = app,
                 execution = opened,
@@ -169,6 +182,23 @@ internal suspend fun runSandboxAutoExitIfNeeded(
             openTrade.signalType,
             openTrade.quantityLots,
         )
+        if (legs.isNotEmpty()) {
+            val bar = loadZStrategySignalSeries(app, PortfolioM15LoadMode.CACHE_ONLY)
+                .minByOrNull { kotlin.math.abs(it.timestampMillis - barTimestampMillis) }
+            TradeExecutionLog.recordSpreadLegFills(
+                context = app,
+                tradeId = openTrade.tradeId,
+                phase = TradeExecPhase.Exit,
+                legs = legs,
+                executionMode = mode,
+                signalBarMillis = barTimestampMillis,
+                zScore = zScore,
+                refTatnPriceRub = bar?.tatnClose,
+                refTatnpPriceRub = bar?.tatnpClose,
+                refSpreadPercent = bar?.spreadPercent,
+                source = "auto_exit",
+            )
+        }
         synchronized(autoSpreadDedupLock) {
             app.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_LAST_AUTO_EXIT, dedupKey).commit()

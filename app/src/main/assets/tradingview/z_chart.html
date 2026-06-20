@@ -39,6 +39,7 @@
     };
     const MSK = 'Europe/Moscow';
     const RIGHT_OFFSET_BARS = 18;
+    const INITIAL_RIGHT_MARGIN_IN_WINDOW = 0.18;
     const MARKER_HIT_RADIUS_PX = 48;
     const MARKER_HIT_RADIUS_X_PX = 44;
     const MARKER_ENTRY_HIT_RADIUS_X_PX = 56;
@@ -420,11 +421,21 @@
 
     function applyInitialWindow(n, startFrac, widthFrac) {
       if (!chart || n < 2) return;
-      const startIdx = Math.floor((startFrac || 0) * (n - 1));
-      const visibleBars = Math.max(2, Math.ceil((widthFrac || 1) * n));
+      const maxIndex = n - 1;
+      const width = Math.max(0.05, Math.min(1, widthFrac || 1));
+      const visibleBars = Math.max(2, Math.ceil(width * n));
+      const startIdx = Math.floor((startFrac || 0) * maxIndex);
       const from = Math.max(0, startIdx);
-      const to = Math.min(n - 1, from + visibleBars - 1);
-      chart.timeScale().setVisibleLogicalRange({ from, to });
+      const to = Math.min(maxIndex, from + visibleBars - 1);
+      const rightGapBars = Math.max(2, Math.ceil(visibleBars * INITIAL_RIGHT_MARGIN_IN_WINDOW));
+      chart.timeScale().setVisibleLogicalRange({ from, to: to + rightGapBars });
+    }
+
+    function resolveRightOffsetBars(data) {
+      if (data && typeof data.rightOffsetBars === 'number' && data.rightOffsetBars > 0) {
+        return data.rightOffsetBars;
+      }
+      return RIGHT_OFFSET_BARS;
     }
 
     function renderPayload(data) {
@@ -492,13 +503,15 @@
         }));
       }
 
+      const rightOffset = resolveRightOffsetBars(data);
+      chart.timeScale().applyOptions({ rightOffset });
+
       if (!fitted || key !== lastPayloadKey) {
-        if (data.window && data.window.width < 0.999) {
+        if (data.window) {
           applyInitialWindow(candles.length, data.window.start, data.window.width);
         } else {
           chart.timeScale().fitContent();
         }
-        chart.timeScale().applyOptions({ rightOffset: RIGHT_OFFSET_BARS });
         const { w, h } = chartSize();
         if (w > 0 && h > 0) chart.resize(w, h);
         fitted = true;

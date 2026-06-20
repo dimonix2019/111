@@ -250,7 +250,9 @@ internal data class PortfolioClosedTrade(
     /** Овернайт за дни удержания позиции в ₽. */
     val overnightRubApprox: Double = 0.0,
     /** Чистый результат сделки в ₽ после комиссий вход/выход и овернайта. */
-    val pnlRubApprox: Double
+    val pnlRubApprox: Double,
+    /** Номинал пары на входе (Prod-like lot sizing), 0 = legacy sim. */
+    val executionNotionalRub: Double = 0.0,
 )
 
 internal data class PortfolioOpenPosition(

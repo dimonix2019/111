@@ -127,4 +127,59 @@ class MoexSpreadLegBrokerPnlTest {
         assertEquals(40.0, out.legShortPnlSplitRubApprox, 0.01)
         assertEquals(4.09, out.netPnlRubApprox, 0.5)
     }
+
+    @Test
+    fun monitorOpenTradePnl_usesBrokerLegYieldsLikeTInvest() {
+        val broker = SpreadLegBrokerPnl(
+            longLegYieldRub = -421.9,
+            shortLegYieldRub = 617.4,
+        )
+        val exec = SandboxSpreadExecUi(
+            tradeId = "P-004",
+            signalType = StrategySignalType.EnterLong,
+            zScore = -1.21,
+            barTimestampMillis = 1_000L,
+            executedAtMillis = 2_000L,
+            entrySpreadPercent = 6.20,
+            source = PortfolioExecSource.AUTO,
+            directionLabel = "long",
+            entryTimeMsk = "2026-06-18 07:00",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "покупка 67 лот",
+            shortLegSideRu = "продажа 67 лот",
+            volumeText = "67+67 лот",
+            confirmLabel = "авто",
+            correlationTag = "tag",
+            notificationIdsText = "—",
+            legs = emptyList(),
+            quantityLots = 67,
+            executionNotionalRub = 35_617.0,
+        )
+        val points = listOf(
+            DataPoint(1_000L, "2026-06-18 07:00", 537.9, 506.5, 6.20, 0.0, -1.21),
+            DataPoint(2_000L, "2026-06-19 21:30", 531.6, 497.3, 6.98, 0.0, 0.75),
+        )
+        val moexSim = enrichOpenSandboxExecutions(
+            executions = listOf(exec),
+            points = points,
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = 7.0,
+            commissionPercentPerSide = 0.04,
+            pnlLeverage = 1.0,
+        ).single()
+        val brokerOut = enrichOpenSandboxExecutions(
+            executions = listOf(exec),
+            points = points,
+            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            leverage = 7.0,
+            commissionPercentPerSide = 0.04,
+            pnlLeverage = 1.0,
+            brokerLegPnl = broker,
+        ).single()
+        assertEquals(-421.9, brokerOut.legLongPnlSplitRubApprox, 0.1)
+        assertEquals(617.4, brokerOut.legShortPnlSplitRubApprox, 0.1)
+        assertEquals(195.5, broker.netGrossRub, 0.1)
+        assertTrue(brokerOut.netPnlRubApprox < moexSim.netPnlRubApprox)
+    }
 }

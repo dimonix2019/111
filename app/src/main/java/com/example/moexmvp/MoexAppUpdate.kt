@@ -2,18 +2,22 @@ package com.example.moexmvp
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+internal const val APP_UPDATE_MIN_APK_BYTES = 5_000_000L
 
 internal const val APP_UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000L
 internal const val APP_UPDATE_GITHUB_RELEASE_TAG = "moexmvp-debug-latest"
@@ -178,7 +182,20 @@ internal fun appUpdateManifestUrlCandidates(): List<String> = listOf(
 
 /** Из нескольких источников берём сборку с наибольшим versionCode (release может быть новее gh-pages). */
 internal fun selectBestRemoteAppUpdate(candidates: List<AppRemoteUpdate>): AppRemoteUpdate? =
-    candidates.maxByOrNull { it.versionCode }
+    candidates.maxByOrNull { it.versionCode }?.let { best ->
+        best.copy(apkDownloadUrl = preferredInAppApkDownloadUrl(best.apkDownloadUrl))
+    }
+
+/** In-app загрузка: gh-pages (публичное зеркало), не release URL с возможной HTML-страницей. */
+internal fun preferredInAppApkDownloadUrl(primaryUrl: String): String {
+    val trimmed = primaryUrl.trim()
+    if (trimmed.contains("raw.githubusercontent.com", ignoreCase = true) &&
+        trimmed.endsWith(".apk", ignoreCase = true)
+    ) {
+        return trimmed
+    }
+    return APP_UPDATE_PUBLIC_APK_URL
+}
 
 internal fun resolveApkDownloadUrl(manifestUrl: String, parsed: AppRemoteUpdate): String {
     if (manifestUrl == APP_UPDATE_PUBLIC_MANIFEST_URL) {
@@ -188,13 +205,15 @@ internal fun resolveApkDownloadUrl(manifestUrl: String, parsed: AppRemoteUpdate)
     return parsed.apkDownloadUrl.ifBlank { APK_DOWNLOAD_DIRECT_URL }
 }
 
-/** Порядок попыток скачивания: основной URL → зеркало gh-pages → прямая ссылка Release. */
+/** Порядок попыток скачивания: зеркало gh-pages → основной URL → Release. */
 internal fun apkDownloadUrlCandidates(primaryUrl: String): List<String> =
     buildList {
-        val primary = primaryUrl.trim()
-        if (primary.isNotBlank()) add(primary)
         if (none { it.equals(APP_UPDATE_PUBLIC_APK_URL, ignoreCase = true) }) {
             add(APP_UPDATE_PUBLIC_APK_URL)
+        }
+        val primary = preferredInAppApkDownloadUrl(primaryUrl)
+        if (primary.isNotBlank() && none { it.equals(primary, ignoreCase = true) }) {
+            add(primary)
         }
         if (none { it.equals(APK_DOWNLOAD_DIRECT_URL, ignoreCase = true) }) {
             add(APK_DOWNLOAD_DIRECT_URL)
@@ -369,8 +388,26 @@ private fun isApkDownloadRetryable(error: IOException): Boolean {
     val msg = error.message.orEmpty()
     return msg.contains("404") ||
         msg.contains("слишком мал") ||
-        msg.contains("Пустой ответ")
+        msg.contains("Пустой ответ") ||
+        msg.contains("не APK") ||
+        msg.contains("HTML")
 }
+
+private fun isLikelyHtmlApkPayload(contentType: String?, peekHead: ByteArray): Boolean {
+    if (contentType?.contains("text/html", ignoreCase = true) == true) return true
+    if (peekHead.size < 4) return true
+    val headText = peekHead.decodeToString(0, minOf(peekHead.size, 64), throwOnInvalidSequence = false)
+        .trimStart()
+    return headText.startsWith("<!DOCTYPE", ignoreCase = true) ||
+        headText.startsWith("<html", ignoreCase = true)
+}
+
+private fun isZipApkMagic(head: ByteArray): Boolean =
+    head.size >= 4 &&
+        head[0] == 0x50.toByte() &&
+        head[1] == 0x4B.toByte() &&
+        (head[2] == 0x03.toByte() || head[2] == 0x05.toByte() || head[2] == 0x07.toByte()) &&
+        (head[3] == 0x04.toByte() || head[3] == 0x06.toByte() || head[3] == 0x08.toByte())
 
 private fun downloadAppUpdateApkFromUrl(
     url: String,
@@ -390,11 +427,22 @@ private fun downloadAppUpdateApkFromUrl(
             )
         }
         val body = response.body ?: throw IOException("Пустой ответ")
+        val contentType = response.header("Content-Type")
         val total = body.contentLength().takeIf { it > 0L }
         body.byteStream().use { input ->
+            val header = ByteArray(512)
+            val headerRead = input.read(header)
+            if (headerRead < 4) throw IOException("Пустой ответ")
+            val headSlice = header.copyOf(headerRead)
+            if (!isZipApkMagic(headSlice) || isLikelyHtmlApkPayload(contentType, headSlice)) {
+                throw IOException(
+                    "Ответ не APK (возможно HTML GitHub). Используйте «Через браузер»."
+                )
+            }
             destination.outputStream().use { output ->
+                output.write(headSlice, 0, headerRead)
+                var downloaded = headerRead.toLong()
                 val buffer = ByteArray(8192)
-                var downloaded = 0L
                 while (true) {
                     val read = input.read(buffer)
                     if (read <= 0) break
@@ -411,12 +459,119 @@ private fun downloadAppUpdateApkFromUrl(
         }
         onProgress?.invoke(1f)
     }
-    if (!destination.exists() || destination.length() < 1024) {
-        throw IOException("Файл APK слишком мал или не сохранён")
+    val validation = validateDownloadedAppUpdateApkStructure(destination)
+    if (validation != null) {
+        destination.delete()
+        throw IOException(validation)
     }
 }
 
+internal sealed class AppUpdateApkValidation {
+    data object Valid : AppUpdateApkValidation()
+    data class Failed(
+        val message: String,
+        val signatureMismatch: Boolean = false,
+    ) : AppUpdateApkValidation()
+}
+
+/** Проверка APK перед установкой (битая загрузка / чужая подпись). */
+internal fun validateDownloadedAppUpdateApk(context: Context, apkFile: File): AppUpdateApkValidation {
+    validateDownloadedAppUpdateApkStructure(apkFile)?.let { msg ->
+        return AppUpdateApkValidation.Failed(msg)
+    }
+    val pm = context.packageManager
+    val archiveFlags = signingPackageInfoFlags()
+    val archiveInfo = loadArchivePackageInfo(pm, apkFile.absolutePath, archiveFlags)
+        ?: return AppUpdateApkValidation.Failed(
+            "Android не может прочитать APK. Скачайте заново или через браузер."
+        )
+    if (archiveInfo.packageName != context.packageName) {
+        return AppUpdateApkValidation.Failed("APK предназначен для другого приложения.")
+    }
+    val apkCerts = packageSigningSha256Digests(archiveInfo)
+    if (apkCerts.isEmpty()) {
+        return AppUpdateApkValidation.Failed("В APK не найдена подпись.")
+    }
+    val installedCerts = installedPackageSigningSha256Digests(context)
+    if (installedCerts.isNotEmpty() && apkCerts.none { it in installedCerts }) {
+        return AppUpdateApkValidation.Failed(
+            "Подпись новой сборки не совпадает с установленной. " +
+                "Удалите MOEX MVP и установите APK заново (или скачайте через браузер после входа в GitHub).",
+            signatureMismatch = true,
+        )
+    }
+    return AppUpdateApkValidation.Valid
+}
+
+internal fun validateDownloadedAppUpdateApkStructure(apkFile: File): String? {
+    if (!apkFile.exists()) return "Файл обновления не найден."
+    val size = apkFile.length()
+    if (size < APP_UPDATE_MIN_APK_BYTES) {
+        return "Загруженный файл слишком мал (${size / 1024} КБ). " +
+            "Вместо APK могла прийти страница ошибки — повторите или «Через браузер»."
+    }
+    apkFile.inputStream().use { input ->
+        val magic = ByteArray(4)
+        if (input.read(magic) != 4 || !isZipApkMagic(magic)) {
+            return "Файл не является APK (битая загрузка)."
+        }
+    }
+    return null
+}
+
+private fun signingPackageInfoFlags(): Int =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        PackageManager.GET_SIGNING_CERTIFICATES
+    } else {
+        @Suppress("DEPRECATION")
+        PackageManager.GET_SIGNATURES
+    }
+
+private fun loadArchivePackageInfo(
+    pm: PackageManager,
+    apkPath: String,
+    flags: Int,
+) = runCatching {
+    @Suppress("DEPRECATION")
+    pm.getPackageArchiveInfo(apkPath, flags)?.also { info ->
+        info.applicationInfo?.let { appInfo ->
+            appInfo.sourceDir = apkPath
+            appInfo.publicSourceDir = apkPath
+        }
+    }?.let { first ->
+        @Suppress("DEPRECATION")
+        pm.getPackageArchiveInfo(apkPath, flags) ?: first
+    }
+}.getOrNull()
+
+private fun installedPackageSigningSha256Digests(context: Context): Set<String> =
+    runCatching {
+        val pm = context.packageManager
+        @Suppress("DEPRECATION")
+        pm.getPackageInfo(context.packageName, signingPackageInfoFlags())
+    }.getOrNull()?.let(::packageSigningSha256Digests).orEmpty()
+
+private fun packageSigningSha256Digests(packageInfo: android.content.pm.PackageInfo): Set<String> {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val signers = packageInfo.signingInfo?.apkContentsSigners
+        if (!signers.isNullOrEmpty()) {
+            return signers.map { sha256Hex(it.toByteArray()) }.toSet()
+        }
+    }
+    @Suppress("DEPRECATION")
+    return packageInfo.signatures?.map { sha256Hex(it.toByteArray()) }?.toSet().orEmpty()
+}
+
+private fun sha256Hex(bytes: ByteArray): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+    return digest.joinToString("") { b -> "%02x".format(b) }
+}
+
 internal fun installDownloadedAppUpdate(context: Context, apkFile: File) {
+    when (val validation = validateDownloadedAppUpdateApk(context, apkFile)) {
+        is AppUpdateApkValidation.Valid -> Unit
+        is AppUpdateApkValidation.Failed -> throw IOException(validation.message)
+    }
     val uri = FileProvider.getUriForFile(
         context,
         "${context.packageName}.fileprovider",
@@ -426,6 +581,17 @@ internal fun installDownloadedAppUpdate(context: Context, apkFile: File) {
         setDataAndType(uri, "application/vnd.android.package-archive")
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    val installers = context.packageManager.queryIntentActivities(
+        intent,
+        PackageManager.MATCH_DEFAULT_ONLY,
+    )
+    for (resolveInfo in installers) {
+        context.grantUriPermission(
+            resolveInfo.activityInfo.packageName,
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+        )
     }
     context.startActivity(intent)
 }

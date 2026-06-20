@@ -37,6 +37,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDateTime
+import kotlin.math.roundToInt
 
 private const val TRADINGVIEW_ASSET_BASE = "file:///android_asset/tradingview/"
 private const val LW_CHARTS_INJECT_MARKER = "<!-- INJECT_LIGHTWEIGHT_CHARTS -->"
@@ -394,10 +395,29 @@ internal fun buildTradingViewChartPayloadJson(
                 .put("start", initialWindowStart.toDouble())
                 .put("width", initialWindowWidth.toDouble())
         )
+        .put(
+            "rightOffsetBars",
+            tradingViewZChartRightOffsetBars(
+                barCount = candleArr.length(),
+                windowWidth = initialWindowWidth,
+            ),
+        )
     if (!areaFillColor.isNullOrBlank()) {
         root.put("areaFillColor", areaFillColor)
     }
     return root.toString()
+}
+
+/** Пустой зазор справа на Z-score (parity CHART_RIGHT_PLOT_PADDING_FRACTION / 1м график). */
+internal fun tradingViewZChartRightOffsetBars(
+    barCount: Int,
+    windowWidth: Float,
+): Int {
+    if (barCount <= 0) return 12
+    val visible = (barCount * windowWidth.coerceIn(CHART_ZOOM_MIN_WINDOW, 1f))
+        .roundToInt()
+        .coerceAtLeast(1)
+    return maxOf(12, (visible * CHART_RIGHT_PLOT_PADDING_FRACTION).roundToInt())
 }
 
 internal fun m15CandleLabelToUnixSec(label: String): Long {

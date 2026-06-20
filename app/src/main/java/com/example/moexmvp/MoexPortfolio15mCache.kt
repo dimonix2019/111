@@ -15,6 +15,50 @@ internal const val PORTFOLIO_M15_FETCH_CHUNK_DAYS = 21L
 /** Догрузка хвоста 15м с MOEX только если кэш устарел (не при каждом INCREMENTAL). */
 internal const val PORTFOLIO_M15_TAIL_REFETCH_DAYS = 7L
 
+/** Догрузка 10м→15м для формирующегося бара (каждую минуту на экране). */
+internal suspend fun mergePortfolio15mLiveFormingBarFromMoex(dao: PortfolioM15Dao) {
+    val moexTill = portfolioM15MoexFetchTillDate()
+    val tailFrom = LocalDate.now(moexZoneId).minusDays(PORTFOLIO_M15_LIVE_FORMING_REFETCH_DAYS)
+    if (tailFrom.isAfter(moexTill)) return
+    val tail = fetchPortfolio15mSpreadEntities(tailFrom, moexTill)
+    if (tail.isNotEmpty()) {
+        insertPortfolio15mEntitiesBatched(dao, tail)
+    }
+}
+
+/** Сброс снимка Z/spread на формирующемся 15м баре — иначе Z залипает на persisted. */
+internal suspend fun clearM15FormingBarPersistedZ(dao: PortfolioM15Dao) {
+    val bucket = currentM15BucketStartMillis()
+    val existing = dao.getByTsMillis(listOf(bucket)).firstOrNull() ?: return
+    if (existing.persistedZScore == null && existing.spreadAtZSnapshot == null) return
+    dao.insertAll(
+        listOf(
+            existing.copy(
+                persistedZScore = null,
+                spreadAtZSnapshot = null,
+            ),
+        ),
+    )
+}
+
+/** Сброс persisted Z/spread на хвосте ~2 ч — live-пересчёт на «Рынок». */
+internal suspend fun clearM15LiveTailPersistedZ(
+    dao: PortfolioM15Dao,
+    tailBars: Int = M15_LIVE_Z_TAIL_BARS,
+) {
+    val maxTs = dao.maxTsMillis() ?: return
+    val fromMillis = maxTs - tailBars * 15L * 60_000L
+    val rows = dao.getSince(fromMillis)
+    if (rows.isEmpty()) return
+    val updated = rows.mapNotNull { row ->
+        if (row.persistedZScore == null && row.spreadAtZSnapshot == null) return@mapNotNull null
+        row.copy(persistedZScore = null, spreadAtZSnapshot = null)
+    }
+    if (updated.isNotEmpty()) {
+        dao.insertAll(updated)
+    }
+}
+
 /** Если последний бар в кэше старше — не CACHE_ONLY, а догрузка с MOEX. */
 internal const val PORTFOLIO_M15_CACHE_STALE_MS = PORTFOLIO_M15_INTRADAY_STALE_MS
 
@@ -22,6 +66,16 @@ private val portfolioM15LoadMutex = Mutex()
 
 internal suspend fun <T> withPortfolioM15LoadLock(block: suspend () -> T): T =
     portfolioM15LoadMutex.withLock { block() }
+
+/** UI-фон: не ждём lock — монитор сигналов (сделки) имеет приоритет. */
+internal suspend fun <T> tryWithPortfolioM15LoadLock(block: suspend () -> T): T? {
+    if (!portfolioM15LoadMutex.tryLock()) return null
+    return try {
+        block()
+    } finally {
+        portfolioM15LoadMutex.unlock()
+    }
+}
 
 /**
  * Загрузка спрэда 15м с MOEX кусками по [chunkDays] календарных дней.

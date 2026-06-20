@@ -107,6 +107,42 @@ internal fun openSandboxExecutionsNeedMtmEnrichment(
     }
 }
 
+/**
+ * Обогащение открытых сделок для фонового монитора (шторка, red-risk).
+ * На Prod подтягивает expectedYield с GetPortfolio, как вкладка «Портфель».
+ */
+internal suspend fun enrichOpenExecutionsForBackgroundMonitor(
+    context: Context,
+    executions: List<SandboxSpreadExecUi>,
+    points: List<DataPoint>,
+    commissionPercentPerSide: Double = 0.04,
+): List<SandboxSpreadExecUi> {
+    if (executions.isEmpty()) return executions
+    val app = context.applicationContext
+    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(app)
+    val mode = currentExecutionMode(app)
+    val pnlLeverage = portfolioPnlLeverageMultiplier(mode, leverage)
+    val brokerLegPnl = if (mode == TinkoffExecutionMode.Prod) {
+        executions.firstOrNull()?.signalType?.let { signal ->
+            loadProdSpreadBrokerSnapshot(app, signal)
+        }
+    } else {
+        null
+    }
+    val journal = loadStrategySignalEvents(app)
+    return TinkoffSandboxSpreadExecLog.enrichForDisplay(
+        context = app,
+        executions = executions,
+        points = points,
+        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+        leverage = leverage,
+        commissionPercentPerSide = commissionPercentPerSide,
+        journalEvents = journal,
+        pnlLeverage = pnlLeverage,
+        brokerLegPnl = brokerLegPnl,
+    )
+}
+
 /** Синхронный MTM для UI, если в state ещё сырые записи из SQLite prefs. */
 internal fun enrichSandboxExecutionsIfNeeded(
     executions: List<SandboxSpreadExecUi>,
@@ -200,6 +236,16 @@ internal suspend fun MoexScreenState.refreshProdOpenTradesFromBroker(
     journalEvents: List<StrategySignalEvent> = signalEvents,
 ) {
     if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) return
+    withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        runCatching {
+            TradeExecutionLog.backfillFromOperations(
+                context,
+                fromMillis = now - 30L * 24 * 60 * 60 * 1000,
+                toMillis = now,
+            )
+        }
+    }
     val ledgerIncludeAuto = portfolioLedgerIncludeAuto
     val raw = withContext(Dispatchers.IO) {
         TinkoffSandboxSpreadExecLog.loadRecent(context)

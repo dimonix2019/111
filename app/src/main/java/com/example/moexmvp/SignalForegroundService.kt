@@ -173,15 +173,23 @@ class SignalForegroundService : Service() {
             return@withContext
         }
 
-        lastForegroundZScore = points.last().zScore
-        lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, points)
+        val monitorPoints = if (isMoexNetworkAvailable(applicationContext)) {
+            runCatching { fetchMarketsIntraday1mLive() }
+                .getOrNull()
+                ?.let { snap -> m15PointsWithLiveFormingFromIntraday1m(points, snap) }
+        } else {
+            null
+        } ?: points
+
+        lastForegroundZScore = monitorPoints.last().zScore
+        lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, monitorPoints)
         refreshForegroundNotification()
 
         val signalThresholds = loadRealTradeZThresholds(applicationContext, bgSignalFallbackThresholds)
         runCatching {
             processOpenTradeRedRiskNotifications(
                 context = applicationContext,
-                points = points,
+                points = monitorPoints,
                 entryThreshold = signalThresholds.entry,
             )
         }.onFailure { e ->
@@ -191,28 +199,28 @@ class SignalForegroundService : Service() {
         val initialPosition = loadSavedStrategyPosition(applicationContext)
         val lastProcessedBarTs = resolveLastProcessed15mBarTimestampForReplay(applicationContext)
         val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
-            points = points,
+            points = monitorPoints,
             lastProcessedBarTimestampMillis = lastProcessedBarTs,
             initialPosition = initialPosition,
             thresholds = signalThresholds,
         )
-        zStrategyReplayBarIndexRange(points, lastProcessedBarTs)?.let { range ->
-            persistM15LiveBarSnapshots(applicationContext, range.map { points[it] })
+        zStrategyReplayBarIndexRange(monitorPoints, lastProcessedBarTs)?.let { range ->
+            persistM15LiveBarSnapshots(applicationContext, range.map { monitorPoints[it] })
         }
 
         if (signalEdges.isEmpty()) {
-            if (shouldAdvanceLastProcessed15mBar(points, lastProcessedBarTs)) {
-                saveLastProcessed15mBarTimestamp(applicationContext, points.last().timestampMillis)
+            if (shouldAdvanceLastProcessed15mBar(monitorPoints, lastProcessedBarTs)) {
+                saveLastProcessed15mBarTimestamp(applicationContext, monitorPoints.last().timestampMillis)
             }
             if (replayPosition != initialPosition) {
                 saveStrategyPosition(applicationContext, replayPosition)
             }
             if (monitorTickCount <= 3 || monitorTickCount % 20 == 0) {
-                val last = points.last()
+                val last = monitorPoints.last()
                 MoexDiagnostics.log(
                     applicationContext,
                     "monitor",
-                    "tick#$monitorTickCount ok bars=${points.size} Z=${String.format(Locale.US, "%.2f", last.zScore)} " +
+                    "tick#$monitorTickCount ok bars=${monitorPoints.size} Z=${String.format(Locale.US, "%.2f", last.zScore)} " +
                         "pos=$replayPosition thr=${signalThresholds.entry}/${signalThresholds.exit}",
                 )
             }
@@ -380,8 +388,8 @@ class SignalForegroundService : Service() {
             }
         }
 
-        if (shouldAdvanceLastProcessed15mBar(points, lastProcessedBarTs)) {
-            saveLastProcessed15mBarTimestamp(applicationContext, points.last().timestampMillis)
+        if (shouldAdvanceLastProcessed15mBar(monitorPoints, lastProcessedBarTs)) {
+            saveLastProcessed15mBarTimestamp(applicationContext, monitorPoints.last().timestampMillis)
         }
         saveDailySignalLimit(applicationContext, dayLimit)
         saveStrategyPosition(applicationContext, currentPosition)
