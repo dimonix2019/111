@@ -167,6 +167,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.203 — «Закрыть все сделки»: не удаляет историю закрытых Prod-сделок; закрытие через closePortfolioOpenTrade.
 1.7.202 — Шторка/red-risk: PnL на Prod из GetPortfolio (expectedYield), как T‑Invest; не MOEX-симуляция ×100k.
 1.7.201 — Обновление APK: проверка целостности, gh-pages зеркало, подпись; fix «Невозможно обработать пакет».
 1.7.200 — Рынок: компактные 1м/Spread/σ; Z-score 1м; защита от вылетов при нестабильной сети.

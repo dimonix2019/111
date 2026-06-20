@@ -290,7 +290,8 @@ internal object TinkoffSandboxSpreadExecLog {
         }
     }
 
-    fun clear(context: Context) {
+    /** Сброс только открытых исполнений; закрытые Prod-сделки ([TinkoffClosedSpreadExecLog]) сохраняются. */
+    fun clearOpenExecutions(context: Context) {
         val app = context.applicationContext
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
@@ -298,7 +299,12 @@ internal object TinkoffSandboxSpreadExecLog {
             .remove(KEY_JSON_LEGACY)
             .apply()
         SandboxAccountPnlLedger.clear(app)
-        TinkoffClosedSpreadExecLog.clear(app)
+    }
+
+    /** Полный сброс песочницы: открытые + закрытые + ledger. */
+    fun clear(context: Context) {
+        clearOpenExecutions(context)
+        TinkoffClosedSpreadExecLog.clear(context.applicationContext)
     }
 
     private fun buildEntry(
