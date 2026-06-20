@@ -164,40 +164,28 @@ internal fun MoexScreenTabStrategyTest(
                         usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                         onUsePortfolioThresholdsChange = { enabled ->
                             strategyTestUsePortfolioThresholds = enabled
-                            invalidateStrategyTestSimResults()
-                            scope.launch {
-                                requestStrategyTestResimAfterParamsChange(reason = "portfolio_thresholds")
-                            }
+                            markStrategyTestSimParamsStale()
                         },
                         useLiveZSignals = strategyTestUseLiveZSignals,
                         onUseLiveZSignalsChange = { enabled ->
                             strategyTestUseLiveZSignals = enabled
-                            invalidateStrategyTestSimResults()
-                            scope.launch {
-                                requestStrategyTestResimAfterParamsChange(reason = "live_z")
-                            }
+                            markStrategyTestSimParamsStale()
                         },
                         parityItems = parityItems,
                         onApplyProdAccountCash = {
                             loadLastProdPortfolioCashRub(context)?.let { cash ->
-                                invalidateStrategyTestSimResults()
+                                markStrategyTestSimParamsStale()
                                 strategyTestAccountSizeRub = cash.coerceIn(
                                     STRATEGY_TEST_ACCOUNT_RUB_MIN,
                                     STRATEGY_TEST_ACCOUNT_RUB_MAX,
                                 )
-                                scope.launch {
-                                    requestStrategyTestResimAfterParamsChange(reason = "prod_cash")
-                                }
                             }
                         },
                         onApplyProdReservePercent = {
                             val pct = PROD_EFFECTIVE_CAPITAL_USAGE_PERCENT
                             if (pct != strategyTestCapitalUsagePercent) {
-                                invalidateStrategyTestSimResults()
+                                markStrategyTestSimParamsStale()
                                 strategyTestCapitalUsagePercent = pct
-                                scope.launch {
-                                    requestStrategyTestResimAfterParamsChange(reason = "prod_reserve")
-                                }
                             }
                         },
                         simCommissionPercentPerSide = simCommission,
@@ -216,31 +204,22 @@ internal fun MoexScreenTabStrategyTest(
                                 STRATEGY_TEST_ACCOUNT_RUB_MAX,
                             )
                             if (coerced != strategyTestAccountSizeRub) {
-                                invalidateStrategyTestSimResults()
+                                markStrategyTestSimParamsStale()
                                 strategyTestAccountSizeRub = coerced
-                                scope.launch {
-                                    requestStrategyTestResimAfterParamsChange(reason = "account_size")
-                                }
                             }
                         },
                         onCapitalUsageChange = { newPct ->
                             val coerced = newPct.coerceIn(10.0, 100.0)
                             if (coerced != strategyTestCapitalUsagePercent) {
-                                invalidateStrategyTestSimResults()
+                                markStrategyTestSimParamsStale()
                                 strategyTestCapitalUsagePercent = coerced
-                                scope.launch {
-                                    requestStrategyTestResimAfterParamsChange(reason = "capital_usage")
-                                }
                             }
                         },
                         onMaxLossDdPercentChange = { newPct ->
                             val coerced = newPct.coerceIn(0.0, 50.0)
                             if (coerced != strategyTestMaxLossDdPercent) {
-                                invalidateStrategyTestSimResults()
+                                markStrategyTestSimParamsStale()
                                 strategyTestMaxLossDdPercent = coerced
-                                scope.launch {
-                                    requestStrategyTestResimAfterParamsChange(reason = "max_loss_dd")
-                                }
                             }
                         },
                         onEntryThresholdChange = { newEntry ->
@@ -253,10 +232,7 @@ internal fun MoexScreenTabStrategyTest(
                             } else {
                                 strategyTestEntryThreshold = v
                             }
-                            invalidateStrategyTestSimResults()
-                            scope.launch {
-                                requestStrategyTestResimAfterParamsChange(reason = "entry_threshold")
-                            }
+                            markStrategyTestSimParamsStale()
                         },
                         onExitThresholdChange = { newExit ->
                             val v = newExit.coerceIn(
@@ -268,10 +244,7 @@ internal fun MoexScreenTabStrategyTest(
                             } else {
                                 strategyTestExitThreshold = v
                             }
-                            invalidateStrategyTestSimResults()
-                            scope.launch {
-                                requestStrategyTestResimAfterParamsChange(reason = "exit_threshold")
-                            }
+                            markStrategyTestSimParamsStale()
                         },
                         onExportCompareCsv = {
                             scope.launch {

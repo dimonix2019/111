@@ -203,6 +203,14 @@ internal fun MoexScreenState.invalidateStrategyTestSimResults() {
 }
 
 /**
+ * Параметры симуляции изменились — пересчёт нужен, но таблицу/метрики не скрываем до нового результата.
+ */
+internal fun MoexScreenState.markStrategyTestSimParamsStale() {
+    strategyTestVisibleSessionCache = null
+    strategyTestLastSimKey = 0L
+}
+
+/**
  * Debounced пересчёт после смены «Размер счёта» / % капитала / порогов и т.д.
  * Ждёт завершения текущей симуляции, чтобы не потерять последнее значение параметра.
  */

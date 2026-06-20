@@ -148,6 +148,14 @@ internal fun StrategyTestTabContent(
                 fontSize = 11.sp
             )
         }
+        if (simulationComputing && metrics != null) {
+            Text(
+                text = "Пересчёт симуляции… таблица ниже — предыдущий результат до обновления.",
+                color = Color(0xFF9FA8DA),
+                fontSize = 10.sp,
+                maxLines = 2,
+            )
+        }
         Text(
             text = "${"%.0f".format(Locale.US, accountSizeRub)} ₽ · ${"%.0f".format(Locale.US, capitalUsagePercent)}% капитала · x${String.format(Locale.US, "%.1f", leverage)} · ${String.format(Locale.US, "%.3f", simCommissionPercentPerSide)}% комиссия/стор · боевой режим",
             color = Color(0xFF9E9E9E),

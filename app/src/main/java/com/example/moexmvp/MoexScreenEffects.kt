@@ -160,8 +160,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         strategyTestMaxLossDdPercent,
         strategyTestUsePortfolioThresholds,
         strategyTestUseLiveZSignals,
-        strategyTestSimComputing,
-        strategyTestM15Loading,
     ) {
         if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
         if (!strategyTestM15SessionCache.sufficientForStrategyTestSimulation()) return@LaunchedEffect
