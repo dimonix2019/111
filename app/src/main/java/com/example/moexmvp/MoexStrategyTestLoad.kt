@@ -93,7 +93,11 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 periodDescription = buildStrategyTestPeriodDescription(context),
                 compoundReturns = strategyTestCompoundReturns,
                 exitMode = ZStrategyExitMode.FixedThreshold,
-                simOptions = buildStrategyTestSimOptions(context),
+                simOptions = buildStrategyTestSimOptions(
+                    context = context,
+                    accountSizeRub = strategyTestAccountSizeRub,
+                    maxLossDdPercent = strategyTestMaxLossDdPercent,
+                ),
                 prodLikeSizing = ZStrategyProdLikeSizing(
                     accountSizeRub = strategyTestAccountSizeRub,
                     capitalUsagePercent = strategyTestCapitalUsagePercent,
@@ -149,6 +153,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                     entryThreshold = entry,
                     exitThreshold = exit,
                     compoundReturns = strategyTestCompoundReturns,
+                    maxLossDdPercent = strategyTestMaxLossDdPercent,
                     usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                     useLiveZSignals = strategyTestUseLiveZSignals,
                     thresholdSource = simThresholds.source.name,

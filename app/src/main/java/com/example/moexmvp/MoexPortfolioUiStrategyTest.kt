@@ -57,6 +57,7 @@ internal fun StrategyTestTabContent(
     commissionPercentPerSide: Double,
     accountSizeRub: Double,
     capitalUsagePercent: Double,
+    maxLossDdPercent: Double,
     usePortfolioThresholds: Boolean = true,
     onUsePortfolioThresholdsChange: (Boolean) -> Unit = {},
     useLiveZSignals: Boolean = true,
@@ -76,6 +77,7 @@ internal fun StrategyTestTabContent(
     onCommissionChange: (Double) -> Unit,
     onAccountSizeChange: (Double) -> Unit,
     onCapitalUsageChange: (Double) -> Unit,
+    onMaxLossDdPercentChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
     onExitThresholdChange: (Double) -> Unit,
     onExportCompareCsv: () -> Unit = {},
@@ -126,6 +128,9 @@ internal fun StrategyTestTabContent(
     val sizingHint = remember(sizingPreview, avgTradeNotional) {
         formatStrategyTestSizingHint(sizingPreview, avgTradeNotional)
     }
+    val maxLossHint = remember(maxLossDdPercent, accountSizeRub) {
+        formatStrategyTestMaxLossDdHint(maxLossDdPercent, accountSizeRub)
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth()
@@ -167,7 +172,7 @@ internal fun StrategyTestTabContent(
             )
         }
         Text(
-            text = "PnL по MOEX-spread × номинал лотов (не broker MTM). Выход: порог Z + money-stop ${PROD_MONEY_STOP_PER_TRADE_RUB.toInt()} ₽/сделку.",
+            text = "PnL по MOEX-spread × номинал лотов (не broker MTM). Выход: порог Z + $maxLossHint",
             color = Color(0xFFF48FB1),
             fontSize = 10.sp,
             maxLines = 4
@@ -204,8 +209,10 @@ internal fun StrategyTestTabContent(
         StrategyTestProdParamsControls(
             accountSizeRub = accountSizeRub,
             capitalUsagePercent = capitalUsagePercent,
+            maxLossDdPercent = maxLossDdPercent,
             onAccountSizeChange = onAccountSizeChange,
             onCapitalUsageChange = onCapitalUsageChange,
+            onMaxLossDdPercentChange = onMaxLossDdPercentChange,
         )
         if (zScoreCandles.isNotEmpty() && chartThresholds != null) {
             val zReferenceLines = remember(chartThresholds) {
@@ -854,8 +861,10 @@ internal fun StrategyTestProdParityPanel(
 internal fun StrategyTestProdParamsControls(
     accountSizeRub: Double,
     capitalUsagePercent: Double,
+    maxLossDdPercent: Double,
     onAccountSizeChange: (Double) -> Unit,
     onCapitalUsageChange: (Double) -> Unit,
+    onMaxLossDdPercentChange: (Double) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
@@ -873,6 +882,17 @@ internal fun StrategyTestProdParamsControls(
                 modifier = Modifier.weight(1f),
             )
         }
+        ParamStepper(
+            title = "% DD / сделку",
+            valueLabel = if (maxLossDdPercent <= 0.0) {
+                "0% (выкл.)"
+            } else {
+                "${"%.1f".format(Locale.US, maxLossDdPercent)}% ≈ ${"%.0f".format(Locale.US, resolveStrategyTestMaxLossRub(accountSizeRub, maxLossDdPercent))} ₽"
+            },
+            onMinus = { onMaxLossDdPercentChange((maxLossDdPercent - 1.0).coerceAtLeast(0.0)) },
+            onPlus = { onMaxLossDdPercentChange((maxLossDdPercent + 1.0).coerceAtMost(50.0)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

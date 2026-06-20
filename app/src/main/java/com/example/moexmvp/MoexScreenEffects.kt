@@ -157,6 +157,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         strategyTestCompoundReturns,
         strategyTestAccountSizeRub,
         strategyTestCapitalUsagePercent,
+        strategyTestMaxLossDdPercent,
         strategyTestUsePortfolioThresholds,
         strategyTestUseLiveZSignals,
         strategyTestSimComputing,
@@ -185,6 +186,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     LaunchedEffect(strategyTestCapitalUsagePercent) {
         withContext(Dispatchers.IO) {
             saveStrategyTestCapitalUsagePercent(context, strategyTestCapitalUsagePercent)
+        }
+    }
+
+    LaunchedEffect(strategyTestMaxLossDdPercent) {
+        withContext(Dispatchers.IO) {
+            saveStrategyTestMaxLossDdPercent(context, strategyTestMaxLossDdPercent)
         }
     }
 

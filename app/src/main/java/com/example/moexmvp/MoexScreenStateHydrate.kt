@@ -56,5 +56,6 @@ internal suspend fun MoexScreenState.hydrateDeferredUiState() {
             sandboxSpreadAutoExecute = TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)
             strategyTestAccountSizeRub = loadStrategyTestAccountSizeRub(context)
             strategyTestCapitalUsagePercent = loadStrategyTestCapitalUsagePercent(context)
+            strategyTestMaxLossDdPercent = loadStrategyTestMaxLossDdPercent(context)
         }
     }

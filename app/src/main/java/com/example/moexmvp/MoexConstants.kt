@@ -65,6 +65,10 @@ internal const val DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT = 80.0
 internal const val DEFAULT_STRATEGY_TEST_SLIPPAGE_SPREAD_PTS = 0.05
 internal const val PREF_STRATEGY_TEST_ACCOUNT_RUB = "strategy_test_account_rub"
 internal const val PREF_STRATEGY_TEST_CAPITAL_USAGE_PCT = "strategy_test_capital_usage_pct"
+internal const val PREF_STRATEGY_TEST_MAX_LOSS_DD_PCT = "strategy_test_max_loss_dd_pct"
+/** 0 = без money-stop в симуляции. */
+internal const val DEFAULT_STRATEGY_TEST_MAX_LOSS_DD_PERCENT = 0.0
+/** @deprecated Prod auto-exit; симуляция использует [DEFAULT_STRATEGY_TEST_MAX_LOSS_DD_PERCENT]. */
 internal const val PROD_MONEY_STOP_PER_TRADE_RUB = 4_000.0
 /** Доля свободных денег, которую не тратим на вход (резерв под ГО/комиссии). */
 internal const val SPREAD_LOT_RESERVE_CASH_FRACTION = 0.25
@@ -177,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.212 — «Тест страт.»: money-stop = % DD от счёта (0 = выкл), автосохранение; убран фикс 4000 ₽.
 1.7.211 — «Тест страт.»: убран лимит 80 л; размер позиции только по «Размер счёта» × «% капитала» × плечо.
 1.7.210 — «Тест страт.»: боевой режим симуляции — пороги Портфеля, Z live, комиссия/slip из лога, чеклист parity, CSV meta.
 1.7.209 — «Тест страт.»: пояснение лимита 80 л (PnL 10k≈100k на Prod); переключатель cap; ср. номинал сделки.

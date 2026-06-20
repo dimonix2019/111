@@ -160,6 +160,7 @@ internal fun MoexScreenTabStrategyTest(
                         commissionPercentPerSide = portfolioCommissionPercent,
                         accountSizeRub = strategyTestAccountSizeRub,
                         capitalUsagePercent = strategyTestCapitalUsagePercent,
+                        maxLossDdPercent = strategyTestMaxLossDdPercent,
                         usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                         onUsePortfolioThresholdsChange = { enabled ->
                             strategyTestUsePortfolioThresholds = enabled
@@ -232,6 +233,16 @@ internal fun MoexScreenTabStrategyTest(
                                 }
                             }
                         },
+                        onMaxLossDdPercentChange = { newPct ->
+                            val coerced = newPct.coerceIn(0.0, 50.0)
+                            if (coerced != strategyTestMaxLossDdPercent) {
+                                invalidateStrategyTestSimResults()
+                                strategyTestMaxLossDdPercent = coerced
+                                scope.launch {
+                                    requestStrategyTestResimAfterParamsChange(reason = "max_loss_dd")
+                                }
+                            }
+                        },
                         onEntryThresholdChange = { newEntry ->
                             val v = newEntry.coerceIn(
                                 PORTFOLIO_Z_THRESHOLD_MIN,
@@ -281,6 +292,7 @@ internal fun MoexScreenTabStrategyTest(
                                         entryThreshold = thresholds.entry,
                                         exitThreshold = thresholds.exit,
                                         compoundReturns = strategyTestCompoundReturns,
+                                        maxLossDdPercent = strategyTestMaxLossDdPercent,
                                         usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                                         useLiveZSignals = strategyTestUseLiveZSignals,
                                         thresholdSource = thresholds.source.name,

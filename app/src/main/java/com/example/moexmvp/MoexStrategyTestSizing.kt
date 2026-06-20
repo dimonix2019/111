@@ -99,14 +99,52 @@ internal fun formatStrategyTestSizingHint(
     return "~${preview.quantityLots} л · ~${"%.0f".format(Locale.US, preview.executionNotionalRub)} ₽ номинал$avgPart"
 }
 
-internal fun buildStrategyTestSimOptions(context: Context): ZStrategySimOptions {
+internal fun buildStrategyTestSimOptions(
+    context: Context,
+    accountSizeRub: Double,
+    maxLossDdPercent: Double,
+): ZStrategySimOptions {
     val spreadSlip = TradeExecutionLog.medianSlippageSpreadPts(context)
         ?: DEFAULT_STRATEGY_TEST_SLIPPAGE_SPREAD_PTS
     return ZStrategySimOptions(
         slippageSpreadPts = spreadSlip.coerceAtLeast(0.0),
-        maxLossRub = PROD_MONEY_STOP_PER_TRADE_RUB,
+        maxLossRub = resolveStrategyTestMaxLossRub(accountSizeRub, maxLossDdPercent),
     )
 }
+
+/** Money-stop в ₽: доля счёта; 0% → без ограничения. */
+internal fun resolveStrategyTestMaxLossRub(accountSizeRub: Double, ddPercent: Double): Double {
+    if (ddPercent <= 0.0) return 0.0
+    return accountSizeRub.coerceAtLeast(1.0) * (ddPercent / 100.0)
+}
+
+internal fun formatStrategyTestMaxLossDdHint(ddPercent: Double, accountSizeRub: Double): String =
+    if (ddPercent <= 0.0) {
+        "money-stop выкл."
+    } else {
+        val rub = resolveStrategyTestMaxLossRub(accountSizeRub, ddPercent)
+        "money-stop ${"%.1f".format(Locale.US, ddPercent)}% ≈ ${"%.0f".format(Locale.US, rub)} ₽/сделку"
+    }
+
+internal fun loadStrategyTestMaxLossDdPercent(context: Context): Double =
+    context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .getFloat(PREF_STRATEGY_TEST_MAX_LOSS_DD_PCT, DEFAULT_STRATEGY_TEST_MAX_LOSS_DD_PERCENT.toFloat())
+        .toDouble()
+        .coerceIn(0.0, 50.0)
+
+internal fun saveStrategyTestMaxLossDdPercent(context: Context, percent: Double) {
+    context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putFloat(PREF_STRATEGY_TEST_MAX_LOSS_DD_PCT, percent.toFloat().coerceIn(0f, 50f))
+        .apply()
+}
+
+internal fun buildStrategyTestSimOptions(context: Context): ZStrategySimOptions =
+    buildStrategyTestSimOptions(
+        context = context,
+        accountSizeRub = DEFAULT_STRATEGY_TEST_ACCOUNT_RUB,
+        maxLossDdPercent = DEFAULT_STRATEGY_TEST_MAX_LOSS_DD_PERCENT,
+    )
 
 internal fun loadStrategyTestAccountSizeRub(context: Context): Double =
     context.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
