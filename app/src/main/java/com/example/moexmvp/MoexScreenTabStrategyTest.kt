@@ -141,7 +141,10 @@ internal fun MoexScreenTabStrategyTest(
                         onLeverageChange = { portfolioLeverage = it },
                         onCommissionChange = { portfolioCommissionPercent = it },
                         onAccountSizeChange = { newRub ->
-                            strategyTestAccountSizeRub = newRub.coerceIn(1_000.0, 10_000_000.0)
+                            strategyTestAccountSizeRub = newRub.coerceIn(
+                                STRATEGY_TEST_ACCOUNT_RUB_MIN,
+                                STRATEGY_TEST_ACCOUNT_RUB_MAX,
+                            )
                             scope.launch {
                                 requestStrategyTestResimAfterParamsChange(reason = "account_size")
                             }

@@ -51,6 +51,19 @@ class MoexStrategyTestSizingTest {
     }
 
     @Test
+    fun parseStrategyTestAccountRubInput_acceptsDigitsAndSeparators() {
+        assertEquals(10_205.0, parseStrategyTestAccountRubInput("10 205 ₽")!!, 0.01)
+        assertEquals(50_000.0, parseStrategyTestAccountRubInput("50000")!!, 0.01)
+        assertEquals(null, parseStrategyTestAccountRubInput(""))
+        assertEquals(1_000.0, parseStrategyTestAccountRubInput("500")!!, 0.01)
+    }
+
+    @Test
+    fun formatStrategyTestAccountRubInput_roundsToInteger() {
+        assertEquals("10205", formatStrategyTestAccountRubInput(10_205.4))
+    }
+
+    @Test
     fun buildZStrategyPortfolioMetrics_scalesPnlWithAccountSize() {
         val points = (0 until 80).map { i ->
             val z = when {

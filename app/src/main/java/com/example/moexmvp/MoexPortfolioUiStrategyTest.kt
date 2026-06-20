@@ -728,11 +728,10 @@ internal fun StrategyTestProdParamsControls(
     onCapitalUsageChange: (Double) -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-        ParamStepper(
+        ParamRubInputStepper(
             title = "Размер счёта",
-            valueLabel = "${"%.0f".format(Locale.US, accountSizeRub)} ₽",
-            onMinus = { onAccountSizeChange((accountSizeRub - 1_000.0).coerceAtLeast(1_000.0)) },
-            onPlus = { onAccountSizeChange((accountSizeRub + 1_000.0).coerceAtMost(10_000_000.0)) },
+            valueRub = accountSizeRub,
+            onValueChange = onAccountSizeChange,
             modifier = Modifier.weight(1f),
         )
         ParamStepper(

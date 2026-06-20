@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import android.content.Context
+import java.util.Locale
 import kotlin.math.max
 
 internal data class ZStrategyProdLikeSizing(
@@ -73,6 +74,27 @@ internal fun saveStrategyTestCapitalUsagePercent(context: Context, percent: Doub
         .edit()
         .putFloat(PREF_STRATEGY_TEST_CAPITAL_USAGE_PCT, percent.toFloat().coerceIn(10f, 100f))
         .apply()
+}
+
+internal const val STRATEGY_TEST_ACCOUNT_RUB_MIN = 1_000.0
+internal const val STRATEGY_TEST_ACCOUNT_RUB_MAX = 10_000_000.0
+
+internal fun formatStrategyTestAccountRubInput(rub: Double): String =
+    "%.0f".format(Locale.US, rub.coerceIn(STRATEGY_TEST_ACCOUNT_RUB_MIN, STRATEGY_TEST_ACCOUNT_RUB_MAX))
+
+/** Целое число ₽ из поля ввода (пробелы/₽/запятая допустимы). */
+internal fun parseStrategyTestAccountRubInput(
+    text: String,
+    minRub: Double = STRATEGY_TEST_ACCOUNT_RUB_MIN,
+    maxRub: Double = STRATEGY_TEST_ACCOUNT_RUB_MAX,
+): Double? {
+    val cleaned = text.trim()
+        .replace(" ", "")
+        .replace("₽", "")
+        .replace(",", ".")
+        .substringBefore('.')
+    if (cleaned.isEmpty()) return null
+    return cleaned.toDoubleOrNull()?.coerceIn(minRub, maxRub)
 }
 
 internal fun buildStrategyTestPeriodDescription(context: Context): String {
