@@ -137,6 +137,22 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
             )
         }
+        if (metrics != null) {
+            withContext(Dispatchers.IO) {
+                val tradeItems = buildStrategyTestTradeListFromSimulation(metrics.closedTrades)
+                val exportConfig = buildStrategyTestExportConfig(
+                    context = context,
+                    accountSizeRub = strategyTestAccountSizeRub,
+                    capitalUsagePercent = strategyTestCapitalUsagePercent,
+                    leverageForLots = portfolioLeverage,
+                    commissionPercentPerSide = portfolioCommissionPercent,
+                    entryThreshold = entry,
+                    exitThreshold = exit,
+                    compoundReturns = strategyTestCompoundReturns,
+                )
+                persistStrategyTestCompareExport(context, metrics, tradeItems, exportConfig)
+            }
+        }
         val trades = metrics?.closedTrades?.size ?: 0
         MoexDiagnostics.log(context, "st_sim", "done id=$workId trades=$trades chartTail=${chartTail.size}")
     } catch (e: OutOfMemoryError) {

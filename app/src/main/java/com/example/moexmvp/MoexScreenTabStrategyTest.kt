@@ -12,11 +12,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
+import android.widget.Toast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 
 @Composable
@@ -153,6 +155,43 @@ internal fun MoexScreenTabStrategyTest(
                                 PORTFOLIO_Z_THRESHOLD_MIN,
                                 PORTFOLIO_Z_THRESHOLD_MAX
                             )
+                        },
+                        onExportCompareCsv = {
+                            scope.launch {
+                                val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
+                                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+                                val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
+                                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+                                val csv = withContext(Dispatchers.IO) {
+                                    buildStrategyTestCompareCsvFromState(
+                                        context = context,
+                                        metrics = strategyTestPortfolioMetrics,
+                                        tradeItems = strategyTestTradeItems,
+                                        accountSizeRub = strategyTestAccountSizeRub,
+                                        capitalUsagePercent = strategyTestCapitalUsagePercent,
+                                        leverageForLots = portfolioLeverage,
+                                        commissionPercentPerSide = portfolioCommissionPercent,
+                                        entryThreshold = entry,
+                                        exitThreshold = exit,
+                                        compoundReturns = strategyTestCompoundReturns,
+                                    )?.also { persist ->
+                                        StrategyTestExportStore.saveCompareCsv(context, persist)
+                                    }
+                                }
+                                if (csv == null || !copyCsvToClipboard(context, csv, "moex_sim_trades.csv")) {
+                                    Toast.makeText(
+                                        context,
+                                        "Нет сделок для выгрузки",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    return@launch
+                                }
+                                Toast.makeText(
+                                    context,
+                                    "CSV Тест страт. (${tradeCompareRowCount(csv)} сделок) в буфере — сравните с Prod",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
                         },
                         dailyReconciliation = dailyReconciliation,
                     )

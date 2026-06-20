@@ -374,6 +374,75 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
         ) {
             Text("CSV лог сделок (цена/slip/частично)", fontSize = 12.sp)
         }
+        Text(
+            text = "Сравнение Prod vs Тест страт.",
+            color = Color.White,
+            fontWeight = FontWeight.Medium,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+        Text(
+            text = "Одинаковые столбцы CSV — удобно искать расхождения в Excel перед запуском на больших суммах.",
+            color = Color(0xFF9E9E9E),
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Row(
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        val csv = withContext(Dispatchers.IO) { exportProdTradesCompareCsv(context) }
+                        if (!copyCsvToClipboard(context, csv, "moex_prod_trades.csv")) {
+                            Toast.makeText(context, "Нет закрытых Prod-сделок", Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+                        Toast.makeText(
+                            context,
+                            "CSV Prod (${tradeCompareRowCount(csv)} сделок) в буфере",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA)),
+            ) {
+                Text("CSV Prod", fontSize = 11.sp)
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        val csv = withContext(Dispatchers.IO) {
+                            StrategyTestExportStore.loadCompareCsv(context)
+                        }
+                        if (csv == null || !copyCsvToClipboard(context, csv, "moex_sim_trades.csv")) {
+                            Toast.makeText(
+                                context,
+                                "Сначала откройте «Тест страт.» и дождитесь симуляции",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                            return@launch
+                        }
+                        Toast.makeText(
+                            context,
+                            "CSV Тест страт. (${tradeCompareRowCount(csv)} сделок) в буфере",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF80CBC4)),
+            ) {
+                Text("CSV Тест страт.", fontSize = 11.sp)
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End

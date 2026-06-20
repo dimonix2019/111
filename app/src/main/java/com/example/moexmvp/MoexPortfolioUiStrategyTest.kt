@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,6 +70,7 @@ internal fun StrategyTestTabContent(
     onCapitalUsageChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
     onExitThresholdChange: (Double) -> Unit,
+    onExportCompareCsv: () -> Unit = {},
     dailyReconciliation: DailyPortfolioReconciliation? = null,
 ) {
     val (displayTradeItems, displayRiskAssessments) = remember(
@@ -262,13 +264,29 @@ internal fun StrategyTestTabContent(
                     )
                     PortfolioMetricGrid(m, showHeroDuplicate = false)
                 }
-                Text(
-                    text = "Сделки симуляции (${displayTradeItems.size}) · ${m.periodDescription}",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Сделки симуляции (${displayTradeItems.size}) · ${m.periodDescription}",
+                        color = Color(0xFFE0E0E0),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedButton(
+                        onClick = onExportCompareCsv,
+                        enabled = tradeItems.isNotEmpty(),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF80CBC4)),
+                    ) {
+                        Text("CSV сравнение", fontSize = 10.sp)
+                    }
+                }
                 if (excludeRedZone && displayTradeItems.size < tradeItems.size) {
                     Text(
                         text = "Скрыто ${tradeItems.size - displayTradeItems.size} сделок в красной зоне (≥4 балла).",

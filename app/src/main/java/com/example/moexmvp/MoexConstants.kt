@@ -175,6 +175,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.205 — CSV сравнение Prod vs «Тест страт.» (одинаковые столбцы); кнопка на вкладке и в «О приложении».
 1.7.204 — Лог сделок (3 фазы): fill/slip/частично, CSV; «Тест страт.» Prod-like (10k, 80%, lot sizing, slip из лога).
 1.7.203 — «Закрыть все сделки»: не удаляет историю закрытых Prod-сделок; закрытие через closePortfolioOpenTrade.
 1.7.202 — Шторка/red-risk: PnL на Prod из GetPortfolio (expectedYield), как T‑Invest; не MOEX-симуляция ×100k.
