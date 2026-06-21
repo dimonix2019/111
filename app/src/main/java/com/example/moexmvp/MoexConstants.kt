@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.221 — «Тест страт.»: Z-score и Equity/DD — два отдельных графика (Z сверху, Equity ниже).
 1.7.220 — Fix «Тест страт.»: пороги Z на графике Equity следуют stepper (боевой режим / custom).
 1.7.219 — «Тест страт.»: Z-score + пороги поверх Equity/DD на одном графике; шкала Z справа.
 1.7.218 — Perf «Тест страт.»: быстрый resim (skip Z-recalc live, кэш σ, хвост для маркеров, без CSV на tweak).

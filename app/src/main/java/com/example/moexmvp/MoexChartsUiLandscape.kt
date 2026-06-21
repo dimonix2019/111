@@ -197,8 +197,6 @@ internal fun StrategyTestEquityDrawdownChartCard(
     totalPnlRub: Double? = null,
     maxDrawdownRub: Double? = null,
     recomputing: Boolean = false,
-    zOverlayPoints: List<DataPoint> = emptyList(),
-    zReferenceLines: List<ChartReferenceLine> = emptyList(),
 ) {
     Column(
         modifier = modifier
@@ -216,9 +214,6 @@ internal fun StrategyTestEquityDrawdownChartCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Equity", color = Color(0xFF4FC3F7), fontSize = 9.sp, fontWeight = FontWeight.Medium)
                     Text("DD", color = Color(0xFFFFAB40), fontSize = 9.sp, fontWeight = FontWeight.Medium)
-                    if (zOverlayPoints.size >= 2) {
-                        Text("Z", color = EquityChartZOverlayLineColor, fontSize = 9.sp, fontWeight = FontWeight.Medium)
-                    }
                 }
                 if (totalPnlRub != null && maxDrawdownRub != null) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -268,8 +263,6 @@ internal fun StrategyTestEquityDrawdownChartCard(
             equityRub = equityRub,
             drawdownRub = drawdownRub,
             chartHeightDp = chartHeightDp,
-            zOverlayPoints = zOverlayPoints,
-            zReferenceLines = zReferenceLines,
         )
     }
 }

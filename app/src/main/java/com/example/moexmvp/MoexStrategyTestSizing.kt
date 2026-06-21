@@ -179,13 +179,19 @@ internal const val STRATEGY_TEST_ACCOUNT_RUB_MAX = 10_000_000.0
 /** Высота микро-кнопки на live-панели «Тест страт.» (+25% к v1.7.215). */
 internal const val STRATEGY_TEST_MICRO_CONTROL_HEIGHT_DP = 44
 
-/** Высота Equity/DD под оставшееся место экрана (Redmi 12 Pro ≈ 873dp, FHD+). */
-internal fun strategyTestLiveEquityChartHeightDp(screenHeightDp: Int): Int {
+/** Высоты Z и Equity/DD на live-панели «Тест страт.» (под stepper, без скролла). */
+internal fun strategyTestLiveChartHeightsDp(screenHeightDp: Int): Pair<Int, Int> {
     val tuningPanel = STRATEGY_TEST_MICRO_CONTROL_HEIGHT_DP * 4 + 4 * 3 + 8
-    // вкладки + шапка + легенда графика + отступы
-    val chrome = 184
-    return (screenHeightDp - chrome - tuningPanel).coerceIn(280, 400)
+    val chrome = 196
+    val total = (screenHeightDp - chrome - tuningPanel).coerceIn(360, 520)
+    val zHeight = (total * 0.42).toInt().coerceIn(160, 220)
+    val equityHeight = (total - zHeight - 4).coerceIn(200, 300)
+    return zHeight to equityHeight
 }
+
+/** @deprecated Используйте [strategyTestLiveChartHeightsDp]. */
+internal fun strategyTestLiveEquityChartHeightDp(screenHeightDp: Int): Int =
+    strategyTestLiveChartHeightsDp(screenHeightDp).second
 
 /** Комиссия для узкой микро-кнопки. */
 internal fun formatStrategyTestCommissionMicro(percentPerSide: Double): String =
