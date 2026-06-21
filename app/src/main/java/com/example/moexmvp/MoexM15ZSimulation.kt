@@ -22,6 +22,7 @@ internal fun MoexScreenState.syncStrategyTestM15Cache(points: List<DataPoint>) {
         strategyTestM15SessionCache.size < points.size
     ) {
         strategyTestM15SessionCache = points
+        clearStrategyTestHourlyVolCache()
     }
 }
 

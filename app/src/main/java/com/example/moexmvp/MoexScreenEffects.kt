@@ -280,7 +280,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         selectedTab,
         signalJournalFingerprint,
         confirmedPortfolioMetrics,
-        strategyTestPortfolioMetrics,
         portfolioLookbackDays,
         strategyTestM15SessionCache.size,
         strategyTestEntryThreshold,
@@ -297,6 +296,10 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
         delay(350)
         if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
+        while (selectedTab == MainTab.StrategyTest && strategyTestSimComputing) {
+            delay(50)
+            if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
+        }
         dailyReconciliation = withContext(Dispatchers.Default) {
             val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
             val points = m15SeriesForZSimulation()

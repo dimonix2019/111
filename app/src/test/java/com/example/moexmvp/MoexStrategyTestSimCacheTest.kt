@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 
@@ -86,9 +87,22 @@ class MoexStrategyTestSimCacheTest {
         assertEquals("2R", segments[1].id)
     }
 
-    private fun point(label: String, z: Double = 0.0): DataPoint =
+    @Test
+    fun strategyTestM15DataFingerprint_changesWhenSeriesTailChanges() {
+        val a = listOf(
+            point("2026-01-01 10:00", ts = 1L),
+            point("2026-01-01 10:15", ts = 2L),
+        )
+        val b = listOf(
+            point("2026-01-01 10:00", ts = 1L),
+            point("2026-01-01 10:15", ts = 3L),
+        )
+        assertNotEquals(strategyTestM15DataFingerprint(a), strategyTestM15DataFingerprint(b))
+    }
+
+    private fun point(label: String, z: Double = 0.0, ts: Long = 0L): DataPoint =
         DataPoint(
-            timestampMillis = 0L,
+            timestampMillis = ts,
             tradeDate = label,
             tatnClose = 100.0,
             tatnpClose = 95.0,

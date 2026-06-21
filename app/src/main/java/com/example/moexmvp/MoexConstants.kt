@@ -55,7 +55,7 @@ internal const val DAILY_SIGNAL_MAX_PER_DAY = 20
 internal const val STRATEGY_SIGNAL_JOURNAL_DEDUP_WALL_MS = 25_000L
 internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 /** Debounce rapid threshold/leverage tweaks on «Тест страт.» before rerunning simulation. */
-internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 750L
+internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 400L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
 /** «Тест страт.»: размер счёта по умолчанию (как субсчёт «Арбитраж» ~10k). */
 internal const val DEFAULT_STRATEGY_TEST_ACCOUNT_RUB = 10_000.0
@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.218 — Perf «Тест страт.»: быстрый resim (skip Z-recalc live, кэш σ, хвост для маркеров, без CSV на tweak).
 1.7.217 — Fix: Z на «Рынок» = Z в шторке — после MOEX 15m refresh снова 1м overlay.
 1.7.216 — «Тест страт.»: микро-кнопки 44dp (текст выше), Equity до 400dp — под экран Redmi 12 Pro.
 1.7.215 — «Тест страт.»: единая микро-панель (Плечо…−КЗ) + Equity/DD на одном экране; chip-переключатели.

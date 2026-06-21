@@ -456,6 +456,9 @@ internal fun prepareM15PointsForZStrategySim(
     applyJournalOverlay: Boolean = true,
 ): List<DataPoint> {
     if (points.size < 2) return points
+    if (!applyJournalOverlay && journalEvents.isEmpty() && entities.isEmpty()) {
+        return points
+    }
     val mutable = points.map { it.copy(zScore = 0.0) }.toMutableList()
     if (entities.size == points.size) {
         fillM15ZScoresInPlace(mutable, entities)

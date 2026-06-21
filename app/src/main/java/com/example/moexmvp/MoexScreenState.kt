@@ -12,6 +12,8 @@ import java.time.LocalDate
 @Stable
 internal class MoexScreenState(val context: Context) {
     val refreshMutex = Mutex()
+    /** Resim «Тест страт.» без блокировки portfolio/markets refresh. */
+    val strategyTestSimMutex = Mutex()
 
     var pendingAppUpdate by mutableStateOf<AppRemoteUpdate?>(null)
     var selectedTab by mutableStateOf(
@@ -124,6 +126,9 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestDurationSummary by mutableStateOf<StrategyTestDurationSummary?>(null)
     var strategyTestMonthlyReturnSummary by mutableStateOf<StrategyTestMonthlyReturnSummary?>(null)
     var strategyTestSpreadHourlyVolatility by mutableStateOf<SpreadHourlyVolatilityReport?>(null)
+    /** Кэш hourly vol по fingerprint 15м ряда (не зависит от порогов sim). */
+    var strategyTestHourlyVolCacheKey: Long = 0L
+    var strategyTestHourlyVolCache: SpreadHourlyVolatilityReport? = null
     var strategyTestLastSimKey: Long = 0L
     var strategyTestVisibleSessionCache: StrategyTestVisibleSnapshot? = null
     /** Отмена устаревших загрузок/симуляций при смене вкладки или новом запросе. */
