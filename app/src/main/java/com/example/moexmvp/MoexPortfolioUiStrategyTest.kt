@@ -120,8 +120,15 @@ internal fun StrategyTestTabContent(
     val liveChartHeightDp = remember(screenHeightDp) {
         strategyTestLiveEquityChartHeightDp(screenHeightDp)
     }
-    val zReferenceLines = remember(chartThresholds) {
-        chartThresholds?.let { buildZScoreReferenceLines(it, desktopStyle = true) }.orEmpty()
+    val zReferenceLines = remember(entryThreshold, exitThreshold, chartThresholds?.calculatedDate) {
+        buildZScoreReferenceLines(
+            DynamicThresholds(
+                entry = entryThreshold,
+                exit = exitThreshold,
+                calculatedDate = chartThresholds?.calculatedDate,
+            ),
+            desktopStyle = true,
+        )
     }
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp),

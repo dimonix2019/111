@@ -102,16 +102,20 @@ internal fun MoexScreen() {
     val strategyTestM15ChartPoints = strategyTestChartSeries.first
     val strategyTestZScoreCandles = strategyTestChartSeries.second
     val strategyTestChartThresholds = remember(
+        screen.strategyTestUsePortfolioThresholds,
+        screen.realTradeEntryThreshold,
+        screen.realTradeExitThreshold,
         screen.strategyTestEntryThreshold,
         screen.strategyTestExitThreshold,
-        screen.dynamicThresholds
+        screen.dynamicThresholds.entry,
+        screen.dynamicThresholds.exit,
+        screen.dynamicThresholds.calculatedDate,
     ) {
+        val sim = screen.resolveStrategyTestSimThresholds()
         DynamicThresholds(
-            entry = (screen.strategyTestEntryThreshold ?: screen.dynamicThresholds.entry)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-            exit = (screen.strategyTestExitThreshold ?: screen.dynamicThresholds.exit)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-            calculatedDate = screen.dynamicThresholds.calculatedDate
+            entry = sim.entry,
+            exit = sim.exit,
+            calculatedDate = screen.dynamicThresholds.calculatedDate,
         )
     }
     // Хвост ~30 календарных дней — как на «Рынок»; иначе TradingView fitContent() на ~1200 барах
