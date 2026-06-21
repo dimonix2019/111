@@ -267,6 +267,7 @@ internal fun PortfolioParamsControls(
     exitThreshold: Double,
     showZThresholdSteppers: Boolean,
     showExitThresholdStepper: Boolean = true,
+    compactSteppers: Boolean = false,
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
@@ -279,20 +280,22 @@ internal fun PortfolioParamsControls(
                 valueLabel = "x${String.format(Locale.US, "%.1f", leverage)}",
                 onMinus = { onLeverageChange((leverage - 0.5).coerceAtLeast(1.0)) },
                 onPlus = { onLeverageChange((leverage + 0.5).coerceAtMost(30.0)) },
+                compact = compactSteppers,
                 modifier = Modifier.weight(1f)
             )
             ParamStepper(
-                title = "Комиссия / сторона",
+                title = "Комиссия",
                 valueLabel = "${String.format(Locale.US, "%.3f", commissionPercentPerSide)}%",
                 onMinus = { onCommissionChange((commissionPercentPerSide - 0.005).coerceAtLeast(0.0)) },
                 onPlus = { onCommissionChange((commissionPercentPerSide + 0.005).coerceAtMost(1.0)) },
+                compact = compactSteppers,
                 modifier = Modifier.weight(1f)
             )
         }
         if (showZThresholdSteppers) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 ParamStepper(
-                    title = "Порог входа |Z|",
+                    title = "Вход |Z|",
                     valueLabel = String.format(Locale.US, "%.2f", entryThreshold),
                     onMinus = {
                         onEntryThresholdChange(
@@ -304,11 +307,12 @@ internal fun PortfolioParamsControls(
                             (entryThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
                         )
                     },
+                    compact = compactSteppers,
                     modifier = if (showExitThresholdStepper) Modifier.weight(1f) else Modifier.fillMaxWidth()
                 )
                 if (showExitThresholdStepper) {
                     ParamStepper(
-                        title = "Порог выхода |Z|",
+                        title = "Выход |Z|",
                         valueLabel = String.format(Locale.US, "%.2f", exitThreshold),
                         onMinus = {
                             onExitThresholdChange(
@@ -320,6 +324,7 @@ internal fun PortfolioParamsControls(
                                 (exitThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
                             )
                         },
+                        compact = compactSteppers,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -419,22 +424,48 @@ internal fun ParamStepper(
     modifier: Modifier = Modifier,
     containerColor: Color = Color(0xFF1E1E1E),
     titleColor: Color = Color(0xFF9E9E9E),
-    valueTextColor: Color = Color.White
+    valueTextColor: Color = Color.White,
+    compact: Boolean = false,
 ) {
+    val vPad = if (compact) 4.dp else 6.dp
+    val iconSize = if (compact) 18.dp else 20.dp
     Column(
         modifier
             .background(containerColor, RoundedCornerShape(8.dp))
-            .padding(horizontal = 6.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(horizontal = 6.dp, vertical = vPad),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp)
     ) {
-        Text(title, color = titleColor, fontSize = 10.sp)
-        Text(valueLabel, color = valueTextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        if (compact) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    title,
+                    color = titleColor,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Text(
+                    valueLabel,
+                    color = valueTextColor,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
+        } else {
+            Text(title, color = titleColor, fontSize = 10.sp)
+            Text(valueLabel, color = valueTextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(onClick = onMinus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(iconSize))
             }
             Button(onClick = onPlus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(iconSize))
             }
         }
     }
@@ -451,6 +482,7 @@ internal fun ParamRubInputStepper(
     stepRub: Double = 1_000.0,
     containerColor: Color = Color(0xFF1E1E1E),
     titleColor: Color = Color(0xFF9E9E9E),
+    compact: Boolean = false,
 ) {
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -492,45 +524,94 @@ internal fun ParamRubInputStepper(
         }
     }
 
+    val vPad = if (compact) 4.dp else 6.dp
+    val fieldFontSize = if (compact) 11.sp else 13.sp
     Column(
         modifier
             .background(containerColor, RoundedCornerShape(8.dp))
-            .padding(horizontal = 6.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(horizontal = 6.dp, vertical = vPad),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp),
     ) {
-        Text(title, color = titleColor, fontSize = 10.sp)
-        OutlinedTextField(
-            value = draft,
-            onValueChange = {
-                editing = true
-                draft = it.filter { ch -> ch.isDigit() }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .onFocusChanged { focus ->
-                    if (focus.isFocused) {
+        if (compact) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    title,
+                    color = titleColor,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                )
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = {
                         editing = true
-                    } else if (editing) {
-                        commitDraft()
+                        draft = it.filter { ch -> ch.isDigit() }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { focus ->
+                            if (focus.isFocused) {
+                                editing = true
+                            } else if (editing) {
+                                commitDraft()
+                            }
+                        },
+                    singleLine = true,
+                    suffix = { Text("₽", color = Color(0xFFBDBDBD), fontSize = 10.sp) },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = fieldFontSize,
+                    ),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { commitDraft() }),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF81D4FA),
+                        unfocusedBorderColor = Color(0xFF424242),
+                        cursorColor = Color(0xFF81D4FA),
+                    ),
+                )
+            }
+        } else {
+            Text(title, color = titleColor, fontSize = 10.sp)
+            OutlinedTextField(
+                value = draft,
+                onValueChange = {
+                    editing = true
+                    draft = it.filter { ch -> ch.isDigit() }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focus ->
+                        if (focus.isFocused) {
+                            editing = true
+                        } else if (editing) {
+                            commitDraft()
+                        }
+                    },
+                singleLine = true,
+                suffix = { Text("₽", color = Color(0xFFBDBDBD), fontSize = 12.sp) },
+                trailingIcon = {
+                    IconButton(onClick = { commitDraft() }) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = "Применить",
+                            tint = Color(0xFF81D4FA),
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                 },
-            singleLine = true,
-            suffix = { Text("₽", color = Color(0xFFBDBDBD), fontSize = 12.sp) },
-            trailingIcon = {
-                IconButton(onClick = { commitDraft() }) {
-                    Icon(
-                        Icons.Filled.Check,
-                        contentDescription = "Применить",
-                        tint = Color(0xFF81D4FA),
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            },
-            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                color = Color.White,
-                fontWeight = FontWeight.Medium,
-                fontSize = 13.sp,
-            ),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = fieldFontSize,
+                ),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Number,
                 imeAction = ImeAction.Done,
@@ -541,7 +622,8 @@ internal fun ParamRubInputStepper(
                 unfocusedBorderColor = Color(0xFF424242),
                 cursorColor = Color(0xFF81D4FA),
             ),
-        )
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(
                 onClick = { applyStep(valueRub - stepRub) },
