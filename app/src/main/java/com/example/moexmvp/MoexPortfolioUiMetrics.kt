@@ -4,10 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -62,6 +64,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -425,39 +429,67 @@ internal fun ParamMicroStepper(
     containerColor: Color = Color(0xFF1E1E1E),
     titleColor: Color = Color(0xFF757575),
     valueTextColor: Color = Color.White,
+    controlHeightDp: Int = STRATEGY_TEST_MICRO_CONTROL_HEIGHT_DP,
 ) {
+    val controlHeight = controlHeightDp.dp
+    val sideTapWidth = 30.dp
     Row(
         modifier = modifier
-            .height(34.dp)
-            .background(containerColor, RoundedCornerShape(6.dp))
+            .height(controlHeight)
+            .background(containerColor, RoundedCornerShape(7.dp))
             .padding(horizontal = 1.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
-            onClick = onMinus,
-            modifier = Modifier.size(28.dp),
+        Box(
+            modifier = Modifier
+                .width(sideTapWidth)
+                .fillMaxHeight()
+                .clickable(onClick = onMinus),
+            contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(14.dp))
+            Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(16.dp))
         }
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .padding(vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.Top,
         ) {
-            Text(title, color = titleColor, fontSize = 8.sp, maxLines = 1)
             Text(
-                valueLabel,
+                text = title,
+                color = titleColor,
+                fontSize = 9.sp,
+                lineHeight = 10.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                text = valueLabel,
                 color = valueTextColor,
-                fontSize = 10.sp,
+                fontSize = 12.sp,
+                lineHeight = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = false,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
             )
         }
-        IconButton(
-            onClick = onPlus,
-            modifier = Modifier.size(28.dp),
+        Box(
+            modifier = Modifier
+                .width(sideTapWidth)
+                .fillMaxHeight()
+                .clickable(onClick = onPlus),
+            contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(14.dp))
+            Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(16.dp))
         }
     }
 }

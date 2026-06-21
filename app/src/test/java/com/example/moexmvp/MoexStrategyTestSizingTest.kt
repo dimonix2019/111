@@ -71,6 +71,18 @@ class MoexStrategyTestSizingTest {
     }
 
     @Test
+    fun strategyTestLiveEquityChartHeightDp_redmi12ProClassScreen() {
+        // Redmi 12 Pro / Note 12 Pro class: ~873dp portrait
+        assertEquals(400, strategyTestLiveEquityChartHeightDp(873))
+        assertTrue(strategyTestLiveEquityChartHeightDp(780) in 280..400)
+    }
+
+    @Test
+    fun formatStrategyTestCommissionMicro_twoDecimals() {
+        assertEquals("0.05%", formatStrategyTestCommissionMicro(0.05))
+    }
+
+    @Test
     fun previewStrategyTestEntrySizing_scalesWithAccount() {
         val bar = DataPoint(
             timestampMillis = 1L,

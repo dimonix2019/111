@@ -176,6 +176,21 @@ internal fun saveStrategyTestCapitalUsagePercent(context: Context, percent: Doub
 internal const val STRATEGY_TEST_ACCOUNT_RUB_MIN = 1_000.0
 internal const val STRATEGY_TEST_ACCOUNT_RUB_MAX = 10_000_000.0
 
+/** Высота микро-кнопки на live-панели «Тест страт.» (+25% к v1.7.215). */
+internal const val STRATEGY_TEST_MICRO_CONTROL_HEIGHT_DP = 44
+
+/** Высота Equity/DD под оставшееся место экрана (Redmi 12 Pro ≈ 873dp, FHD+). */
+internal fun strategyTestLiveEquityChartHeightDp(screenHeightDp: Int): Int {
+    val tuningPanel = STRATEGY_TEST_MICRO_CONTROL_HEIGHT_DP * 4 + 4 * 3 + 8
+    // вкладки + шапка + легенда графика + отступы
+    val chrome = 184
+    return (screenHeightDp - chrome - tuningPanel).coerceIn(280, 400)
+}
+
+/** Комиссия для узкой микро-кнопки. */
+internal fun formatStrategyTestCommissionMicro(percentPerSide: Double): String =
+    String.format(Locale.US, "%.2f%%", percentPerSide.coerceIn(0.0, 1.0))
+
 internal fun formatStrategyTestAccountRubInput(rub: Double): String =
     "%.0f".format(Locale.US, rub.coerceIn(STRATEGY_TEST_ACCOUNT_RUB_MIN, STRATEGY_TEST_ACCOUNT_RUB_MAX))
 

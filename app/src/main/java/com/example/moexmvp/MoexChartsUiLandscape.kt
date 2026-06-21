@@ -196,6 +196,7 @@ internal fun StrategyTestEquityDrawdownChartCard(
     compact: Boolean = false,
     totalPnlRub: Double? = null,
     maxDrawdownRub: Double? = null,
+    recomputing: Boolean = false,
 ) {
     Column(
         modifier = modifier
@@ -215,17 +216,28 @@ internal fun StrategyTestEquityDrawdownChartCard(
                     Text("DD", color = Color(0xFFFFAB40), fontSize = 9.sp, fontWeight = FontWeight.Medium)
                 }
                 if (totalPnlRub != null && maxDrawdownRub != null) {
-                    Text(
-                        text = buildString {
-                            append(formatRubSigned(totalPnlRub))
-                            append(" · ")
-                            append(formatRubSigned(-maxDrawdownRub))
-                        },
-                        color = rubDeltaColor(totalPnlRub),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = buildString {
+                                append(formatRubSigned(totalPnlRub))
+                                append(" · ")
+                                append(formatRubSigned(-maxDrawdownRub))
+                            },
+                            color = rubDeltaColor(totalPnlRub),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                        )
+                        if (recomputing) {
+                            Text(
+                                text = "⟳",
+                                color = Color(0xFF9FA8DA),
+                                fontSize = 10.sp,
+                            )
+                        }
+                    }
+                } else if (recomputing) {
+                    Text("⟳", color = Color(0xFF9FA8DA), fontSize = 10.sp)
                 }
             }
         } else {

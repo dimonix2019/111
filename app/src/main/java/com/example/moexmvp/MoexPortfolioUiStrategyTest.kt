@@ -30,7 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
@@ -113,6 +116,10 @@ internal fun StrategyTestTabContent(
             append(" · ${"%.0f".format(Locale.US, capitalUsagePercent)}%")
         }
     }
+    val screenHeightDp = LocalConfiguration.current.screenHeightDp
+    val liveChartHeightDp = remember(screenHeightDp) {
+        strategyTestLiveEquityChartHeightDp(screenHeightDp)
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier.fillMaxWidth()
@@ -129,7 +136,7 @@ internal fun StrategyTestTabContent(
                 .fillMaxWidth()
                 .background(Color(0xFF141414), RoundedCornerShape(10.dp))
                 .padding(4.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             StrategyTestLiveTuningPanel(
                 leverage = leverage,
@@ -160,29 +167,22 @@ internal fun StrategyTestTabContent(
                     labels = chartMetrics.equityCurveLabels,
                     equityRub = chartMetrics.equityCurveRub,
                     drawdownRub = chartMetrics.drawdownCurveRub,
-                    chartHeightDp = 176,
+                    chartHeightDp = liveChartHeightDp,
                     compact = true,
                     totalPnlRub = chartMetrics.totalPnlRubApprox,
                     maxDrawdownRub = chartMetrics.maxDrawdownRubApprox,
+                    recomputing = simulationComputing,
                 )
             } else if (!m15Loading && !simulationComputing) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(176.dp)
+                        .height(liveChartHeightDp.dp)
                         .background(Color(0xFF171717), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("Нет данных для Equity", color = Color(0xFF757575), fontSize = 10.sp)
                 }
-            }
-            if (simulationComputing) {
-                Text(
-                    text = if (metrics == null) "Считаем…" else "Пересчёт…",
-                    color = Color(0xFF9FA8DA),
-                    fontSize = 9.sp,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
             }
         }
         PortfolioCollapsibleSection(
@@ -678,10 +678,10 @@ internal fun StrategyTestOptionChip(
 ) {
     Box(
         modifier = modifier
-            .height(34.dp)
+            .height(STRATEGY_TEST_MICRO_CONTROL_HEIGHT_DP.dp)
             .background(
                 color = if (selected) selectedColor else unselectedColor,
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(7.dp),
             )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -689,9 +689,12 @@ internal fun StrategyTestOptionChip(
         Text(
             text = label,
             color = if (selected) Color.White else Color(0xFF9E9E9E),
-            fontSize = 9.sp,
+            fontSize = 10.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 2.dp),
         )
     }
 }
@@ -723,11 +726,11 @@ internal fun StrategyTestLiveTuningPanel(
     }
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             ParamMicroStepper(
                 title = "Плечо",
@@ -738,7 +741,7 @@ internal fun StrategyTestLiveTuningPanel(
             )
             ParamMicroStepper(
                 title = "Комис.",
-                valueLabel = "${String.format(Locale.US, "%.2f", commissionPercentPerSide)}%",
+                valueLabel = formatStrategyTestCommissionMicro(commissionPercentPerSide),
                 onMinus = { onCommissionChange((commissionPercentPerSide - 0.005).coerceAtLeast(0.0)) },
                 onPlus = { onCommissionChange((commissionPercentPerSide + 0.005).coerceAtMost(1.0)) },
                 modifier = Modifier.weight(1f),
@@ -746,7 +749,7 @@ internal fun StrategyTestLiveTuningPanel(
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             ParamMicroStepper(
                 title = "Вход",
@@ -781,7 +784,7 @@ internal fun StrategyTestLiveTuningPanel(
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             ParamMicroStepper(
                 title = "Счёт",
@@ -808,7 +811,7 @@ internal fun StrategyTestLiveTuningPanel(
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             ParamMicroStepper(
                 title = "%DD",
