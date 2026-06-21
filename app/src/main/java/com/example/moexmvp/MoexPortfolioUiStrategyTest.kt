@@ -169,19 +169,15 @@ internal fun StrategyTestTabContent(
                 onExcludeRedZoneChange = onExcludeRedZoneChange,
             )
             val chartMetrics = displayMetrics
-            val zChartReady = zScoreCandles.isNotEmpty() && m15ChartPoints.size >= 2
+            val equityLabels = chartMetrics?.equityCurveLabels.orEmpty()
+            val syncTimeAxis = remember(equityLabels) { buildStrategyTestChartTimeAxis(equityLabels) }
+            val zChartReady = syncTimeAxis != null && m15ChartPoints.size >= 2
             if (zChartReady) {
-                StrategyTestZScoreTradingViewChart(
-                    candles = zScoreCandles,
-                    chartPoints = m15ChartPoints,
-                    pointMarkers = chartPointMarkers,
-                    tradeSegments = chartTradeSegments,
-                    tradeItems = displayTradeItems,
-                    openPosition = if (excludeRedZone) null else metrics?.openPosition,
+                StrategyTestZScoreLineChartCard(
+                    dailyLabels = equityLabels,
+                    m15Points = m15ChartPoints,
                     referenceLines = zReferenceLines,
-                    initialWindow = zInitialWindow,
                     chartHeightDp = zChartHeightDp,
-                    compactPortrait = true,
                 )
             } else if (!m15Loading && !simulationComputing) {
                 Box(
@@ -207,6 +203,7 @@ internal fun StrategyTestTabContent(
                     totalPnlRub = chartMetrics.totalPnlRubApprox,
                     maxDrawdownRub = chartMetrics.maxDrawdownRubApprox,
                     recomputing = simulationComputing,
+                    syncTimeAxis = syncTimeAxis,
                 )
             } else if (!m15Loading && !simulationComputing) {
                 Box(

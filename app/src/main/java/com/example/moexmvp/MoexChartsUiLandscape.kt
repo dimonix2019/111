@@ -197,6 +197,7 @@ internal fun StrategyTestEquityDrawdownChartCard(
     totalPnlRub: Double? = null,
     maxDrawdownRub: Double? = null,
     recomputing: Boolean = false,
+    syncTimeAxis: StrategyTestChartTimeAxis? = null,
 ) {
     Column(
         modifier = modifier
@@ -263,6 +264,7 @@ internal fun StrategyTestEquityDrawdownChartCard(
             equityRub = equityRub,
             drawdownRub = drawdownRub,
             chartHeightDp = chartHeightDp,
+            syncTimeAxis = syncTimeAxis,
         )
     }
 }
