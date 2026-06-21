@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.217 — Fix: Z на «Рынок» = Z в шторке — после MOEX 15m refresh снова 1м overlay.
 1.7.216 — «Тест страт.»: микро-кнопки 44dp (текст выше), Equity до 400dp — под экран Redmi 12 Pro.
 1.7.215 — «Тест страт.»: единая микро-панель (Плечо…−КЗ) + Equity/DD на одном экране; chip-переключатели.
 1.7.214 — «Тест страт.»: компакт UI — Equity выше, Z-график убран; боевой режим/переключатели под спойлер; stepper в одну строку.

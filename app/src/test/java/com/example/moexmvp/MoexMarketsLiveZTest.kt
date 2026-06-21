@@ -2,6 +2,7 @@ package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -96,6 +97,30 @@ class MoexMarketsLiveZTest {
         val ms10 = intraday1mLabelToM15BucketMs("10:07", zone)
         val ms14 = intraday1mLabelToM15BucketMs("10:14", zone)
         assertEquals(ms10, ms14)
+    }
+
+    @Test
+    fun resolveMarketsLiveZFromPoints_prefers1mOverlayOverMoex15mZ() {
+        val step = 15 * 60_000L
+        val bucket = currentM15BucketStartMillis()
+        val ts0 = bucket - 80 * step
+        val history = (0 until 80).map { i ->
+            point(ts0 + i * step, 7.0 + i * 0.01, z = 0.1)
+        }
+        val moexZ = history.last().zScore
+        val snap = MarketsIntraday1mSnapshot(
+            tatn = listOf(CandlePoint("10:00", 680.0, 681.0, 679.0, 680.0)),
+            tatnp = listOf(CandlePoint("10:00", 600.0, 601.0, 599.0, 600.0)),
+            tatnLastBarMillis = bucket,
+            tatnpLastBarMillis = bucket,
+        )
+        val withoutSnap = resolveMarketsLiveZFromPoints(history, snap = null)!!
+        assertEquals(moexZ, withoutSnap.zScore, 1e-9)
+        assertEquals(null, withoutSnap.patchedPoints)
+
+        val withSnap = resolveMarketsLiveZFromPoints(history, snap = snap)!!
+        assertNotNull(withSnap.patchedPoints)
+        assertNotEquals(moexZ, withSnap.zScore, 1e-9)
     }
 
     @Test

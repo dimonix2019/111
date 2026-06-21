@@ -168,12 +168,6 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     refreshPortfolio(mode, trackProgress = false)
 }
 
-internal fun MoexScreenState.publishMarketsLiveZFromPoints(points: List<DataPoint>) {
-    val last = points.lastOrNull() ?: return
-    marketsLiveZScore = last.zScore
-    marketsLiveZBarAt = last.tradeDate
-}
-
 /**
  * Каждые 15–30 с: 10м→15м с MOEX + пересчёт Z на хвосте ~2 ч (без persisted).
  */
