@@ -120,6 +120,9 @@ internal fun StrategyTestTabContent(
     val liveChartHeightDp = remember(screenHeightDp) {
         strategyTestLiveEquityChartHeightDp(screenHeightDp)
     }
+    val zReferenceLines = remember(chartThresholds) {
+        chartThresholds?.let { buildZScoreReferenceLines(it, desktopStyle = true) }.orEmpty()
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier.fillMaxWidth()
@@ -172,6 +175,8 @@ internal fun StrategyTestTabContent(
                     totalPnlRub = chartMetrics.totalPnlRubApprox,
                     maxDrawdownRub = chartMetrics.maxDrawdownRubApprox,
                     recomputing = simulationComputing,
+                    zOverlayPoints = m15ChartPoints,
+                    zReferenceLines = zReferenceLines,
                 )
             } else if (!m15Loading && !simulationComputing) {
                 Box(

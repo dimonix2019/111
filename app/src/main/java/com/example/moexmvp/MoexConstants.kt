@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.219 — «Тест страт.»: Z-score + пороги поверх Equity/DD на одном графике; шкала Z справа.
 1.7.218 — Perf «Тест страт.»: быстрый resim (skip Z-recalc live, кэш σ, хвост для маркеров, без CSV на tweak).
 1.7.217 — Fix: Z на «Рынок» = Z в шторке — после MOEX 15m refresh снова 1м overlay.
 1.7.216 — «Тест страт.»: микро-кнопки 44dp (текст выше), Equity до 400dp — под экран Redmi 12 Pro.

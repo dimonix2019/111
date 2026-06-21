@@ -55,13 +55,60 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+/** Контрастный Z-score поверх Equity/DD (не сливается с #4FC3F7 и #FFAB40). */
+internal val EquityChartZOverlayLineColor = Color(0xFFE879F9)
+
+internal fun equityDailyChartTimeRangeMillis(labels: List<String>): Pair<Long, Long>? {
+    if (labels.isEmpty()) return null
+    val zone = moexZoneId
+    val firstDay = parseChartDateLabel(labels.first()) ?: return null
+    val lastDay = parseChartDateLabel(labels.last()) ?: return null
+    val tMin = firstDay.atStartOfDay(zone).toInstant().toEpochMilli()
+    val tMax = lastDay.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1L
+    return tMin to tMax
+}
+
+internal fun m15PointsInEquityChartRange(
+    points: List<DataPoint>,
+    equityDailyLabels: List<String>,
+): List<DataPoint> {
+    if (points.size < 2 || equityDailyLabels.isEmpty()) return points
+    val range = equityDailyChartTimeRangeMillis(equityDailyLabels) ?: return points
+    val (tMin, tMax) = range
+    return points.filter { it.timestampMillis in tMin..tMax }
+}
+
+internal fun buildEquityChartZAxisRange(
+    zValues: List<Double>,
+    referenceLines: List<ChartReferenceLine>,
+): Pair<Double, Double> {
+    var min = zValues.minOrNull() ?: -1.0
+    var max = zValues.maxOrNull() ?: 1.0
+    referenceLines.forEach { line ->
+        min = min(min, line.value)
+        max = max(max, line.value)
+    }
+    if (min == max) {
+        min -= 0.5
+        max += 0.5
+    }
+    val span = (max - min).coerceAtLeast(0.4)
+    val pad = span * 0.1
+    return (min - pad) to (max + pad)
+}
+
+internal fun formatZAxisValue(value: Double): String =
+    String.format(Locale.US, "%+.2f", value)
+
 @Composable
 internal fun EquityDrawdownComboChart(
     labels: List<String>,
     equityRub: List<Double>,
     drawdownRub: List<Double>,
     modifier: Modifier = Modifier,
-    chartHeightDp: Int = 280
+    chartHeightDp: Int = 280,
+    zOverlayPoints: List<DataPoint> = emptyList(),
+    zReferenceLines: List<ChartReferenceLine> = emptyList(),
 ) {
     val n = min(equityRub.size, drawdownRub.size)
     if (n == 0 || labels.isEmpty()) {
@@ -78,9 +125,21 @@ internal fun EquityDrawdownComboChart(
     val ddMax = drawdownNeg.minOrNull()?.let { abs(it) }?.coerceAtLeast(1.0) ?: 1.0
     val equityYTicks = buildYTicks(0.0, equityMax, count = 4)
     val drawdownYTicks = buildYTicks(-ddMax, 0.0, count = 4)
+    val zPoints = remember(zOverlayPoints, xLabels) {
+        m15PointsInEquityChartRange(zOverlayPoints, xLabels)
+    }
+    val showZOverlay = zPoints.size >= 2
+    val zValues = if (showZOverlay) zPoints.map { it.zScore } else emptyList()
+    val (zMin, zMax) = if (showZOverlay) {
+        buildEquityChartZAxisRange(zValues, zReferenceLines)
+    } else {
+        0.0 to 1.0
+    }
+    val zYTicks = if (showZOverlay) buildYTicks(zMin, zMax, count = 4) else emptyList()
+    val timeRange = remember(xLabels) { equityDailyChartTimeRangeMillis(xLabels) }
 
     val leftPadding = 62f
-    val rightPadding = 12f
+    val rightPadding = if (showZOverlay) 52f else 12f
     val topPadding = 10f
     val bottomPadding = 72f
 
@@ -97,9 +156,29 @@ internal fun EquityDrawdownComboChart(
         val bottomHalfH = h / 2f
         val maxIndex = (n - 1).coerceAtLeast(0)
 
-        fun xForIndex(index: Int): Float =
-            if (maxIndex == 0) leftPadding + w / 2f
+        fun xForTimestamp(ts: Long): Float {
+            val range = timeRange
+            if (range == null) {
+                return if (maxIndex == 0) leftPadding + w / 2f
+                else leftPadding + w / 2f
+            }
+            val (tMin, tMax) = range
+            val span = (tMax - tMin).coerceAtLeast(1L)
+            val frac = ((ts - tMin).toDouble() / span).toFloat().coerceIn(0f, 1f)
+            return leftPadding + frac * w
+        }
+
+        fun xForIndex(index: Int): Float {
+            if (timeRange != null && index in xLabels.indices) {
+                val day = parseChartDateLabel(xLabels[index])
+                if (day != null) {
+                    val ts = day.atStartOfDay(moexZoneId).toInstant().toEpochMilli()
+                    return xForTimestamp(ts)
+                }
+            }
+            return if (maxIndex == 0) leftPadding + w / 2f
             else leftPadding + (index.toFloat() / maxIndex) * w
+        }
 
         fun yEquity(v: Double): Float {
             val rel = (v / equityMax).toFloat().coerceIn(0f, 1f)
@@ -109,6 +188,12 @@ internal fun EquityDrawdownComboChart(
         fun yDrawdown(v: Double): Float {
             val rel = (abs(v) / ddMax).toFloat().coerceIn(0f, 1f)
             return midY + rel * bottomHalfH
+        }
+
+        fun yZ(v: Double): Float {
+            val span = (zMax - zMin).coerceAtLeast(1e-6)
+            val rel = ((v - zMin) / span).toFloat().coerceIn(0f, 1f)
+            return topPadding + h * (1f - rel)
         }
 
         val labelPaint = Paint().apply {
@@ -122,6 +207,36 @@ internal fun EquityDrawdownComboChart(
             textSize = 10.sp.toPx()
             textAlign = Paint.Align.RIGHT
             isAntiAlias = true
+        }
+        val rightZLabelPaint = Paint().apply {
+            color = EquityChartZOverlayLineColor.toArgb()
+            textSize = 9.sp.toPx()
+            textAlign = Paint.Align.LEFT
+            isAntiAlias = true
+        }
+
+        if (showZOverlay) {
+            zYTicks.forEach { tick ->
+                val y = yZ(tick)
+                drawLine(
+                    color = Color(0xFF253347),
+                    start = Offset(leftPadding, y),
+                    end = Offset(leftPadding + w, y),
+                    strokeWidth = 1f,
+                )
+            }
+            zReferenceLines.forEach { reference ->
+                val y = yZ(reference.value)
+                drawLine(
+                    color = reference.color.copy(alpha = 0.85f),
+                    start = Offset(leftPadding, y),
+                    end = Offset(leftPadding + w, y),
+                    strokeWidth = 1.5f,
+                    pathEffect = PathEffect.dashPathEffect(
+                        intervals = floatArrayOf(reference.dashOnPx, reference.dashOffPx),
+                    ),
+                )
+            }
         }
 
         equityYTicks.forEach { tick ->
@@ -196,6 +311,47 @@ internal fun EquityDrawdownComboChart(
                 path = path,
                 color = Color(0xFFFFAB40),
                 style = Stroke(width = 2.5f, cap = StrokeCap.Round)
+            )
+        }
+
+        if (showZOverlay && zPoints.size >= 2) {
+            val zPath = Path()
+            zPoints.forEachIndexed { i, point ->
+                val pt = Offset(xForTimestamp(point.timestampMillis), yZ(point.zScore))
+                if (i == 0) zPath.moveTo(pt.x, pt.y) else zPath.lineTo(pt.x, pt.y)
+            }
+            drawPath(
+                path = zPath,
+                color = Color.White.copy(alpha = 0.22f),
+                style = Stroke(width = 4f, cap = StrokeCap.Round),
+            )
+            drawPath(
+                path = zPath,
+                color = EquityChartZOverlayLineColor.copy(alpha = 0.95f),
+                style = Stroke(width = 2.5f, cap = StrokeCap.Round),
+            )
+            drawReferenceLineLabels(
+                referenceLines = zReferenceLines,
+                leftPadding = leftPadding,
+                topPadding = topPadding,
+                chartWidth = w,
+                chartHeight = h,
+                yForValue = ::yZ,
+            )
+            zYTicks.forEach { tick ->
+                val y = yZ(tick)
+                drawContext.canvas.nativeCanvas.drawText(
+                    formatZAxisValue(tick),
+                    leftPadding + w + 6f,
+                    y + 4f,
+                    rightZLabelPaint,
+                )
+            }
+            drawLine(
+                color = Color(0xFF8AA6C1),
+                start = Offset(leftPadding + w, topPadding),
+                end = Offset(leftPadding + w, topPadding + h),
+                strokeWidth = 1.5f,
             )
         }
 
