@@ -3,6 +3,7 @@ package com.example.moexmvp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -113,47 +114,74 @@ internal fun StrategyTestTabContent(
         }
     }
     Column(
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         PortfolioDataRefreshHeader(
-            title = "Тест стратегии · 15м",
+            title = "Тест страт. · 15м",
             portfolioLoading = m15Loading || simulationComputing,
             onRefresh = onRefresh,
-            onMoex15mFullReload = onMoex15mFullReload
+            onMoex15mFullReload = onMoex15mFullReload,
+            compact = true,
         )
-        if (simulationComputing) {
-            Text(
-                text = if (metrics == null) {
-                    "Считаем симуляцию…"
-                } else {
-                    "Пересчёт…"
-                },
-                color = Color(0xFF9FA8DA),
-                fontSize = 10.sp,
-                maxLines = 1,
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF141414), RoundedCornerShape(10.dp))
+                .padding(4.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            StrategyTestLiveTuningPanel(
+                leverage = leverage,
+                commissionPercentPerSide = commissionPercentPerSide,
+                entryThreshold = entryThreshold,
+                exitThreshold = exitThreshold,
+                accountSizeRub = accountSizeRub,
+                capitalUsagePercent = capitalUsagePercent,
+                maxLossDdPercent = maxLossDdPercent,
+                compoundReturns = compoundReturns,
+                excludeRedZone = excludeRedZone,
+                onLeverageChange = onLeverageChange,
+                onCommissionChange = onCommissionChange,
+                onEntryThresholdChange = onEntryThresholdChange,
+                onExitThresholdChange = onExitThresholdChange,
+                onAccountSizeChange = onAccountSizeChange,
+                onCapitalUsageChange = onCapitalUsageChange,
+                onMaxLossDdPercentChange = onMaxLossDdPercentChange,
+                onCompoundReturnsChange = onCompoundReturnsChange,
+                onExcludeRedZoneChange = onExcludeRedZoneChange,
             )
-        }
-        PortfolioParamsControls(
-            leverage = leverage,
-            commissionPercentPerSide = commissionPercentPerSide,
-            entryThreshold = entryThreshold,
-            exitThreshold = exitThreshold,
-            showZThresholdSteppers = true,
-            showExitThresholdStepper = true,
-            compactSteppers = true,
-            onLeverageChange = onLeverageChange,
-            onCommissionChange = onCommissionChange,
-            onEntryThresholdChange = onEntryThresholdChange,
-            onExitThresholdChange = onExitThresholdChange
-        )
-        displayMetrics?.let { chartMetrics ->
-            if (chartMetrics.equityCurveRub.isNotEmpty() && chartMetrics.drawdownCurveRub.isNotEmpty()) {
+            val chartMetrics = displayMetrics
+            if (chartMetrics != null &&
+                chartMetrics.equityCurveRub.isNotEmpty() &&
+                chartMetrics.drawdownCurveRub.isNotEmpty()
+            ) {
                 StrategyTestEquityDrawdownChartCard(
                     labels = chartMetrics.equityCurveLabels,
                     equityRub = chartMetrics.equityCurveRub,
                     drawdownRub = chartMetrics.drawdownCurveRub,
-                    chartHeightDp = 320,
+                    chartHeightDp = 176,
+                    compact = true,
+                    totalPnlRub = chartMetrics.totalPnlRubApprox,
+                    maxDrawdownRub = chartMetrics.maxDrawdownRubApprox,
+                )
+            } else if (!m15Loading && !simulationComputing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(176.dp)
+                        .background(Color(0xFF171717), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Нет данных для Equity", color = Color(0xFF757575), fontSize = 10.sp)
+                }
+            }
+            if (simulationComputing) {
+                Text(
+                    text = if (metrics == null) "Считаем…" else "Пересчёт…",
+                    color = Color(0xFF9FA8DA),
+                    fontSize = 9.sp,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
             }
         }
@@ -163,62 +191,15 @@ internal fun StrategyTestTabContent(
             defaultExpanded = false,
             compactHeader = true,
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                StrategyTestProdParityPanel(
-                    items = parityItems,
-                    usePortfolioThresholds = usePortfolioThresholds,
-                    onUsePortfolioThresholdsChange = onUsePortfolioThresholdsChange,
-                    useLiveZSignals = useLiveZSignals,
-                    onUseLiveZSignalsChange = onUseLiveZSignalsChange,
-                    onApplyProdAccountCash = onApplyProdAccountCash,
-                    onApplyProdReservePercent = onApplyProdReservePercent,
-                )
-                StrategyTestProdParamsControls(
-                    accountSizeRub = accountSizeRub,
-                    capitalUsagePercent = capitalUsagePercent,
-                    maxLossDdPercent = maxLossDdPercent,
-                    onAccountSizeChange = onAccountSizeChange,
-                    onCapitalUsageChange = onCapitalUsageChange,
-                    onMaxLossDdPercentChange = onMaxLossDdPercentChange,
-                    compact = true,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text("Капитализация", color = Color(0xFFE0E0E0), fontSize = 10.sp)
-                        Switch(
-                            checked = compoundReturns,
-                            onCheckedChange = onCompoundReturnsChange,
-                            modifier = Modifier.height(24.dp),
-                        )
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(
-                            text = "Без красной зоны",
-                            color = if (excludeRedZone) Color(0xFFFFAB91) else Color(0xFFE0E0E0),
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                        )
-                        Switch(
-                            checked = excludeRedZone,
-                            onCheckedChange = onExcludeRedZoneChange,
-                            modifier = Modifier.height(24.dp),
-                        )
-                    }
-                }
-            }
+            StrategyTestProdParityPanel(
+                items = parityItems,
+                usePortfolioThresholds = usePortfolioThresholds,
+                onUsePortfolioThresholdsChange = onUsePortfolioThresholdsChange,
+                useLiveZSignals = useLiveZSignals,
+                onUseLiveZSignalsChange = onUseLiveZSignalsChange,
+                onApplyProdAccountCash = onApplyProdAccountCash,
+                onApplyProdReservePercent = onApplyProdReservePercent,
+            )
         }
         PortfolioCollapsibleSection(
             title = "Сводка: Итого PnL и просадка",
@@ -687,6 +668,173 @@ internal fun StrategyExitModeButton(
 }
 
 @Composable
+internal fun StrategyTestOptionChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selectedColor: Color = Color(0xFF1565C0),
+    unselectedColor: Color = Color(0xFF252525),
+) {
+    Box(
+        modifier = modifier
+            .height(34.dp)
+            .background(
+                color = if (selected) selectedColor else unselectedColor,
+                shape = RoundedCornerShape(6.dp),
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (selected) Color.White else Color(0xFF9E9E9E),
+            fontSize = 9.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+        )
+    }
+}
+
+/** Все параметры симуляции + переключатели в одной компактной сетке над Equity. */
+@Composable
+internal fun StrategyTestLiveTuningPanel(
+    leverage: Double,
+    commissionPercentPerSide: Double,
+    entryThreshold: Double,
+    exitThreshold: Double,
+    accountSizeRub: Double,
+    capitalUsagePercent: Double,
+    maxLossDdPercent: Double,
+    compoundReturns: Boolean,
+    excludeRedZone: Boolean,
+    onLeverageChange: (Double) -> Unit,
+    onCommissionChange: (Double) -> Unit,
+    onEntryThresholdChange: (Double) -> Unit,
+    onExitThresholdChange: (Double) -> Unit,
+    onAccountSizeChange: (Double) -> Unit,
+    onCapitalUsageChange: (Double) -> Unit,
+    onMaxLossDdPercentChange: (Double) -> Unit,
+    onCompoundReturnsChange: (Boolean) -> Unit,
+    onExcludeRedZoneChange: (Boolean) -> Unit,
+) {
+    val ddLabel = remember(maxLossDdPercent) {
+        if (maxLossDdPercent <= 0.0) "выкл" else "${"%.0f".format(Locale.US, maxLossDdPercent)}%"
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            ParamMicroStepper(
+                title = "Плечо",
+                valueLabel = "x${String.format(Locale.US, "%.1f", leverage)}",
+                onMinus = { onLeverageChange((leverage - 0.5).coerceAtLeast(1.0)) },
+                onPlus = { onLeverageChange((leverage + 0.5).coerceAtMost(30.0)) },
+                modifier = Modifier.weight(1f),
+            )
+            ParamMicroStepper(
+                title = "Комис.",
+                valueLabel = "${String.format(Locale.US, "%.2f", commissionPercentPerSide)}%",
+                onMinus = { onCommissionChange((commissionPercentPerSide - 0.005).coerceAtLeast(0.0)) },
+                onPlus = { onCommissionChange((commissionPercentPerSide + 0.005).coerceAtMost(1.0)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            ParamMicroStepper(
+                title = "Вход",
+                valueLabel = String.format(Locale.US, "%.2f", entryThreshold),
+                onMinus = {
+                    onEntryThresholdChange(
+                        (entryThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
+                    )
+                },
+                onPlus = {
+                    onEntryThresholdChange(
+                        (entryThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
+                    )
+                },
+                modifier = Modifier.weight(1f),
+            )
+            ParamMicroStepper(
+                title = "Выход",
+                valueLabel = String.format(Locale.US, "%.2f", exitThreshold),
+                onMinus = {
+                    onExitThresholdChange(
+                        (exitThreshold - PORTFOLIO_Z_THRESHOLD_STEP).coerceAtLeast(PORTFOLIO_Z_THRESHOLD_MIN)
+                    )
+                },
+                onPlus = {
+                    onExitThresholdChange(
+                        (exitThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
+                    )
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            ParamMicroStepper(
+                title = "Счёт",
+                valueLabel = formatStrategyTestAccountRubMicro(accountSizeRub),
+                onMinus = {
+                    onAccountSizeChange(
+                        (accountSizeRub - 1_000.0).coerceIn(STRATEGY_TEST_ACCOUNT_RUB_MIN, STRATEGY_TEST_ACCOUNT_RUB_MAX)
+                    )
+                },
+                onPlus = {
+                    onAccountSizeChange(
+                        (accountSizeRub + 1_000.0).coerceIn(STRATEGY_TEST_ACCOUNT_RUB_MIN, STRATEGY_TEST_ACCOUNT_RUB_MAX)
+                    )
+                },
+                modifier = Modifier.weight(1f),
+            )
+            ParamMicroStepper(
+                title = "%кап",
+                valueLabel = "${"%.0f".format(Locale.US, capitalUsagePercent)}%",
+                onMinus = { onCapitalUsageChange((capitalUsagePercent - 5.0).coerceAtLeast(10.0)) },
+                onPlus = { onCapitalUsageChange((capitalUsagePercent + 5.0).coerceAtMost(100.0)) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            ParamMicroStepper(
+                title = "%DD",
+                valueLabel = ddLabel,
+                onMinus = { onMaxLossDdPercentChange((maxLossDdPercent - 1.0).coerceAtLeast(0.0)) },
+                onPlus = { onMaxLossDdPercentChange((maxLossDdPercent + 1.0).coerceAtMost(50.0)) },
+                modifier = Modifier.weight(1f),
+            )
+            StrategyTestOptionChip(
+                label = "Кап",
+                selected = compoundReturns,
+                onClick = { onCompoundReturnsChange(!compoundReturns) },
+                modifier = Modifier.weight(1f),
+            )
+            StrategyTestOptionChip(
+                label = "−КЗ",
+                selected = excludeRedZone,
+                onClick = { onExcludeRedZoneChange(!excludeRedZone) },
+                modifier = Modifier.weight(1f),
+                selectedColor = Color(0xFFBF360C),
+            )
+        }
+    }
+}
+
+@Composable
 internal fun StrategyTestProdParityPanel(
     items: List<StrategyTestProdParityItem>,
     usePortfolioThresholds: Boolean,
@@ -749,49 +897,6 @@ internal fun StrategyTestProdParityPanel(
                 }
             }
         }
-    }
-}
-
-@Composable
-internal fun StrategyTestProdParamsControls(
-    accountSizeRub: Double,
-    capitalUsagePercent: Double,
-    maxLossDdPercent: Double,
-    onAccountSizeChange: (Double) -> Unit,
-    onCapitalUsageChange: (Double) -> Unit,
-    onMaxLossDdPercentChange: (Double) -> Unit,
-    compact: Boolean = false,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            ParamRubInputStepper(
-                title = "Счёт",
-                valueRub = accountSizeRub,
-                onValueChange = onAccountSizeChange,
-                compact = compact,
-                modifier = Modifier.weight(1f),
-            )
-            ParamStepper(
-                title = "% кап.",
-                valueLabel = "${"%.0f".format(Locale.US, capitalUsagePercent)}%",
-                onMinus = { onCapitalUsageChange((capitalUsagePercent - 5.0).coerceAtLeast(10.0)) },
-                onPlus = { onCapitalUsageChange((capitalUsagePercent + 5.0).coerceAtMost(100.0)) },
-                compact = compact,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        ParamStepper(
-            title = "% DD",
-            valueLabel = if (maxLossDdPercent <= 0.0) {
-                "0% (выкл.)"
-            } else {
-                "${"%.1f".format(Locale.US, maxLossDdPercent)}% · ${"%.0f".format(Locale.US, resolveStrategyTestMaxLossRub(accountSizeRub, maxLossDdPercent))} ₽"
-            },
-            onMinus = { onMaxLossDdPercentChange((maxLossDdPercent - 1.0).coerceAtLeast(0.0)) },
-            onPlus = { onMaxLossDdPercentChange((maxLossDdPercent + 1.0).coerceAtMost(50.0)) },
-            compact = compact,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
 

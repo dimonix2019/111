@@ -3,6 +3,7 @@ package com.example.moexmvp
 import android.content.Context
 import java.util.Locale
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 internal data class ZStrategyProdLikeSizing(
     val accountSizeRub: Double,
@@ -177,6 +178,16 @@ internal const val STRATEGY_TEST_ACCOUNT_RUB_MAX = 10_000_000.0
 
 internal fun formatStrategyTestAccountRubInput(rub: Double): String =
     "%.0f".format(Locale.US, rub.coerceIn(STRATEGY_TEST_ACCOUNT_RUB_MIN, STRATEGY_TEST_ACCOUNT_RUB_MAX))
+
+/** Короткая подпись счёта для микро-stepper на «Тест страт.». */
+internal fun formatStrategyTestAccountRubMicro(rub: Double): String {
+    val v = rub.coerceIn(STRATEGY_TEST_ACCOUNT_RUB_MIN, STRATEGY_TEST_ACCOUNT_RUB_MAX).roundToInt()
+    return when {
+        v >= 1_000_000 -> String.format(Locale.US, "%.1fM₽", v / 1_000_000.0)
+        v >= 1_000 -> String.format(Locale.US, "%.0fk₽", v / 1_000.0)
+        else -> String.format(Locale.US, "%d₽", v)
+    }
+}
 
 /** Целое число ₽ из поля ввода (пробелы/₽/запятая допустимы). */
 internal fun parseStrategyTestAccountRubInput(

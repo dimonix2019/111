@@ -416,6 +416,53 @@ internal fun formatPercentSigned(v: Double): String {
     return String.format(Locale.US, "%+.2f%%", v)
 }
 @Composable
+internal fun ParamMicroStepper(
+    title: String,
+    valueLabel: String,
+    onMinus: () -> Unit,
+    onPlus: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: Color = Color(0xFF1E1E1E),
+    titleColor: Color = Color(0xFF757575),
+    valueTextColor: Color = Color.White,
+) {
+    Row(
+        modifier = modifier
+            .height(34.dp)
+            .background(containerColor, RoundedCornerShape(6.dp))
+            .padding(horizontal = 1.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(
+            onClick = onMinus,
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(14.dp))
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(title, color = titleColor, fontSize = 8.sp, maxLines = 1)
+            Text(
+                valueLabel,
+                color = valueTextColor,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+        }
+        IconButton(
+            onClick = onPlus,
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(14.dp))
+        }
+    }
+}
+
+@Composable
 internal fun ParamStepper(
     title: String,
     valueLabel: String,

@@ -32,6 +32,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -140,7 +141,8 @@ internal fun PortfolioDataRefreshHeader(
     title: String,
     portfolioLoading: Boolean,
     onRefresh: () -> Unit,
-    onMoex15mFullReload: (() -> Unit)? = null
+    onMoex15mFullReload: (() -> Unit)? = null,
+    compact: Boolean = false,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -149,42 +151,60 @@ internal fun PortfolioDataRefreshHeader(
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleSmall,
+            style = if (compact) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
             color = Color.White,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.weight(1f)
+            fontSize = if (compact) 12.sp else 14.sp,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
         )
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (portfolioLoading) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(if (compact) 14.dp else 18.dp),
                     color = Color(0xFF64B5F6),
                     strokeWidth = 2.dp
                 )
             }
-            Button(
-                onClick = onRefresh,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Обновить", fontSize = 11.sp)
+            if (compact) {
+                IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Обновить", modifier = Modifier.size(18.dp))
                 }
-            }
-            if (onMoex15mFullReload != null) {
-                OutlinedButton(
-                    onClick = onMoex15mFullReload,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                if (onMoex15mFullReload != null) {
+                    IconButton(onClick = onMoex15mFullReload, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Filled.CloudSync,
+                            contentDescription = "MOEX заново",
+                            modifier = Modifier.size(18.dp),
+                            tint = Color(0xFFB3E5FC),
+                        )
+                    }
+                }
+            } else {
+                Button(
+                    onClick = onRefresh,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFB3E5FC))
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("MOEX заново", fontSize = 10.sp, color = Color(0xFFB3E5FC))
+                        Text("Обновить", fontSize = 11.sp)
+                    }
+                }
+                if (onMoex15mFullReload != null) {
+                    OutlinedButton(
+                        onClick = onMoex15mFullReload,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFB3E5FC))
+                            Spacer(Modifier.width(4.dp))
+                            Text("MOEX заново", fontSize = 10.sp, color = Color(0xFFB3E5FC))
+                        }
                     }
                 }
             }

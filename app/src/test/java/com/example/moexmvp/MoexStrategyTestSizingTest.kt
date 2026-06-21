@@ -64,6 +64,13 @@ class MoexStrategyTestSizingTest {
     }
 
     @Test
+    fun formatStrategyTestAccountRubMicro_compactLabels() {
+        assertEquals("10k₽", formatStrategyTestAccountRubMicro(10_000.0))
+        assertEquals("100k₽", formatStrategyTestAccountRubMicro(100_000.0))
+        assertEquals("1k₽", formatStrategyTestAccountRubMicro(1_000.0))
+    }
+
+    @Test
     fun previewStrategyTestEntrySizing_scalesWithAccount() {
         val bar = DataPoint(
             timestampMillis = 1L,

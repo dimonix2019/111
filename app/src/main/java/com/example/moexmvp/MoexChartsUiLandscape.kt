@@ -192,31 +192,60 @@ internal fun StrategyTestEquityDrawdownChartCard(
     equityRub: List<Double>,
     drawdownRub: List<Double>,
     modifier: Modifier = Modifier,
-    chartHeightDp: Int = 220
+    chartHeightDp: Int = 220,
+    compact: Boolean = false,
+    totalPnlRub: Double? = null,
+    maxDrawdownRub: Double? = null,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color(0xFF171717), RoundedCornerShape(12.dp))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .background(Color(0xFF171717), RoundedCornerShape(if (compact) 8.dp else 12.dp))
+            .padding(if (compact) 6.dp else 10.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)
     ) {
-        Text(
-            text = "Equity и просадка (симуляция, ₽)",
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-            fontSize = 14.sp
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("■ Equity", color = Color(0xFF4FC3F7), fontSize = 10.sp)
-            Text("— Drawdown", color = Color(0xFFFFAB40), fontSize = 10.sp)
+        if (compact) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Equity", color = Color(0xFF4FC3F7), fontSize = 9.sp, fontWeight = FontWeight.Medium)
+                    Text("DD", color = Color(0xFFFFAB40), fontSize = 9.sp, fontWeight = FontWeight.Medium)
+                }
+                if (totalPnlRub != null && maxDrawdownRub != null) {
+                    Text(
+                        text = buildString {
+                            append(formatRubSigned(totalPnlRub))
+                            append(" · ")
+                            append(formatRubSigned(-maxDrawdownRub))
+                        },
+                        color = rubDeltaColor(totalPnlRub),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = "Equity и просадка (симуляция, ₽)",
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontSize = 14.sp
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("■ Equity", color = Color(0xFF4FC3F7), fontSize = 10.sp)
+                Text("— Drawdown", color = Color(0xFFFFAB40), fontSize = 10.sp)
+            }
+            Text(
+                text = "Верх: Equity (₽) от нулевой линии. Низ: Drawdown (отрицательный, ₽). По оси X — месяцы.",
+                color = Color(0xFF9E9E9E),
+                fontSize = 9.sp,
+                lineHeight = 12.sp
+            )
         }
-        Text(
-            text = "Верх: Equity (₽) от нулевой линии. Низ: Drawdown (отрицательный, ₽). По оси X — месяцы.",
-            color = Color(0xFF9E9E9E),
-            fontSize = 9.sp,
-            lineHeight = 12.sp
-        )
         EquityDrawdownComboChart(
             labels = labels,
             equityRub = equityRub,
