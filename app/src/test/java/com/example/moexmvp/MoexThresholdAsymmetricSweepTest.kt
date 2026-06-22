@@ -35,6 +35,113 @@ class MoexThresholdAsymmetricSweepTest {
     }
 
     @Test
+    fun moexThresholdTopPairs_fullMetrics_report() = runBlocking {
+        val steps = thresholdSweepSteps()
+        val reports = buildString {
+            appendLine("=== TOP-15 пар вход/выход с полными метриками ===")
+            appendLine()
+
+            val raw255 = loadMoex15mRaw(PORTFOLIO_M15_LOOKBACK_DAYS)
+            append(topPairsFullReport(
+                title = "255д · 100k ×7",
+                points = applyZScoresDefault(raw255.map { it.copy() }),
+                steps = steps,
+                profile = SweepProfile.Backtest100kX7,
+            ))
+            appendLine()
+
+            append(topPairsFullReport(
+                title = "255д · 10k prod-like",
+                points = prepareM15PointsForZStrategySignalDetection(raw255),
+                steps = steps,
+                profile = SweepProfile.ProdLike10k,
+            ))
+            appendLine()
+
+            val raw3y = loadMoex15mRaw(BACKTEST_3Y_LOOKBACK_DAYS)
+            append(topPairsFullReport(
+                title = "3 года · 100k ×7",
+                points = applyZScoresDefault(raw3y.map { it.copy() }),
+                steps = steps,
+                profile = SweepProfile.Backtest100kX7,
+            ))
+            appendLine()
+
+            append(topPairsFullReport(
+                title = "3 года · 10k prod-like",
+                points = prepareM15PointsForZStrategySignalDetection(raw3y),
+                steps = steps,
+                profile = SweepProfile.ProdLike10k,
+            ))
+        }
+        println(reports)
+        java.io.File("/tmp/moex_threshold_top_full.txt").writeText(reports)
+        assertTrue(reports.contains("TOP-15"))
+    }
+
+    private fun topPairsFullReport(
+        title: String,
+        points: List<DataPoint>,
+        steps: List<Double>,
+        profile: SweepProfile,
+        topN: Int = 15,
+    ): String {
+        val cells = runThresholdGapSweep(points, steps, profile)
+            .sortedByDescending { it.pnl }
+            .take(topN)
+        return buildString {
+            appendLine("--- $title ---")
+            appendLine("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров)")
+            appendLine("Профиль: ${profile.label}")
+            appendLine(
+                String.format(
+                    Locale.US,
+                    "%5s %5s %4s %12s %6s %10s %8s %10s %6s %8s",
+                    "вход", "выход", "Δ", "PnL ₽", "сделок", "max DD ₽", "WR %", "комис. ₽", "ret %", "PF",
+                )
+            )
+            cells.forEach { c ->
+                val m = c.metrics
+                appendLine(
+                    String.format(
+                        Locale.US,
+                        "%5.1f %5.1f %4.1f %12.0f %6d %10.0f %8.1f %10.0f %6.1f %8.2f",
+                        c.entry,
+                        c.exit,
+                        c.gap,
+                        m.totalPnlRubApprox,
+                        m.closedTrades.size,
+                        m.maxDrawdownRubApprox,
+                        m.winRate,
+                        m.totalCommissionRub,
+                        m.totalReturnPercent,
+                        m.profitFactor ?: 0.0,
+                    )
+                )
+            }
+            appendLine()
+            appendLine("Лучший exit для каждого входа (TOP entry уровни):")
+            val bestPerEntry = runThresholdGapSweep(points, steps, profile)
+                .groupBy { it.entry }
+                .mapValues { (_, g) -> g.maxByOrNull { it.pnl }!! }
+                .toSortedMap()
+            bestPerEntry.filterKeys { it >= 0.5 }
+                .entries
+                .sortedByDescending { it.key }
+                .take(15)
+                .forEach { (entry, c) ->
+                val m = c.metrics
+                appendLine(
+                    "  вход ±${fmt(entry)} → exit ±${fmt(c.exit)} Δ=${fmt(c.gap)} | " +
+                        "PnL ${fmt(m.totalPnlRubApprox)} ₽ | ${m.closedTrades.size} сд. | " +
+                        "DD ${fmt(m.maxDrawdownRubApprox)} | WR ${fmt1(m.winRate)}% | " +
+                        "комис. ${fmt(m.totalCommissionRub)} | ret ${fmt1(m.totalReturnPercent)}%"
+                )
+            }
+        }
+    }
+
+    @Test
     fun moexBacktest_255d_10k_prodLike_asymmetricThreshold_0_2_5() = runBlocking {
         val points = loadMoex15mRaw(PORTFOLIO_M15_LOOKBACK_DAYS)
         val simPoints = prepareM15PointsForZStrategySignalDetection(points)
