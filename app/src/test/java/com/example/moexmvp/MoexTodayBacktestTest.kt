@@ -757,7 +757,118 @@ class MoexTodayBacktestTest {
     @Test
     fun moexBacktest_255d_thresholdGapSweep_0_2_5() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val steps = thresholdSweepSteps(max = 2.5)
+        val steps = thresholdSweepSteps(min = 0.2, max = 2.5)
+        val cells = runThresholdGapSweep(points, steps)
+        assertTrue("Нет результатов сетки", cells.isNotEmpty())
+        printThresholdGapSweepReport(
+            title = "MOEX ISS 255д — сетка порогов 0.2…2.5",
+            rangeLabel = "${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)",
+            paramsLabel = "100k ₽, x7, комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона, Z rolling 30д",
+            cells = cells,
+        )
+    }
+
+    /**
+     * Гипотеза: раздельные пороги входа (|Z| выше) и выхода (|Z| ниже) дают больше PnL, чем «узкий» фикс. зазор.
+     * Сетка 0.2…2.5 шаг 0.1, exit < entry.
+     *
+     * `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_asymmetricThresholdHypothesis_0_2_5`
+     */
+    @Test
+    fun moexBacktest_255d_asymmetricThresholdHypothesis_0_2_5() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val steps = thresholdSweepSteps(min = 0.2, max = 2.5)
+        val cells = runThresholdGapSweep(points, steps)
+        assertTrue("Нет результатов сетки", cells.isNotEmpty())
+
+        val best = cells.maxByOrNull { it.pnl }!!
+        val baseline075 = cells.find { near(it.entry, 0.7) && near(it.exit, 0.5) }
+        val baseline087 = cells.find { near(it.entry, 0.8) && near(it.exit, 0.7) }
+
+        // Для каждого entry — лучший exit и «минимальный зазор» entry−0.1
+        val bestExitPerEntry = cells.groupBy { it.entry }.mapValues { (_, g) -> g.maxByOrNull { it.pnl }!! }
+        val minGapPerEntry = steps.associateWith { entry ->
+            val tightExit = (entry - 0.1).coerceAtLeast(steps.first())
+            cells.find { near(it.entry, entry) && near(it.exit, tightExit) }
+        }.filterValues { it != null }.mapValues { it.value!! }
+
+        val tunedBeatsTight = bestExitPerEntry.count { (entry, bestCell) ->
+            val tight = minGapPerEntry[entry] ?: return@count false
+            bestCell.pnl > tight.pnl + 1.0
+        }
+        val tunedTotal = bestExitPerEntry.size
+        val profitable = cells.count { it.pnl > 0.0 }
+        val profitablePct = 100.0 * profitable / cells.size
+
+        val top10 = cells.sortedByDescending { it.pnl }.take(10)
+        val top10AvgGap = top10.map { it.gap }.average()
+
+        val report = buildString {
+            appendLine("=== Гипотеза: раздельные пороги вход/выход (255д MOEX) ===")
+            appendLine("Сетка: вход и выход 0.2…2.5 шаг 0.1, exit < entry")
+            appendLine("Параметры: 100k ₽, x7, комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона, rolling Z 30д")
+            appendLine("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров)")
+            appendLine("Комбинаций: ${cells.size}, прибыльных: $profitable (${fmt1(profitablePct)}%)")
+            appendLine()
+            appendLine("BEST: вход ±${fmt(best.entry)} / выход ±${fmt(best.exit)} Δ=${fmt(best.gap)}")
+            appendLine("  PnL ${fmt(best.pnl)} ₽, сделок ${best.trades}, max DD ${fmt(best.maxDd)} ₽")
+            baseline075?.let {
+                appendLine("  baseline 0.7/0.5: PnL ${fmt(it.pnl)} ₽ (${fmt(it.pnl - best.pnl)} vs best)")
+            }
+            baseline087?.let {
+                appendLine("  baseline 0.8/0.7: PnL ${fmt(it.pnl)} ₽")
+            }
+            appendLine()
+            appendLine("Гипотеза: подбор exit отдельно от entry")
+            appendLine("  Для $tunedTotal уровней entry лучший exit даёт >+1₽ vs tight Δ=0.1: $tunedBeatsTight раз")
+            appendLine("  Средний зазор Δ в TOP-10: ${fmt1(top10AvgGap)}")
+            appendLine()
+            appendLine("BEST PER GAP Δ:")
+            appendLine(String.format(Locale.US, "%4s %5s %5s %12s %7s %10s", "Δ", "вход", "выход", "PnL ₽", "сделок", "DD ₽"))
+            cells.groupBy { it.gap }.toSortedMap().forEach { (gap, group) ->
+                val row = group.maxByOrNull { it.pnl }!!
+                appendLine(
+                    String.format(
+                        Locale.US,
+                        "%4s %5s %5s %12s %7d %10s",
+                        fmt(gap), fmt(row.entry), fmt(row.exit), fmt(row.pnl), row.trades, fmt(row.maxDd),
+                    )
+                )
+            }
+            appendLine()
+            appendLine("TOP 15:")
+            cells.sortedByDescending { it.pnl }.take(15).forEach { c ->
+                appendLine(
+                    "  ±${fmt(c.entry)}/±${fmt(c.exit)} Δ=${fmt(c.gap)} → ${fmt(c.pnl)} ₽ " +
+                        "(${c.trades} сд., DD ${fmt(c.maxDd)})"
+                )
+            }
+            appendLine()
+            appendLine("Примеры: один entry — разные exit (0.7):")
+            cells.filter { near(it.entry, 0.7) }.sortedByDescending { it.pnl }.take(8).forEach { c ->
+                appendLine("  exit ±${fmt(c.exit)} Δ=${fmt(c.gap)} → ${fmt(c.pnl)} ₽ (${c.trades} сд.)")
+            }
+        }
+        println(report)
+        java.io.File("/tmp/moex_threshold_hypothesis.txt").writeText(report)
+        printThresholdGapSweepReport(
+            title = "MOEX ISS 255д — сетка 0.2…2.5 (полный отчёт)",
+            rangeLabel = "${points.first().tradeDate} … ${points.last().tradeDate}",
+            paramsLabel = "100k ₽, x7",
+            cells = cells,
+        )
+
+        assertTrue("Лучшая пара должна быть прибыльной", best.pnl > 0.0)
+        assertTrue(
+            "Раздельная настройка exit должна иногда побеждать tight Δ=0.1",
+            tunedBeatsTight > tunedTotal / 4,
+        )
+    }
+
+    private fun runThresholdGapSweep(
+        points: List<DataPoint>,
+        steps: List<Double>,
+    ): List<ThresholdSweepCell> {
         val cells = mutableListOf<ThresholdSweepCell>()
         for (entry in steps) {
             for (exit in steps) {
@@ -772,14 +883,12 @@ class MoexTodayBacktestTest {
                 cells += ThresholdSweepCell(entry, exit, m)
             }
         }
-        assertTrue("Нет результатов сетки", cells.isNotEmpty())
-        printThresholdGapSweepReport(
-            title = "MOEX ISS 255д — сетка порогов 0…2.5",
-            rangeLabel = "${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)",
-            paramsLabel = "100k ₽, x7, комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона, Z rolling 30д",
-            cells = cells,
-        )
+        return cells
     }
+
+    private fun near(a: Double, b: Double, eps: Double = 0.011): Boolean = kotlin.math.abs(a - b) < eps
+
+    private fun fmt1(v: Double): String = String.format(Locale.US, "%.1f", v)
 
     private fun runBacktest(
         points: List<DataPoint>,
@@ -1021,9 +1130,9 @@ class MoexTodayBacktestTest {
             compoundReturns = false
         )
 
-    private fun thresholdSweepSteps(max: Double = SWEEP_MAX): List<Double> {
+    private fun thresholdSweepSteps(min: Double = 0.0, max: Double = SWEEP_MAX): List<Double> {
         val steps = mutableListOf<Double>()
-        var v = 0.0
+        var v = min
         while (v <= max + 1e-9) {
             steps += (v * 10).roundToInt() / 10.0
             v += SWEEP_STEP
