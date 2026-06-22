@@ -54,3 +54,32 @@ internal fun buildProdLikeStrategySimMetrics(
         leverageForLots = leverageForLots,
     ),
 )
+
+internal fun buildProdLikeStrategySimMetricsFour(
+    points: List<DataPoint>,
+    four: ZStrategyFourThresholds,
+    accountSizeRub: Double = DEFAULT_STRATEGY_TEST_ACCOUNT_RUB,
+    capitalUsagePercent: Double = DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT,
+    leverageForLots: Double = 7.0,
+    commissionPercentPerSide: Double = 0.04,
+    periodDescription: String = "prod-like four-threshold",
+    simOptions: ZStrategySimOptions = defaultProdLikeSimOptions(),
+): PortfolioMetrics? {
+    if (!four.isValid()) return null
+    return buildZStrategyPortfolioMetrics(
+        points = points,
+        thresholds = four.toSymmetricFallback(),
+        notionalRub = accountSizeRub,
+        leverage = 1.0,
+        commissionPercentPerSide = commissionPercentPerSide,
+        periodDescription = periodDescription,
+        compoundReturns = false,
+        simOptions = simOptions,
+        prodLikeSizing = prodLikeSizingForAccount(
+            accountSizeRub = accountSizeRub,
+            capitalUsagePercent = capitalUsagePercent,
+            leverageForLots = leverageForLots,
+        ),
+        fourThresholds = four,
+    )
+}

@@ -26,14 +26,24 @@ internal fun buildZStrategyPortfolioMetrics(
     initialCarryOpen: PortfolioOpenPosition? = null,
     todaySliceOnly: Boolean = false,
     prodLikeSizing: ZStrategyProdLikeSizing? = null,
+    fourThresholds: ZStrategyFourThresholds? = null,
 ): PortfolioMetrics? {
     if (points.size < 2) return null
+    if (fourThresholds != null && !fourThresholds.isValid()) return null
     val loopStart = simLoopStartIndex.coerceIn(1, points.lastIndex)
     if (loopStart > points.lastIndex) return null
 
-    val entry = thresholds.entry
-    val exit = thresholds.exit
+    val symmetricThresholds = fourThresholds?.toSymmetricFallback() ?: thresholds
+    val entry = symmetricThresholds.entry
+    val exit = symmetricThresholds.exit
     val slip = max(0.0, simOptions.slippageSpreadPts)
+
+    fun signalBetweenBars(prev: DataPoint, current: DataPoint, pos: ZStrategyPosition): ZStrategySignal =
+        if (fourThresholds != null) {
+            determineZStrategySignalBetweenBars(prev, current, pos, fourThresholds)
+        } else {
+            determineZStrategySignalBetweenBars(prev, current, pos, thresholds)
+        }
 
     var position = ZStrategyPosition.Flat
     var entrySpread = 0.0
@@ -370,12 +380,7 @@ internal fun buildZStrategyPortfolioMetrics(
                     else -> {
                         val ruleExit = when (exitMode) {
                             ZStrategyExitMode.FixedThreshold ->
-                                determineZStrategySignalBetweenBars(
-                                    prev,
-                                    current,
-                                    ZStrategyPosition.Long,
-                                    thresholds,
-                                ) == ZStrategySignal.ExitLong
+                                signalBetweenBars(prev, current, ZStrategyPosition.Long) == ZStrategySignal.ExitLong
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
                         }
@@ -410,12 +415,7 @@ internal fun buildZStrategyPortfolioMetrics(
                     else -> {
                         val ruleExit = when (exitMode) {
                             ZStrategyExitMode.FixedThreshold ->
-                                determineZStrategySignalBetweenBars(
-                                    prev,
-                                    current,
-                                    ZStrategyPosition.Short,
-                                    thresholds,
-                                ) == ZStrategySignal.ExitShort
+                                signalBetweenBars(prev, current, ZStrategyPosition.Short) == ZStrategySignal.ExitShort
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
                         }
@@ -432,14 +432,7 @@ internal fun buildZStrategyPortfolioMetrics(
         // Live-монитор: максимум одно действие на бар — без входа в тот же бар после выхода.
         if (!closedThisBar && position == ZStrategyPosition.Flat && !tradingHalted && !blockNewEntries(current)) {
             if (entryPullbackZ <= 0.0) {
-                when (
-                    determineZStrategySignalBetweenBars(
-                        prev,
-                        current,
-                        ZStrategyPosition.Flat,
-                        thresholds,
-                    )
-                ) {
+                when (signalBetweenBars(prev, current, ZStrategyPosition.Flat)) {
                     ZStrategySignal.EnterLong ->
                         if (spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Long)) {
                             enterLongAtBar(current)
