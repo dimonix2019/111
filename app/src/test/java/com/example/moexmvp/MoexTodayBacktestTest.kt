@@ -34,10 +34,8 @@ class MoexTodayBacktestTest {
     private companion object {
         const val SWEEP_STEP = 0.1
         const val SWEEP_MAX = 2.1
-        const val BACKTEST_NOTIONAL_50K_RUB = 50_000.0
-        const val BACKTEST_NOTIONAL_100K_RUB = 100_000.0
-        const val BACKTEST_LEVERAGE_X1 = 1.0
-        const val BACKTEST_LEVERAGE_X7 = 7.0
+        const val BACKTEST_ACCOUNT_50K_RUB = 50_000.0
+        const val BACKTEST_ACCOUNT_100K_RUB = 100_000.0
         const val BACKTEST_COMMISSION_PCT_PER_SIDE = 0.04
         val THRESH_08_07 = DynamicThresholds(0.8, 0.7, null)
         val THRESH_08_05 = DynamicThresholds(0.8, 0.5, null)
@@ -86,7 +84,7 @@ class MoexTodayBacktestTest {
             "вход 0.8 / выход 0.7" to DynamicThresholds(0.8, 0.7, null),
             "вход 0.8 / выход 0.5" to DynamicThresholds(0.8, 0.5, null)
         )
-        println("=== MOEX 255д: сравнение порогов, ${BACKTEST_NOTIONAL_50K_RUB.toInt()} ₽ на сделку (x${BACKTEST_LEVERAGE_X1}) ===")
+        println("=== MOEX 255д: сравнение порогов, prod-like ${BACKTEST_ACCOUNT_50K_RUB.toInt()} ₽ счёт ===")
         println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
         println(
             "Комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}% / сторона, без капитализации, выход по фикс. порогу |Z|"
@@ -105,15 +103,12 @@ class MoexTodayBacktestTest {
         )
         println("-".repeat(88))
         for ((label, th) in variants) {
-            val m = buildZStrategyPortfolioMetrics(
+            val m = buildProdLikeStrategySimMetrics(
                 points = points,
                 thresholds = th,
-                notionalRub = BACKTEST_NOTIONAL_50K_RUB,
-                leverage = BACKTEST_LEVERAGE_X1,
+                accountSizeRub = BACKTEST_ACCOUNT_50K_RUB,
                 commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE,
-                periodDescription = "$label · ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
-                compoundReturns = false,
-                exitMode = ZStrategyExitMode.FixedThreshold
+                periodDescription = "$label · ${PORTFOLIO_M15_LOOKBACK_DAYS}д prod-like",
             )
             checkNotNull(m) { "Нет метрик для $label" }
             println(
@@ -139,13 +134,19 @@ class MoexTodayBacktestTest {
                 )
             }
         }
-        val m07 = buildZStrategyPortfolioMetrics(
-            points, variants[0].second, BACKTEST_NOTIONAL_50K_RUB, BACKTEST_LEVERAGE_X1,
-            BACKTEST_COMMISSION_PCT_PER_SIDE, "cmp", false, ZStrategyExitMode.FixedThreshold
+        val m07 = buildProdLikeStrategySimMetrics(
+            points = points,
+            thresholds = variants[0].second,
+            accountSizeRub = BACKTEST_ACCOUNT_50K_RUB,
+            commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE,
+            periodDescription = "cmp",
         )!!
-        val m05 = buildZStrategyPortfolioMetrics(
-            points, variants[1].second, BACKTEST_NOTIONAL_50K_RUB, BACKTEST_LEVERAGE_X1,
-            BACKTEST_COMMISSION_PCT_PER_SIDE, "cmp", false, ZStrategyExitMode.FixedThreshold
+        val m05 = buildProdLikeStrategySimMetrics(
+            points = points,
+            thresholds = variants[1].second,
+            accountSizeRub = BACKTEST_ACCOUNT_50K_RUB,
+            commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE,
+            periodDescription = "cmp",
         )!!
         println("---")
         println(
@@ -157,16 +158,16 @@ class MoexTodayBacktestTest {
     @Test
     fun moexBacktest_255d_baseline_vs_pullbackEntry_peakExit() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val notional = BACKTEST_ACCOUNT_100K_RUB
         val baseline = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = notional
+            accountSizeRub = notional
         )!!
         val improved07 = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = notional,
+            accountSizeRub = notional,
             exitMode = ZStrategyExitMode.ZPeakTrailing,
             zPeakTrailZ = 0.07,
             entryPullbackZ = 0.07
@@ -174,7 +175,7 @@ class MoexTodayBacktestTest {
         val improved05 = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = notional,
+            accountSizeRub = notional,
             exitMode = ZStrategyExitMode.ZPeakTrailing,
             zPeakTrailZ = 0.05,
             entryPullbackZ = 0.05
@@ -182,7 +183,7 @@ class MoexTodayBacktestTest {
         val improved10 = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = notional,
+            accountSizeRub = notional,
             exitMode = ZStrategyExitMode.ZPeakTrailing,
             zPeakTrailZ = 0.10,
             entryPullbackZ = 0.10
@@ -233,13 +234,13 @@ class MoexTodayBacktestTest {
     @Test
     fun moexBacktest_255d_pullbackEntry_only_fixedExit07() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val notional = BACKTEST_ACCOUNT_100K_RUB
         val baseline = runBacktest(points, THRESH_08_07, notional)!!
         val rows = pullbackTrailGridSteps().map { delta ->
             delta to runBacktest(
                 points = points,
                 thresholds = THRESH_08_07,
-                notionalRub = notional,
+                accountSizeRub = notional,
                 entryPullbackZ = delta,
                 exitMode = ZStrategyExitMode.FixedThreshold
             )!!
@@ -266,7 +267,7 @@ class MoexTodayBacktestTest {
     @Test
     fun moexBacktest_255d_pullbackEntry_peakTrail_grid() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val notional = BACKTEST_ACCOUNT_100K_RUB
         val baseline = runBacktest(points, THRESH_08_07, notional)!!
         val steps = pullbackTrailGridSteps()
         val cells = mutableListOf<PullbackGridCell>()
@@ -275,7 +276,7 @@ class MoexTodayBacktestTest {
                 val m = runBacktest(
                     points = points,
                     thresholds = THRESH_08_07,
-                    notionalRub = notional,
+                    accountSizeRub = notional,
                     entryPullbackZ = entryPb,
                     exitMode = ZStrategyExitMode.ZPeakTrailing,
                     zPeakTrailZ = trail
@@ -330,12 +331,12 @@ class MoexTodayBacktestTest {
     @Test
     fun moexBacktest_255d_pyramid_report_clearing() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val notional = BACKTEST_ACCOUNT_100K_RUB
         val baseline = runBacktest(points, THRESH_08_07, notional)!!
         val pyramid = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = notional,
+            accountSizeRub = notional,
             simOptions = ZStrategySimOptions(
                 pyramidAddNotionalRub = 50_000.0,
                 pyramidZDepth = 1.0
@@ -344,13 +345,13 @@ class MoexTodayBacktestTest {
         val reportDays = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = notional,
+            accountSizeRub = notional,
             simOptions = ZStrategySimOptions(skipTatnReportDays = true)
         )!!
         val clearing = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = notional,
+            accountSizeRub = notional,
             simOptions = ZStrategySimOptions(
                 closeBeforeClearingMsk = MOEX_EVENING_CLEARING_CUTOFF_MSK
             )
@@ -358,7 +359,7 @@ class MoexTodayBacktestTest {
         val combined = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = notional,
+            accountSizeRub = notional,
             simOptions = ZStrategySimOptions(
                 pyramidAddNotionalRub = 50_000.0,
                 pyramidZDepth = 1.0,
@@ -393,11 +394,11 @@ class MoexTodayBacktestTest {
     @Test
     fun moexBacktest_255d_pyramid_normalized_on_capital() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val base100 = runBacktest(points, THRESH_08_07, BACKTEST_NOTIONAL_100K_RUB)!!
+        val base100 = runBacktest(points, THRESH_08_07, BACKTEST_ACCOUNT_100K_RUB)!!
         val pyr50 = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = BACKTEST_NOTIONAL_100K_RUB,
+            accountSizeRub = BACKTEST_ACCOUNT_100K_RUB,
             simOptions = ZStrategySimOptions(
                 pyramidAddNotionalRub = 50_000.0,
                 pyramidZDepth = 1.0
@@ -406,7 +407,7 @@ class MoexTodayBacktestTest {
         val pyr100 = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = BACKTEST_NOTIONAL_100K_RUB,
+            accountSizeRub = BACKTEST_ACCOUNT_100K_RUB,
             simOptions = ZStrategySimOptions(
                 pyramidAddNotionalRub = 100_000.0,
                 pyramidZDepth = 1.0
@@ -457,7 +458,7 @@ class MoexTodayBacktestTest {
             topDays = 12
         )!!
         println(formatZMovementReport(report, entry, exit))
-        val baseline = runBacktest(points, THRESH_08_07, BACKTEST_NOTIONAL_100K_RUB)!!
+        val baseline = runBacktest(points, THRESH_08_07, BACKTEST_ACCOUNT_100K_RUB)!!
         println("---")
         println(
             "Симуляция 0.8/0.7 (для сопоставления): ${baseline.closedTrades.size} сделок, " +
@@ -471,7 +472,7 @@ class MoexTodayBacktestTest {
     @Test
     fun moexBacktest_255d_pyramid_add_depth_grid() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val notional = BACKTEST_ACCOUNT_100K_RUB
         val baseline = runBacktest(points, THRESH_08_07, notional)!!
         val addSteps = pyramidAddNotionalGridSteps()
         val depthSteps = pyramidZDepthGridSteps()
@@ -481,7 +482,7 @@ class MoexTodayBacktestTest {
                 val m = runBacktest(
                     points = points,
                     thresholds = THRESH_08_07,
-                    notionalRub = notional,
+                    accountSizeRub = notional,
                     simOptions = ZStrategySimOptions(
                         pyramidAddNotionalRub = addRub,
                         pyramidZDepth = depth
@@ -542,7 +543,7 @@ class MoexTodayBacktestTest {
     @Test
     fun moexBacktest_255d_pyramid_depth_gt1() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val notional = BACKTEST_NOTIONAL_100K_RUB
+        val notional = BACKTEST_ACCOUNT_100K_RUB
         val baseline = runBacktest(points, THRESH_08_07, notional)!!
         val addSteps = pyramidAddNotionalGridSteps()
         val depthSteps = pyramidZDepthGridStepsGt1()
@@ -550,7 +551,7 @@ class MoexTodayBacktestTest {
             runBacktest(
                 points = points,
                 thresholds = THRESH_08_07,
-                notionalRub = notional,
+                accountSizeRub = notional,
                 simOptions = ZStrategySimOptions(
                     pyramidAddNotionalRub = addRub,
                     pyramidZDepth = 1.0
@@ -563,7 +564,7 @@ class MoexTodayBacktestTest {
                 val m = runBacktest(
                     points = points,
                     thresholds = THRESH_08_07,
-                    notionalRub = notional,
+                    accountSizeRub = notional,
                     simOptions = ZStrategySimOptions(
                         pyramidAddNotionalRub = addRub,
                         pyramidZDepth = depth
@@ -642,41 +643,41 @@ class MoexTodayBacktestTest {
     }
 
     @Test
-    fun moexBacktest_255d_100k_leverage7_threshold08_07() = runBlocking {
+    fun moexBacktest_255d_leverage1_vs_7_prodLike_threshold08_07() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val mX1 = runBacktest(
+        val mLev1 = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = BACKTEST_NOTIONAL_100K_RUB,
-            leverage = BACKTEST_LEVERAGE_X1,
-            commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE
+            accountSizeRub = DEFAULT_STRATEGY_TEST_ACCOUNT_RUB,
+            leverageForLots = 1.0,
+            commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE,
         )!!
-        val mX7 = runBacktest(
+        val mLev7 = runBacktest(
             points = points,
             thresholds = THRESH_08_07,
-            notionalRub = BACKTEST_NOTIONAL_100K_RUB,
-            leverage = BACKTEST_LEVERAGE_X7,
-            commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE
+            accountSizeRub = DEFAULT_STRATEGY_TEST_ACCOUNT_RUB,
+            leverageForLots = 7.0,
+            commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE,
         )!!
-        println("=== MOEX 255д: 100k @ 0.8/0.7 — x1 vs x7 (комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона) ===")
+        println("=== MOEX 255д: prod-like ${DEFAULT_STRATEGY_TEST_ACCOUNT_RUB.toInt()}k @ 0.8/0.7 — плечо лотов ×1 vs ×7 ===")
         println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)")
-        printBacktestRow("100k · x1", mX1)
-        printBacktestRow("100k · x7", mX7)
+        printBacktestRow("prod ×1 лоты", mLev1)
+        printBacktestRow("prod ×7 лоты", mLev7)
         println("---")
         println(
-            "Δ PnL (x7 − x1): ${fmt(mX7.totalPnlRubApprox - mX1.totalPnlRubApprox)} ₽ · " +
-                "Δ max DD: ${fmt(mX7.maxDrawdownRubApprox - mX1.maxDrawdownRubApprox)} ₽"
+            "Δ PnL (×7 − ×1): ${fmt(mLev7.totalPnlRubApprox - mLev1.totalPnlRubApprox)} ₽ · " +
+                "Δ max DD: ${fmt(mLev7.maxDrawdownRubApprox - mLev1.maxDrawdownRubApprox)} ₽"
         )
-        assertTrue(mX7.closedTrades.size == mX1.closedTrades.size)
+        assertTrue(mLev7.closedTrades.size == mLev1.closedTrades.size)
     }
 
     @Test
     fun moexBacktest_255d_dual50k_vs_single100k() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val m50_07 = runBacktest(points, THRESH_08_07, BACKTEST_NOTIONAL_50K_RUB)!!
-        val m50_05 = runBacktest(points, THRESH_08_05, BACKTEST_NOTIONAL_50K_RUB)!!
-        val m100_07 = runBacktest(points, THRESH_08_07, BACKTEST_NOTIONAL_100K_RUB)!!
-        val m100_05 = runBacktest(points, THRESH_08_05, BACKTEST_NOTIONAL_100K_RUB)!!
+        val m50_07 = runBacktest(points, THRESH_08_07, BACKTEST_ACCOUNT_50K_RUB)!!
+        val m50_05 = runBacktest(points, THRESH_08_05, BACKTEST_ACCOUNT_50K_RUB)!!
+        val m100_07 = runBacktest(points, THRESH_08_07, BACKTEST_ACCOUNT_100K_RUB)!!
+        val m100_05 = runBacktest(points, THRESH_08_05, BACKTEST_ACCOUNT_100K_RUB)!!
 
         val dualPnl = m50_07.totalPnlRubApprox + m50_05.totalPnlRubApprox
         val dualCommission = m50_07.totalCommissionRub + m50_05.totalCommissionRub
@@ -761,9 +762,9 @@ class MoexTodayBacktestTest {
         val cells = runThresholdGapSweep(points, steps)
         assertTrue("Нет результатов сетки", cells.isNotEmpty())
         printThresholdGapSweepReport(
-            title = "MOEX ISS 255д — сетка порогов 0.2…2.5",
+            title = "MOEX ISS 255д — сетка порогов 0.2…2.5 (prod-like)",
             rangeLabel = "${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров 15м)",
-            paramsLabel = "100k ₽, x7, комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона, Z rolling 30д",
+            paramsLabel = "${DEFAULT_STRATEGY_TEST_ACCOUNT_RUB.toInt()}k ₽ prod-like, комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона, Z+guard",
             cells = cells,
         )
     }
@@ -804,9 +805,13 @@ class MoexTodayBacktestTest {
         val top10AvgGap = top10.map { it.gap }.average()
 
         val report = buildString {
-            appendLine("=== Гипотеза: раздельные пороги вход/выход (255д MOEX) ===")
+            appendLine("=== Гипотеза: раздельные пороги вход/выход (255д MOEX, prod-like) ===")
             appendLine("Сетка: вход и выход 0.2…2.5 шаг 0.1, exit < entry")
-            appendLine("Параметры: 100k ₽, x7, комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона, rolling Z 30д")
+            appendLine(
+                "Prod-like: ${DEFAULT_STRATEGY_TEST_ACCOUNT_RUB.toInt()}k ₽, " +
+                    "${DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT.toInt()}%, ×7 лоты, " +
+                    "комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%, slip ${DEFAULT_STRATEGY_TEST_SLIPPAGE_SPREAD_PTS}п, Z+guard"
+            )
             appendLine("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров)")
             appendLine("Комбинаций: ${cells.size}, прибыльных: $profitable (${fmt1(profitablePct)}%)")
             appendLine()
@@ -852,9 +857,9 @@ class MoexTodayBacktestTest {
         println(report)
         java.io.File("/tmp/moex_threshold_hypothesis.txt").writeText(report)
         printThresholdGapSweepReport(
-            title = "MOEX ISS 255д — сетка 0.2…2.5 (полный отчёт)",
+            title = "MOEX ISS 255д — сетка 0.2…2.5 prod-like (полный отчёт)",
             rangeLabel = "${points.first().tradeDate} … ${points.last().tradeDate}",
-            paramsLabel = "100k ₽, x7",
+            paramsLabel = "${DEFAULT_STRATEGY_TEST_ACCOUNT_RUB.toInt()}k prod-like",
             cells = cells,
         )
 
@@ -876,9 +881,6 @@ class MoexTodayBacktestTest {
                 val m = runBacktest(
                     points = points,
                     thresholds = DynamicThresholds(entry, exit, null),
-                    notionalRub = BACKTEST_NOTIONAL_100K_RUB,
-                    leverage = BACKTEST_LEVERAGE_X7,
-                    commissionPercentPerSide = BACKTEST_COMMISSION_PCT_PER_SIDE,
                 ) ?: continue
                 cells += ThresholdSweepCell(entry, exit, m)
             }
@@ -893,27 +895,28 @@ class MoexTodayBacktestTest {
     private fun runBacktest(
         points: List<DataPoint>,
         thresholds: DynamicThresholds,
-        notionalRub: Double,
-        leverage: Double = BACKTEST_LEVERAGE_X1,
+        accountSizeRub: Double = DEFAULT_STRATEGY_TEST_ACCOUNT_RUB,
+        leverageForLots: Double = 7.0,
+        capitalUsagePercent: Double = DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT,
         commissionPercentPerSide: Double = BACKTEST_COMMISSION_PCT_PER_SIDE,
         exitMode: ZStrategyExitMode = ZStrategyExitMode.FixedThreshold,
         zPeakTrailZ: Double = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL,
         entryPullbackZ: Double = 0.0,
-        simOptions: ZStrategySimOptions = ZStrategySimOptions()
-    ): PortfolioMetrics? =
-        buildZStrategyPortfolioMetrics(
-            points = points,
-            thresholds = thresholds,
-            notionalRub = notionalRub,
-            leverage = leverage,
-            commissionPercentPerSide = commissionPercentPerSide,
-            periodDescription = "MOEX ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
-            compoundReturns = false,
-            exitMode = exitMode,
-            zPeakTrailZ = zPeakTrailZ,
-            entryPullbackZ = entryPullbackZ,
-            simOptions = simOptions
-        )
+        simOptions: ZStrategySimOptions = defaultProdLikeSimOptions(),
+    ): PortfolioMetrics? = buildProdLikeStrategySimMetrics(
+        points = points,
+        thresholds = thresholds,
+        accountSizeRub = accountSizeRub,
+        capitalUsagePercent = capitalUsagePercent,
+        leverageForLots = leverageForLots,
+        commissionPercentPerSide = commissionPercentPerSide,
+        periodDescription = "MOEX ${PORTFOLIO_M15_LOOKBACK_DAYS}д prod-like",
+        compoundReturns = false,
+        exitMode = exitMode,
+        zPeakTrailZ = zPeakTrailZ,
+        entryPullbackZ = entryPullbackZ,
+        simOptions = simOptions,
+    )
 
     private fun printBacktestRow(label: String, m: PortfolioMetrics) {
         println(
@@ -1110,7 +1113,7 @@ class MoexTodayBacktestTest {
         val till = portfolioM15MoexFetchTillDate()
         val entities = fetchPortfolio15mSpreadEntitiesChunked(from, till)
         assertTrue("Нет 15м данных с MOEX ($from…$till)", entities.isNotEmpty())
-        val points = applyZScoresDefault(entities.map { it.toDataPoint() })
+        val points = prepareMoexPointsForProdLikeSim(entities.map { it.toDataPoint() })
         assertTrue("Мало точек для Z", points.size >= 2)
         return today to points
     }
@@ -1118,17 +1121,12 @@ class MoexTodayBacktestTest {
     private fun runPortfolioMetrics(
         points: List<DataPoint>,
         thresholds: DynamicThresholds,
-        today: LocalDate
-    ): PortfolioMetrics? =
-        buildZStrategyPortfolioMetrics(
-            points = points,
-            thresholds = thresholds,
-            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage = 7.0,
-            commissionPercentPerSide = 0.05,
-            periodDescription = "MOEX sweep $today",
-            compoundReturns = false
-        )
+        today: LocalDate,
+    ): PortfolioMetrics? = buildProdLikeStrategySimMetrics(
+        points = points,
+        thresholds = thresholds,
+        periodDescription = "MOEX sweep $today prod-like",
+    )
 
     private fun thresholdSweepSteps(min: Double = 0.0, max: Double = SWEEP_MAX): List<Double> {
         val steps = mutableListOf<Double>()
