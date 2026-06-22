@@ -178,6 +178,7 @@ internal fun StrategyTestTabContent(
                     m15Points = m15ChartPoints,
                     referenceLines = zReferenceLines,
                     chartHeightDp = zChartHeightDp,
+                    pointMarkers = chartPointMarkers,
                 )
             } else if (!m15Loading && !simulationComputing) {
                 Box(

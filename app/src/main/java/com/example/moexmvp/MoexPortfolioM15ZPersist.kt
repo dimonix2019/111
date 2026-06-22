@@ -456,10 +456,12 @@ internal fun prepareM15PointsForZStrategySim(
     applyJournalOverlay: Boolean = true,
 ): List<DataPoint> {
     if (points.size < 2) return points
-    // «Z как live»: Z уже на points из SQLite/refresh — не пересчитываем и не overlay журнала,
-    // даже если journalEvents не пуст (иначе spread-guard Z ≠ live и PnL расходится с бэктестом).
+    // «Z как live»: без overlay журнала, но rolling Z + spread-guard для симуляции
+    // (снимки SQLite на графике/симе расходились → входы на Z есть, в таблице нет).
     if (!applyJournalOverlay) {
-        return points
+        val mutable = points.map { it.copy(zScore = 0.0) }.toMutableList()
+        applySpreadGuardZScoresInPlace(mutable)
+        return mutable
     }
     val mutable = points.map { it.copy(zScore = 0.0) }.toMutableList()
     if (entities.size == points.size) {

@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.224 — Fix «Тест страт.»: Z график = Z симуляции (rolling); маркеры входов/выходов на Z-линии.
 1.7.223 — Fix «Тест страт.»: «Z как live» не пересчитывает Z при непустом журнале (parity с бэктестом).
 1.7.222 — «Тест страт.»: Z-score линией (Compose), без сделок/текущего Z; общая шкала дат с Equity.
 1.7.221 — «Тест страт.»: Z-score и Equity/DD — два отдельных графика (Z сверху, Equity ниже).

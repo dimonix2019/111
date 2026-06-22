@@ -191,7 +191,7 @@ class MoexPortfolioM15ZPersistTest {
     }
 
     @Test
-    fun prepareM15PointsForZStrategySim_skipsZRecalcWhenLiveZWithoutJournal() {
+    fun prepareM15PointsForZStrategySim_recalcsRollingZWhenLiveWithoutJournal() {
         val raw = listOf(
             DataPoint(1L, "2026-01-01 10:00", 650.0, 600.0, 8.0, 50.0, 0.72),
             DataPoint(2L, "2026-01-01 10:15", 651.0, 600.5, 8.1, 50.5, 0.81),
@@ -200,11 +200,12 @@ class MoexPortfolioM15ZPersistTest {
             points = raw,
             applyJournalOverlay = false,
         )
-        assertTrue(result === raw)
+        assertTrue(result !== raw)
+        assertEquals(2, result.size)
     }
 
     @Test
-    fun prepareM15PointsForZStrategySim_skipsZRecalcWhenLiveZEvenWithJournalEvents() {
+    fun prepareM15PointsForZStrategySim_recalcsRollingZWhenLiveEvenWithJournalEvents() {
         val raw = listOf(
             DataPoint(1L, "2026-01-01 10:00", 650.0, 600.0, 8.0, 50.0, 0.72),
             DataPoint(2L, "2026-01-01 10:15", 651.0, 600.5, 8.1, 50.5, 0.81),
@@ -222,7 +223,7 @@ class MoexPortfolioM15ZPersistTest {
             journalThresholds = DynamicThresholds(0.8, 0.7, null),
             applyJournalOverlay = false,
         )
-        assertTrue(result === raw)
-        assertEquals(0.72, result[0].zScore, 1e-9)
+        assertTrue(result !== raw)
+        assertNotEquals(0.72, result[0].zScore, 1e-9)
     }
 }

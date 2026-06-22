@@ -69,16 +69,11 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
     MoexDiagnostics.log(context, "st_sim", "start id=$workId reason=$reason points=${points.size}")
     MoexDiagnostics.logMemory(context, "st_sim")
     try {
-        val chartTail = withContext(Dispatchers.Default) {
-            strategyTestM15PointsForChart(points)
-        }
-        if (!isStrategyTestWorkCurrent(workId)) return
-        strategyTestM15ChartTail = chartTail
         val simThresholds = resolveStrategyTestSimThresholds()
         val entry = simThresholds.entry
         val exit = simThresholds.exit
         val commissionPct = buildStrategyTestCommissionPercentPerSide(context, portfolioCommissionPercent)
-        val metrics = withContext(Dispatchers.Default) {
+        val simResult = withContext(Dispatchers.Default) {
             if (!points.sufficientForStrategyTestSimulation()) return@withContext null
             val simPoints = prepareM15PointsForZStrategySim(
                 points = points,
@@ -86,7 +81,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 journalThresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
                 applyJournalOverlay = !strategyTestUseLiveZSignals,
             )
-            buildZStrategyPortfolioMetrics(
+            val metrics = buildZStrategyPortfolioMetrics(
                 points = simPoints,
                 thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
                 notionalRub = strategyTestAccountSizeRub,
@@ -106,8 +101,16 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                     leverageForLots = portfolioLeverage,
                 ),
             )
+            simPoints to metrics
         }
         if (!isStrategyTestWorkCurrent(workId)) return
+        val simPoints = simResult?.first
+        val metrics = simResult?.second
+        val chartTail = withContext(Dispatchers.Default) {
+            strategyTestM15PointsForChart(simPoints ?: points)
+        }
+        if (!isStrategyTestWorkCurrent(workId)) return
+        strategyTestM15ChartTail = chartTail
         val hourlyVol = withContext(Dispatchers.Default) {
             resolveStrategyTestSpreadHourlyVolatility(chartTail)
         }

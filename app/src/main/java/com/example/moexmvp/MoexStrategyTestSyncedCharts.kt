@@ -173,6 +173,7 @@ internal fun StrategyTestZScoreLineChartCard(
     m15Points: List<DataPoint>,
     referenceLines: List<ChartReferenceLine>,
     chartHeightDp: Int,
+    pointMarkers: List<ChartPointMarker> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -182,11 +183,18 @@ internal fun StrategyTestZScoreLineChartCard(
             .padding(6.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text("Z-score", color = StrategyTestZLineColor, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+        val markerHint = if (pointMarkers.isNotEmpty()) " · ${pointMarkers.size} меток" else ""
+        Text(
+            "Z-score$markerHint",
+            color = StrategyTestZLineColor,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Medium,
+        )
         StrategyTestZScoreLineChart(
             dailyLabels = dailyLabels,
             m15Points = m15Points,
             referenceLines = referenceLines,
+            pointMarkers = pointMarkers,
             chartHeightDp = chartHeightDp,
         )
     }
@@ -199,6 +207,7 @@ internal fun StrategyTestZScoreLineChart(
     referenceLines: List<ChartReferenceLine>,
     modifier: Modifier = Modifier,
     chartHeightDp: Int = 200,
+    pointMarkers: List<ChartPointMarker> = emptyList(),
 ) {
     val axis = remember(dailyLabels) { buildStrategyTestChartTimeAxis(dailyLabels) }
     val linePoints = remember(m15Points, dailyLabels) {
@@ -331,5 +340,21 @@ internal fun StrategyTestZScoreLineChart(
             plotHeight = plotHeight,
             labelTextSizePx = 10.sp.toPx(),
         )
+
+        val (tMin, tMax) = axis.timeRange
+        pointMarkers.forEach { marker ->
+            val label = marker.barDateLabel ?: return@forEach
+            val ts = parseSimTradeExitMillis(label) ?: return@forEach
+            if (ts < tMin || ts > tMax) return@forEach
+            val x = xMapper.xForTimestamp(ts)
+            val y = yZ(marker.value)
+            if (x.isNaN() || y.isNaN()) return@forEach
+            drawMarkerShape(
+                shape = marker.shape,
+                center = Offset(x, y),
+                color = marker.color,
+                scale = 0.8f,
+            )
+        }
     }
 }
