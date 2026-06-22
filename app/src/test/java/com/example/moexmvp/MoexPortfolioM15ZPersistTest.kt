@@ -202,4 +202,27 @@ class MoexPortfolioM15ZPersistTest {
         )
         assertTrue(result === raw)
     }
+
+    @Test
+    fun prepareM15PointsForZStrategySim_skipsZRecalcWhenLiveZEvenWithJournalEvents() {
+        val raw = listOf(
+            DataPoint(1L, "2026-01-01 10:00", 650.0, 600.0, 8.0, 50.0, 0.72),
+            DataPoint(2L, "2026-01-01 10:15", 651.0, 600.5, 8.1, 50.5, 0.81),
+        )
+        val events = listOf(
+            StrategySignalEvent(
+                timestampMillis = 1L,
+                signalType = StrategySignalType.EnterShort,
+                zScore = 0.9,
+            ),
+        )
+        val result = prepareM15PointsForZStrategySim(
+            points = raw,
+            journalEvents = events,
+            journalThresholds = DynamicThresholds(0.8, 0.7, null),
+            applyJournalOverlay = false,
+        )
+        assertTrue(result === raw)
+        assertEquals(0.72, result[0].zScore, 1e-9)
+    }
 }
