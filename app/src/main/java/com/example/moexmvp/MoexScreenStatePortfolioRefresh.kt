@@ -454,18 +454,21 @@ internal suspend fun MoexScreenState.refreshData(
                         )
                     }
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
-                    if (!fromDiskCache && !deferM15Network) {
-                        val m15ForSignal = withContext(Dispatchers.IO) {
-                            loadZStrategySignalSeries(context, PortfolioM15LoadMode.INCREMENTAL)
+                    val monitorStale = backgroundMonitorEnabled && MoexWatchdog.isServiceHeartbeatStale(context)
+                    val runPortfolioSignals = !backgroundMonitorEnabled || monitorStale
+                    if (runPortfolioSignals) {
+                        val m15SignalMode = if (deferM15Network || fromDiskCache) {
+                            PortfolioM15LoadMode.CACHE_ONLY
+                        } else {
+                            PortfolioM15LoadMode.INCREMENTAL
                         }
-                        if (!backgroundMonitorEnabled && m15ForSignal.size >= 2) {
-                            val signalThresholds = DynamicThresholds(
-                                entry = (realTradeEntryThreshold ?: dynamicThresholds.entry)
-                                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                                exit = (realTradeExitThreshold ?: dynamicThresholds.exit)
-                                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                                calculatedDate = dynamicThresholds.calculatedDate
-                            )
+                        val m15Raw = withContext(Dispatchers.IO) {
+                            loadZStrategySignalSeries(context, m15SignalMode)
+                        }
+                        if (m15Raw.size >= 2) {
+                            val m15ForSignal = prepareM15PointsForZStrategySignalDetection(m15Raw)
+                            val signalThresholds = loadRealTradeZThresholds(context, dynamicThresholds)
+                            maybeBackfillMissedLiveZSignalsAfterStaleZFix(context, m15ForSignal, signalThresholds)
                             val signalLastProcessed = resolveLastProcessed15mBarTimestampForReplay(context)
                             val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
                                 points = m15ForSignal,
@@ -503,7 +506,7 @@ internal suspend fun MoexScreenState.refreshData(
                                 when (edgeSignal) {
                                 ZStrategySignal.EnterLong -> {
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (runPortfolioSignals && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATN / SHORT TATNP",
@@ -544,7 +547,7 @@ internal suspend fun MoexScreenState.refreshData(
 
                             ZStrategySignal.EnterShort -> {
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (runPortfolioSignals && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATNP / SHORT TATN",
@@ -586,7 +589,7 @@ internal suspend fun MoexScreenState.refreshData(
                             ZStrategySignal.ExitLong -> {
                                 clearPendingVirtualTradeProposal(context)
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (runPortfolioSignals && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATN / SHORT TATNP",
@@ -620,7 +623,7 @@ internal suspend fun MoexScreenState.refreshData(
                             ZStrategySignal.ExitShort -> {
                                 clearPendingVirtualTradeProposal(context)
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (runPortfolioSignals && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATNP / SHORT TATN",

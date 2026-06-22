@@ -191,6 +191,34 @@ class MoexPortfolioM15ZPersistTest {
     }
 
     @Test
+    fun prepareM15PointsForZStrategySignalDetection_matchesSpreadGuardRollingZ_notStaleSnapshots() {
+        val step = 15 * 60_000L
+        val bucket = currentM15BucketStartMillis()
+        val ts0 = bucket - 85 * step
+        val spreads = (0 until 86).map { i ->
+            when {
+                i < 84 -> 7.0 + (i % 7) * 0.02
+                i == 84 -> 7.12
+                else -> 9.8
+            }
+        }
+        val staleSnap = spreads.mapIndexed { i, spread ->
+            DataPoint(ts0 + i * step, "x", 650.0, 600.0, spread, 50.0, zScore = 0.4)
+        }
+        val expected = spreads.mapIndexed { i, spread ->
+            DataPoint(ts0 + i * step, "x", 650.0, 600.0, spread, 50.0, zScore = 0.0)
+        }.toMutableList()
+        applySpreadGuardZScoresInPlace(expected)
+
+        val fresh = prepareM15PointsForZStrategySignalDetection(staleSnap)
+        assertEquals(expected.size, fresh.size)
+        for (i in expected.indices) {
+            assertEquals("bar $i Z", expected[i].zScore, fresh[i].zScore, 1e-9)
+        }
+        assertNotEquals(staleSnap.last().zScore, fresh.last().zScore, 1e-9)
+    }
+
+    @Test
     fun prepareM15PointsForZStrategySim_recalcsRollingZWhenLiveWithoutJournal() {
         val raw = listOf(
             DataPoint(1L, "2026-01-01 10:00", 650.0, 600.0, 8.0, 50.0, 0.72),

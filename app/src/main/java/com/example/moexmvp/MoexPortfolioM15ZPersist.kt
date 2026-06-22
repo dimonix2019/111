@@ -447,6 +447,14 @@ internal fun applySpreadGuardZScoresInPlace(points: MutableList<DataPoint>) {
     recomputeZForwardFromRecentSpikes(points, listOf(latestRecentSpike))
 }
 
+/** Rolling Z + spread-guard для live-сигналов и симуляции «Z как live». */
+internal fun prepareM15PointsForZStrategySignalDetection(points: List<DataPoint>): List<DataPoint> {
+    if (points.size < 2) return points
+    val mutable = points.map { it.copy(zScore = 0.0) }.toMutableList()
+    applySpreadGuardZScoresInPlace(mutable)
+    return mutable
+}
+
 /** Точки для симуляции «Тест страт.»: Z из SQLite + guard spread; опционально overlay журнала. */
 internal fun prepareM15PointsForZStrategySim(
     points: List<DataPoint>,
@@ -456,12 +464,9 @@ internal fun prepareM15PointsForZStrategySim(
     applyJournalOverlay: Boolean = true,
 ): List<DataPoint> {
     if (points.size < 2) return points
-    // «Z как live»: без overlay журнала, но rolling Z + spread-guard для симуляции
-    // (снимки SQLite на графике/симе расходились → входы на Z есть, в таблице нет).
+    // «Z как live»: без overlay журнала — rolling Z (как детектор сигналов), не снимки SQLite.
     if (!applyJournalOverlay) {
-        val mutable = points.map { it.copy(zScore = 0.0) }.toMutableList()
-        applySpreadGuardZScoresInPlace(mutable)
-        return mutable
+        return prepareM15PointsForZStrategySignalDetection(points)
     }
     val mutable = points.map { it.copy(zScore = 0.0) }.toMutableList()
     if (entities.size == points.size) {

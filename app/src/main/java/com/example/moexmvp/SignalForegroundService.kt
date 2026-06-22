@@ -181,15 +181,21 @@ class SignalForegroundService : Service() {
             null
         } ?: points
 
-        lastForegroundZScore = monitorPoints.last().zScore
-        lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, monitorPoints)
+        val signalPoints = prepareM15PointsForZStrategySignalDetection(monitorPoints)
+        lastForegroundZScore = signalPoints.last().zScore
+        lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, signalPoints)
         refreshForegroundNotification()
 
         val signalThresholds = loadRealTradeZThresholds(applicationContext, bgSignalFallbackThresholds)
+        maybeBackfillMissedLiveZSignalsAfterStaleZFix(
+            applicationContext,
+            signalPoints,
+            signalThresholds,
+        )
         runCatching {
             processOpenTradeRedRiskNotifications(
                 context = applicationContext,
-                points = monitorPoints,
+                points = signalPoints,
                 entryThreshold = signalThresholds.entry,
             )
         }.onFailure { e ->
@@ -199,28 +205,28 @@ class SignalForegroundService : Service() {
         val initialPosition = loadSavedStrategyPosition(applicationContext)
         val lastProcessedBarTs = resolveLastProcessed15mBarTimestampForReplay(applicationContext)
         val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
-            points = monitorPoints,
+            points = signalPoints,
             lastProcessedBarTimestampMillis = lastProcessedBarTs,
             initialPosition = initialPosition,
             thresholds = signalThresholds,
         )
-        zStrategyReplayBarIndexRange(monitorPoints, lastProcessedBarTs)?.let { range ->
-            persistM15LiveBarSnapshots(applicationContext, range.map { monitorPoints[it] })
+        zStrategyReplayBarIndexRange(signalPoints, lastProcessedBarTs)?.let { range ->
+            persistM15LiveBarSnapshots(applicationContext, range.map { signalPoints[it] })
         }
 
         if (signalEdges.isEmpty()) {
-            if (shouldAdvanceLastProcessed15mBar(monitorPoints, lastProcessedBarTs)) {
-                saveLastProcessed15mBarTimestamp(applicationContext, monitorPoints.last().timestampMillis)
+            if (shouldAdvanceLastProcessed15mBar(signalPoints, lastProcessedBarTs)) {
+                saveLastProcessed15mBarTimestamp(applicationContext, signalPoints.last().timestampMillis)
             }
             if (replayPosition != initialPosition) {
                 saveStrategyPosition(applicationContext, replayPosition)
             }
             if (monitorTickCount <= 3 || monitorTickCount % 20 == 0) {
-                val last = monitorPoints.last()
+                val last = signalPoints.last()
                 MoexDiagnostics.log(
                     applicationContext,
                     "monitor",
-                    "tick#$monitorTickCount ok bars=${monitorPoints.size} Z=${String.format(Locale.US, "%.2f", last.zScore)} " +
+                    "tick#$monitorTickCount ok bars=${signalPoints.size} Z=${String.format(Locale.US, "%.2f", last.zScore)} " +
                         "pos=$replayPosition thr=${signalThresholds.entry}/${signalThresholds.exit}",
                 )
             }
@@ -388,8 +394,17 @@ class SignalForegroundService : Service() {
             }
         }
 
-        if (shouldAdvanceLastProcessed15mBar(monitorPoints, lastProcessedBarTs)) {
-            saveLastProcessed15mBarTimestamp(applicationContext, monitorPoints.last().timestampMillis)
+        if (shouldAdvanceLastProcessed15mBar(signalPoints, lastProcessedBarTs)) {
+            if (signalEdges.isEmpty()) {
+                val last = signalPoints.last()
+                MoexDiagnostics.log(
+                    applicationContext,
+                    "monitor",
+                    "advance_no_edges bar=${last.tradeDate} Z=${String.format(Locale.US, "%.2f", last.zScore)} " +
+                        "thr=${signalThresholds.entry}/${signalThresholds.exit} pos=$replayPosition",
+                )
+            }
+            saveLastProcessed15mBarTimestamp(applicationContext, signalPoints.last().timestampMillis)
         }
         saveDailySignalLimit(applicationContext, dayLimit)
         saveStrategyPosition(applicationContext, currentPosition)
