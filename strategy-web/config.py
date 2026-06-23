@@ -13,6 +13,7 @@ PRESETS = {
         "leverage": 7.0,
         "commission": 0.04,
         "compound": False,
+        "z_mode": "global",
     },
     "Консервативный": {
         "entry": 1.2,

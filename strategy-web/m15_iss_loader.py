@@ -57,12 +57,13 @@ def _fetch_candles(secid: str, date_from: str, date_till: str) -> pd.DataFrame:
         if len(data) < 500:
             break
     if not rows:
-        return pd.DataFrame(columns=["timestamp", "close"])
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
     cols = ["open", "close", "high", "low", "value", "volume", "begin", "end"]
     df = pd.DataFrame(rows, columns=cols)
     df["timestamp"] = parse_moex_datetime(pd.to_datetime(df["begin"]))
-    df["close"] = pd.to_numeric(df["close"], errors="coerce")
-    return df[["timestamp", "close"]].dropna()
+    for c in ("open", "high", "low", "close", "volume"):
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df[["timestamp", "open", "high", "low", "close", "volume"]].dropna(subset=["close"])
 
 
 def _floor_15m(dt: datetime) -> datetime:
@@ -71,12 +72,43 @@ def _floor_15m(dt: datetime) -> datetime:
     return dt.replace(minute=(dt.minute // BAR_MINUTES) * BAR_MINUTES, second=0, microsecond=0)
 
 
-def _to_15m(df10: pd.DataFrame, price_col: str) -> pd.DataFrame:
+def _to_15m_ohlc(df10: pd.DataFrame, prefix: str) -> pd.DataFrame:
+    """10м OHLC → 15м OHLC (open=first, high=max, low=min, close=last)."""
+    o, h, l, c = f"{prefix}_open", f"{prefix}_high", f"{prefix}_low", f"{prefix}_close"
+    vol = f"{prefix}_volume"
     if df10.empty:
-        return pd.DataFrame(columns=["timestamp", price_col])
-    s = df10.set_index("timestamp").sort_index()["close"].resample(f"{BAR_MINUTES}min").last().dropna()
-    out = s.to_frame(price_col).reset_index()
-    out.columns = ["timestamp", price_col]
+        return pd.DataFrame(columns=["timestamp", o, h, l, c, vol])
+    df = df10.set_index("timestamp").sort_index()
+    for col in ("open", "high", "low", "close", "volume"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    r = df.resample(f"{BAR_MINUTES}min")
+    out = pd.DataFrame(
+        {
+            o: r["open"].first(),
+            h: r["high"].max(),
+            l: r["low"].min(),
+            c: r["close"].last(),
+            vol: r["volume"].sum() if "volume" in df.columns else np.nan,
+        }
+    ).dropna(subset=[c])
+    out = out.reset_index().rename(columns={"index": "timestamp"})
+    return out
+
+
+def _spread_ohlc(merged: pd.DataFrame) -> pd.DataFrame:
+    """Spread % OHLC из OHLC ног TATN/TATNP."""
+    out = merged.copy()
+    t_o, t_h, t_l, t_c = "tatn_open", "tatn_high", "tatn_low", "tatn_close"
+    p_o, p_h, p_l, p_c = "tatnp_open", "tatnp_high", "tatnp_low", "tatnp_close"
+    if not all(col in out.columns for col in (t_o, t_h, t_l, t_c, p_o, p_h, p_l, p_c)):
+        out["spread_percent"] = (out[t_c] / out[p_c] - 1.0) * 100.0
+        return out
+    out["spread_open"] = (out[t_o] / out[p_o] - 1.0) * 100.0
+    out["spread_high"] = (out[t_h] / out[p_l] - 1.0) * 100.0
+    out["spread_low"] = (out[t_l] / out[p_h] - 1.0) * 100.0
+    out["spread_close"] = (out[t_c] / out[p_c] - 1.0) * 100.0
+    out["spread_percent"] = out["spread_close"]
     return out
 
 
@@ -107,33 +139,58 @@ def _append_forming_15m_bar(
     if t10.empty or p10.empty:
         return merged
 
-    row = pd.DataFrame(
-        [
-            {
-                "timestamp": bucket.strftime("%Y-%m-%d %H:%M:%S"),
-                "tatn_close": float(t10["close"].iloc[-1]),
-                "tatnp_close": float(p10["close"].iloc[-1]),
-            }
-        ]
-    )
-    row["spread_percent"] = (row["tatn_close"] / row["tatnp_close"] - 1.0) * 100.0
+    def _leg_ohlc(slice10: pd.DataFrame, prefix: str) -> dict:
+        o = float(slice10["open"].iloc[0]) if "open" in slice10.columns else float(slice10["close"].iloc[0])
+        h = float(slice10["high"].max()) if "high" in slice10.columns else float(slice10["close"].max())
+        l = float(slice10["low"].min()) if "low" in slice10.columns else float(slice10["close"].min())
+        c = float(slice10["close"].iloc[-1])
+        vol = float(slice10["volume"].sum()) if "volume" in slice10.columns else np.nan
+        return {
+            f"{prefix}_open": o,
+            f"{prefix}_high": h,
+            f"{prefix}_low": l,
+            f"{prefix}_close": c,
+            f"{prefix}_volume": vol,
+        }
+
+    row = pd.DataFrame([{"timestamp": bucket.strftime("%Y-%m-%d %H:%M:%S"), **_leg_ohlc(t10, "tatn"), **_leg_ohlc(p10, "tatnp")}])
+    row = _spread_ohlc(row)
     out = pd.concat([merged, row], ignore_index=True)
     out["timestamp"] = parse_moex_datetime(out["timestamp"])
     return _recalc_z(out)
 
 
 def _build_m15_frame(tatn10: pd.DataFrame, tatnp10: pd.DataFrame, *, include_forming: bool = True) -> pd.DataFrame:
-    tatn = _to_15m(tatn10, "tatn_close")
-    tatnp = _to_15m(tatnp10, "tatnp_close")
+    tatn = _to_15m_ohlc(tatn10, "tatn")
+    tatnp = _to_15m_ohlc(tatnp10, "tatnp")
     merged = pd.merge(tatn, tatnp, on="timestamp", how="inner")
     if merged.empty:
         return merged
-    merged["spread_percent"] = (merged["tatn_close"] / merged["tatnp_close"] - 1.0) * 100.0
+    merged = _spread_ohlc(merged)
     merged = _recalc_z(merged)
     if include_forming:
         merged = _append_forming_15m_bar(merged, tatn10, tatnp10)
     merged["timestamp"] = merged["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
-    return merged[["timestamp", "z_score", "spread_percent", "tatn_close", "tatnp_close"]]
+    cols = [
+        "timestamp",
+        "z_score",
+        "spread_percent",
+        "spread_open",
+        "spread_high",
+        "spread_low",
+        "spread_close",
+        "tatn_open",
+        "tatn_high",
+        "tatn_low",
+        "tatn_close",
+        "tatnp_open",
+        "tatnp_high",
+        "tatnp_low",
+        "tatnp_close",
+        "tatn_volume",
+        "tatnp_volume",
+    ]
+    return merged[[c for c in cols if c in merged.columns]]
 
 
 def fetch_m15_from_iss(

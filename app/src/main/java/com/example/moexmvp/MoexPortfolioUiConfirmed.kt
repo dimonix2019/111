@@ -105,6 +105,11 @@ internal fun ConfirmedPortfolioTabContent(
                 onSelect = onLookbackDaysChange,
                 enabled = !portfolioLoading,
             )
+            Text(
+                text = "Свечной график Z-score · 15м — вкладка «Рынок»",
+                color = Color(0xFF9E9E9E),
+                fontSize = 11.sp
+            )
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
