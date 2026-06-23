@@ -27,6 +27,22 @@ class MoexMarketsChartOverlayTest {
     }
 
     @Test
+    fun mergeM15SessionWithSqliteForChart_fillsSessionGapFromSqlite() {
+        val day = LocalDate.of(2026, 6, 23)
+        val history = testM15BarSeries(day.minusDays(2), 10, 0, List(80) { 0.1 })
+        val session = history + listOf(
+            testM15Bar("2026-06-23 06:45", 0.7),
+            testM15Bar("2026-06-23 21:00", 0.2),
+        )
+        val sqlite = history + testM15BarSeries(day, 7, 0, List(56) { 0.3 })
+        val merged = mergeM15SessionWithSqliteForChart(session, sqlite)
+        val todayStart = day.atStartOfDay(ZoneId.of("Europe/Moscow")).toInstant().toEpochMilli()
+        val today = merged.filter { it.timestampMillis >= todayStart }
+        assertFalse(m15SeriesHasIntradayTradingGap(today))
+        assertTrue(today.size >= 50)
+    }
+
+    @Test
     fun applyTodayM15Overlay_fillsIntradayGap() {
         val day = LocalDate.of(2026, 6, 23)
         val history = testM15BarSeries(day.minusDays(3), 10, 0, List(80) { 0.1 })

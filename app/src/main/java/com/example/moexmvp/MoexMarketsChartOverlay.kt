@@ -81,6 +81,69 @@ internal fun mergeM15WithToday1mBackfillForChart(
     return applyTodayM15OverlayForChart(canonical, overlay)
 }
 
+/**
+ * Session cache + SQLite: по каждому 15м слоту берём более полный ряд.
+ * SQLite часто содержит дневные бары, которых нет в устаревшем session cache.
+ */
+internal fun mergeM15SessionWithSqliteForChart(
+    session: List<DataPoint>,
+    sqlite: List<DataPoint>,
+): List<DataPoint> {
+    if (sqlite.isEmpty()) return session
+    if (session.isEmpty()) return sqlite
+    val byLabel = linkedMapOf<String, DataPoint>()
+    session.forEach { byLabel[it.tradeDate] = it }
+    sqlite.forEach { byLabel[it.tradeDate] = it }
+    return ensureAscendingM15Points(byLabel.values.sortedBy { it.timestampMillis })
+}
+
+internal fun m15TodayBarCount(points: List<DataPoint>, zone: ZoneId = moexZoneId): Int {
+    val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+    return points.count { it.timestampMillis >= todayStart }
+}
+
+/** Чтение 255д 15м из SQLite (без сети). */
+internal suspend fun MoexScreenState.loadMarketsM15FromSqliteCache(): List<DataPoint> =
+    loadM15ForMarkets(
+        mode = PortfolioM15LoadMode.CACHE_ONLY,
+        wrapInSession = false,
+    )
+
+/**
+ * Обновить SQLite-снимок для Z-графика; при дыре в session — commit из SQLite.
+ * Догрузка хвоста с MOEX — отдельно через [requestMarketsM15TailStale] / catchup.
+ */
+internal suspend fun MoexScreenState.refreshMarketsM15SqliteChartCache(reason: String) {
+    val fromSqlite = loadMarketsM15FromSqliteCache()
+    if (fromSqlite.size < 2) return
+    withContext(Dispatchers.Main.immediate) {
+        marketsM15SqliteChartCache = fromSqlite
+        marketsM15SqliteChartEpoch++
+    }
+    val session = marketsM15Source()
+    if (session.size < 2) {
+        commitMarketsM15ToUi(fromSqlite, reason = "sqlite_hydrate_$reason")
+        return
+    }
+    val zone = moexZoneId
+    val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+    val sessionToday = session.filter { it.timestampMillis >= todayStart }
+    val sqliteToday = fromSqlite.filter { it.timestampMillis >= todayStart }
+    val sessionGap = m15SeriesHasIntradayTradingGap(sessionToday)
+    val sqliteGap = m15SeriesHasIntradayTradingGap(sqliteToday)
+    val sqliteRicher = sqliteToday.size > sessionToday.size ||
+        (sessionGap && !sqliteGap) ||
+        fromSqlite.size > session.size
+    if (sqliteRicher) {
+        commitMarketsM15ToUi(fromSqlite, reason = "sqlite_chart_$reason")
+        MoexDiagnostics.log(
+            context,
+            "m15_sqlite",
+            "chart sync sessionToday=${sessionToday.size} sqliteToday=${sqliteToday.size} reason=$reason",
+        )
+    }
+}
+
 /** Обновить overlay Z-графика (вызывается после 1м poll и commit 15м). */
 internal suspend fun MoexScreenState.refreshMarketsM15TodayChartOverlay(
     snap: MarketsIntraday1mSnapshot? = cachedMarketsIntraday1mSnapshot(),
@@ -105,9 +168,8 @@ internal suspend fun MoexScreenState.refreshMarketsM15TodayChartOverlay(
 }
 
 internal fun MoexScreenState.buildMarketsM15PointsForZChart(period: Period): List<DataPoint> {
-    val merged = applyTodayM15OverlayForChart(
-        marketsM15Source(),
-        marketsM15TodayChartOverlay,
-    )
+    val session = marketsM15Source()
+    val base = mergeM15SessionWithSqliteForChart(session, marketsM15SqliteChartCache)
+    val merged = applyTodayM15OverlayForChart(base, marketsM15TodayChartOverlay)
     return filterM15PointsForMarketsPeriod(merged, period)
 }

@@ -185,6 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.235 — «Рынок»: Z-график читает 15м из SQLite (CACHE_ONLY) и сливает с session; догрузка хвоста MOEX при дыре.
 1.7.234 — Fix «Рынок»: overlay 15м для Z-графика обновляется при каждом poll 1м + fallback MOEX 10м→15м при дырах.
 1.7.233 — Fix «Рынок»: дневные 15м свечи восстанавливаются из 1м TATN/TATNP при дырах MOEX-кэша; принудительная догрузка хвоста.
 1.7.232 — Fix «Рынок»: при отставании MOEX 15м не рисуем «сиротскую» live-свечу через пустой день; догрузка хвоста.

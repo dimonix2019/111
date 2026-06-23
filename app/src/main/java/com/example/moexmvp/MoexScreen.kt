@@ -53,6 +53,7 @@ internal fun MoexScreen() {
     val marketsM15SimPoints = remember(
         screen.marketsM15DataEpoch,
         screen.marketsM15ChartOverlayEpoch,
+        screen.marketsM15SqliteChartEpoch,
         screen.marketsZChartPeriod,
         onMarketsTab,
     ) {
@@ -253,6 +254,11 @@ internal fun MoexScreen() {
         else -> MarketsDataSource.Network
     }
 
+    LaunchedEffect(onMarketsTab, screen.marketsM15DataEpoch) {
+        if (!onMarketsTab) return@LaunchedEffect
+        screen.refreshMarketsM15SqliteChartCache(reason = "tab_open")
+    }
+
     LaunchedEffect(onMarketsTab, screen.marketsIntraday1mEpoch, screen.marketsM15DataEpoch) {
         if (!onMarketsTab) return@LaunchedEffect
         if (screen.marketsIntraday1mTatn.isEmpty() || screen.marketsIntraday1mTatnp.isEmpty()) return@LaunchedEffect
@@ -270,6 +276,7 @@ internal fun MoexScreen() {
         if (marketsChartLiveBarGapNeedsM15Catchup(lastLabel, liveAt) ||
             m15SeriesHasIntradayTradingGap(screen.marketsM15Source())
         ) {
+            screen.refreshMarketsM15SqliteChartCache(reason = "chart_gap")
             screen.scheduleMarketsM15MoexCatchup(scope, reason = "chart_gap", debounceMs = 0L)
         }
     }
