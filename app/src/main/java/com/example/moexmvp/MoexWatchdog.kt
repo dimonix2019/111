@@ -10,9 +10,9 @@ internal const val WATCHDOG_UI_POLL_MS = 30_000L
 /** Интервал alarm-проверки, когда UI закрыт. */
 internal const val WATCHDOG_ALARM_INTERVAL_MS = 5 * 60_000L
 
-/** Сервис «мёртв», если нет тика дольше этого порога. */
+/** Сервис «мёртв», если нет тика дольше этого порога (pulse шторки каждые [SIGNAL_MONITOR_PULSE_MS]). */
 internal fun watchdogServiceStaleThresholdMs(): Long =
-    SIGNAL_MONITOR_INTERVAL_MS * 3 + 15_000L
+    SIGNAL_MONITOR_PULSE_MS * 4 + 15_000L
 
 /** UI «не на связи» для сервиса — только информативно (не перезапуск UI). */
 internal const val WATCHDOG_UI_STALE_MS = 10 * 60_000L

@@ -18,12 +18,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.time.LocalDate
 import java.util.Locale
 
 internal const val SIGNAL_MONITOR_CHANNEL_ID = "moex_signal_monitor_channel"
 internal const val SIGNAL_MONITOR_NOTIFICATION_ID = 11001
+/** Полный цикл сигналов (MOEX 15м + rolling Z + journal). */
 internal const val SIGNAL_MONITOR_INTERVAL_MS = 15_000L
+/** Быстрое обновление шторки (Z, возраст тика) — не ждёт тяжёлый signal-work. */
+internal const val SIGNAL_MONITOR_PULSE_MS = 10_000L
+/** Тяжёлая обработка сигналов реже pulse, чтобы шторка не «замирала». */
+internal const val SIGNAL_MONITOR_SIGNAL_WORK_MS = 45_000L
+internal const val SIGNAL_MONITOR_1M_FETCH_TIMEOUT_MS = 8_000L
+internal const val SIGNAL_MONITOR_OPEN_TRADE_REFRESH_MS = 30_000L
 
 private val bgSignalFallbackThresholds = DynamicThresholds(
     entry = DEFAULT_DYNAMIC_Z_ENTRY,
@@ -33,11 +41,14 @@ private val bgSignalFallbackThresholds = DynamicThresholds(
 
 class SignalForegroundService : Service() {
     private val scope = CoroutineScope(Dispatchers.Default + Job())
-    private var monitorJob: kotlinx.coroutines.Job? = null
+    private var pulseJob: kotlinx.coroutines.Job? = null
+    private var signalWorkJob: kotlinx.coroutines.Job? = null
     private var ticksSinceAppUpdateCheck = 0
-    private var monitorTickCount = 0
+    private var signalWorkTickCount = 0
     private var lastForegroundZScore: Double? = null
     private var lastForegroundOpenTrade: SignalMonitorOpenTradeSnapshot? = null
+    private var cachedSignalPoints: List<DataPoint>? = null
+    private var lastOpenTradeRefreshMs = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -62,14 +73,25 @@ class SignalForegroundService : Service() {
     }
 
     private fun ensureMonitorWorkerRunning() {
-        if (monitorJob?.isActive == true) return
-        monitorJob = scope.launch {
+        if (pulseJob?.isActive == true && signalWorkJob?.isActive == true) return
+        pulseJob?.cancel()
+        signalWorkJob?.cancel()
+        pulseJob = scope.launch {
             while (isActive) {
-                runCatching { performSignalMonitorTick() }
+                runCatching { performNotificationPulse() }
                     .onFailure { e ->
-                        MoexDiagnostics.logError(applicationContext, "monitor", e, "tick failed")
+                        MoexDiagnostics.logError(applicationContext, "monitor", e, "pulse failed")
                     }
-                delay(SIGNAL_MONITOR_INTERVAL_MS)
+                delay(SIGNAL_MONITOR_PULSE_MS)
+            }
+        }
+        signalWorkJob = scope.launch {
+            while (isActive) {
+                runCatching { performSignalWork() }
+                    .onFailure { e ->
+                        MoexDiagnostics.logError(applicationContext, "monitor", e, "signal_work failed")
+                    }
+                delay(SIGNAL_MONITOR_SIGNAL_WORK_MS)
             }
         }
     }
@@ -85,8 +107,10 @@ class SignalForegroundService : Service() {
 
     override fun onDestroy() {
         MoexDiagnostics.log(applicationContext, "monitor", "service_onDestroy")
-        monitorJob?.cancel()
-        monitorJob = null
+        pulseJob?.cancel()
+        pulseJob = null
+        signalWorkJob?.cancel()
+        signalWorkJob = null
         scope.cancel()
         super.onDestroy()
     }
@@ -126,12 +150,45 @@ class SignalForegroundService : Service() {
             .build()
     }
 
-    private suspend fun performSignalMonitorTick() = withContext(Dispatchers.IO) {
-        monitorTickCount++
+    /** Лёгкий тик: шторка и heartbeat не зависят от тяжёлого rolling-Z по 255д. */
+    private suspend fun performNotificationPulse() = withContext(Dispatchers.IO) {
         MoexWatchdog.recordServiceTick(applicationContext)
-        refreshForegroundNotification()
+        val points = runCatching {
+            loadZStrategySignalSeries(
+                applicationContext,
+                mode = PortfolioM15LoadMode.CACHE_ONLY,
+            )
+        }.getOrNull()
+        if (points != null && points.size >= 2) {
+            val liveZ = if (isMoexNetworkAvailable(applicationContext)) {
+                runCatching {
+                    withTimeout(SIGNAL_MONITOR_1M_FETCH_TIMEOUT_MS) {
+                        fetchMarketsIntraday1mLive()
+                    }
+                }.getOrNull()?.let { snap -> liveZScoreFromIntraday1m(points, snap) }
+            } else {
+                null
+            }
+            lastForegroundZScore = liveZ
+                ?: cachedSignalPoints?.lastOrNull()?.zScore
+                ?: points.last().zScore
+
+            val now = System.currentTimeMillis()
+            if (now - lastOpenTradeRefreshMs >= SIGNAL_MONITOR_OPEN_TRADE_REFRESH_MS) {
+                val prep = cachedSignalPoints?.takeIf { it.size >= 2 } ?: points
+                lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, prep)
+                lastOpenTradeRefreshMs = now
+            }
+        }
+        withContext(Dispatchers.Main) {
+            refreshForegroundNotification()
+        }
+    }
+
+    private suspend fun performSignalWork() = withContext(Dispatchers.IO) {
+        signalWorkTickCount++
         ticksSinceAppUpdateCheck++
-        if (ticksSinceAppUpdateCheck * SIGNAL_MONITOR_INTERVAL_MS >= APP_UPDATE_CHECK_INTERVAL_MS) {
+        if (ticksSinceAppUpdateCheck * SIGNAL_MONITOR_SIGNAL_WORK_MS >= APP_UPDATE_CHECK_INTERVAL_MS) {
             ticksSinceAppUpdateCheck = 0
             runCatching { checkRemoteAppUpdateAndNotify(applicationContext) }
                 .onFailure { e ->
@@ -165,26 +222,31 @@ class SignalForegroundService : Service() {
             return@withContext
         }
         if (points.size < 2) {
-            if (monitorTickCount <= 3 || monitorTickCount % 20 == 0) {
-                MoexDiagnostics.log(applicationContext, "monitor", "tick#$monitorTickCount points=${points.size} (wait data)")
+            if (signalWorkTickCount <= 3 || signalWorkTickCount % 10 == 0) {
+                MoexDiagnostics.log(applicationContext, "monitor", "signal#$signalWorkTickCount points=${points.size} (wait data)")
             }
-            lastForegroundOpenTrade = null
-            refreshForegroundNotification()
             return@withContext
         }
 
         val monitorPoints = if (isMoexNetworkAvailable(applicationContext)) {
-            runCatching { fetchMarketsIntraday1mLive() }
-                .getOrNull()
+            runCatching {
+                withTimeout(SIGNAL_MONITOR_1M_FETCH_TIMEOUT_MS) {
+                    fetchMarketsIntraday1mLive()
+                }
+            }.getOrNull()
                 ?.let { snap -> m15PointsWithLiveFormingFromIntraday1m(points, snap) }
         } else {
             null
         } ?: points
 
         val signalPoints = prepareM15PointsForZStrategySignalDetection(monitorPoints)
+        cachedSignalPoints = signalPoints
         lastForegroundZScore = signalPoints.last().zScore
         lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, signalPoints)
-        refreshForegroundNotification()
+        lastOpenTradeRefreshMs = System.currentTimeMillis()
+        withContext(Dispatchers.Main) {
+            refreshForegroundNotification()
+        }
 
         val signalThresholds = loadRealTradeZThresholds(applicationContext, bgSignalFallbackThresholds)
         maybeBackfillMissedLiveZSignalsAfterStaleZFix(
@@ -221,12 +283,12 @@ class SignalForegroundService : Service() {
             if (replayPosition != initialPosition) {
                 saveStrategyPosition(applicationContext, replayPosition)
             }
-            if (monitorTickCount <= 3 || monitorTickCount % 20 == 0) {
+            if (signalWorkTickCount <= 3 || signalWorkTickCount % 10 == 0) {
                 val last = signalPoints.last()
                 MoexDiagnostics.log(
                     applicationContext,
                     "monitor",
-                    "tick#$monitorTickCount ok bars=${signalPoints.size} Z=${String.format(Locale.US, "%.2f", last.zScore)} " +
+                    "signal#$signalWorkTickCount ok bars=${signalPoints.size} Z=${String.format(Locale.US, "%.2f", last.zScore)} " +
                         "pos=$replayPosition thr=${signalThresholds.entry}/${signalThresholds.exit}",
                 )
             }

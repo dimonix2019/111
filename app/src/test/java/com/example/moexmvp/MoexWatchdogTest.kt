@@ -7,8 +7,8 @@ import org.junit.Test
 
 class MoexWatchdogTest {
     @Test
-    fun serviceStaleThreshold_coversThreeMonitorIntervals() {
-        assertTrue(watchdogServiceStaleThresholdMs() >= SIGNAL_MONITOR_INTERVAL_MS * 3)
+    fun serviceStaleThreshold_coversFourNotificationPulses() {
+        assertTrue(watchdogServiceStaleThresholdMs() >= SIGNAL_MONITOR_PULSE_MS * 4)
     }
 
     @Test

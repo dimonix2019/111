@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.226 — Fix шторка монитора: быстрый pulse Z каждые 10 с; тяжёлые сигналы раз в 45 с (rolling Z 255д не блокирует UI).
 1.7.225 — Fix live-сигналы: rolling Z в мониторе (не stale SQLite); догон пропущенных за сегодня; fallback в UI при мёртвом мониторе.
 1.7.224 — Fix «Тест страт.»: Z график = Z симуляции (rolling); маркеры входов/выходов на Z-линии.
 1.7.223 — Fix «Тест страт.»: «Z как live» не пересчитывает Z при непустом журнале (parity с бэктестом).
