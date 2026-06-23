@@ -75,11 +75,12 @@ internal fun MoexScreen() {
     } else {
         emptyList<DataPoint>() to emptyList()
     }
-    val marketsChartSeries = remember(marketsChartBase, screen.marketsLiveZScore) {
+    val marketsChartSeries = remember(marketsChartBase, screen.marketsLiveZScore, screen.marketsLiveZBarAt) {
         applyLiveZToM15ChartSeries(
             marketsChartBase.first,
             marketsChartBase.second,
             screen.marketsLiveZScore,
+            screen.marketsLiveZBarAt,
         )
     }
     val marketsFormingBarHint = remember(

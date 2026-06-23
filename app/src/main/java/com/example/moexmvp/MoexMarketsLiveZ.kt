@@ -202,17 +202,8 @@ internal fun MoexScreenState.publishMarketsLiveZFromPoints(
     val result = resolveMarketsLiveZFromPoints(points, snap) ?: return
     marketsLiveZScore = result.zScore
     marketsLiveZBarAt = result.barAt
-    val patched = result.patchedPoints ?: return
-    val last = patched.last()
-    val prev = marketsM15Source().lastOrNull()
-    val structureChanged = prev == null ||
-        prev.timestampMillis != last.timestampMillis ||
-        kotlin.math.abs(prev.spreadPercent - last.spreadPercent) > 0.005
-    if (structureChanged && selectedTab == MainTab.Markets) {
-        marketsM15SessionCache = patched
-        marketsM15DataEpoch++
-        bumpMarketsLoadedAtFromM15(patched)
-    }
+    // Live Z / формирующий бар — только overlay на графике (applyLiveZToM15ChartSeries).
+    // Не пишем patchedPoints в session cache: иначе live Z «замораживается» на закрытых барах.
 }
 
 /** 15м ряд с актуальным формирующимся баром из 1м (для фонового монитора). */

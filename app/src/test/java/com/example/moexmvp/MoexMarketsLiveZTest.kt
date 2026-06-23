@@ -133,7 +133,7 @@ class MoexMarketsLiveZTest {
             CandlePoint("a", 0.0, 0.2, 0.0, 0.2),
             CandlePoint("b", 0.2, 0.5, 0.2, 0.5),
         )
-        val (outPts, outCandles) = applyLiveZToM15ChartSeries(pts, candles, liveZ = 0.91)
+        val (outPts, outCandles) = applyLiveZToM15ChartSeries(pts, candles, liveZ = 0.91, liveBarAt = "x")
         assertEquals(0.91, outPts.last().zScore, 1e-9)
         assertEquals(0.91, outCandles.last().close, 1e-9)
     }

@@ -625,16 +625,63 @@ class MoexMarketsM15ZChartTest {
 
     @Test
     fun applyLiveZToM15ChartSeries_updatesLastCandleClose() {
+        val label = "2026-05-19 10:15"
         val points = listOf(
             point("2026-05-19 10:00", z = 0.4),
-            point("2026-05-19 10:15", z = 0.7),
+            point(label, z = 0.7),
         )
         val candles = buildZScoreCandlesFromM15Points(points)
-        val (patchedPts, patchedCandles) = applyLiveZToM15ChartSeries(points, candles, liveZ = -2.59)
+        val (patchedPts, patchedCandles) = applyLiveZToM15ChartSeries(
+            points,
+            candles,
+            liveZ = -2.59,
+            liveBarAt = label,
+        )
         assertEquals(-2.59, patchedPts.last().zScore, 1e-9)
         assertEquals(-2.59, patchedCandles.last().close, 1e-9)
         assertEquals(0.4, patchedCandles.last().open, 1e-9)
         assertEquals(-2.59, patchedCandles.last().low, 1e-9)
+    }
+
+    @Test
+    fun applyLiveZToM15ChartSeries_appendsFormingBarWhenLiveSlotIsAhead() {
+        val closed = "2026-06-23 17:45"
+        val forming = "2026-06-23 22:30"
+        val points = listOf(
+            point("2026-06-23 17:30", z = 0.65),
+            point(closed, z = 0.70),
+        )
+        val candles = buildZScoreCandlesFromM15Points(points)
+        val (patchedPts, patchedCandles) = applyLiveZToM15ChartSeries(
+            points,
+            candles,
+            liveZ = -2.74,
+            liveBarAt = forming,
+        )
+        assertEquals(3, patchedPts.size)
+        assertEquals(3, patchedCandles.size)
+        assertEquals(closed, patchedPts[patchedPts.lastIndex - 1].tradeDate)
+        assertEquals(0.70, patchedPts[patchedPts.lastIndex - 1].zScore, 1e-9)
+        assertEquals(forming, patchedPts.last().tradeDate)
+        assertEquals(-2.74, patchedPts.last().zScore, 1e-9)
+        assertEquals(0.70, patchedCandles.last().open, 1e-9)
+        assertEquals(-2.74, patchedCandles.last().close, 1e-9)
+    }
+
+    @Test
+    fun applyLiveZToM15ChartSeries_doesNotPatchClosedBarWhenLiveSlotIsAhead() {
+        val closed = "2026-06-23 17:45"
+        val forming = "2026-06-23 22:30"
+        val points = listOf(point(closed, z = 0.70))
+        val candles = buildZScoreCandlesFromM15Points(points)
+        val (patchedPts, _) = applyLiveZToM15ChartSeries(
+            points,
+            candles,
+            liveZ = -2.74,
+            liveBarAt = forming,
+        )
+        assertEquals(0.70, patchedPts[0].zScore, 1e-9)
+        assertEquals(forming, patchedPts.last().tradeDate)
     }
 
     private fun point(label: String, z: Double, spread: Double = 10.0): DataPoint {

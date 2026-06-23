@@ -64,18 +64,36 @@ internal suspend fun buildM15ZChartSeriesForUi(
     return buildM15ZChartDisplay(capped)
 }
 
-/** Хвост Z-графика: close последней свечи = live Z из 1м котировок. */
+/**
+ * Хвост Z-графика: live Z только на формирующийся 15м слот [liveBarAt].
+ * Не патчим последний закрытый MOEX-бар — иначе «переезжающая» свеча на графике.
+ */
 internal fun applyLiveZToM15ChartSeries(
     points: List<DataPoint>,
     candles: List<CandlePoint>,
     liveZ: Double?,
+    liveBarAt: String? = null,
 ): Pair<List<DataPoint>, List<CandlePoint>> {
     if (liveZ == null || points.isEmpty()) return points to candles
-    val patchedPts = points.toMutableList()
-    val lastPt = patchedPts.last()
-    if (kotlin.math.abs(lastPt.zScore - liveZ) < 1e-9 && candles.isEmpty()) {
+    val targetLabel = liveBarAt?.trim()?.takeIf { it.isNotEmpty() } ?: points.last().tradeDate
+    val lastPt = points.last()
+    return when {
+        lastPt.tradeDate == targetLabel -> patchLastM15ChartBarWithLiveZ(points, candles, liveZ)
+        isM15BarLabelAfter(lastPt.tradeDate, targetLabel) -> points to candles
+        else -> appendFormingM15ChartBar(points, candles, targetLabel, liveZ)
+    }
+}
+
+private fun patchLastM15ChartBarWithLiveZ(
+    points: List<DataPoint>,
+    candles: List<CandlePoint>,
+    liveZ: Double,
+): Pair<List<DataPoint>, List<CandlePoint>> {
+    val lastPt = points.last()
+    if (abs(lastPt.zScore - liveZ) < 1e-9 && candles.isEmpty()) {
         return points to candles
     }
+    val patchedPts = points.toMutableList()
     patchedPts[patchedPts.lastIndex] = lastPt.copy(zScore = liveZ)
     if (candles.isEmpty()) return patchedPts to candles
     val patchedCandles = candles.toMutableList()
@@ -87,6 +105,37 @@ internal fun applyLiveZToM15ChartSeries(
         low = minOf(open, liveZ),
     )
     return patchedPts to patchedCandles
+}
+
+private fun appendFormingM15ChartBar(
+    points: List<DataPoint>,
+    candles: List<CandlePoint>,
+    targetLabel: String,
+    liveZ: Double,
+): Pair<List<DataPoint>, List<CandlePoint>> {
+    val lastPt = points.last()
+    val openZ = lastPt.zScore
+    val bucketMs = m15CandleLabelToUnixSec(targetLabel) * 1000L
+    val newPt = lastPt.copy(
+        timestampMillis = bucketMs,
+        tradeDate = targetLabel,
+        zScore = liveZ,
+    )
+    val newCandle = CandlePoint(
+        label = targetLabel,
+        open = openZ,
+        high = maxOf(openZ, liveZ),
+        low = minOf(openZ, liveZ),
+        close = liveZ,
+    )
+    return points + newPt to candles + newCandle
+}
+
+/** true, если [later] — более новый 15м слот, чем [earlier]. */
+internal fun isM15BarLabelAfter(later: String, earlier: String): Boolean {
+    return runCatching {
+        m15CandleLabelToUnixSec(later) > m15CandleLabelToUnixSec(earlier)
+    }.getOrDefault(false)
 }
 
 @Composable
