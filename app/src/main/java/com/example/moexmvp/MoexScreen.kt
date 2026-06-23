@@ -82,6 +82,22 @@ internal fun MoexScreen() {
             screen.marketsLiveZScore,
         )
     }
+    val marketsFormingBarHint = remember(
+        screen.marketsLiveZScore,
+        screen.marketsLiveZBarAt,
+        marketsChartSeries,
+        marketsChartBase,
+    ) {
+        resolveMarketsFormingBarHint(
+            liveZ = screen.marketsLiveZScore,
+            liveBarAt = screen.marketsLiveZBarAt,
+            patchedPoints = marketsChartSeries.first,
+            basePoints = marketsChartBase.first,
+        )
+    }
+    val marketsFormingBarHintText = remember(marketsFormingBarHint) {
+        marketsFormingBarHint?.let(::formatMarketsFormingBarHint)
+    }
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second
 
@@ -317,6 +333,8 @@ internal fun MoexScreen() {
                 marketsChartThresholds = marketsChartThresholds,
                 marketsZStrategyTapMetrics = screen.marketsZStrategyTapMetrics,
                 dataSourceLabel = dataSourceLabel,
+                marketsFormingBarHint = marketsFormingBarHint,
+                marketsFormingBarHintText = marketsFormingBarHintText,
             )
             }
         }

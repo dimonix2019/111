@@ -85,6 +85,8 @@ internal fun LandscapeZScoreFullscreenPane(
     areaFillColor: String? = null,
     strategyTestTradeItems: List<StrategyTestTradeItem> = emptyList(),
     openPosition: PortfolioOpenPosition? = null,
+    formingBarHint: MarketsFormingBarHint? = null,
+    formingBarHintText: String? = null,
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
@@ -121,6 +123,8 @@ internal fun LandscapeZScoreFullscreenPane(
                     areaFillColor = areaFillColor,
                     strategyTestTradeItems = strategyTestTradeItems,
                     openPosition = openPosition,
+                    formingBarHint = formingBarHint,
+                    formingBarHintText = formingBarHintText,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {

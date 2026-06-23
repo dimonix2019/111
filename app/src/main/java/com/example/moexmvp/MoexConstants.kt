@@ -112,6 +112,10 @@ internal const val CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX = 10f
 internal const val CHART_X_LABEL_ROTATION_DEG = -42f
 /** Макс. длина фитиля Z-свечи за пределами тела (в единицах Z). Без cap σ→0 раздувает тени. */
 internal const val CHART_Z_INTRABAR_WICK_MAX = 0.22
+/** Z-свеча «формируется» на «Рынок» (live Z из 1м). */
+internal const val CHART_FORMING_BAR_BORDER_HEX = "#FBBF24"
+internal const val CHART_FORMING_BAR_BODY_UP_HEX = "#B45309"
+internal const val CHART_FORMING_BAR_BODY_DOWN_HEX = "#92400E"
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 
@@ -181,6 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.227 — «Рынок»: формирующаяся 15м свеча (live Z) — жёлтая подсветка и подпись «Формируется»; сигнал только после закрытия бара.
 1.7.226 — Fix шторка монитора: быстрый pulse Z каждые 10 с; тяжёлые сигналы раз в 45 с (rolling Z 255д не блокирует UI).
 1.7.225 — Fix live-сигналы: rolling Z в мониторе (не stale SQLite); догон пропущенных за сегодня; fallback в UI при мёртвом мониторе.
 1.7.224 — Fix «Тест страт.»: Z график = Z симуляции (rolling); маркеры входов/выходов на Z-линии.

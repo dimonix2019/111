@@ -81,6 +81,40 @@ class MoexTradingViewChartTest {
     }
 
     @Test
+    fun buildTradingViewChartPayloadJson_marksFormingBarCandle() {
+        val label = "2026-05-19 10:15"
+        val candles = listOf(
+            CandlePoint("2026-05-19 10:00", open = 0.0, high = 0.1, low = -0.1, close = 0.05),
+            CandlePoint(label, open = 0.05, high = 0.2, low = -2.0, close = -2.0),
+        )
+        val points = candles.map { c ->
+            val ts = LocalDateTime.parse(c.label, portfolio15mLabelFormatter)
+                .atZone(ZoneId.of("Europe/Moscow")).toInstant().toEpochMilli()
+            DataPoint(ts, c.label, 100.0, 90.0, 10.0, 10.0, c.close)
+        }
+        val hint = MarketsFormingBarHint(
+            barLabel = label,
+            barTimeSec = m15CandleLabelToUnixSec(label),
+            liveZ = -2.0,
+            baseCloseZ = 0.05,
+        )
+        val json = JSONObject(
+            buildTradingViewChartPayloadJson(
+                candles = candles,
+                displayPoints = points,
+                referenceLines = emptyList(),
+                pointMarkers = emptyList(),
+                formingBar = hint,
+            )
+        )
+        val forming = json.getJSONObject("formingBar")
+        assertEquals(hint.barTimeSec, forming.getLong("time"))
+        assertEquals(-2.0, forming.getDouble("liveZ"), 1e-9)
+        val lastCandle = json.getJSONArray("candles").getJSONObject(1)
+        assertEquals(CHART_FORMING_BAR_BORDER_HEX, lastCandle.getString("borderColor"))
+    }
+
+    @Test
     fun buildTradingViewChartPayloadJson_markerTradeIdMatchesTradeSegment() {
         val candles = listOf(
             CandlePoint("2026-05-19 10:00", open = 0.0, high = 0.1, low = -0.1, close = 0.05),

@@ -584,6 +584,59 @@ class MoexMarketsM15ZChartTest {
         assertEquals(1, metrics?.closedTrades?.size)
     }
 
+    @Test
+    fun resolveMarketsFormingBarHint_whenLiveZDiffersFromClosedM15() {
+        val label = "2026-05-19 10:15"
+        val base = listOf(
+            point("2026-05-19 10:00", z = 0.4),
+            point(label, z = 0.7),
+        )
+        val patched = listOf(
+            point("2026-05-19 10:00", z = 0.4),
+            point(label, z = -2.59),
+        )
+        val hint = resolveMarketsFormingBarHint(
+            liveZ = -2.59,
+            liveBarAt = label,
+            patchedPoints = patched,
+            basePoints = base,
+        )
+        assertNotNull(hint)
+        assertEquals(label, hint!!.barLabel)
+        assertEquals(-2.59, hint.liveZ, 1e-9)
+        assertEquals(0.7, hint.baseCloseZ!!, 1e-9)
+        assertTrue(formatMarketsFormingBarHint(hint).contains("live Z"))
+    }
+
+    @Test
+    fun resolveMarketsFormingBarHint_nullWhenLiveMatchesClosedBar() {
+        val label = "2026-05-19 10:00"
+        val points = listOf(point(label, z = 0.5))
+        assertEquals(
+            null,
+            resolveMarketsFormingBarHint(
+                liveZ = 0.5,
+                liveBarAt = label,
+                patchedPoints = points,
+                basePoints = points,
+            ),
+        )
+    }
+
+    @Test
+    fun applyLiveZToM15ChartSeries_updatesLastCandleClose() {
+        val points = listOf(
+            point("2026-05-19 10:00", z = 0.4),
+            point("2026-05-19 10:15", z = 0.7),
+        )
+        val candles = buildZScoreCandlesFromM15Points(points)
+        val (patchedPts, patchedCandles) = applyLiveZToM15ChartSeries(points, candles, liveZ = -2.59)
+        assertEquals(-2.59, patchedPts.last().zScore, 1e-9)
+        assertEquals(-2.59, patchedCandles.last().close, 1e-9)
+        assertEquals(0.4, patchedCandles.last().open, 1e-9)
+        assertEquals(-2.59, patchedCandles.last().low, 1e-9)
+    }
+
     private fun point(label: String, z: Double, spread: Double = 10.0): DataPoint {
         val ts = LocalDateTime.parse(label, portfolio15mLabelFormatter)
         return DataPoint(

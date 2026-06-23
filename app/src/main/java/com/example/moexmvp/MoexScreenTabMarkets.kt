@@ -64,6 +64,8 @@ internal fun MoexScreenTabMarkets(
     marketsChartThresholds: DynamicThresholds,
     marketsZStrategyTapMetrics: PortfolioMetrics?,
     dataSourceLabel: MarketsDataSource,
+    marketsFormingBarHint: MarketsFormingBarHint? = null,
+    marketsFormingBarHintText: String? = null,
 ) {
     val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.marketsZChartPeriod) {
         chartInitialWindowForLastCalendarDays(
@@ -210,6 +212,8 @@ internal fun MoexScreenTabMarkets(
                                         marketsZStrategyTapMetrics
                                     )
                                 },
+                                formingBarHint = marketsFormingBarHint,
+                                formingBarHintText = marketsFormingBarHintText,
                                 emptyContent = {
                                     when {
                                         marketsZScoreCandles.isNotEmpty() -> Unit
@@ -413,6 +417,8 @@ internal fun MoexScreenTabMarkets(
                                     tradeSegments = zChartOverlay.tradeSegments,
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
+                                    formingBarHint = marketsFormingBarHint,
+                                    formingBarHintText = marketsFormingBarHintText,
                                 )
                             }
                             item {

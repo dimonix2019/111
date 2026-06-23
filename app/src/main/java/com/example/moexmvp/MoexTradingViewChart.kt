@@ -273,20 +273,26 @@ internal fun buildTradingViewChartPayloadJson(
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
+    formingBar: MarketsFormingBarHint? = null,
 ): String {
     val candleArr = JSONArray()
     val seenTimes = linkedSetOf<Long>()
     for (c in candles) {
         val timeSec = m15CandleLabelToUnixSec(c.label)
         if (!seenTimes.add(timeSec)) continue
-        candleArr.put(
-            JSONObject()
-                .put("time", timeSec)
-                .put("open", c.open)
-                .put("high", c.high)
-                .put("low", c.low)
-                .put("close", c.close)
-        )
+        val obj = JSONObject()
+            .put("time", timeSec)
+            .put("open", c.open)
+            .put("high", c.high)
+            .put("low", c.low)
+            .put("close", c.close)
+        if (formingBar != null && timeSec == formingBar.barTimeSec) {
+            val up = c.close >= c.open
+            obj.put("color", if (up) CHART_FORMING_BAR_BODY_UP_HEX else CHART_FORMING_BAR_BODY_DOWN_HEX)
+            obj.put("borderColor", CHART_FORMING_BAR_BORDER_HEX)
+            obj.put("wickColor", CHART_FORMING_BAR_BORDER_HEX)
+        }
+        candleArr.put(obj)
     }
     val hlines = JSONArray()
     for (hl in referenceLines) {
@@ -404,6 +410,15 @@ internal fun buildTradingViewChartPayloadJson(
         )
     if (!areaFillColor.isNullOrBlank()) {
         root.put("areaFillColor", areaFillColor)
+    }
+    formingBar?.let { hint ->
+        root.put(
+            "formingBar",
+            JSONObject()
+                .put("time", hint.barTimeSec)
+                .put("liveZ", hint.liveZ)
+                .put("baseCloseZ", hint.baseCloseZ ?: JSONObject.NULL),
+        )
     }
     return root.toString()
 }
@@ -596,6 +611,8 @@ internal fun TradingViewZScoreChartCard(
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
+    formingBarHint: MarketsFormingBarHint? = null,
+    formingBarHintText: String? = null,
 ) {
     if (candles.isEmpty()) return
     val payload = remember(
@@ -609,6 +626,7 @@ internal fun TradingViewZScoreChartCard(
         initialWindowWidth,
         initialWindowStart,
         areaFillColor,
+        formingBarHint,
     ) {
         buildTradingViewChartPayloadJson(
             candles = candles,
@@ -621,6 +639,7 @@ internal fun TradingViewZScoreChartCard(
             initialWindowWidth = initialWindowWidth,
             initialWindowStart = initialWindowStart,
             areaFillColor = areaFillColor,
+            formingBar = formingBarHint,
         )
     }
     Column(
@@ -628,14 +647,25 @@ internal fun TradingViewZScoreChartCard(
             .then(if (landscapeMinimal) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
             .background(Color(0xFF131722), RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp)),
     ) {
-        if (!landscapeMinimal && title.isNotBlank()) {
-            Text(
-                text = title,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFFE5E7EB),
-                fontSize = 14.sp,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            )
+        if (!landscapeMinimal && (title.isNotBlank() || !formingBarHintText.isNullOrBlank())) {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                if (title.isNotBlank()) {
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFE5E7EB),
+                        fontSize = 14.sp,
+                    )
+                }
+                if (!formingBarHintText.isNullOrBlank()) {
+                    Text(
+                        text = formingBarHintText,
+                        color = Color(0xFFFBBF24),
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = if (title.isNotBlank()) 4.dp else 0.dp),
+                    )
+                }
+            }
         }
         Box(
             modifier = Modifier
