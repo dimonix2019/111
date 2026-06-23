@@ -144,6 +144,57 @@ internal fun buildIntraday1mZScoreSeries(
     return Intraday1mZSeries(labels, zScores)
 }
 
+/**
+ * Replay сегодняшних 15м баров из 1м TATN/TATNP (rolling Z на истории до сегодня).
+ * Закрывает дыры MOEX 15м-кэша на Z-графике «Рынок».
+ */
+internal fun replayTodayM15FromIntraday1m(
+    m15Points: List<DataPoint>,
+    aligned: AlignedIntraday1mQuotes,
+    zone: ZoneId = moexZoneId,
+): List<DataPoint>? {
+    if (aligned.labels.isEmpty() || m15Points.isEmpty()) return null
+    val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+    var base = m15Points.filter { it.timestampMillis < todayStart }
+    if (base.size < Z_SCORE_ROLLING_MIN_BARS) {
+        if (m15Points.size < Z_SCORE_ROLLING_MIN_BARS) return null
+        base = m15Points.dropLastWhile { it.timestampMillis >= todayStart }
+    }
+    if (base.size < Z_SCORE_ROLLING_MIN_BARS) return null
+    val mutable = base.toMutableList()
+    aligned.labels.indices.forEach { i ->
+        val spread = spreadPercentFromPairCloses(aligned.tatnCloses[i], aligned.tatnpCloses[i])
+            ?: return@forEach
+        val bucketMs = intraday1mLabelToM15BucketMs(aligned.labels[i], zone)
+        if (!patchFormingM15BarInPlace(
+                mutable,
+                bucketMs,
+                aligned.tatnCloses[i],
+                aligned.tatnpCloses[i],
+                spread,
+                zone,
+            )
+        ) {
+            return@forEach
+        }
+        val z = rollingZAtBarIndex(mutable, mutable.lastIndex) ?: return@forEach
+        mutable[mutable.lastIndex] = mutable.last().copy(zScore = z)
+    }
+    val todayBars = mutable.count { it.timestampMillis >= todayStart }
+    if (todayBars == 0) return null
+    return mutable
+}
+
+/** Z-график «Рынок»: сегодня — из replay 1м; канонический MOEX-кэш не меняется. */
+internal fun mergeM15WithToday1mBackfillForChart(
+    canonical: List<DataPoint>,
+    aligned: AlignedIntraday1mQuotes?,
+    zone: ZoneId = moexZoneId,
+): List<DataPoint> {
+    if (canonical.isEmpty() || aligned == null) return canonical
+    return replayTodayM15FromIntraday1m(canonical, aligned, zone) ?: canonical
+}
+
 /** Live Z из 1м TATN/TATNP поверх кэшированного 15м ряда (сводка, шторка, монитор). */
 internal fun liveZScoreFromIntraday1m(
     m15Points: List<DataPoint>,

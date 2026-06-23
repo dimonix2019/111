@@ -57,6 +57,7 @@ internal fun MoexScreenState.scheduleMarketsM15MoexCatchup(
     val bucketMs = currentM15BucketStartMillis()
     val sealedLagMs = bucketMs - m15Last.timestampMillis
     val needsCatchup = sealedLagMs >= 15 * 60_000L ||
+        m15SeriesHasIntradayTradingGap(marketsM15Source()) ||
         (marketsIntraday1mLastBarMillis > 0L &&
             marketsIntraday1mLastBarMillis > m15Last.timestampMillis + 20 * 60_000L)
     if (!needsCatchup) return
@@ -141,6 +142,11 @@ private suspend fun MoexScreenState.executeMarketsM15Refresh(request: MarketsM15
     val loaded = when (request.kind) {
         MarketsM15RefreshKind.CATCHUP -> {
             tryRefreshPortfolio15mLiveFormingTailFromMoex(context, PORTFOLIO_M15_LOOKBACK_DAYS)
+                ?: withPortfolioM15LoadLock {
+                    val dao = PortfolioM15Database.get(context.applicationContext).dao()
+                    mergePortfolio15mRecentTailFromMoex(dao)
+                    loadPortfolio15mLiveFormingTailLocked(context, PORTFOLIO_M15_LOOKBACK_DAYS)
+                }
         }
         MarketsM15RefreshKind.TAIL_STALE,
         MarketsM15RefreshKind.FORCE_INCR,

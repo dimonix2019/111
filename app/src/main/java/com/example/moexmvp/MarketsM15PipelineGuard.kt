@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import java.time.Instant
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
@@ -43,6 +44,28 @@ internal fun validateMarketsM15CanonicalSeries(points: List<DataPoint>): List<Ma
         }
     }
     return issues
+}
+
+/** Пропуск >15м между соседними барами в торговой сессии (не overnight). */
+internal fun m15SeriesHasIntradayTradingGap(
+    points: List<DataPoint>,
+    zone: ZoneId = moexZoneId,
+): Boolean {
+    val ordered = ensureAscendingM15Points(points)
+    if (ordered.size < 2) return false
+    for (i in 1 until ordered.size) {
+        val prev = ordered[i - 1]
+        val cur = ordered[i]
+        val gapMin = ChronoUnit.MINUTES.between(
+            Instant.ofEpochMilli(barMillisAt(prev)).atZone(zone).toLocalDateTime(),
+            Instant.ofEpochMilli(barMillisAt(cur)).atZone(zone).toLocalDateTime(),
+        )
+        if (gapMin <= 15L) continue
+        val prevDay = Instant.ofEpochMilli(barMillisAt(prev)).atZone(zone).toLocalDate()
+        val curDay = Instant.ofEpochMilli(barMillisAt(cur)).atZone(zone).toLocalDate()
+        if (prevDay == curDay) return true
+    }
+    return false
 }
 
 /** Live overlay не должен менять закрытые бары в каноническом ряду. */

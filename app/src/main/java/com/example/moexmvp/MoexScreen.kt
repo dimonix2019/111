@@ -54,6 +54,7 @@ internal fun MoexScreen() {
         initialValue = emptyList<DataPoint>(),
         screen.marketsM15DataEpoch,
         screen.marketsZChartPeriod,
+        screen.marketsIntraday1mEpoch,
         onMarketsTab,
     ) {
         if (!onMarketsTab) {
@@ -61,10 +62,13 @@ internal fun MoexScreen() {
             return@produceState
         }
         value = withContext(Dispatchers.Default) {
-            filterM15PointsForMarketsPeriod(
-                screen.marketsM15Source(),
-                screen.marketsZChartPeriod,
+            val source = screen.marketsM15Source()
+            val aligned = alignIntraday1mCloseSeries(
+                screen.marketsIntraday1mTatn,
+                screen.marketsIntraday1mTatnp,
             )
+            val merged = mergeM15WithToday1mBackfillForChart(source, aligned)
+            filterM15PointsForMarketsPeriod(merged, screen.marketsZChartPeriod)
         }
     }
     val marketsChartBase = if (onMarketsTab) {
@@ -269,7 +273,9 @@ internal fun MoexScreen() {
         if (!onMarketsTab) return@LaunchedEffect
         val lastLabel = marketsChartBase.first.lastOrNull()?.tradeDate
         val liveAt = screen.marketsLiveZBarAt
-        if (marketsChartLiveBarGapNeedsM15Catchup(lastLabel, liveAt)) {
+        if (marketsChartLiveBarGapNeedsM15Catchup(lastLabel, liveAt) ||
+            m15SeriesHasIntradayTradingGap(screen.marketsM15Source())
+        ) {
             screen.scheduleMarketsM15MoexCatchup(scope, reason = "chart_gap", debounceMs = 0L)
         }
     }

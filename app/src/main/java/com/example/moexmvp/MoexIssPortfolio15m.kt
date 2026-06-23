@@ -151,13 +151,14 @@ internal fun portfolio15mSeriesIntradayStale(points: List<DataPoint>): Boolean {
     return System.currentTimeMillis() - lastTs > PORTFOLIO_M15_INTRADAY_STALE_MS
 }
 
-/** Нужна догрузка MOEX: хвост устарел или последний бар не за сегодня (МСК). */
+/** Нужна догрузка MOEX: хвост устарел, последний бар не за сегодня, или дыра внутри дня. */
 internal fun portfolio15mSeriesNeedsMoexRefresh(
     points: List<DataPoint>,
     zone: ZoneId = moexZoneId,
 ): Boolean {
     if (points.isEmpty()) return true
     if (portfolio15mSeriesIntradayStale(points)) return true
+    if (m15SeriesHasIntradayTradingGap(points)) return true
     val lastDay = Instant.ofEpochMilli(points.last().timestampMillis).atZone(zone).toLocalDate()
     return lastDay.isBefore(LocalDate.now(zone))
 }

@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDateTime
@@ -86,6 +87,22 @@ class MoexMarketsPipelineGuardTest {
         assertTrue(overlayIssues.none { it.code == "frozen_live" || it.code == "live_on_closed" })
         assertEquals(1, chart.first.size)
         assertEquals(0.70, chart.first.last().zScore, 1e-9)
+    }
+
+    @Test
+    fun m15SeriesHasIntradayTradingGap_detectsMissingSessionBars() {
+        val points = listOf(
+            testM15Bar("2026-06-23 06:45", 0.5),
+            testM15Bar("2026-06-23 21:00", 0.2),
+        )
+        assertTrue(m15SeriesHasIntradayTradingGap(points))
+        val contiguous = testM15BarSeries(
+            java.time.LocalDate.of(2026, 6, 23),
+            10,
+            0,
+            List(4) { 0.1 },
+        )
+        assertFalse(m15SeriesHasIntradayTradingGap(contiguous))
     }
 
     @Test
