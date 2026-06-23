@@ -162,3 +162,117 @@ private fun clusterFourFromIqrWindow(
     val four = ZStrategyFourThresholds(entryLong, exitLong, entryShort, exitShort)
     return if (four.isValid()) four else config.fallback
 }
+
+/** Статический вход (wide) + динамический exit из percentile-кластера. */
+internal data class ZHybridStaticEntryConfig(
+    val staticEntryLong: Double = 1.6,
+    val staticEntryShort: Double = 1.6,
+    val exitCluster: ZClusterThresholdConfig,
+)
+
+/** Regime switch: IQR(Z) < порога → не входим; иначе статические wide пороги. */
+internal data class ZRegimeSwitchConfig(
+    val lookbackBars: Int = 260,
+    val minIqrToTrade: Double = 0.5,
+    val minWindowBars: Int = 48,
+    val activeFour: ZStrategyFourThresholds = ZStrategyFourThresholds(1.6, 1.1, 1.6, 1.4),
+    val quietEntryBlock: Double = 9.0,
+)
+
+/** Expansion: торгуем только когда max|Z| за recent >> baseline (фаза расширения). */
+internal data class ZExpansionRegimeConfig(
+    val recentBars: Int = 130,
+    val baselineBars: Int = 520,
+    val minWindowBars: Int = 48,
+    val expansionRatio: Double = 1.5,
+    val activeFour: ZStrategyFourThresholds = ZStrategyFourThresholds(1.6, 1.1, 1.6, 1.4),
+    val quietEntryBlock: Double = 9.0,
+)
+
+internal fun buildHybridStaticEntryDynamicExitSeries(
+    points: List<DataPoint>,
+    config: ZHybridStaticEntryConfig,
+): List<ZStrategyFourThresholds> {
+    val exitSeries = buildClusterDynamicFourThresholdSeries(points, config.exitCluster)
+    return exitSeries.map { exit ->
+        val four = ZStrategyFourThresholds(
+            entryLong = config.staticEntryLong,
+            exitLong = exit.exitLong,
+            entryShort = config.staticEntryShort,
+            exitShort = exit.exitShort,
+        )
+        if (four.isValid()) four else config.exitCluster.fallback
+    }
+}
+
+internal fun buildRegimeSwitchFourThresholdSeries(
+    points: List<DataPoint>,
+    config: ZRegimeSwitchConfig,
+): List<ZStrategyFourThresholds> {
+    val n = points.size
+    if (n == 0) return emptyList()
+    val block = config.quietEntryBlock
+    return List(n) { i ->
+        val window = zWindowBeforeBar(points, i, config.lookbackBars, config.minWindowBars)
+        val iqr = window?.let { zIqr(it) }
+        val active = iqr != null && iqr >= config.minIqrToTrade
+        if (active) {
+            config.activeFour
+        } else {
+            ZStrategyFourThresholds(
+                entryLong = block,
+                exitLong = config.activeFour.exitLong,
+                entryShort = block,
+                exitShort = config.activeFour.exitShort,
+            )
+        }
+    }
+}
+
+internal fun buildExpansionRegimeFourThresholdSeries(
+    points: List<DataPoint>,
+    config: ZExpansionRegimeConfig,
+): List<ZStrategyFourThresholds> {
+    val n = points.size
+    if (n == 0) return emptyList()
+    val block = config.quietEntryBlock
+    return List(n) { i ->
+        if (i <= 0) return@List config.activeFour
+        val recentStart = max(0, i - config.recentBars)
+        val recent = (recentStart until i).map { abs(points[it].zScore) }
+        val baselineStart = max(0, i - config.baselineBars)
+        val baseline = (baselineStart until recentStart).map { abs(points[it].zScore) }
+        val expanding = expansionPhaseActive(recent, baseline, config.minWindowBars, config.expansionRatio)
+        if (expanding) {
+            config.activeFour
+        } else {
+            ZStrategyFourThresholds(
+                entryLong = block,
+                exitLong = config.activeFour.exitLong,
+                entryShort = block,
+                exitShort = config.activeFour.exitShort,
+            )
+        }
+    }
+}
+
+private fun zIqr(windowZs: List<Double>): Double {
+    val sorted = windowZs.sorted()
+    return percentileOfSorted(sorted, 75) - percentileOfSorted(sorted, 25)
+}
+
+private fun expansionPhaseActive(
+    recentAbsZ: List<Double>,
+    baselineAbsZ: List<Double>,
+    minWindowBars: Int,
+    expansionRatio: Double,
+): Boolean {
+    if (recentAbsZ.size < min(minWindowBars / 4, 12)) return false
+    if (baselineAbsZ.size < minWindowBars) return false
+    val recentMax = recentAbsZ.maxOrNull() ?: return false
+    val baselineSorted = baselineAbsZ.sorted()
+    val baselineP75 = percentileOfSorted(baselineSorted, 75)
+    val baselineMax = baselineSorted.last()
+    val ref = max(max(baselineP75, baselineMax * 0.85), 0.4)
+    return recentMax >= expansionRatio * ref
+}
