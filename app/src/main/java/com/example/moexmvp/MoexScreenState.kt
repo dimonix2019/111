@@ -5,12 +5,15 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import java.time.LocalDate
 
 @Stable
 internal class MoexScreenState(val context: Context) {
     val refreshMutex = Mutex()
+    /** Resim «Тест страт.» без блокировки portfolio/markets refresh. */
+    val strategyTestSimMutex = Mutex()
 
     var pendingAppUpdate by mutableStateOf<AppRemoteUpdate?>(null)
     var selectedTab by mutableStateOf(
@@ -30,6 +33,14 @@ internal class MoexScreenState(val context: Context) {
     var portfolioLookbackDays by mutableStateOf(loadPortfolioLookbackDays(context))
     var portfolioLeverage by mutableStateOf(7.0)
     var portfolioCommissionPercent by mutableStateOf(0.04)
+    var strategyTestAccountSizeRub by mutableStateOf(DEFAULT_STRATEGY_TEST_ACCOUNT_RUB)
+    var strategyTestCapitalUsagePercent by mutableStateOf(DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT)
+    /** Money-stop: % просадки на сделку от «Размер счёта» (0 = без лимита). */
+    var strategyTestMaxLossDdPercent by mutableStateOf(DEFAULT_STRATEGY_TEST_MAX_LOSS_DD_PERCENT)
+    /** Симуляция использует пороги Z с «Портфеля» (боевые), не отдельные prefs теста. */
+    var strategyTestUsePortfolioThresholds by mutableStateOf(true)
+    /** Z как live-монитор: без overlay журнала на истории. */
+    var strategyTestUseLiveZSignals by mutableStateOf(true)
     var realTradeEntryThreshold by mutableStateOf<Double?>(null)
     var realTradeExitThreshold by mutableStateOf<Double?>(null)
     var strategyTestEntryThreshold by mutableStateOf<Double?>(null)
@@ -62,8 +73,20 @@ internal class MoexScreenState(val context: Context) {
     var marketsStale by mutableStateOf(false)
     /** @deprecated Используйте [marketsM15SessionCache] + [storeMarketsM15]; оставлено для миграции читателей. */
     var marketsM15Points by mutableStateOf<List<DataPoint>>(emptyList())
+    var marketsIntraday1mTatn by mutableStateOf<List<CandlePoint>>(emptyList())
+    var marketsIntraday1mTatnp by mutableStateOf<List<CandlePoint>>(emptyList())
+    var marketsIntraday1mLastBarMillis by mutableStateOf(0L)
+    var marketsIntraday1mFetchedAtMillis by mutableStateOf(0L)
+    /** Живой Z с последнего 15м refresh (сводка «Рынок»), не из persisted. */
+    var marketsLiveZScore by mutableStateOf<Double?>(null)
+    var marketsLiveZBarAt by mutableStateOf<String?>(null)
+    /** Инкремент при обновлении 1м котировок на «Рынок». */
+    var marketsIntraday1mEpoch by mutableStateOf(0)
     var marketsM15SessionCache: List<DataPoint> = emptyList()
     var marketsM15DataEpoch by mutableStateOf(0)
+    /** Single-flight MOEX 15м refresh (catchup / tail / force). */
+    var marketsM15RefreshJob: Job? = null
+    var marketsM15RefreshPending: MarketsM15RefreshRequest? = null
     var portfolioM15Points by mutableStateOf<List<DataPoint>>(emptyList())
     /** Полный 15м ряд (~255д) для симуляции — не в Compose state (OOM). */
     var strategyTestM15SessionCache: List<DataPoint> = emptyList()
@@ -73,6 +96,8 @@ internal class MoexScreenState(val context: Context) {
     var robustCandidate by mutableStateOf<DynamicThresholds?>(null)
     var walkForwardBusy by mutableStateOf(false)
     var pendingVirtualTrade by mutableStateOf<PendingVirtualTradeProposal?>(null)
+    var executionMode by mutableStateOf(TinkoffSandboxStorage.getExecutionMode(context))
+    var prodMoneyStopLastTriggeredTradeId by mutableStateOf<String?>(null)
     var sandboxExecState by mutableStateOf(SandboxExecUiState.Off)
     var sandboxTokenInput by mutableStateOf("")
     var sandboxAccountInput by mutableStateOf("")
@@ -102,6 +127,9 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestDurationSummary by mutableStateOf<StrategyTestDurationSummary?>(null)
     var strategyTestMonthlyReturnSummary by mutableStateOf<StrategyTestMonthlyReturnSummary?>(null)
     var strategyTestSpreadHourlyVolatility by mutableStateOf<SpreadHourlyVolatilityReport?>(null)
+    /** Кэш hourly vol по fingerprint 15м ряда (не зависит от порогов sim). */
+    var strategyTestHourlyVolCacheKey: Long = 0L
+    var strategyTestHourlyVolCache: SpreadHourlyVolatilityReport? = null
     var strategyTestLastSimKey: Long = 0L
     var strategyTestVisibleSessionCache: StrategyTestVisibleSnapshot? = null
     /** Отмена устаревших загрузок/симуляций при смене вкладки или новом запросе. */

@@ -67,10 +67,37 @@ internal fun MoexScreen() {
             )
         }
     }
-    val marketsChartSeries = if (onMarketsTab) {
-        rememberM15ZChartSeries(marketsM15SimPoints)
+    val marketsChartBase = if (onMarketsTab) {
+        rememberM15ZChartSeries(
+            simPoints = marketsM15SimPoints,
+            dataEpoch = screen.marketsM15DataEpoch,
+        )
     } else {
         emptyList<DataPoint>() to emptyList()
+    }
+    val marketsChartSeries = remember(marketsChartBase, screen.marketsLiveZScore, screen.marketsLiveZBarAt) {
+        applyLiveZToM15ChartSeries(
+            marketsChartBase.first,
+            marketsChartBase.second,
+            screen.marketsLiveZScore,
+            screen.marketsLiveZBarAt,
+        )
+    }
+    val marketsFormingBarHint = remember(
+        screen.marketsLiveZScore,
+        screen.marketsLiveZBarAt,
+        marketsChartSeries,
+        marketsChartBase,
+    ) {
+        resolveMarketsFormingBarHint(
+            liveZ = screen.marketsLiveZScore,
+            liveBarAt = screen.marketsLiveZBarAt,
+            patchedPoints = marketsChartSeries.first,
+            basePoints = marketsChartBase.first,
+        )
+    }
+    val marketsFormingBarHintText = remember(marketsFormingBarHint) {
+        marketsFormingBarHint?.let(::formatMarketsFormingBarHint)
     }
     val marketsM15ChartPoints = marketsChartSeries.first
     val marketsZScoreCandles = marketsChartSeries.second
@@ -92,16 +119,20 @@ internal fun MoexScreen() {
     val strategyTestM15ChartPoints = strategyTestChartSeries.first
     val strategyTestZScoreCandles = strategyTestChartSeries.second
     val strategyTestChartThresholds = remember(
+        screen.strategyTestUsePortfolioThresholds,
+        screen.realTradeEntryThreshold,
+        screen.realTradeExitThreshold,
         screen.strategyTestEntryThreshold,
         screen.strategyTestExitThreshold,
-        screen.dynamicThresholds
+        screen.dynamicThresholds.entry,
+        screen.dynamicThresholds.exit,
+        screen.dynamicThresholds.calculatedDate,
     ) {
+        val sim = screen.resolveStrategyTestSimThresholds()
         DynamicThresholds(
-            entry = (screen.strategyTestEntryThreshold ?: screen.dynamicThresholds.entry)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-            exit = (screen.strategyTestExitThreshold ?: screen.dynamicThresholds.exit)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-            calculatedDate = screen.dynamicThresholds.calculatedDate
+            entry = sim.entry,
+            exit = sim.exit,
+            calculatedDate = screen.dynamicThresholds.calculatedDate,
         )
     }
     // Хвост ~30 календарных дней — как на «Рынок»; иначе TradingView fitContent() на ~1200 барах
@@ -232,7 +263,13 @@ internal fun MoexScreen() {
 
     MoexScreenEffects(screen, scope)
 
-    AppUpdateBackgroundChecker()
+    AppUpdateBackgroundChecker(
+        onUpdateFound = { remote ->
+            if (screen.pendingAppUpdate == null || screen.pendingAppUpdate!!.versionCode < remote.versionCode) {
+                screen.pendingAppUpdate = remote
+            }
+        },
+    )
 
     AppUpdateDialogHost(
         pendingUpdate = screen.pendingAppUpdate,
@@ -297,6 +334,8 @@ internal fun MoexScreen() {
                 marketsChartThresholds = marketsChartThresholds,
                 marketsZStrategyTapMetrics = screen.marketsZStrategyTapMetrics,
                 dataSourceLabel = dataSourceLabel,
+                marketsFormingBarHint = marketsFormingBarHint,
+                marketsFormingBarHintText = marketsFormingBarHintText,
             )
             }
         }

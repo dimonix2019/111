@@ -10,9 +10,9 @@ internal const val WATCHDOG_UI_POLL_MS = 30_000L
 /** Интервал alarm-проверки, когда UI закрыт. */
 internal const val WATCHDOG_ALARM_INTERVAL_MS = 5 * 60_000L
 
-/** Сервис «мёртв», если нет тика дольше этого порога. */
+/** Сервис «мёртв», если нет тика дольше этого порога (pulse шторки каждые [SIGNAL_MONITOR_PULSE_MS]). */
 internal fun watchdogServiceStaleThresholdMs(): Long =
-    SIGNAL_MONITOR_INTERVAL_MS * 3 + 15_000L
+    SIGNAL_MONITOR_PULSE_MS * 4 + 15_000L
 
 /** UI «не на связи» для сервиса — только информативно (не перезапуск UI). */
 internal const val WATCHDOG_UI_STALE_MS = 10 * 60_000L
@@ -180,6 +180,20 @@ internal fun formatCompactSignedPnlRub(rub: Double): String {
     return if (rounded >= 0) "+${rounded}₽" else "${rounded}₽"
 }
 
+/** Короткая метка сделки для шторки: «1S» = первая Short, «1L» = первая Long. */
+internal fun signalMonitorTradeDirectionBadge(
+    tradeDisplayId: String,
+    signalType: StrategySignalType,
+): String {
+    val num = tradeDisplayId.trim().substringBefore(' ').ifBlank { tradeDisplayId.trim() }
+    val suffix = when (signalType) {
+        StrategySignalType.EnterShort -> "S"
+        StrategySignalType.EnterLong -> "L"
+        else -> ""
+    }
+    return "$num$suffix"
+}
+
 internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMonitorOpenTradeSnapshot? {
     if (exec.signalType != StrategySignalType.EnterLong &&
         exec.signalType != StrategySignalType.EnterShort
@@ -189,7 +203,7 @@ internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMo
     val openedRaw = exec.entrySignalBarTimeMsk.takeIf { it.isNotBlank() && it != "—" }
         ?: exec.entryTimeMsk
     return SignalMonitorOpenTradeSnapshot(
-        badge = portfolioTradeChartBadgeText(exec.tradeDisplayId, exec.confirmLabel),
+        badge = signalMonitorTradeDirectionBadge(exec.tradeDisplayId, exec.signalType),
         openedAt = compactMonitorDateTimeMsk(openedRaw),
         entryZ = exec.zScore,
         pnlRub = exec.netPnlRubApprox,
@@ -200,8 +214,8 @@ internal fun formatSignalMonitorOpenTradeLine(trade: SignalMonitorOpenTradeSnaps
     "${trade.badge} ${trade.openedAt} Z₀${"%.2f".format(Locale.US, trade.entryZ)} " +
         formatCompactSignedPnlRub(trade.pnlRub)
 
-/** Последняя открытая демо-сделка с актуальным MTM для шторки. */
-internal fun resolveSignalMonitorOpenTrade(
+/** Последняя открытая сделка с актуальным MTM для шторки. */
+internal suspend fun resolveSignalMonitorOpenTrade(
     context: Context,
     points: List<DataPoint>,
 ): SignalMonitorOpenTradeSnapshot? {
@@ -213,15 +227,10 @@ internal fun resolveSignalMonitorOpenTrade(
                 it.signalType == StrategySignalType.EnterShort
         }
     val latest = opens.maxByOrNull { it.barTimestampMillis } ?: return null
-    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(app)
-    val journal = loadStrategySignalEvents(app)
-    val enriched = TinkoffSandboxSpreadExecLog.enrichForDisplay(
+    val enriched = enrichOpenExecutionsForBackgroundMonitor(
         context = app,
         executions = listOf(latest),
         points = points,
-        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-        leverage = leverage,
-        journalEvents = journal,
     ).firstOrNull() ?: return null
     return signalMonitorOpenTradeSnapshot(enriched)
 }

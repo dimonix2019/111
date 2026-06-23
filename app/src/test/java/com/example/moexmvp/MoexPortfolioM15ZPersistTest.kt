@@ -2,6 +2,7 @@ package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneId
@@ -45,6 +46,53 @@ class MoexPortfolioM15ZPersistTest {
         val before = points.map { it.zScore }
         assertFalse(fillM15ZScoresInPlace(points, entities))
         assertEquals(before, points.map { it.zScore })
+    }
+
+    @Test
+    fun fillM15ZScoresInPlace_recalcsTailWhenPersistedCleared() {
+        val step = 15 * 60_000L
+        val bucket = currentM15BucketStartMillis()
+        val ts0 = bucket - 81 * step
+        val entities = (0 until 82).map { i ->
+            val ts = ts0 + i * step
+            val z = if (i < 80) 0.5 else null
+            entity(ts, spread = 7.0 + i * 0.001, z = z, snap = if (z != null) 7.0 + i * 0.001 else null)
+        }
+        val points = entities.map { it.toDataPoint() }.toMutableList()
+        val tailIdx = points.lastIndex - 1
+        points[tailIdx] = points[tailIdx].copy(spreadPercent = 8.2)
+        assertTrue(fillM15ZScoresInPlace(points, entities))
+        assertNotEquals(0.0, points[tailIdx].zScore, 1e-9)
+    }
+
+    @Test
+    fun fillM15ZScoresInPlace_recalcsFormingBarDespitePersistedZ() {
+        val step = 15 * 60_000L
+        val bucket = currentM15BucketStartMillis()
+        val ts0 = bucket - 81 * step
+        val entities = (0 until 82).map { i ->
+            val ts = ts0 + i * step
+            entity(ts, spread = 7.0 + i * 0.001, z = if (i < 81) 0.5 else 0.99)
+        }
+        val points = entities.map { it.toDataPoint() }.toMutableList()
+        val lastIdx = points.lastIndex
+        points[lastIdx] = points[lastIdx].copy(spreadPercent = 8.5)
+        assertTrue(isM15FormingBarIndex(points, lastIdx))
+        assertTrue(fillM15ZScoresInPlace(points, entities))
+        assertNotEquals(0.99, points[lastIdx].zScore, 1e-9)
+    }
+
+    @Test
+    fun isM15LiveZTailIndex_coversLastEightBars() {
+        val step = 15 * 60_000L
+        val ts0 = java.time.LocalDate.of(2026, 6, 10).atTime(10, 0).atZone(zone).toInstant().toEpochMilli()
+        val points = (0 until 10).map { i ->
+            DataPoint(ts0 + i * step, "x", 650.0, 600.0, 7.0, 50.0, 0.0)
+        }
+        assertFalse(isM15LiveZTailIndex(points, 0))
+        assertFalse(isM15LiveZTailIndex(points, 1))
+        assertTrue(isM15LiveZTailIndex(points, 2))
+        assertTrue(isM15LiveZTailIndex(points, points.lastIndex))
     }
 
     @Test
@@ -140,5 +188,70 @@ class MoexPortfolioM15ZPersistTest {
             thresholds,
         )
         assertEquals(ZStrategySignal.EnterShort, sig)
+    }
+
+    @Test
+    fun prepareM15PointsForZStrategySignalDetection_matchesSpreadGuardRollingZ_notStaleSnapshots() {
+        val step = 15 * 60_000L
+        val bucket = currentM15BucketStartMillis()
+        val ts0 = bucket - 85 * step
+        val spreads = (0 until 86).map { i ->
+            when {
+                i < 84 -> 7.0 + (i % 7) * 0.02
+                i == 84 -> 7.12
+                else -> 9.8
+            }
+        }
+        val staleSnap = spreads.mapIndexed { i, spread ->
+            DataPoint(ts0 + i * step, "x", 650.0, 600.0, spread, 50.0, zScore = 0.4)
+        }
+        val expected = spreads.mapIndexed { i, spread ->
+            DataPoint(ts0 + i * step, "x", 650.0, 600.0, spread, 50.0, zScore = 0.0)
+        }.toMutableList()
+        applySpreadGuardZScoresInPlace(expected)
+
+        val fresh = prepareM15PointsForZStrategySignalDetection(staleSnap)
+        assertEquals(expected.size, fresh.size)
+        for (i in expected.indices) {
+            assertEquals("bar $i Z", expected[i].zScore, fresh[i].zScore, 1e-9)
+        }
+        assertNotEquals(staleSnap.last().zScore, fresh.last().zScore, 1e-9)
+    }
+
+    @Test
+    fun prepareM15PointsForZStrategySim_recalcsRollingZWhenLiveWithoutJournal() {
+        val raw = listOf(
+            DataPoint(1L, "2026-01-01 10:00", 650.0, 600.0, 8.0, 50.0, 0.72),
+            DataPoint(2L, "2026-01-01 10:15", 651.0, 600.5, 8.1, 50.5, 0.81),
+        )
+        val result = prepareM15PointsForZStrategySim(
+            points = raw,
+            applyJournalOverlay = false,
+        )
+        assertTrue(result !== raw)
+        assertEquals(2, result.size)
+    }
+
+    @Test
+    fun prepareM15PointsForZStrategySim_recalcsRollingZWhenLiveEvenWithJournalEvents() {
+        val raw = listOf(
+            DataPoint(1L, "2026-01-01 10:00", 650.0, 600.0, 8.0, 50.0, 0.72),
+            DataPoint(2L, "2026-01-01 10:15", 651.0, 600.5, 8.1, 50.5, 0.81),
+        )
+        val events = listOf(
+            StrategySignalEvent(
+                timestampMillis = 1L,
+                signalType = StrategySignalType.EnterShort,
+                zScore = 0.9,
+            ),
+        )
+        val result = prepareM15PointsForZStrategySim(
+            points = raw,
+            journalEvents = events,
+            journalThresholds = DynamicThresholds(0.8, 0.7, null),
+            applyJournalOverlay = false,
+        )
+        assertTrue(result !== raw)
+        assertNotEquals(0.72, result[0].zScore, 1e-9)
     }
 }

@@ -53,6 +53,13 @@ class MoexTradingViewChartTest {
         assertEquals(1, json.getJSONArray("hlines").length())
         assertEquals(1, json.getJSONArray("markers").length())
         assertEquals(0.2, json.getJSONObject("window").getDouble("start"), 0.001)
+        assertTrue(json.getInt("rightOffsetBars") >= 12)
+    }
+
+    @Test
+    fun tradingViewZChartRightOffsetBars_usesTenPercentVisibleBars() {
+        assertEquals(12, tradingViewZChartRightOffsetBars(barCount = 50, windowWidth = 0.2f))
+        assertEquals(20, tradingViewZChartRightOffsetBars(barCount = 200, windowWidth = 1f))
     }
 
     @Test
@@ -71,6 +78,40 @@ class MoexTradingViewChartTest {
             )
         )
         assertEquals(STRATEGY_TEST_Z_CHART_AREA_FILL_HEX, json.getString("areaFillColor"))
+    }
+
+    @Test
+    fun buildTradingViewChartPayloadJson_marksFormingBarCandle() {
+        val label = "2026-05-19 10:15"
+        val candles = listOf(
+            CandlePoint("2026-05-19 10:00", open = 0.0, high = 0.1, low = -0.1, close = 0.05),
+            CandlePoint(label, open = 0.05, high = 0.2, low = -2.0, close = -2.0),
+        )
+        val points = candles.map { c ->
+            val ts = LocalDateTime.parse(c.label, portfolio15mLabelFormatter)
+                .atZone(ZoneId.of("Europe/Moscow")).toInstant().toEpochMilli()
+            DataPoint(ts, c.label, 100.0, 90.0, 10.0, 10.0, c.close)
+        }
+        val hint = MarketsFormingBarHint(
+            barLabel = label,
+            barTimeSec = m15CandleLabelToUnixSec(label),
+            liveZ = -2.0,
+            baseCloseZ = 0.05,
+        )
+        val json = JSONObject(
+            buildTradingViewChartPayloadJson(
+                candles = candles,
+                displayPoints = points,
+                referenceLines = emptyList(),
+                pointMarkers = emptyList(),
+                formingBar = hint,
+            )
+        )
+        val forming = json.getJSONObject("formingBar")
+        assertEquals(hint.barTimeSec, forming.getLong("time"))
+        assertEquals(-2.0, forming.getDouble("liveZ"), 1e-9)
+        val lastCandle = json.getJSONArray("candles").getJSONObject(1)
+        assertEquals(CHART_FORMING_BAR_BORDER_HEX, lastCandle.getString("borderColor"))
     }
 
     @Test

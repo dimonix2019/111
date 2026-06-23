@@ -44,6 +44,19 @@ class MoexMarketsLoadedAtTest {
     }
 
     @Test
+    fun resolveMarketsLoadedAtLabel_parsesLegacyDailyFormat() {
+        val yesterday = LocalDate.of(2026, 6, 12)
+        val m15 = listOf(pointAt(yesterday, 19, 0))
+        val resolved = resolveMarketsLoadedAtLabel(m15, "15.06.26 : 22,07")
+        assertEquals("2026-06-15 22:07:00", resolved)
+    }
+
+    @Test
+    fun formatMarketsLoadedAtShort_parsesLegacyDailyFormat() {
+        assertEquals("15.06.26 22:07", formatMarketsLoadedAtShort("15.06.26 : 22,07"))
+    }
+
+    @Test
     fun portfolio15mSeriesNeedsMoexRefresh_trueWhenLastBarYesterday() {
         val yesterday = LocalDate.now(zone).minusDays(1)
         val points = listOf(pointAt(yesterday, 19, 0))

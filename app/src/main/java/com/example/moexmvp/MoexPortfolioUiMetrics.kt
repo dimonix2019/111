@@ -4,10 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.AlertDialog
@@ -32,25 +35,37 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -256,6 +271,7 @@ internal fun PortfolioParamsControls(
     exitThreshold: Double,
     showZThresholdSteppers: Boolean,
     showExitThresholdStepper: Boolean = true,
+    compactSteppers: Boolean = false,
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
@@ -268,20 +284,22 @@ internal fun PortfolioParamsControls(
                 valueLabel = "x${String.format(Locale.US, "%.1f", leverage)}",
                 onMinus = { onLeverageChange((leverage - 0.5).coerceAtLeast(1.0)) },
                 onPlus = { onLeverageChange((leverage + 0.5).coerceAtMost(30.0)) },
+                compact = compactSteppers,
                 modifier = Modifier.weight(1f)
             )
             ParamStepper(
-                title = "Комиссия / сторона",
+                title = "Комиссия",
                 valueLabel = "${String.format(Locale.US, "%.3f", commissionPercentPerSide)}%",
                 onMinus = { onCommissionChange((commissionPercentPerSide - 0.005).coerceAtLeast(0.0)) },
                 onPlus = { onCommissionChange((commissionPercentPerSide + 0.005).coerceAtMost(1.0)) },
+                compact = compactSteppers,
                 modifier = Modifier.weight(1f)
             )
         }
         if (showZThresholdSteppers) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 ParamStepper(
-                    title = "Порог входа |Z|",
+                    title = "Вход |Z|",
                     valueLabel = String.format(Locale.US, "%.2f", entryThreshold),
                     onMinus = {
                         onEntryThresholdChange(
@@ -293,11 +311,12 @@ internal fun PortfolioParamsControls(
                             (entryThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
                         )
                     },
+                    compact = compactSteppers,
                     modifier = if (showExitThresholdStepper) Modifier.weight(1f) else Modifier.fillMaxWidth()
                 )
                 if (showExitThresholdStepper) {
                     ParamStepper(
-                        title = "Порог выхода |Z|",
+                        title = "Выход |Z|",
                         valueLabel = String.format(Locale.US, "%.2f", exitThreshold),
                         onMinus = {
                             onExitThresholdChange(
@@ -309,6 +328,7 @@ internal fun PortfolioParamsControls(
                                 (exitThreshold + PORTFOLIO_Z_THRESHOLD_STEP).coerceAtMost(PORTFOLIO_Z_THRESHOLD_MAX)
                             )
                         },
+                        compact = compactSteppers,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -400,6 +420,81 @@ internal fun formatPercentSigned(v: Double): String {
     return String.format(Locale.US, "%+.2f%%", v)
 }
 @Composable
+internal fun ParamMicroStepper(
+    title: String,
+    valueLabel: String,
+    onMinus: () -> Unit,
+    onPlus: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: Color = Color(0xFF1E1E1E),
+    titleColor: Color = Color(0xFF757575),
+    valueTextColor: Color = Color.White,
+    controlHeightDp: Int = STRATEGY_TEST_MICRO_CONTROL_HEIGHT_DP,
+) {
+    val controlHeight = controlHeightDp.dp
+    val sideTapWidth = 30.dp
+    Row(
+        modifier = modifier
+            .height(controlHeight)
+            .background(containerColor, RoundedCornerShape(7.dp))
+            .padding(horizontal = 1.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(sideTapWidth)
+                .fillMaxHeight()
+                .clickable(onClick = onMinus),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(16.dp))
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .padding(vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Top,
+        ) {
+            Text(
+                text = title,
+                color = titleColor,
+                fontSize = 9.sp,
+                lineHeight = 10.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                text = valueLabel,
+                color = valueTextColor,
+                fontSize = 12.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = false,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .width(sideTapWidth)
+                .fillMaxHeight()
+                .clickable(onClick = onPlus),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+@Composable
 internal fun ParamStepper(
     title: String,
     valueLabel: String,
@@ -408,21 +503,219 @@ internal fun ParamStepper(
     modifier: Modifier = Modifier,
     containerColor: Color = Color(0xFF1E1E1E),
     titleColor: Color = Color(0xFF9E9E9E),
-    valueTextColor: Color = Color.White
+    valueTextColor: Color = Color.White,
+    compact: Boolean = false,
 ) {
+    val vPad = if (compact) 4.dp else 6.dp
+    val iconSize = if (compact) 18.dp else 20.dp
     Column(
         modifier
             .background(containerColor, RoundedCornerShape(8.dp))
-            .padding(horizontal = 6.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(horizontal = 6.dp, vertical = vPad),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp)
     ) {
-        Text(title, color = titleColor, fontSize = 10.sp)
-        Text(valueLabel, color = valueTextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        if (compact) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    title,
+                    color = titleColor,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Text(
+                    valueLabel,
+                    color = valueTextColor,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
+        } else {
+            Text(title, color = titleColor, fontSize = 10.sp)
+            Text(valueLabel, color = valueTextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Button(onClick = onMinus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(iconSize))
             }
             Button(onClick = onPlus, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) {
+                Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(iconSize))
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ParamRubInputStepper(
+    title: String,
+    valueRub: Double,
+    onValueChange: (Double) -> Unit,
+    modifier: Modifier = Modifier,
+    minRub: Double = STRATEGY_TEST_ACCOUNT_RUB_MIN,
+    maxRub: Double = STRATEGY_TEST_ACCOUNT_RUB_MAX,
+    stepRub: Double = 1_000.0,
+    containerColor: Color = Color(0xFF1E1E1E),
+    titleColor: Color = Color(0xFF9E9E9E),
+    compact: Boolean = false,
+) {
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var draft by remember { mutableStateOf(formatStrategyTestAccountRubInput(valueRub)) }
+    var editing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(valueRub) {
+        if (!editing) {
+            draft = formatStrategyTestAccountRubInput(valueRub)
+        }
+    }
+
+    fun dismissEditor() {
+        keyboardController?.hide()
+        focusManager.clearFocus(force = true)
+    }
+
+    fun commitDraft() {
+        editing = false
+        val parsed = parseStrategyTestAccountRubInput(draft, minRub, maxRub)
+        if (parsed != null) {
+            draft = formatStrategyTestAccountRubInput(parsed)
+            if (parsed != valueRub) {
+                onValueChange(parsed)
+            }
+        } else {
+            draft = formatStrategyTestAccountRubInput(valueRub)
+        }
+        dismissEditor()
+    }
+
+    fun applyStep(nextRub: Double) {
+        editing = false
+        val coerced = nextRub.coerceIn(minRub, maxRub)
+        draft = formatStrategyTestAccountRubInput(coerced)
+        dismissEditor()
+        if (coerced != valueRub) {
+            onValueChange(coerced)
+        }
+    }
+
+    val vPad = if (compact) 4.dp else 6.dp
+    val fieldFontSize = if (compact) 11.sp else 13.sp
+    Column(
+        modifier
+            .background(containerColor, RoundedCornerShape(8.dp))
+            .padding(horizontal = 6.dp, vertical = vPad),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp),
+    ) {
+        if (compact) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    title,
+                    color = titleColor,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                )
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = {
+                        editing = true
+                        draft = it.filter { ch -> ch.isDigit() }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { focus ->
+                            if (focus.isFocused) {
+                                editing = true
+                            } else if (editing) {
+                                commitDraft()
+                            }
+                        },
+                    singleLine = true,
+                    suffix = { Text("₽", color = Color(0xFFBDBDBD), fontSize = 10.sp) },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = fieldFontSize,
+                    ),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { commitDraft() }),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF81D4FA),
+                        unfocusedBorderColor = Color(0xFF424242),
+                        cursorColor = Color(0xFF81D4FA),
+                    ),
+                )
+            }
+        } else {
+            Text(title, color = titleColor, fontSize = 10.sp)
+            OutlinedTextField(
+                value = draft,
+                onValueChange = {
+                    editing = true
+                    draft = it.filter { ch -> ch.isDigit() }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focus ->
+                        if (focus.isFocused) {
+                            editing = true
+                        } else if (editing) {
+                            commitDraft()
+                        }
+                    },
+                singleLine = true,
+                suffix = { Text("₽", color = Color(0xFFBDBDBD), fontSize = 12.sp) },
+                trailingIcon = {
+                    IconButton(onClick = { commitDraft() }) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = "Применить",
+                            tint = Color(0xFF81D4FA),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                },
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = fieldFontSize,
+                ),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Done,
+            ),
+            keyboardActions = KeyboardActions(onDone = { commitDraft() }),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF81D4FA),
+                unfocusedBorderColor = Color(0xFF424242),
+                cursorColor = Color(0xFF81D4FA),
+            ),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Button(
+                onClick = { applyStep(valueRub - stepRub) },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Icon(Icons.Filled.Remove, contentDescription = "-", modifier = Modifier.size(20.dp))
+            }
+            Button(
+                onClick = { applyStep(valueRub + stepRub) },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(0.dp),
+            ) {
                 Icon(Icons.Filled.Add, contentDescription = "+", modifier = Modifier.size(20.dp))
             }
         }

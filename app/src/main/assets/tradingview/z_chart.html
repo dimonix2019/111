@@ -6,6 +6,7 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; background: #131722; overflow: hidden; }
+    body { position: relative; }
     #chart { width: 100%; height: 100%; min-height: 120px; }
     #err {
       display: none;
@@ -18,11 +19,27 @@
       justify-content: center;
       text-align: center;
     }
+    #formingHint {
+      display: none;
+      position: absolute;
+      left: 8px;
+      bottom: 28px;
+      max-width: calc(100% - 88px);
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(251, 191, 36, 0.12);
+      border: 1px solid rgba(251, 191, 36, 0.45);
+      color: #fcd34d;
+      font: 11px/1.35 Roboto, "Noto Sans", sans-serif;
+      pointer-events: none;
+      z-index: 2;
+    }
   </style>
   <!-- INJECT_LIGHTWEIGHT_CHARTS -->
 </head>
 <body>
   <div id="chart"></div>
+  <div id="formingHint"></div>
   <div id="err"></div>
   <script>
     const TV = {
@@ -36,9 +53,11 @@
       up: '#089981',
       down: '#f23645',
       selected: '#FACC15',
+      forming: '#FBBF24',
     };
     const MSK = 'Europe/Moscow';
     const RIGHT_OFFSET_BARS = 18;
+    const INITIAL_RIGHT_MARGIN_IN_WINDOW = 0.18;
     const MARKER_HIT_RADIUS_PX = 48;
     const MARKER_HIT_RADIUS_X_PX = 44;
     const MARKER_ENTRY_HIT_RADIUS_X_PX = 56;
@@ -410,6 +429,30 @@
       return true;
     }
 
+    function formatZ(v) {
+      if (typeof v !== 'number' || Number.isNaN(v)) return '—';
+      return (v >= 0 ? '+' : '') + v.toFixed(2);
+    }
+
+    function updateFormingBarHint(data) {
+      const el = document.getElementById('formingHint');
+      const fb = data && data.formingBar;
+      if (!fb || typeof fb.time !== 'number') {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+      }
+      const live = formatZ(fb.liveZ);
+      const base = fb.baseCloseZ === null || fb.baseCloseZ === undefined
+        ? null
+        : formatZ(fb.baseCloseZ);
+      const slot = formatTick(fb.time);
+      el.textContent = base && Math.abs(fb.liveZ - fb.baseCloseZ) > 0.05
+        ? `● Формируется ${slot}: live Z ${live} (закрытый 15м ${base})`
+        : `● Формируется ${slot}: live Z ${live}`;
+      el.style.display = 'block';
+    }
+
     function dedupeCandles(candles) {
       const byTime = new Map();
       for (const c of candles) {
@@ -420,11 +463,21 @@
 
     function applyInitialWindow(n, startFrac, widthFrac) {
       if (!chart || n < 2) return;
-      const startIdx = Math.floor((startFrac || 0) * (n - 1));
-      const visibleBars = Math.max(2, Math.ceil((widthFrac || 1) * n));
+      const maxIndex = n - 1;
+      const width = Math.max(0.05, Math.min(1, widthFrac || 1));
+      const visibleBars = Math.max(2, Math.ceil(width * n));
+      const startIdx = Math.floor((startFrac || 0) * maxIndex);
       const from = Math.max(0, startIdx);
-      const to = Math.min(n - 1, from + visibleBars - 1);
-      chart.timeScale().setVisibleLogicalRange({ from, to });
+      const to = Math.min(maxIndex, from + visibleBars - 1);
+      const rightGapBars = Math.max(2, Math.ceil(visibleBars * INITIAL_RIGHT_MARGIN_IN_WINDOW));
+      chart.timeScale().setVisibleLogicalRange({ from, to: to + rightGapBars });
+    }
+
+    function resolveRightOffsetBars(data) {
+      if (data && typeof data.rightOffsetBars === 'number' && data.rightOffsetBars > 0) {
+        return data.rightOffsetBars;
+      }
+      return RIGHT_OFFSET_BARS;
     }
 
     function renderPayload(data) {
@@ -473,6 +526,7 @@
 
       series.setData(candles);
       lastCandleTimes = candles.map((c) => c.time);
+      updateFormingBarHint(data);
       if (markersPlugin) {
         try { markersPlugin.detach(); } catch (e) {}
         markersPlugin = null;
@@ -492,13 +546,15 @@
         }));
       }
 
+      const rightOffset = resolveRightOffsetBars(data);
+      chart.timeScale().applyOptions({ rightOffset });
+
       if (!fitted || key !== lastPayloadKey) {
-        if (data.window && data.window.width < 0.999) {
+        if (data.window) {
           applyInitialWindow(candles.length, data.window.start, data.window.width);
         } else {
           chart.timeScale().fitContent();
         }
-        chart.timeScale().applyOptions({ rightOffset: RIGHT_OFFSET_BARS });
         const { w, h } = chartSize();
         if (w > 0 && h > 0) chart.resize(w, h);
         fitted = true;

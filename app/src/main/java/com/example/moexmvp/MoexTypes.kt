@@ -99,8 +99,26 @@ internal data class CandleBar(
 internal data class DynamicThresholds(
     val entry: Double,
     val exit: Double,
-    val calculatedDate: String?
+    val calculatedDate: String?,
 )
+
+/** Независимые пороги: вход/выход LONG (Z≤−entryLong, выход Z≥−exitLong) и SHORT (Z≥+entryShort, выход Z≤+exitShort). */
+internal data class ZStrategyFourThresholds(
+    val entryLong: Double,
+    val exitLong: Double,
+    val entryShort: Double,
+    val exitShort: Double,
+) {
+    fun isValid(): Boolean =
+        entryLong > 0.0 && exitLong >= 0.0 && exitLong < entryLong &&
+            entryShort > 0.0 && exitShort >= 0.0 && exitShort < entryShort
+
+    fun toSymmetricFallback(): DynamicThresholds = DynamicThresholds(
+        entry = maxOf(entryLong, entryShort),
+        exit = maxOf(exitLong, exitShort),
+        calculatedDate = null,
+    )
+}
 
 internal data class DynamicThresholdUpdate(
     val thresholds: DynamicThresholds,
@@ -250,7 +268,9 @@ internal data class PortfolioClosedTrade(
     /** Овернайт за дни удержания позиции в ₽. */
     val overnightRubApprox: Double = 0.0,
     /** Чистый результат сделки в ₽ после комиссий вход/выход и овернайта. */
-    val pnlRubApprox: Double
+    val pnlRubApprox: Double,
+    /** Номинал пары на входе (Prod-like lot sizing), 0 = legacy sim. */
+    val executionNotionalRub: Double = 0.0,
 )
 
 internal data class PortfolioOpenPosition(

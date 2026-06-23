@@ -7,8 +7,8 @@ import org.junit.Test
 
 class MoexWatchdogTest {
     @Test
-    fun serviceStaleThreshold_coversThreeMonitorIntervals() {
-        assertTrue(watchdogServiceStaleThresholdMs() >= SIGNAL_MONITOR_INTERVAL_MS * 3)
+    fun serviceStaleThreshold_coversFourNotificationPulses() {
+        assertTrue(watchdogServiceStaleThresholdMs() >= SIGNAL_MONITOR_PULSE_MS * 4)
     }
 
     @Test
@@ -108,14 +108,20 @@ class MoexWatchdogTest {
             netPnlRubApprox = 120.0,
         )
         val snap = signalMonitorOpenTradeSnapshot(exec)!!
-        assertEquals("2Р", snap.badge)
+        assertEquals("2S", snap.badge)
         assertFalse(snap.badge.contains("D-"))
+    }
+
+    @Test
+    fun signalMonitorTradeDirectionBadge_formatsLongAndShort() {
+        assertEquals("1S", signalMonitorTradeDirectionBadge("1 short", StrategySignalType.EnterShort))
+        assertEquals("1L", signalMonitorTradeDirectionBadge("1 long", StrategySignalType.EnterLong))
     }
 
     @Test
     fun formatSignalMonitorForegroundText_includesOpenTradeCompact() {
         val trade = SignalMonitorOpenTradeSnapshot(
-            badge = "2Р",
+            badge = "2S",
             openedAt = "15.06 18:45",
             entryZ = 0.84,
             pnlRub = 120.0,
@@ -128,16 +134,17 @@ class MoexWatchdogTest {
             openTrade = trade,
         )
         assertTrue(text.contains("Z=0.52"))
-        assertTrue(text.contains("2Р 15.06 18:45"))
+        assertTrue(text.contains("2S 15.06 18:45"))
         assertTrue(text.contains("Z₀0.84"))
         assertTrue(text.contains("+120₽"))
     }
 
     @Test
     fun formatSignalMonitorForegroundBigText_splitsZAndTrade() {
-        val trade = SignalMonitorOpenTradeSnapshot("3А", "15.06 18:45", 0.84, -50.0)
+        val trade = SignalMonitorOpenTradeSnapshot("3L", "15.06 18:45", 0.84, -50.0)
         val text = formatSignalMonitorForegroundBigText(true, 1L, 12L, 0.52, trade)
         assertTrue(text.contains('\n'))
+        assertTrue(text.contains("3L"))
         assertTrue(text.contains("-50₽"))
     }
 }

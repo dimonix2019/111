@@ -18,6 +18,7 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
     commissionPercentPerSide: Double,
     portfolioLedgerIncludeAuto: Boolean,
     includeAllLedgerEntries: Boolean = false,
+    pnlLeverage: Double = leverage,
 ): Pair<List<PortfolioConfirmedTradeTableRow>, List<SandboxSpreadExecUi>> {
     if (openExecutions.isEmpty() || points.size < 2 || allJournalEvents.isEmpty()) {
         return emptyList<PortfolioConfirmedTradeTableRow>() to openExecutions
@@ -31,11 +32,6 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
     if (!allowAllOpens && allowedPairs.isEmpty()) {
         return emptyList<PortfolioConfirmedTradeTableRow>() to openExecutions
     }
-
-    val effectiveNotionalRub = notionalRub * leverage
-    val commissionPerSideRub = effectiveNotionalRub * (commissionPercentPerSide / 100.0)
-    val borrowedRub = notionalRub * (leverage - 1.0).coerceAtLeast(0.0)
-    val overnightFeePerDayRub = borrowedRub * (TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY / 100.0)
 
     val remainingExits = allJournalEvents
         .filter {
@@ -89,6 +85,11 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
             StrategySignalType.EnterShort -> ZStrategyPosition.Short
             else -> ZStrategyPosition.Flat
         }
+        val tradeNotionalRub = resolveTradeNotionalRubForPnl(open, points, notionalRub)
+        val effectiveNotionalRub = tradeNotionalRub * pnlLeverage
+        val commissionPerSideRub = effectiveNotionalRub * (commissionPercentPerSide / 100.0)
+        val borrowedRub = tradeNotionalRub * (pnlLeverage - 1.0).coerceAtLeast(0.0)
+        val overnightFeePerDayRub = borrowedRub * (TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY / 100.0)
         val pnlTriple = when (direction) {
             ZStrategyPosition.Long -> {
                 val spread = exitPoint.spreadPercent - entrySpread
@@ -112,10 +113,9 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
         tradeSeq += 1
         val legs = legSpreadDisplay(direction)
         val tag = spreadLegPushCorrelationTag(open.barTimestampMillis, open.signalType)
-        val halfNet = netPnlRub / 2.0
         val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
-            notionalRub = notionalRub,
-            leverage = leverage,
+            notionalRub = tradeNotionalRub,
+            leverage = pnlLeverage,
             commissionPercentPerSide = commissionPercentPerSide,
             entryDateLabel = entryPoint.tradeDate,
             exitDateLabel = exitPoint.tradeDate,
@@ -143,13 +143,13 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
             shortLegTicker = legs.shortTicker,
             longLegSideRu = legs.longSideRu,
             shortLegSideRu = legs.shortSideRu,
-            volumeText = "1+1 лот",
+            volumeText = spreadVolumeText(open.quantityLots),
             confirmLabel = open.confirmLabel,
             entryZ = open.zScore,
             exitZ = exitEvent.zScore,
             notificationIdsText = formatPushIdsForCorrelation(pushLog, tag),
-            legLongPnlSplitRubApprox = halfNet,
-            legShortPnlSplitRubApprox = halfNet,
+            legLongPnlSplitRubApprox = netPnlRub / 2.0,
+            legShortPnlSplitRubApprox = netPnlRub / 2.0,
             grossPnlRubApprox = grossPnlRub,
             netPnlRubApprox = netPnlRub,
             commissionRubApprox = commRub,
@@ -176,6 +176,29 @@ private fun overnightDaysForClosed(entryDate: String, exitDate: String): Long {
     return max(0L, java.time.temporal.ChronoUnit.DAYS.between(entry, exit))
 }
 
+/** Строка закрытой сделки только из replay журнала (без исполнения на счёте). */
+internal fun isPortfolioSignalOnlyClosedRow(row: PortfolioConfirmedTradeTableRow): Boolean =
+    row.confirmLabel == "сигнал" || row.confirmLabel == "—"
+
+internal fun mergePortfolioClosedTableRowsForMode(
+    mode: TinkoffExecutionMode,
+    fromReplay: List<PortfolioConfirmedTradeTableRow>,
+    fromOpens: List<PortfolioConfirmedTradeTableRow>,
+    fromProdBroker: List<PortfolioConfirmedTradeTableRow>,
+): List<PortfolioConfirmedTradeTableRow> {
+    if (mode != TinkoffExecutionMode.Prod) {
+        return if (fromProdBroker.isEmpty()) {
+            mergeClosedPortfolioTableRows(fromReplay, fromOpens)
+        } else {
+            mergeClosedPortfolioTableRowsPreferBroker(fromReplay, fromOpens, fromProdBroker)
+        }
+    }
+    // Prod: не смешивать MOEX-симуляцию «сигнал» (100k×leverage) с реальными сделками.
+    val execReplay = fromReplay.filter { !isPortfolioSignalOnlyClosedRow(it) }
+    val execOpens = fromOpens.filter { !isPortfolioSignalOnlyClosedRow(it) }
+    return mergeClosedPortfolioTableRowsPreferBroker(execReplay, execOpens, fromProdBroker)
+}
+
 /** Объединить закрытые строки replay и синтеза; при дубликате предпочитаем replay (T-xxx). */
 internal fun mergeClosedPortfolioTableRows(
     fromReplay: List<PortfolioConfirmedTradeTableRow>,
@@ -186,6 +209,21 @@ internal fun mergeClosedPortfolioTableRows(
     val replayKeys = fromReplay.map { closedTradeDedupKey(it) }.toSet()
     val extra = fromOpens.filter { closedTradeDedupKey(it) !in replayKeys }
     return fromReplay + extra
+}
+
+/** Prod: строки с PnL брокера перекрывают симуляцию MOEX по тому же входу/выходу. */
+internal fun mergeClosedPortfolioTableRowsPreferBroker(
+    fromReplay: List<PortfolioConfirmedTradeTableRow>,
+    fromOpens: List<PortfolioConfirmedTradeTableRow>,
+    fromProdBroker: List<PortfolioConfirmedTradeTableRow>,
+): List<PortfolioConfirmedTradeTableRow> {
+    if (fromProdBroker.isEmpty()) {
+        return mergeClosedPortfolioTableRows(fromReplay, fromOpens)
+    }
+    val brokerKeys = fromProdBroker.map { closedTradeDedupKey(it) }.toSet()
+    val filteredReplay = fromReplay.filter { closedTradeDedupKey(it) !in brokerKeys }
+    val filteredOpens = fromOpens.filter { closedTradeDedupKey(it) !in brokerKeys }
+    return mergeClosedPortfolioTableRows(filteredReplay, filteredOpens) + fromProdBroker
 }
 
 private fun closedTradeDedupKey(row: PortfolioConfirmedTradeTableRow): String =

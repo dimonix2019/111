@@ -3,7 +3,9 @@ package com.example.moexmvp
 import java.time.format.DateTimeFormatter
 import okhttp3.OkHttpClient
 
-internal val httpClient = OkHttpClient()
+internal val httpClient = OkHttpClient.Builder()
+    .cache(null)
+    .build()
 internal val tradeDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 internal val updatedAtFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 internal val candleTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
@@ -53,8 +55,37 @@ internal const val DAILY_SIGNAL_MAX_PER_DAY = 20
 internal const val STRATEGY_SIGNAL_JOURNAL_DEDUP_WALL_MS = 25_000L
 internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 /** Debounce rapid threshold/leverage tweaks on «Тест страт.» before rerunning simulation. */
-internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 750L
+internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 400L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
+/** «Тест страт.»: размер счёта по умолчанию (как субсчёт «Арбитраж» ~10k). */
+internal const val DEFAULT_STRATEGY_TEST_ACCOUNT_RUB = 10_000.0
+/** «Тест страт.»: доля капитала в сделку (остальное — резерв), parity Prod ≈80%. */
+internal const val DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT = 80.0
+/** Slippage по умолчанию (п.п. спреда), если лог сделок ещё пуст. */
+internal const val DEFAULT_STRATEGY_TEST_SLIPPAGE_SPREAD_PTS = 0.05
+internal const val PREF_STRATEGY_TEST_ACCOUNT_RUB = "strategy_test_account_rub"
+internal const val PREF_STRATEGY_TEST_CAPITAL_USAGE_PCT = "strategy_test_capital_usage_pct"
+internal const val PREF_STRATEGY_TEST_MAX_LOSS_DD_PCT = "strategy_test_max_loss_dd_pct"
+/** 0 = без money-stop в симуляции. */
+internal const val DEFAULT_STRATEGY_TEST_MAX_LOSS_DD_PERCENT = 0.0
+/** @deprecated Prod auto-exit; симуляция использует [DEFAULT_STRATEGY_TEST_MAX_LOSS_DD_PERCENT]. */
+internal const val PROD_MONEY_STOP_PER_TRADE_RUB = 4_000.0
+/** Доля свободных денег, которую не тратим на вход (резерв под ГО/комиссии). */
+internal const val SPREAD_LOT_RESERVE_CASH_FRACTION = 0.25
+/** Минимальный резерв ₽ на счёте независимо от доли. */
+internal const val SPREAD_LOT_RESERVE_MIN_RUB = 2_000.0
+/** Оценка ГО на short-ногу как доля номинала (консервативно). */
+internal const val SPREAD_LOT_MARGIN_RATE_PER_LEG = 0.30
+/** Буфер на комиссию/slippage от номинала пары. */
+internal const val SPREAD_LOT_COMMISSION_BUFFER_FRACTION = 0.002
+internal const val SPREAD_LOT_MIN_LOTS = 1
+internal const val SPREAD_LOT_MAX_LOTS = 80
+/** «Тест страт.» без Prod-cap: верхняя граница лотов для проекции крупного депозита. */
+internal const val STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED = 999
+/** Prod: доля номинала пары на прирост скорректированной маржи (эмпирика ~10+10 → 5.4k). */
+internal const val SPREAD_LOT_MARGIN_PAIR_FRACTION = 0.50
+/** Prod: плечо для расчёта целевого номинала = liquid × leverage / pairNotional. */
+internal const val SPREAD_LOT_PROD_DEFAULT_LEVERAGE = 7.0
 
 /** Portfolio tab: entry/exit |Z| limits are independent (UI steppers). */
 internal const val PORTFOLIO_Z_THRESHOLD_MIN = 0.0
@@ -81,8 +112,22 @@ internal const val CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX = 10f
 internal const val CHART_X_LABEL_ROTATION_DEG = -42f
 /** Макс. длина фитиля Z-свечи за пределами тела (в единицах Z). Без cap σ→0 раздувает тени. */
 internal const val CHART_Z_INTRABAR_WICK_MAX = 0.22
+/** Z-свеча «формируется» на «Рынок» (live Z из 1м). */
+internal const val CHART_FORMING_BAR_BORDER_HEX = "#FBBF24"
+internal const val CHART_FORMING_BAR_BODY_UP_HEX = "#B45309"
+internal const val CHART_FORMING_BAR_BODY_DOWN_HEX = "#92400E"
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
+
+/** Высоты графиков на вкладке «Рынок» (портрет). */
+internal const val MARKETS_INTRADAY_QUOTES_CHART_HEIGHT_DP = 110
+/** Z-score 1м — в 3 раза ниже котировок TATN/TATNP. */
+internal const val MARKETS_INTRADAY_Z1M_CHART_HEIGHT_DP = MARKETS_INTRADAY_QUOTES_CHART_HEIGHT_DP / 3
+internal const val MARKETS_SPREAD_CHART_HEIGHT_DP = 104
+internal const val MARKETS_VOLATILITY_CHART_HEIGHT_DP = 66
+
+/** Мин. интервал между refresh после восстановления сети (защита от шторма callback). */
+internal const val NETWORK_RESTORE_DEBOUNCE_MS = 4_000L
 
 /** Заливка под Z на графике «Тест страт.» (TradingView Area). */
 internal const val STRATEGY_TEST_Z_CHART_AREA_FILL_HEX = "#14532D"
@@ -116,6 +161,20 @@ internal const val PORTFOLIO_M15_TAIL_MAX_AGE_MS = 40L * 60L * 60L * 1000L
 internal const val PORTFOLIO_M15_INTRADAY_STALE_MS = 20L * 60L * 1000L
 /** Интервал фоновой проверки хвоста 15м (Портфель / Рынок, приложение на экране). */
 internal const val PORTFOLIO_M15_INTRADAY_POLL_MS = 60_000L
+/** Лёгкая догрузка MOEX для формирующегося 15м бара (10м→15м), без ожидания 20 мин stale. */
+internal const val PORTFOLIO_M15_LIVE_FORMING_REFETCH_DAYS = 2L
+/** Хвост 15м баров: Z/spread пересчитываются live (игнор persisted) — ~2 ч. */
+internal const val M15_LIVE_Z_TAIL_BARS = 8
+/** Принудительный INCREMENTAL 15м на «Рынок» для живого Z. */
+internal const val MARKETS_M15_Z_FORCE_REFRESH_MS = 5L * 60L * 1000L
+/** Интервал опроса 1м TATN/TATNP на вкладке «Рынок». */
+internal const val MARKETS_INTRADAY_1M_POLL_MS = 15_000L
+/** Debounce перед тяжёлой MOEX 15м догрузкой с UI (не блокировать 1м опрос). */
+internal const val M15_MOEX_UI_CATCHUP_DEBOUNCE_MS = 3_000L
+/** «Realtime» на «Рынок»: только дневной спрэд, не полный refreshData каждые 5 с. */
+internal const val MARKETS_REALTIME_DAILY_REFRESH_MS = 10L * 60L * 1000L
+/** Prod: авто-обновление PnL/цен открытых ног с GetPortfolio на вкладке «Портфель». */
+internal const val PROD_BROKER_PORTFOLIO_POLL_MS = 15_000L
 internal const val TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033
 
 /** Прямая загрузка debug APK (если репозиторий private — нужна авторизация GitHub в браузере, иначе будет 404). */
@@ -126,6 +185,62 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.231 — Fix OTA: проверка подписи/отката перед установкой; кнопки «Удалить» и «Через браузер» при ошибке.
+1.7.230 — «Рынок»: single-flight MOEX 15м refresh; Z/live overlay на базе 255д (parity с монитором).
+1.7.229 — «Рынок»: commitMarketsM15ToUi (store+live Z атомарно); инварианты пайплайна m15_pipe в logcat.
+1.7.228 — Fix «Рынок»: live Z больше не «переезжает» на закрытые 15м бары; формирующаяся свеча только в своём слоте.
+1.7.227 — «Рынок»: формирующаяся 15м свеча (live Z) — жёлтая подсветка и подпись «Формируется»; сигнал только после закрытия бара.
+1.7.226 — Fix шторка монитора: быстрый pulse Z каждые 10 с; тяжёлые сигналы раз в 45 с (rolling Z 255д не блокирует UI).
+1.7.225 — Fix live-сигналы: rolling Z в мониторе (не stale SQLite); догон пропущенных за сегодня; fallback в UI при мёртвом мониторе.
+1.7.224 — Fix «Тест страт.»: Z график = Z симуляции (rolling); маркеры входов/выходов на Z-линии.
+1.7.223 — Fix «Тест страт.»: «Z как live» не пересчитывает Z при непустом журнале (parity с бэктестом).
+1.7.222 — «Тест страт.»: Z-score линией (Compose), без сделок/текущего Z; общая шкала дат с Equity.
+1.7.221 — «Тест страт.»: Z-score и Equity/DD — два отдельных графика (Z сверху, Equity ниже).
+1.7.220 — Fix «Тест страт.»: пороги Z на графике Equity следуют stepper (боевой режим / custom).
+1.7.219 — «Тест страт.»: Z-score + пороги поверх Equity/DD на одном графике; шкала Z справа.
+1.7.218 — Perf «Тест страт.»: быстрый resim (skip Z-recalc live, кэш σ, хвост для маркеров, без CSV на tweak).
+1.7.217 — Fix: Z на «Рынок» = Z в шторке — после MOEX 15m refresh снова 1м overlay.
+1.7.216 — «Тест страт.»: микро-кнопки 44dp (текст выше), Equity до 400dp — под экран Redmi 12 Pro.
+1.7.215 — «Тест страт.»: единая микро-панель (Плечо…−КЗ) + Equity/DD на одном экране; chip-переключатели.
+1.7.214 — «Тест страт.»: компакт UI — Equity выше, Z-график убран; боевой режим/переключатели под спойлер; stepper в одну строку.
+1.7.213 — Fix «Тест страт.»: таблица сделок не пропадает при смене % DD (мягкий stale + resim).
+1.7.212 — «Тест страт.»: money-stop = % DD от счёта (0 = выкл), автосохранение; убран фикс 4000 ₽.
+1.7.211 — «Тест страт.»: убран лимит 80 л; размер позиции только по «Размер счёта» × «% капитала» × плечо.
+1.7.210 — «Тест страт.»: боевой режим симуляции — пороги Портфеля, Z live, комиссия/slip из лога, чеклист parity, CSV meta.
+1.7.209 — «Тест страт.»: пояснение лимита 80 л (PnL 10k≈100k на Prod); переключатель cap; ср. номинал сделки.
+1.7.208 — Fix «Тест страт.»: поле суммы — снятие фокуса, ✓/Done, пересчёт симуляции.
+1.7.207 — «Тест страт.»: «Размер счёта» — ручной ввод суммы (не только +/-), пересчёт симуляции.
+1.7.206 — Fix «Тест страт.»: смена «Размер счёта» / % капитала снова пересчитывает симуляцию.
+1.7.205 — CSV сравнение Prod vs «Тест страт.» (одинаковые столбцы); кнопка на вкладке и в «О приложении».
+1.7.204 — Лог сделок (3 фазы): fill/slip/частично, CSV; «Тест страт.» Prod-like (10k, 80%, lot sizing, slip из лога).
+1.7.203 — «Закрыть все сделки»: не удаляет историю закрытых Prod-сделок; закрытие через closePortfolioOpenTrade.
+1.7.202 — Шторка/red-risk: PnL на Prod из GetPortfolio (expectedYield), как T‑Invest; не MOEX-симуляция ×100k.
+1.7.201 — Обновление APK: проверка целостности, gh-pages зеркало, подпись; fix «Невозможно обработать пакет».
+1.7.200 — Рынок: компактные 1м/Spread/σ; Z-score 1м; защита от вылетов при нестабильной сети.
+1.7.199 — Шторка: live Z из 1м TATN/TATNP; Z-score на «Рынке» — отступ справа как у графика 1м.
+1.7.198 — Рынок 1м: TATN и TATNP на одном линейном графике; отступ справа и текущие цены как у Z-score.
+1.7.197 — Анти-ANR: убран refreshData каждые 5 с; Z из 1м без пересборки графика; MOEX 15м отложенно (tryLock).
+1.7.196 — Z-score на «Рынок»: live пересчёт из 1м TATN/TATNP каждые 15 с (без тяжёлого MOEX 15м); хвост Z-графика обновляется.
+1.7.195 — Z-score: хвост ~2 ч без persisted; live Z в сводке; INCREMENTAL 15м каждые 5 мин; диалог обновления при открытии приложения.
+1.7.194 — Рынок 1м: хвост из 10м MOEX (между минутками), опрос 15 с, no-cache HTTP; Z-хвост в том же цикле.
+1.7.193 — Рынок: 1м опрос каждые 30 с; «Обновить MOEX» тоже тянет 1м; в сводке время 1м и предупреждение о залипании.
+1.7.192 — «О приложении»: скачать журнал в Загрузки / «Сохранить как…» / отправить .txt файлом.
+1.7.191 — Рынок: 1м графики TATN/TATNP (день); журнал [quotes] при новых барах и залипании; догон Z если 1м впереди 15м.
+1.7.190 — Z-score: формирующийся 15м бар пересчитывается каждую минуту (MOEX 10м→15м), не залипает на persisted.
+1.7.189 — Prod закрытые: чистый PnL = Δ денег на счёте; ноги из GetOperations yield (не MTM).
+1.7.188 — Prod «Закрытые»: убраны строки «сигнал» (MOEX-симуляция 100k); только авто/брокер.
+1.7.187 — Prod: PnL закрытых сделок с GetPortfolio (expectedYield на выходе), не симуляция MOEX ×100k.
+1.7.186 — Prod «Портфель»: авто-обновление PnL/цен с боевого счёта каждые 15 с (без кнопки).
+1.7.185 — Prod «Портфель»: котировки и PnL ног с GetPortfolio без ожидания MOEX; быстрый «Обновить».
+1.7.184 — Prod: PnL L/S на «Портфеле» из expectedYield GetPortfolio (как T‑Invest), не пополам от спреда.
+1.7.183 — Prod: лоты пары до 80 — по марже GetMarginAttributes и плечу ×7 (ликвидный портфель), не только cash.
+1.7.182 — Prod: PnL открытой сделки на «Портфеле» без плеча ×7, по реальному номиналу позиции (как в T‑Invest).
+1.7.181 — Prod/Sandbox: лоты пары TATN/TATNP считаются от денег на счёте с резервом под ГО; выход тем же объёмом.
+1.7.180 — Портфель и авто-исполнение показывают режим Prod; тестовые ордера идут в активный контур.
+1.7.179 — Шторка: открытая сделка показывает направление в ID (`1S` Short, `1L` Long).
+1.7.178 — Prod: кнопка «Список боевых счетов» (UsersService/GetAccounts), выбор accountId без PowerShell.
+1.7.177 — Добавлен execution mode Sandbox/Prod: боевые токен+accountId, продовые PostOrder/GetPortfolio, money-stop 4000 ₽ на сделку.
+1.7.176 — Рынок: loadedAt корректно парсит legacy-форматы (в т.ч. `15.05.26 : 22,07`) и не залипает на старом 15м времени.
 1.7.175 — main: шторка Z/сделка + сводка «закр. 2-й дн.»; повторная публикация обновления.
 1.7.174 — Fix: номер сделки в шторке = еженедельный ID из журнала (как на «Портфель»), не D-00x.
 1.7.173 — Шторка: при открытой сделке — номер, время, Z₀, PnL рядом с текущим Z.

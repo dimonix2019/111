@@ -64,6 +64,8 @@ internal fun MoexScreenTabMarkets(
     marketsChartThresholds: DynamicThresholds,
     marketsZStrategyTapMetrics: PortfolioMetrics?,
     dataSourceLabel: MarketsDataSource,
+    marketsFormingBarHint: MarketsFormingBarHint? = null,
+    marketsFormingBarHintText: String? = null,
 ) {
     val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.marketsZChartPeriod) {
         chartInitialWindowForLastCalendarDays(
@@ -136,13 +138,24 @@ internal fun MoexScreenTabMarkets(
                     if (!landscapeZChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
                             ?: chartSuccess?.points?.lastOrNull()
-                        val loadedAtLabel = resolveMarketsLoadedAtLabel(
+                        val displayZ = marketsLiveZScore ?: last?.zScore
+                        val displaySpread = marketsM15SourcePoints.lastOrNull()?.spreadPercent
+                            ?: last?.spreadPercent
+                        val loadedAtLabel = marketsLiveZBarAt?.let { bar ->
+                            runCatching {
+                                java.time.LocalDateTime.parse(bar, portfolio15mLabelFormatter)
+                                    .format(updatedAtFormatter)
+                            }.getOrNull()
+                        } ?: resolveMarketsLoadedAtLabel(
                             m15Points = marketsM15SourcePoints,
                             dailyLoadedAt = chartSuccess?.loadedAt,
                         )
+                        val intraday1mLastAt = formatIntraday1mLastBarLabel(marketsIntraday1mLastBarMillis)
+                            ?: marketsIntraday1mTatn.lastOrNull()?.label
+                        val intraday1mStaleMin = intraday1mLastBarAgeMinutes(marketsIntraday1mLastBarMillis)
                         MarketsSummaryStrip(
-                            z = last?.zScore,
-                            spread = last?.spreadPercent,
+                            z = displayZ,
+                            spread = displaySpread,
                             position = zStrategyPosition,
                             signalsToday = dailySignalLimit.sentCount,
                             signalsMax = DAILY_SIGNAL_MAX_PER_DAY,
@@ -151,7 +164,9 @@ internal fun MoexScreenTabMarkets(
                             stale = staleMarkets,
                             onMoexRefresh = {
                                 scope.launch { refreshData(showLoading = state !is UiState.Success, launchScope = scope, selectedPeriod = selectedPeriod) }
-                            }
+                            },
+                            intraday1mLastAt = intraday1mLastAt,
+                            intraday1mStaleMinutes = intraday1mStaleMin,
                         )
                         if (realtimeError != null && chartSuccess != null) {
                             Text(
@@ -197,6 +212,8 @@ internal fun MoexScreenTabMarkets(
                                         marketsZStrategyTapMetrics
                                     )
                                 },
+                                formingBarHint = marketsFormingBarHint,
+                                formingBarHintText = marketsFormingBarHintText,
                                 emptyContent = {
                                     when {
                                         marketsZScoreCandles.isNotEmpty() -> Unit
@@ -226,6 +243,14 @@ internal fun MoexScreenTabMarkets(
                                 }
                             )
                         } else {
+                        val tatn1m = marketsIntraday1mTatn
+                        val tatnp1m = marketsIntraday1mTatnp
+                        val intraday1mAlignedCount = remember(tatn1m, tatnp1m) {
+                            alignIntraday1mCloseSeries(tatn1m, tatnp1m)?.labels?.size ?: 0
+                        }
+                        val intraday1mWindow = remember(intraday1mAlignedCount, marketsIntraday1mEpoch) {
+                            intraday1mChartInitialWindow(intraday1mAlignedCount, visibleBars = 120)
+                        }
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -348,6 +373,36 @@ internal fun MoexScreenTabMarkets(
                                 onToggle = { realtimeEnabled = !realtimeEnabled }
                             )
                         }
+                        if (tatn1m.isNotEmpty() || tatnp1m.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "1м · сегодня (МСК) · обновление ~1 мин · журнал [quotes] на «О приложении»",
+                                    color = Color(0xFF90CAF9),
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            item {
+                                IntradayQuotesLineChartCard(
+                                    title = "TATN / TATNP · 1м",
+                                    tatn = tatn1m,
+                                    tatnp = tatnp1m,
+                                    initialWindowWidth = intraday1mWindow.first,
+                                    initialWindowStart = intraday1mWindow.second,
+                                )
+                            }
+                            if (marketsM15SourcePoints.size >= Z_SCORE_ROLLING_MIN_BARS) {
+                                item {
+                                    IntradayZScoreLineChartCard(
+                                        title = "Z-score · 1м",
+                                        tatn = tatn1m,
+                                        tatnp = tatnp1m,
+                                        m15Points = marketsM15SourcePoints,
+                                        initialWindowWidth = intraday1mWindow.first,
+                                        initialWindowStart = intraday1mWindow.second,
+                                    )
+                                }
+                            }
+                        }
                         val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()
                         val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isMarketsDataLoadActive)
                         if (showZCharts) {
@@ -362,6 +417,8 @@ internal fun MoexScreenTabMarkets(
                                     tradeSegments = zChartOverlay.tradeSegments,
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
+                                    formingBarHint = marketsFormingBarHint,
+                                    formingBarHintText = marketsFormingBarHintText,
                                 )
                             }
                             item {
@@ -375,7 +432,7 @@ internal fun MoexScreenTabMarkets(
                                         )
                                     ),
                                     labels = marketsM15ChartPoints.map { it.tradeDate },
-                                    chartHeightDp = 208,
+                                    chartHeightDp = MARKETS_SPREAD_CHART_HEIGHT_DP,
                                     rightAxisPercentBase = spreadPercentBaseForChartRightAxis(marketsM15ChartPoints),
                                     yScale = YAxisScale.Auto,
                                     showLegend = false,
@@ -388,7 +445,10 @@ internal fun MoexScreenTabMarkets(
                             }
                             spreadHourlyVolatility?.let { hourlyVolatility ->
                                 item {
-                                    SpreadHourlyVolatilityChartCard(report = hourlyVolatility)
+                                    SpreadHourlyVolatilityChartCard(
+                                        report = hourlyVolatility,
+                                        chartHeightDp = MARKETS_VOLATILITY_CHART_HEIGHT_DP,
+                                    )
                                 }
                             }
                         } else if (waitingM15) {

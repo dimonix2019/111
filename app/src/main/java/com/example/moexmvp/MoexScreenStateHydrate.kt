@@ -49,9 +49,13 @@ internal suspend fun MoexScreenState.hydrateDeferredUiState() {
             dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
             signalEvents = loadStrategySignalEvents(context)
             pushNotificationLog = loadPushNotificationLog(context)
-            sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context)
+            val mode = TinkoffSandboxStorage.getExecutionMode(context)
+            sandboxExecState = TinkoffSandboxStorage.resolveExecUiState(context, mode)
             portfolioLedgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
             executeSignalsOnSandbox = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
             sandboxSpreadAutoExecute = TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)
+            strategyTestAccountSizeRub = loadStrategyTestAccountSizeRub(context)
+            strategyTestCapitalUsagePercent = loadStrategyTestCapitalUsagePercent(context)
+            strategyTestMaxLossDdPercent = loadStrategyTestMaxLossDdPercent(context)
         }
     }

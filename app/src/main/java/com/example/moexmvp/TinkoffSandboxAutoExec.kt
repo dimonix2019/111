@@ -33,31 +33,37 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
         return false
     }
     if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
+    val mode = currentExecutionMode(context)
     val dedupKey = "${signalType.name}|$barTimestampMillis"
     synchronized(autoSpreadDedupLock) {
         val p = context.applicationContext.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
         if (p.getString(KEY_LAST_AUTO, null) == dedupKey) return false
     }
-    when (TinkoffSandboxStorage.resolveExecUiState(context)) {
+    when (TinkoffSandboxStorage.resolveExecUiState(context, mode)) {
         SandboxExecUiState.MissingCredentials -> {
-            notifySandboxAutoEntrySkipped(context, "Укажите токен и счёт песочницы (вкладка «Песочница»).")
+            notifySandboxAutoEntrySkipped(
+                context,
+                "Укажите токен и счёт (${executionModeLabelRu(mode)})."
+            )
             return false
         }
         SandboxExecUiState.Ready -> Unit
         SandboxExecUiState.Off -> Unit
     }
-    val token = TinkoffSandboxStorage.getToken(context) ?: run {
-        notifySandboxAutoEntrySkipped(context, "Нет токена песочницы.")
+    if (TinkoffSandboxStorage.getActiveToken(context, mode) == null) {
+        notifySandboxAutoEntrySkipped(context, "Нет токена (${executionModeLabelRu(mode)}).")
         return false
     }
-    val accountId = TinkoffSandboxStorage.getAccountId(context) ?: run {
-        notifySandboxAutoEntrySkipped(context, "Нет счёта песочницы.")
+    if (TinkoffSandboxStorage.getActiveAccountId(context, mode) == null) {
+        notifySandboxAutoEntrySkipped(context, "Нет счёта (${executionModeLabelRu(mode)}).")
         return false
     }
     val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
     val app = context.applicationContext
     return try {
-        val legs = tinkoffSandboxExecuteSpreadEntryDetailed(token, accountId, signalType)
+        val entry = executeSpreadEntryDetailedForConfiguredMode(app, signalType)
+        val legs = entry.legs
+        val sizing = entry.sizing
         val executedAt = System.currentTimeMillis()
         synchronized(autoSpreadDedupLock) {
             app.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
@@ -79,14 +85,29 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
             entrySpreadPercent = entrySpreadPercent,
             source = PortfolioExecSource.AUTO,
             legs = legs,
-            fromTestButton = fromTestButton
+            fromTestButton = fromTestButton,
+            quantityLots = sizing.quantityLots,
+            executionNotionalRub = sizing.executionNotionalRub,
         )
         execution?.let { opened ->
             val lastLeg = legs.lastOrNull()
+            TradeExecutionLog.recordSpreadLegFills(
+                context = app,
+                tradeId = opened.tradeId,
+                phase = TradeExecPhase.Entry,
+                legs = legs,
+                executionMode = mode,
+                signalBarMillis = barTimestampMillis,
+                zScore = zScore,
+                refTatnPriceRub = sizing.priceTatN,
+                refTatnpPriceRub = sizing.priceTatNp,
+                refSpreadPercent = entrySpreadPercent,
+                source = "auto_entry",
+            )
             notifySandboxTradeOpened(
                 context = app,
                 execution = opened,
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                notionalRub = sizing.executionNotionalRub,
                 leverage = leverage,
                 portfolioTotalRub = lastLeg?.portfolioTotalRub,
                 portfolioCashRub = lastLeg?.portfolioCashRub,
@@ -119,6 +140,7 @@ internal suspend fun runSandboxAutoExitIfNeeded(
         return false
     }
     if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
+    val mode = currentExecutionMode(context)
     val dedupKey = "${exitSignalType.name}|$barTimestampMillis"
     synchronized(autoSpreadDedupLock) {
         val p = context.applicationContext.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
@@ -128,26 +150,55 @@ internal suspend fun runSandboxAutoExitIfNeeded(
         TinkoffSandboxSpreadExecLog.loadRecent(context),
         exitSignalType,
     ) ?: return false
-    when (TinkoffSandboxStorage.resolveExecUiState(context)) {
+    when (TinkoffSandboxStorage.resolveExecUiState(context, mode)) {
         SandboxExecUiState.MissingCredentials -> {
-            notifySandboxAutoExitSkipped(context, "Укажите токен и счёт песочницы (вкладка «Песочница»).")
+            notifySandboxAutoExitSkipped(
+                context,
+                "Укажите токен и счёт (${executionModeLabelRu(mode)})."
+            )
             return false
         }
         SandboxExecUiState.Ready -> Unit
         SandboxExecUiState.Off -> Unit
     }
-    val token = TinkoffSandboxStorage.getToken(context) ?: run {
-        notifySandboxAutoExitSkipped(context, "Нет токена песочницы.")
+    if (TinkoffSandboxStorage.getActiveToken(context, mode) == null) {
+        notifySandboxAutoExitSkipped(context, "Нет токена (${executionModeLabelRu(mode)}).")
         return false
     }
-    val accountId = TinkoffSandboxStorage.getAccountId(context) ?: run {
-        notifySandboxAutoExitSkipped(context, "Нет счёта песочницы.")
+    if (TinkoffSandboxStorage.getActiveAccountId(context, mode) == null) {
+        notifySandboxAutoExitSkipped(context, "Нет счёта (${executionModeLabelRu(mode)}).")
         return false
     }
     val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
     val app = context.applicationContext
     return try {
-        val legs = tinkoffSandboxExecuteSpreadExitDetailed(token, accountId, openTrade.signalType)
+        val brokerBeforeClose = if (mode == TinkoffExecutionMode.Prod) {
+            loadProdSpreadLegBrokerPnl(app, openTrade.signalType)
+        } else {
+            null
+        }
+        val legs = executeSpreadExitDetailedForConfiguredMode(
+            app,
+            openTrade.signalType,
+            openTrade.quantityLots,
+        )
+        if (legs.isNotEmpty()) {
+            val bar = loadZStrategySignalSeries(app, PortfolioM15LoadMode.CACHE_ONLY)
+                .minByOrNull { kotlin.math.abs(it.timestampMillis - barTimestampMillis) }
+            TradeExecutionLog.recordSpreadLegFills(
+                context = app,
+                tradeId = openTrade.tradeId,
+                phase = TradeExecPhase.Exit,
+                legs = legs,
+                executionMode = mode,
+                signalBarMillis = barTimestampMillis,
+                zScore = zScore,
+                refTatnPriceRub = bar?.tatnClose,
+                refTatnpPriceRub = bar?.tatnpClose,
+                refSpreadPercent = bar?.spreadPercent,
+                source = "auto_exit",
+            )
+        }
         synchronized(autoSpreadDedupLock) {
             app.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_LAST_AUTO_EXIT, dedupKey).commit()
@@ -159,6 +210,18 @@ internal suspend fun runSandboxAutoExitIfNeeded(
             exitZScore = zScore,
             exitTimestampMillis = barTimestampMillis,
         ).getOrThrow()
+        val closedRecord = if (mode == TinkoffExecutionMode.Prod) {
+            recordProdClosedTradeAfterExit(
+                context = app,
+                execution = openTrade,
+                exitLegs = legs,
+                exitTimestampMillis = barTimestampMillis,
+                exitZScore = zScore,
+                mtmBeforeClose = brokerBeforeClose,
+            )
+        } else {
+            null
+        }
         notifySandboxTradeClosedAfterClose(
             context = app,
             execution = openTrade,
@@ -166,8 +229,10 @@ internal suspend fun runSandboxAutoExitIfNeeded(
             exitBarTimestampMillis = barTimestampMillis,
             exitZScore = zScore,
             exitLegs = legs,
-            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+            notionalRub = tradeExecutionNotionalRub(openTrade, DEFAULT_PORTFOLIO_NOTIONAL_RUB),
             leverage = leverage,
+            closedRecord = closedRecord,
+            brokerPnlBeforeClose = brokerBeforeClose,
         )
         true
     } catch (e: Exception) {
@@ -180,18 +245,20 @@ internal suspend fun runSandboxAutoExitIfNeeded(
 }
 
 private fun notifySandboxAutoEntrySkipped(context: Context, reason: String) {
+    val mode = currentExecutionMode(context)
     showPushNotification(
         context = context,
-        title = "Песочница: авто-вход не выполнен",
+        title = "${mode.titleRu}: авто-вход не выполнен",
         body = reason,
         virtualTradeTap = null
     )
 }
 
 private fun notifySandboxAutoExitSkipped(context: Context, reason: String) {
+    val mode = currentExecutionMode(context)
     showPushNotification(
         context = context,
-        title = "Песочница: авто-выход не выполнен",
+        title = "${mode.titleRu}: авто-выход не выполнен",
         body = reason,
         virtualTradeTap = null
     )

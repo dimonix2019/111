@@ -41,7 +41,9 @@ internal fun MarketsSummaryStrip(
     lastLoadedAt: String?,
     dataSource: MarketsDataSource,
     stale: Boolean,
-    onMoexRefresh: () -> Unit
+    onMoexRefresh: () -> Unit,
+    intraday1mLastAt: String? = null,
+    intraday1mStaleMinutes: Long? = null,
 ) {
     Column(
         modifier = Modifier
@@ -82,6 +84,24 @@ internal fun MarketsSummaryStrip(
             color = Color(0xFFB3E5FC),
             fontSize = 12.sp
         )
+        if (!intraday1mLastAt.isNullOrBlank()) {
+            val stale1m = intraday1mStaleMinutes != null && intraday1mStaleMinutes > 3L
+            Text(
+                text = buildString {
+                    append("1м котировки: $intraday1mLastAt")
+                    if (intraday1mStaleMinutes != null) append(" (${intraday1mStaleMinutes} мин назад)")
+                },
+                color = if (stale1m) Color(0xFFFFAB91) else Color(0xFF80CBC4),
+                fontSize = 12.sp
+            )
+            if (stale1m) {
+                Text(
+                    text = "1м ряд не обновляется — проверьте сеть/VPN или нажмите «Обновить MOEX».",
+                    color = Color(0xFFFFAB91),
+                    fontSize = 11.sp
+                )
+            }
+        }
         Text(
             text = "Сигналы сегодня: $signalsToday / $signalsMax",
             color = Color(0xFFFFCC80),

@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 import java.time.LocalDate
 
@@ -15,6 +16,7 @@ class MoexJune1011ParityTest {
 
     private val thresholds = DynamicThresholds(entry = 0.7, exit = 0.5, calculatedDate = null)
 
+    @Ignore("Live MOEX ISS parity; run manually when June 10–11 data stable")
     @Test
     fun june1011_guardedSim_matchesJournalCoreShortRoundTrips() = runBlocking {
         val from = LocalDate.of(2026, 3, 1)
@@ -30,6 +32,11 @@ class MoexJune1011ParityTest {
             periodDescription = "june1011-parity",
         ) ?: error("metrics")
 
+        val juneShorts = metrics.closedTrades.filter {
+            it.direction == ZStrategyPosition.Short &&
+                (it.entryDate.startsWith("2026-06-10") || it.entryDate.startsWith("2026-06-11"))
+        }
+
         assertFalse(
             metrics.closedTrades.any {
                 it.direction == ZStrategyPosition.Short && it.entryDate == "2026-06-10 18:00"
@@ -41,10 +48,6 @@ class MoexJune1011ParityTest {
         }
         assertTrue("unexpected ~19h trade: $longHold", longHold == null)
 
-        val juneShorts = metrics.closedTrades.filter {
-            it.direction == ZStrategyPosition.Short &&
-                (it.entryDate.startsWith("2026-06-10") || it.entryDate.startsWith("2026-06-11"))
-        }
         assertEquals(4, juneShorts.size)
 
         val byEntry = juneShorts.associateBy { it.entryDate }

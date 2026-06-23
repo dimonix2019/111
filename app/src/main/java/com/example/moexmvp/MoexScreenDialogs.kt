@@ -109,8 +109,9 @@ internal fun MoexScreenDialogs(
             title = { Text("Закрыть все сделки", color = Color.White) },
             text = {
                 Text(
-                    "Отправить обратные заявки на демо-счёте (если позиция открыта), записать выход в журнал, " +
-                        "очистить список исполнений портфеля и сбросить локальную позицию Z в FLAT. Журнал сигналов не очищается.",
+                    "Закрыть открытые позиции на ${executionAccountShortRu(executionMode)} (если включено исполнение), " +
+                        "записать выход в журнал, сбросить открытые исполнения и локальную позицию Z в FLAT. " +
+                        "Закрытые сделки и журнал сигналов сохраняются.",
                     color = Color(0xFFE0E0E0),
                     fontSize = 13.sp
                 )
@@ -122,66 +123,79 @@ internal fun MoexScreenDialogs(
                         closeAllPortfolioBusy = true
                         scope.launch {
                             try {
-                                val pos = withContext(Dispatchers.IO) { loadSavedStrategyPosition(context) }
-                                val entrySignal = when (pos) {
-                                    ZStrategyPosition.Long -> StrategySignalType.EnterLong
-                                    ZStrategyPosition.Short -> StrategySignalType.EnterShort
-                                    ZStrategyPosition.Flat -> null
-                                }
-                                val tok = TinkoffSandboxStorage.getToken(context)
-                                val acc = TinkoffSandboxStorage.getAccountId(context)
-                                if (entrySignal != null &&
-                                    TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context) &&
-                                    !tok.isNullOrBlank() &&
-                                    !acc.isNullOrBlank()
-                                ) {
-                                    withContext(Dispatchers.IO) {
+                                withContext(Dispatchers.IO) {
+                                    val opens = TinkoffSandboxSpreadExecLog.loadRecent(context)
+                                        .filter {
+                                            it.signalType == StrategySignalType.EnterLong ||
+                                                it.signalType == StrategySignalType.EnterShort
+                                        }
+                                    for (open in opens) {
+                                        runCatching { closePortfolioOpenTrade(context, open).getOrThrow() }
+                                            .onFailure { e ->
+                                                MoexDiagnostics.logError(
+                                                    context,
+                                                    "portfolio",
+                                                    e,
+                                                    "close_all trade=${open.tradeId}",
+                                                )
+                                            }
+                                    }
+                                    val pos = loadSavedStrategyPosition(context)
+                                    val entrySignal = when (pos) {
+                                        ZStrategyPosition.Long -> StrategySignalType.EnterLong
+                                        ZStrategyPosition.Short -> StrategySignalType.EnterShort
+                                        ZStrategyPosition.Flat -> null
+                                    }
+                                    if (entrySignal != null &&
+                                        opens.none { it.signalType == entrySignal }
+                                    ) {
+                                        val openTrade = sandboxSpreadExecutions
+                                            .filter { it.signalType == entrySignal }
+                                            .maxByOrNull { it.barTimestampMillis }
                                         runCatching {
-                                            tinkoffSandboxExecuteSpreadExitDetailed(tok, acc, entrySignal)
+                                            executeSpreadExitIfConfigured(
+                                                context,
+                                                entrySignal,
+                                                openTrade?.quantityLots ?: 1,
+                                            )
+                                        }
+                                        val (tsExit, lastZ) = run {
+                                            val till = LocalDate.now(moexZoneId)
+                                            val pts = loadPortfolio15mDataPoints(
+                                                context,
+                                                till.minusDays(3),
+                                                till,
+                                                PortfolioM15LoadMode.INCREMENTAL,
+                                            )
+                                            val lastPt = pts.lastOrNull()
+                                            Pair(
+                                                lastPt?.timestampMillis ?: System.currentTimeMillis(),
+                                                lastPt?.zScore ?: 0.0,
+                                            )
+                                        }
+                                        val exitSignal = when (entrySignal) {
+                                            StrategySignalType.EnterLong -> StrategySignalType.ExitLong
+                                            StrategySignalType.EnterShort -> StrategySignalType.ExitShort
+                                            else -> null
+                                        }
+                                        if (exitSignal != null) {
+                                            recordStrategySignalEvent(
+                                                context = context,
+                                                signalType = exitSignal,
+                                                zScore = lastZ,
+                                                timestampMillis = tsExit,
+                                                skipJournalWallDedup = true,
+                                                savePendingVirtualTradeIfEntry = false,
+                                            )
                                         }
                                     }
-                                }
-                                val (tsExit, lastZ) = withContext(Dispatchers.IO) {
-                                    val till = LocalDate.now(moexZoneId)
-                                    val pts = loadPortfolio15mDataPoints(
-                                        context,
-                                        till.minusDays(3),
-                                        till,
-                                        PortfolioM15LoadMode.INCREMENTAL
-                                    )
-                                    val lastPt = pts.lastOrNull()
-                                    Pair(
-                                        lastPt?.timestampMillis ?: System.currentTimeMillis(),
-                                        lastPt?.zScore ?: 0.0
-                                    )
-                                }
-                                when (pos) {
-                                    ZStrategyPosition.Long -> {
-                                        recordStrategySignalEvent(
-                                            context = context,
-                                            signalType = StrategySignalType.ExitLong,
-                                            zScore = lastZ,
-                                            timestampMillis = tsExit,
-                                            skipJournalWallDedup = true,
-                                            savePendingVirtualTradeIfEntry = false
-                                        )
-                                    }
-                                    ZStrategyPosition.Short -> {
-                                        recordStrategySignalEvent(
-                                            context = context,
-                                            signalType = StrategySignalType.ExitShort,
-                                            zScore = lastZ,
-                                            timestampMillis = tsExit,
-                                            skipJournalWallDedup = true,
-                                            savePendingVirtualTradeIfEntry = false
-                                        )
-                                    }
-                                    ZStrategyPosition.Flat -> Unit
                                 }
                                 saveStrategyPosition(context, ZStrategyPosition.Flat)
                                 zStrategyPosition = ZStrategyPosition.Flat
                                 clearPortfolioExecutionLedger(context)
-                                TinkoffSandboxSpreadExecLog.clear(context)
+                                withContext(Dispatchers.IO) {
+                                    TinkoffSandboxSpreadExecLog.clearOpenExecutions(context)
+                                }
                                 clearSandboxAutoSpreadDedup(context)
                                 clearConsumed15mStrategySignalEdge(context)
                                 clearPendingVirtualTradeProposal(context)
@@ -189,7 +203,11 @@ internal fun MoexScreenDialogs(
                                 signalEvents = loadStrategySignalEvents(context)
                                 sandboxSpreadExecReload++
                                 refreshPortfolio(null)
-                                Toast.makeText(context, "Портфель сделок сброшен.", Toast.LENGTH_LONG).show()
+                                Toast.makeText(
+                                    context,
+                                    "Открытые сделки закрыты; история закрытых сохранена.",
+                                    Toast.LENGTH_LONG,
+                                ).show()
                             } catch (e: Exception) {
                                 Toast.makeText(
                                     context,

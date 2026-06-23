@@ -40,10 +40,11 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             savePendingVirtualTradeIfEntry = true
         )
         val execState = TinkoffSandboxStorage.resolveExecUiState(app)
+        val mode = currentExecutionMode(app)
         if (execState != SandboxExecUiState.Ready) {
             return@runCatching PortfolioTestEntrySignalResult(
                 toastMessage = "Тестовый сигнал $dir: журнал и позиция Z (Z=$zText). " +
-                    "Укажите токен и счёт песочницы, чтобы отправлялись ордера.",
+                    "Укажите токен и счёт (${executionSettingsHintRu(mode)}).",
                 sandboxSpreadExecReloadDelta = 0
             )
         }
@@ -58,7 +59,7 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             )
             return@runCatching if (ran) {
                 PortfolioTestEntrySignalResult(
-                    toastMessage = "Тестовый $dir: авто-вход на демо — 2 ордера (Z=$zText).",
+                    toastMessage = "Тестовый $dir: авто-вход на ${executionAccountShortRu(mode)} (Z=$zText).",
                     sandboxSpreadExecReloadDelta = 1
                 )
             } else {
@@ -78,8 +79,9 @@ internal suspend fun runPortfolioTestEntrySignalFull(
             fromTestButton = true
         )
         r.getOrThrow()
+        val lots = TinkoffSandboxSpreadExecLog.loadRecent(app).lastOrNull()?.quantityLots ?: 1
         PortfolioTestEntrySignalResult(
-            toastMessage = "Тестовый $dir: 2 ордера на демо (Z=$zText).",
+            toastMessage = "Тестовый $dir: 2×$lots лот на ${executionAccountShortRu(mode)} (Z=$zText).",
             sandboxSpreadExecReloadDelta = 1
         )
     }
@@ -102,8 +104,10 @@ internal suspend fun executeTestSandboxSpreadPair(
     runCatching {
         require(signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
         val app = context.applicationContext
-        when (TinkoffSandboxStorage.resolveExecUiState(app)) {
-            SandboxExecUiState.MissingCredentials -> error("Укажите токен и счёт песочницы (вкладка «Песочница»).")
+        val mode = currentExecutionMode(app)
+        when (TinkoffSandboxStorage.resolveExecUiState(app, mode)) {
+            SandboxExecUiState.MissingCredentials ->
+                error("Укажите токен и счёт (${executionSettingsHintRu(mode)}).")
             SandboxExecUiState.Ready -> Unit
             SandboxExecUiState.Off -> Unit
         }
@@ -127,9 +131,9 @@ internal suspend fun executeTestSandboxSpreadPair(
         } else {
             entrySpreadPercent ?: resolveSpreadPercentAtBar(app, barTs, market.spreadPercent)
         }
-        val tok = TinkoffSandboxStorage.getToken(app) ?: error("Нет токена.")
-        val acc = TinkoffSandboxStorage.getAccountId(app) ?: error("Нет счёта.")
-        val legs = tinkoffSandboxExecuteSpreadEntryDetailed(tok, acc, signalType)
+        val entry = executeSpreadEntryDetailedForConfiguredMode(app, signalType)
+        val legs = entry.legs
+        val sizing = entry.sizing
         val executedAt = System.currentTimeMillis()
         markVirtualTradeConsumedForJournalEntry(app, signalType, barTs)
         appendPortfolioExecutionLedger(
@@ -170,14 +174,16 @@ internal suspend fun executeTestSandboxSpreadPair(
             entrySpreadPercent = entrySpread,
             source = PortfolioExecSource.MANUAL,
             legs = legs,
-            fromTestButton = fromTestButton
+            fromTestButton = fromTestButton,
+            quantityLots = sizing.quantityLots,
+            executionNotionalRub = sizing.executionNotionalRub,
         )
         if (execution != null) {
             val lastLeg = legs.lastOrNull()
             notifySandboxTradeOpened(
                 context = app,
                 execution = execution,
-                notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
+                notionalRub = sizing.executionNotionalRub,
                 leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(app),
                 portfolioTotalRub = lastLeg?.portfolioTotalRub,
                 portfolioCashRub = lastLeg?.portfolioCashRub,
@@ -218,10 +224,11 @@ internal suspend fun runPortfolioTestSpreadPairFull(
             savePendingVirtualTradeIfEntry = !autoMode
         )
         val execState = TinkoffSandboxStorage.resolveExecUiState(app)
+        val mode = currentExecutionMode(app)
         if (execState != SandboxExecUiState.Ready) {
             return@runCatching PortfolioTestEntrySignalResult(
                 toastMessage = "Тестовая пара $dir: журнал и позиция Z (Z=$zText). " +
-                    "Укажите токен и счёт песочницы (вкладка «Песочница»).",
+                    "Укажите токен и счёт (${executionSettingsHintRu(mode)}).",
                 sandboxSpreadExecReloadDelta = 0
             )
         }
@@ -236,7 +243,7 @@ internal suspend fun runPortfolioTestSpreadPairFull(
             )
             return@runCatching if (ran) {
                 PortfolioTestEntrySignalResult(
-                    toastMessage = "Тестовая пара $dir: авто-вход на демо — 2 ордера (Z=$zText).",
+                    toastMessage = "Тестовая пара $dir: авто-вход на ${executionAccountShortRu(mode)} — 2 ордера (Z=$zText).",
                     sandboxSpreadExecReloadDelta = 1
                 )
             } else {

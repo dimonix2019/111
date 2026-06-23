@@ -35,8 +35,45 @@ internal suspend fun closePortfolioOpenTrade(
         StrategySignalType.EnterShort -> StrategySignalType.ExitShort
         else -> error("unreachable")
     }
-    val legs = executeSandboxSpreadExitIfConfigured(context, entrySignal)
+    val mode = currentExecutionMode(context)
+    val brokerBeforeClose = if (mode == TinkoffExecutionMode.Prod) {
+        loadProdSpreadLegBrokerPnl(context, entrySignal)
+    } else {
+        null
+    }
+    val legs = executeSpreadExitIfConfigured(context, entrySignal, execution.quantityLots)
+    val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
     val (exitTs, exitZ) = resolveExitBarForPortfolioClose(context, execution, null, null)
+    if (legs.isNotEmpty()) {
+        val app = context.applicationContext
+        val bar = loadZStrategySignalSeries(app, PortfolioM15LoadMode.CACHE_ONLY)
+            .minByOrNull { kotlin.math.abs(it.timestampMillis - exitTs) }
+        TradeExecutionLog.recordSpreadLegFills(
+            context = app,
+            tradeId = execution.tradeId,
+            phase = TradeExecPhase.Exit,
+            legs = legs,
+            executionMode = mode,
+            signalBarMillis = exitTs,
+            zScore = exitZ,
+            refTatnPriceRub = bar?.tatnClose,
+            refTatnpPriceRub = bar?.tatnpClose,
+            refSpreadPercent = bar?.spreadPercent,
+            source = "portfolio_close",
+        )
+    }
+    val closedRecord = if (mode == TinkoffExecutionMode.Prod) {
+        recordProdClosedTradeAfterExit(
+            context = context,
+            execution = execution,
+            exitLegs = legs,
+            exitTimestampMillis = exitTs,
+            exitZScore = exitZ,
+            mtmBeforeClose = brokerBeforeClose,
+        )
+    } else {
+        null
+    }
     finalizePortfolioOpenTradeClose(
         context = context,
         execution = execution,
@@ -51,6 +88,10 @@ internal suspend fun closePortfolioOpenTrade(
         exitBarTimestampMillis = exitTs,
         exitZScore = exitZ,
         exitLegs = legs,
+        notionalRub = tradeExecutionNotionalRub(execution, DEFAULT_PORTFOLIO_NOTIONAL_RUB),
+        leverage = leverage,
+        closedRecord = closedRecord,
+        brokerPnlBeforeClose = brokerBeforeClose,
     )
     "Сделка ${execution.tradeId} закрыта"
 }
@@ -111,17 +152,19 @@ internal suspend fun finalizePortfolioOpenTradeClose(
     }
 }
 
-internal suspend fun executeSandboxSpreadExitIfConfigured(
+internal suspend fun executeSpreadExitIfConfigured(
     context: Context,
     entrySignal: StrategySignalType,
+    quantityLots: Int = 1,
 ): List<SandboxLegOrderResult> {
-    val tok = TinkoffSandboxStorage.getToken(context)
-    val acc = TinkoffSandboxStorage.getAccountId(context)
+    val mode = currentExecutionMode(context)
+    val tok = TinkoffSandboxStorage.getActiveToken(context, mode)
+    val acc = TinkoffSandboxStorage.getActiveAccountId(context, mode)
     if (TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context) &&
         !tok.isNullOrBlank() &&
         !acc.isNullOrBlank()
     ) {
-        return tinkoffSandboxExecuteSpreadExitDetailed(tok, acc, entrySignal)
+        return executeSpreadExitDetailedForConfiguredMode(context, entrySignal, quantityLots)
     }
     return emptyList()
 }
@@ -136,6 +179,8 @@ internal suspend fun notifySandboxTradeClosedAfterClose(
     notionalRub: Double = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
     leverage: Double = TinkoffSandboxStorage.getSandboxNotifyLeverage(context),
     commissionPercentPerSide: Double = 0.04,
+    brokerPnlBeforeClose: SpreadLegBrokerPnl? = null,
+    closedRecord: ProdClosedSpreadExecRecord? = null,
 ) {
     val app = context.applicationContext
     val exitSpread = resolveSpreadPercentAtBar(app, exitBarTimestampMillis, execution.entrySpreadPercent)
@@ -143,15 +188,27 @@ internal suspend fun notifySandboxTradeClosedAfterClose(
     val exitDate = portfolioDateLabelFromMskTableTime(
         formatPortfolioExecutionTableMsk(exitBarTimestampMillis)
     )
-    val pnl = computeSandboxClosedTradePnl(
-        execution = execution,
-        exitSpreadPercent = exitSpread,
-        entryDateLabel = entryDate,
-        exitDateLabel = exitDate,
-        notionalRub = notionalRub,
-        leverage = leverage,
-        commissionPercentPerSide = commissionPercentPerSide,
-    )
+    val pnl = when {
+        closedRecord != null -> computeProdClosedTradePnl(closedRecord, commissionPercentPerSide)
+        brokerPnlBeforeClose != null &&
+            currentExecutionMode(app) == TinkoffExecutionMode.Prod -> {
+            computeProdClosedTradePnlFromBroker(
+                execution = execution,
+                brokerPnl = brokerPnlBeforeClose,
+                exitTimestampMillis = exitBarTimestampMillis,
+                commissionPercentPerSide = commissionPercentPerSide,
+            )
+        }
+        else -> computeSandboxClosedTradePnl(
+            execution = execution,
+            exitSpreadPercent = exitSpread,
+            entryDateLabel = entryDate,
+            exitDateLabel = exitDate,
+            notionalRub = notionalRub,
+            leverage = leverage,
+            commissionPercentPerSide = commissionPercentPerSide,
+        )
+    }
     val accountTotalPnlRub = SandboxAccountPnlLedger.addClosedTradeNetPnlRub(app, pnl.netRub)
     val lastLeg = exitLegs.lastOrNull()
     notifySandboxTradeClosed(

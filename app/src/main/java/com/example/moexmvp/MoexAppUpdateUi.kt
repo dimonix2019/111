@@ -121,6 +121,19 @@ internal fun AppUpdateDialogHost(
                             Text("Открыть в браузере", color = Color(0xFF64B5F6))
                         }
                     }
+                    if (err.contains("Подпись APK") || err.contains("не совпадает")) {
+                        TextButton(onClick = { openAppDetailsSettings(context) }) {
+                            Text("Удалить приложение", color = Color(0xFFFF8A80))
+                        }
+                        TextButton(onClick = { openAppUpdateInBrowser(context) }) {
+                            Text("Скачать APK в браузере", color = Color(0xFF64B5F6))
+                        }
+                    }
+                    if (err.contains("не новее установленной") || err.contains("versionCode")) {
+                        TextButton(onClick = { openAppUpdateInBrowser(context) }) {
+                            Text("Проверить Release", color = Color(0xFF64B5F6))
+                        }
+                    }
                 }
                 if (!canInstall && sentToInstallSettings) {
                     Text(
@@ -182,7 +195,13 @@ internal fun AppUpdateDialogHost(
                                             }
                                         }
                                     }
-                                    readyApk = dest
+                                    when (val validation = validateDownloadedAppUpdateApk(context, dest)) {
+                                        is AppUpdateApkValidation.Valid -> readyApk = dest
+                                        is AppUpdateApkValidation.Failed -> {
+                                            dest.delete()
+                                            errorText = validation.message
+                                        }
+                                    }
                                     downloading = false
                                 } catch (e: Exception) {
                                     downloading = false
@@ -226,17 +245,21 @@ internal fun AppUpdateDialogHost(
     )
 }
 
-/** Фоновая проверка: push-уведомление раз в versionCode; диалог — только вручную или по тапу push. */
+/** Фоновая проверка: push + диалог при открытом приложении (раз в versionCode push). */
 @Composable
 internal fun AppUpdateBackgroundChecker(
     enabled: Boolean = true,
+    onUpdateFound: ((AppRemoteUpdate) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     LaunchedEffect(enabled) {
         if (!enabled) return@LaunchedEffect
         while (true) {
-            withContext(Dispatchers.IO) {
+            val remote = withContext(Dispatchers.IO) {
                 checkRemoteAppUpdateAndNotify(context)
+            }
+            if (remote != null) {
+                onUpdateFound?.invoke(remote)
             }
             delay(APP_UPDATE_CHECK_INTERVAL_MS)
         }

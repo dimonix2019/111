@@ -13,16 +13,49 @@ internal data class StrategyTestVisibleSnapshot(
     val spreadHourlyVolatility: SpreadHourlyVolatilityReport?,
 )
 
+/** Fingerprint 15м ряда «Тест страт.» (без порогов sim) — для кэша hourly vol. */
+internal fun strategyTestM15DataFingerprint(points: List<DataPoint>): Long {
+    if (points.size < 2) return 0L
+    var key = points.size.toLong()
+    key = key * 31 + points.first().timestampMillis
+    key = key * 31 + points.last().timestampMillis
+    return key
+}
+
+internal fun MoexScreenState.resolveStrategyTestSpreadHourlyVolatility(
+    chartTail: List<DataPoint>,
+): SpreadHourlyVolatilityReport? {
+    val dataKey = strategyTestM15DataFingerprint(strategyTestM15SessionCache)
+    if (dataKey != 0L && dataKey == strategyTestHourlyVolCacheKey && strategyTestHourlyVolCache != null) {
+        return strategyTestHourlyVolCache
+    }
+    val report = buildSpreadHourlyVolatilityReport(chartTail)
+    if (dataKey != 0L) {
+        strategyTestHourlyVolCacheKey = dataKey
+        strategyTestHourlyVolCache = report
+    }
+    return report
+}
+
+internal fun MoexScreenState.clearStrategyTestHourlyVolCache() {
+    strategyTestHourlyVolCacheKey = 0L
+    strategyTestHourlyVolCache = null
+}
+
 internal fun MoexScreenState.strategyTestSimulationKey(): Long {
-    val entry = (strategyTestEntryThreshold ?: dynamicThresholds.entry)
-        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-    val exit = (strategyTestExitThreshold ?: dynamicThresholds.exit)
-        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+    val thresholds = resolveStrategyTestSimThresholds()
+    val entry = thresholds.entry
+    val exit = thresholds.exit
     var hash = 17L
     hash = 31 * hash + entry.toBits()
     hash = 31 * hash + exit.toBits()
     hash = 31 * hash + portfolioLeverage.toBits()
     hash = 31 * hash + portfolioCommissionPercent.toBits()
+    hash = 31 * hash + strategyTestAccountSizeRub.toBits()
+    hash = 31 * hash + strategyTestCapitalUsagePercent.toBits()
+    hash = 31 * hash + strategyTestMaxLossDdPercent.toBits()
+    hash = 31 * hash + strategyTestUsePortfolioThresholds.hashCode()
+    hash = 31 * hash + strategyTestUseLiveZSignals.hashCode()
     hash = 31 * hash + strategyTestCompoundReturns.hashCode()
     hash = 31 * hash + strategyTestM15SessionCache.size
     hash = 31 * hash + (strategyTestM15SessionCache.firstOrNull()?.timestampMillis ?: 0L)
@@ -88,6 +121,7 @@ internal fun buildStrategyTestVisibleAnalytics(
     chartPoints: List<DataPoint>,
     m15PointsForRisk: List<DataPoint>,
     entryThreshold: Double,
+    spreadHourlyVolatility: SpreadHourlyVolatilityReport? = null,
 ): StrategyTestVisibleAnalytics {
     val closedTrades = metrics.closedTrades
     val tradeItems = buildStrategyTestTradeListFromSimulation(closedTrades)
@@ -114,7 +148,8 @@ internal fun buildStrategyTestVisibleAnalytics(
             notionalRub = metrics.notionalRub,
             tradeRiskAssessments = tradeRiskAssessments,
         ),
-        spreadHourlyVolatility = buildSpreadHourlyVolatilityReport(chartPoints),
+        spreadHourlyVolatility = spreadHourlyVolatility
+            ?: buildSpreadHourlyVolatilityReport(chartPoints),
     )
 }
 

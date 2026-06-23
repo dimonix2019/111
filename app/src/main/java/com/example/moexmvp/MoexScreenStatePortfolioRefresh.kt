@@ -75,18 +75,45 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
             portfolioLedgerIncludeAuto = ledgerIncludeAuto,
+            pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage),
         )
     }
-    val mergedClosed = mergeClosedPortfolioTableRows(executed.tableRows, closedFromOpens)
+    val prodBrokerClosed = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+        withContext(Dispatchers.IO) {
+            buildClosedRowsFromProdBrokerLog(
+                records = TinkoffClosedSpreadExecLog.loadRecent(context),
+                journalEvents = eventsAll,
+                pushLog = pushLog,
+                commissionPercentPerSide = portfolioCommissionPercent,
+            )
+        }
+    } else {
+        emptyList()
+    }
+    val mergedClosed = mergePortfolioClosedTableRowsForMode(
+        mode = currentExecutionMode(context),
+        fromReplay = executed.tableRows,
+        fromOpens = closedFromOpens,
+        fromProdBroker = prodBrokerClosed,
+    )
     confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
         mergedClosed,
         ledgerIncludeAuto,
+        executionMode = currentExecutionMode(context),
     )
+    val modeFiltered = filterSandboxExecutionsByPortfolioMode(
+        opensAfterJournalClose,
+        ledgerIncludeAuto,
+    )
+    val brokerLegPnl = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+        modeFiltered.firstOrNull()?.signalType?.let { signal ->
+            withContext(Dispatchers.IO) { loadProdSpreadBrokerSnapshot(context, signal) }
+        }
+    } else {
+        null
+    }
+    val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage)
     sandboxSpreadExecutions = withContext(Dispatchers.IO) {
-        val modeFiltered = filterSandboxExecutionsByPortfolioMode(
-            opensAfterJournalClose,
-            ledgerIncludeAuto,
-        )
         TinkoffSandboxSpreadExecLog.enrichForDisplay(
             context = context,
             executions = modeFiltered,
@@ -95,15 +122,14 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
             journalEvents = eventsAll,
+            pnlLeverage = pnlLeverage,
+            brokerLegPnl = brokerLegPnl,
         )
     }
-    portfolioError = if (portfolio15mSeriesIntradayStale(portfolioM15Points.ifEmpty { points })) {
-        val todayMsk = LocalDate.now(moexZoneId)
-        "15м ряд обрывается на ${points.last().tradeDate} (сегодня МСК $todayMsk, нужны свежие бары с MOEX). " +
-            "Нажмите «Обновить» или «MOEX заново» при сети."
-    } else {
-        null
-    }
+    portfolioError = portfolioStaleMoexWarning(
+        points = portfolioM15Points.ifEmpty { points },
+        prodBrokerPnlReady = brokerLegPnl != null,
+    )
     portfolioTabUiBuiltKey = portfolioTabUiSessionKey()
 }
 
@@ -112,10 +138,15 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
  * MOEX INCREMENTAL — только если хвост устарел.
  */
 internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
+    if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+        refreshProdOpenTradesFromBroker()
+    }
     val uiKey = portfolioTabUiSessionKey()
     if (portfolioTabUiBuiltKey == uiKey && portfolioM15Points.size >= 2) {
         if (portfolio15mSeriesIntradayStale(portfolioM15Points)) {
             refreshPortfolioM15TailSilent()
+        } else {
+            refreshM15LiveFormingTail(reason = "portfolio_tab")
         }
         return
     }
@@ -135,6 +166,49 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
 
     val mode = PortfolioM15LoadMode.CACHE_ONLY
     refreshPortfolio(mode, trackProgress = false)
+}
+
+/**
+ * Каждые 15–30 с: 10м→15м с MOEX + пересчёт Z на хвосте ~2 ч (без persisted).
+ */
+internal suspend fun MoexScreenState.refreshM15LiveFormingTail(reason: String) {
+    if (!activityResumed) return
+    if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) return
+    val lookback = when (selectedTab) {
+        MainTab.Markets -> marketsM15LookbackDays(selectedPeriod.coerceToMarketsUiPeriod())
+            .coerceAtLeast(portfolioLookbackDays)
+        else -> portfolioLookbackDays
+    }
+    val loaded = try {
+        refreshPortfolio15mLiveFormingTailFromMoex(context, lookback)
+    } catch (t: Throwable) {
+        MoexDiagnostics.logError(context, "m15_z", t, "live_tail failed reason=$reason")
+        null
+    } ?: run {
+        MoexDiagnostics.log(context, "m15_tail", "live_forming_skip no_rows lookback=$lookback reason=$reason")
+        return
+    }
+    MoexDiagnostics.log(context, "m15_tail", "live_forming reason=$reason tab=${selectedTab.label}")
+    when (selectedTab) {
+        MainTab.Markets -> commitMarketsM15ToUi(loaded, reason = "live_forming_$reason")
+        MainTab.Portfolio -> {
+            portfolioM15Points = loaded
+            publishMarketsLiveZFromPoints(loaded)
+            if (marketsM15Source().isEmpty()) {
+                storeMarketsM15(loaded)
+            }
+            rebuildPortfolioUiFromPoints(loaded)
+        }
+        MainTab.Journal -> {
+            portfolioM15Points = loaded
+            publishMarketsLiveZFromPoints(loaded)
+            if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
+        }
+        else -> {
+            portfolioM15Points = loaded
+            publishMarketsLiveZFromPoints(loaded)
+        }
+    }
 }
 
 /** Фоновая догрузка хвоста 15м (MOEX INCREMENTAL) без progress overlay. */
@@ -159,7 +233,13 @@ internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
 }
 
 /** Догрузка 15м с MOEX, если хвост устарел или нет баров за сегодня (МСК). */
-internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: String) {
+internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(
+    reason: String,
+    scope: CoroutineScope,
+) {
+    if (selectedTab != MainTab.Markets) {
+        refreshM15LiveFormingTail(reason = "${reason}_forming")
+    }
     val src = when (selectedTab) {
         MainTab.Markets -> marketsM15Source().takeIf { it.size >= 2 } ?: portfolioM15Points
         else -> portfolioM15Points.takeIf { it.size >= 2 } ?: marketsM15Source()
@@ -167,16 +247,7 @@ internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: Strin
     if (src.size < 2 || !portfolio15mSeriesNeedsMoexRefresh(src)) return
     MoexDiagnostics.log(context, "m15_tail", "refresh reason=$reason tab=${selectedTab.label}")
     when (selectedTab) {
-        MainTab.Markets -> {
-            val loaded = loadM15ForMarkets(
-                mode = PortfolioM15LoadMode.INCREMENTAL,
-                wrapInSession = false,
-            )
-            if (loaded.size >= 2) {
-                storeMarketsM15(loaded)
-                portfolioM15Points = loaded
-            }
-        }
+        MainTab.Markets -> requestMarketsM15TailStale(scope = scope, reason = reason)
         MainTab.Portfolio -> refreshPortfolioM15TailSilent()
         else -> {
             refreshMutex.withLock {
@@ -199,7 +270,7 @@ internal suspend fun MoexScreenState.refreshAfterConnectivityRestore(
     launchScope: CoroutineScope,
 ) {
     MoexDiagnostics.log(context, "network", "refresh_after_connectivity reason=$reason tab=${selectedTab.label}")
-    refreshM15TailIfIntradayStale(reason = reason)
+    refreshM15TailIfIntradayStale(reason = reason, scope = launchScope)
     if (selectedTab == MainTab.Markets && activityResumed) {
         val period = selectedPeriod.coerceToMarketsUiPeriod()
         val m15 = marketsM15Source()
@@ -383,18 +454,21 @@ internal suspend fun MoexScreenState.refreshData(
                         )
                     }
                     dailySignalLimit = loadDailySignalLimit(context, LocalDate.now())
-                    if (!fromDiskCache && !deferM15Network) {
-                        val m15ForSignal = withContext(Dispatchers.IO) {
-                            loadZStrategySignalSeries(context, PortfolioM15LoadMode.INCREMENTAL)
+                    val monitorStale = backgroundMonitorEnabled && MoexWatchdog.isServiceHeartbeatStale(context)
+                    val runPortfolioSignals = !backgroundMonitorEnabled || monitorStale
+                    if (runPortfolioSignals) {
+                        val m15SignalMode = if (deferM15Network || fromDiskCache) {
+                            PortfolioM15LoadMode.CACHE_ONLY
+                        } else {
+                            PortfolioM15LoadMode.INCREMENTAL
                         }
-                        if (!backgroundMonitorEnabled && m15ForSignal.size >= 2) {
-                            val signalThresholds = DynamicThresholds(
-                                entry = (realTradeEntryThreshold ?: dynamicThresholds.entry)
-                                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                                exit = (realTradeExitThreshold ?: dynamicThresholds.exit)
-                                    .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-                                calculatedDate = dynamicThresholds.calculatedDate
-                            )
+                        val m15Raw = withContext(Dispatchers.IO) {
+                            loadZStrategySignalSeries(context, m15SignalMode)
+                        }
+                        if (m15Raw.size >= 2) {
+                            val m15ForSignal = prepareM15PointsForZStrategySignalDetection(m15Raw)
+                            val signalThresholds = loadRealTradeZThresholds(context, dynamicThresholds)
+                            maybeBackfillMissedLiveZSignalsAfterStaleZFix(context, m15ForSignal, signalThresholds)
                             val signalLastProcessed = resolveLastProcessed15mBarTimestampForReplay(context)
                             val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
                                 points = m15ForSignal,
@@ -432,7 +506,7 @@ internal suspend fun MoexScreenState.refreshData(
                                 when (edgeSignal) {
                                 ZStrategySignal.EnterLong -> {
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (runPortfolioSignals && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATN / SHORT TATNP",
@@ -473,7 +547,7 @@ internal suspend fun MoexScreenState.refreshData(
 
                             ZStrategySignal.EnterShort -> {
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (runPortfolioSignals && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Вход: LONG TATNP / SHORT TATN",
@@ -515,7 +589,7 @@ internal suspend fun MoexScreenState.refreshData(
                             ZStrategySignal.ExitLong -> {
                                 clearPendingVirtualTradeProposal(context)
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (runPortfolioSignals && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATN / SHORT TATNP",
@@ -549,7 +623,7 @@ internal suspend fun MoexScreenState.refreshData(
                             ZStrategySignal.ExitShort -> {
                                 clearPendingVirtualTradeProposal(context)
                                 pendingVirtualTrade = loadPendingVirtualTradeProposal(context)
-                                if (!backgroundMonitorEnabled && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                                if (runPortfolioSignals && dailySignalLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                                     val sent = showZStrategySignalPushNotification(
                                         context = context,
                                         title = "Выход: закрыть LONG TATNP / SHORT TATN",
@@ -629,7 +703,10 @@ internal suspend fun MoexScreenState.refreshData(
                 if (!mayRefreshMarkets(refreshPolicy)) return@launch
                 isRefreshing = true
                 try {
-                    performRefresh()
+                    runCatching { performRefresh() }
+                        .onFailure { t ->
+                            MoexDiagnostics.logError(context, "ui", t, "refreshData bg performRefresh")
+                        }
                 } finally {
                     isRefreshing = false
                 }
@@ -639,7 +716,26 @@ internal suspend fun MoexScreenState.refreshData(
 
         if (!blockUi) isRefreshing = true
         try {
-            performRefresh()
+            runCatching { performRefresh() }
+                .onFailure { t ->
+                    MoexDiagnostics.logError(context, "ui", t, "refreshData performRefresh")
+                    if (MoexDiagnostics.isTransientNetworkError(t)) {
+                        realtimeError = "Сеть недоступна или нестабильна"
+                        lastGoodMarkets?.let {
+                            marketsStale = true
+                            state = it
+                        }
+                    } else if (lastGoodMarkets != null) {
+                        marketsStale = true
+                        state = lastGoodMarkets!!
+                        realtimeError = t.message?.take(120)
+                    }
+                }
+            runCatching {
+                refreshMarketsLiveQuotesBundle(reason = "refreshData", scope = launchScope)
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "quotes", t, "refreshData live_quotes")
+            }
         } finally {
             isRefreshing = false
             MoexDiagnostics.log(

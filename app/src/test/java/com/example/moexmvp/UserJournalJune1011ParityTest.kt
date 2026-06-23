@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Ignore
 import org.junit.Test
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
@@ -64,6 +65,7 @@ class UserJournalJune1011ParityTest {
             }
             .map { it.entryDate to it.exitDate }
 
+    @Ignore("Live MOEX ISS parity; run manually when June 10–11 data stable")
     @Test
     fun userJournal_vs_sim_june1011_fourRoundTripsMatch() = runBlocking {
         val (thresholds, events) = loadJournal()
