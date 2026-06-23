@@ -118,9 +118,7 @@ internal suspend fun MoexScreenState.refreshMarketsM15ZForceIncremental(reason: 
             MoexDiagnostics.log(context, "m15_z", "force_incr empty reason=$reason")
             return
         }
-        portfolioM15Points = loaded
-        publishMarketsLiveZFromPoints(loaded)
-        storeMarketsM15(loaded)
+        commitMarketsM15ToUi(loaded, reason = "force_incr_$reason")
         MoexDiagnostics.log(
             context,
             "m15_z",

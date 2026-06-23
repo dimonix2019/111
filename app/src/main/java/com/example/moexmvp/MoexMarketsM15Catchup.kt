@@ -35,9 +35,7 @@ internal fun MoexScreenState.scheduleMarketsM15MoexCatchup(
             return@launch
         }
         if (loaded.size < 2) return@launch
-        portfolioM15Points = loaded
-        publishMarketsLiveZFromPoints(loaded)
-        storeMarketsM15(loaded)
+        commitMarketsM15ToUi(loaded, reason = "catchup_$reason")
         MoexDiagnostics.log(context, "m15_z", "catchup_ok reason=$reason bar=${loaded.last().tradeDate}")
     }
 }

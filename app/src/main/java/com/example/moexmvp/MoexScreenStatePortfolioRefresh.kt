@@ -189,18 +189,25 @@ internal suspend fun MoexScreenState.refreshM15LiveFormingTail(reason: String) {
         return
     }
     MoexDiagnostics.log(context, "m15_tail", "live_forming reason=$reason tab=${selectedTab.label}")
-    portfolioM15Points = loaded
-    publishMarketsLiveZFromPoints(loaded)
     when (selectedTab) {
-        MainTab.Markets -> storeMarketsM15(loaded)
+        MainTab.Markets -> commitMarketsM15ToUi(loaded, reason = "live_forming_$reason")
         MainTab.Portfolio -> {
-            if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
+            portfolioM15Points = loaded
+            publishMarketsLiveZFromPoints(loaded)
+            if (marketsM15Source().isEmpty()) {
+                storeMarketsM15(loaded)
+            }
             rebuildPortfolioUiFromPoints(loaded)
         }
         MainTab.Journal -> {
+            portfolioM15Points = loaded
+            publishMarketsLiveZFromPoints(loaded)
             if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
         }
-        else -> Unit
+        else -> {
+            portfolioM15Points = loaded
+            publishMarketsLiveZFromPoints(loaded)
+        }
     }
 }
 
@@ -243,9 +250,7 @@ internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: Strin
                 wrapInSession = false,
             )
             if (loaded.size >= 2) {
-                storeMarketsM15(loaded)
-                portfolioM15Points = loaded
-                publishMarketsLiveZFromPoints(loaded)
+                commitMarketsM15ToUi(loaded, reason = "tail_stale_$reason")
             }
         }
         MainTab.Portfolio -> refreshPortfolioM15TailSilent()
