@@ -185,16 +185,6 @@ internal fun replayTodayM15FromIntraday1m(
     return mutable
 }
 
-/** Z-график «Рынок»: сегодня — из replay 1м; канонический MOEX-кэш не меняется. */
-internal fun mergeM15WithToday1mBackfillForChart(
-    canonical: List<DataPoint>,
-    aligned: AlignedIntraday1mQuotes?,
-    zone: ZoneId = moexZoneId,
-): List<DataPoint> {
-    if (canonical.isEmpty() || aligned == null) return canonical
-    return replayTodayM15FromIntraday1m(canonical, aligned, zone) ?: canonical
-}
-
 /** Live Z из 1м TATN/TATNP поверх кэшированного 15м ряда (сводка, шторка, монитор). */
 internal fun liveZScoreFromIntraday1m(
     m15Points: List<DataPoint>,

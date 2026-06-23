@@ -50,31 +50,19 @@ internal fun MoexScreen() {
     val onMarketsTab = screen.selectedTab == MainTab.Markets
     val onStrategyTestTab = screen.selectedTab == MainTab.StrategyTest
 
-    val marketsM15SimPoints by produceState(
-        initialValue = emptyList<DataPoint>(),
+    val marketsM15SimPoints = remember(
         screen.marketsM15DataEpoch,
+        screen.marketsM15ChartOverlayEpoch,
         screen.marketsZChartPeriod,
-        screen.marketsIntraday1mEpoch,
         onMarketsTab,
     ) {
-        if (!onMarketsTab) {
-            value = emptyList()
-            return@produceState
-        }
-        value = withContext(Dispatchers.Default) {
-            val source = screen.marketsM15Source()
-            val aligned = alignIntraday1mCloseSeries(
-                screen.marketsIntraday1mTatn,
-                screen.marketsIntraday1mTatnp,
-            )
-            val merged = mergeM15WithToday1mBackfillForChart(source, aligned)
-            filterM15PointsForMarketsPeriod(merged, screen.marketsZChartPeriod)
-        }
+        if (!onMarketsTab) return@remember emptyList<DataPoint>()
+        screen.buildMarketsM15PointsForZChart(screen.marketsZChartPeriod)
     }
     val marketsChartBase = if (onMarketsTab) {
         rememberM15ZChartSeries(
             simPoints = marketsM15SimPoints,
-            dataEpoch = screen.marketsM15DataEpoch,
+            dataEpoch = screen.marketsM15DataEpoch + screen.marketsM15ChartOverlayEpoch,
         )
     } else {
         emptyList<DataPoint>() to emptyList()
@@ -263,6 +251,12 @@ internal fun MoexScreen() {
         chartSuccess?.marketsDataSource == MarketsDataSource.FifteenMinuteCache ->
             MarketsDataSource.FifteenMinuteCache
         else -> MarketsDataSource.Network
+    }
+
+    LaunchedEffect(onMarketsTab, screen.marketsIntraday1mEpoch, screen.marketsM15DataEpoch) {
+        if (!onMarketsTab) return@LaunchedEffect
+        if (screen.marketsIntraday1mTatn.isEmpty() || screen.marketsIntraday1mTatnp.isEmpty()) return@LaunchedEffect
+        screen.refreshMarketsM15TodayChartOverlay()
     }
 
     LaunchedEffect(
