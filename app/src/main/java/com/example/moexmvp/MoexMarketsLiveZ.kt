@@ -195,11 +195,12 @@ internal fun MoexScreenState.cachedMarketsIntraday1mSnapshot(): MarketsIntraday1
 }
 
 /** Обновить сводный live Z на «Рынок»; 1м overlay имеет приоритет над MOEX 15m Z. */
-internal fun MoexScreenState.publishMarketsLiveZFromPoints(
+internal suspend fun MoexScreenState.publishMarketsLiveZFromPoints(
     points: List<DataPoint>,
     snap: MarketsIntraday1mSnapshot? = cachedMarketsIntraday1mSnapshot(),
 ) {
-    val result = resolveMarketsLiveZFromPoints(points, snap) ?: return
+    val zBase = resolveMarketsM15PointsForLiveZ(points)
+    val result = resolveMarketsLiveZFromPoints(zBase, snap) ?: return
     marketsLiveZScore = result.zScore
     marketsLiveZBarAt = result.barAt
     // Live Z / формирующий бар — только overlay на графике (applyLiveZToM15ChartSeries).
@@ -217,6 +218,6 @@ internal fun m15PointsWithLiveFormingFromIntraday1m(
 }
 
 /** Применить live Z из 1м котировок к in-memory 15м (сводка + Z-график). */
-internal fun MoexScreenState.applyMarketsLiveZFromIntraday1mSnap(snap: MarketsIntraday1mSnapshot) {
+internal suspend fun MoexScreenState.applyMarketsLiveZFromIntraday1mSnap(snap: MarketsIntraday1mSnapshot) {
     publishMarketsLiveZFromPoints(marketsM15Source(), snap = snap)
 }

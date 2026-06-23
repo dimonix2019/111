@@ -84,8 +84,9 @@ internal class MoexScreenState(val context: Context) {
     var marketsIntraday1mEpoch by mutableStateOf(0)
     var marketsM15SessionCache: List<DataPoint> = emptyList()
     var marketsM15DataEpoch by mutableStateOf(0)
-    /** Single-flight: отложенная MOEX 15м догрузка с «Рынок» (не блокирует UI). */
-    var marketsM15CatchupJob: Job? = null
+    /** Single-flight MOEX 15м refresh (catchup / tail / force). */
+    var marketsM15RefreshJob: Job? = null
+    var marketsM15RefreshPending: MarketsM15RefreshRequest? = null
     var portfolioM15Points by mutableStateOf<List<DataPoint>>(emptyList())
     /** Полный 15м ряд (~255д) для симуляции — не в Compose state (OOM). */
     var strategyTestM15SessionCache: List<DataPoint> = emptyList()

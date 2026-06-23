@@ -3,11 +3,9 @@ package com.example.moexmvp
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-import java.util.Locale
 
     /** Только дневной ряд spread для портретных графиков; Z-график фильтруется локально. */
 internal suspend fun MoexScreenState.refreshMarketsDailyOnly(period: Period) {
@@ -98,36 +96,13 @@ internal suspend fun MoexScreenState.refreshMarketsIntraday1mQuotes(
     }
 }
 
-/** Принудительный INCREMENTAL 15м + live Z (каждые 5 мин на «Рынок»). */
-internal suspend fun MoexScreenState.refreshMarketsM15ZForceIncremental(reason: String) {
+/** Принудительный INCREMENTAL 15м + live Z (каждые 5 мин на «Рынок») — через single-flight. */
+internal fun MoexScreenState.refreshMarketsM15ZForceIncremental(
+    scope: CoroutineScope,
+    reason: String,
+) {
     if (!activityResumed || selectedTab != MainTab.Markets) return
-    if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) return
-    if (marketsM15CatchupJob?.isActive == true) {
-        MoexDiagnostics.log(context, "m15_z", "force_incr_skip catchup_active reason=$reason")
-        return
-    }
-    try {
-        withContext(Dispatchers.IO) {
-            clearM15LiveTailPersistedZ(PortfolioM15Database.get(context.applicationContext).dao())
-        }
-        val loaded = loadM15ForMarkets(
-            mode = PortfolioM15LoadMode.INCREMENTAL,
-            wrapInSession = false,
-        )
-        if (loaded.size < 2) {
-            MoexDiagnostics.log(context, "m15_z", "force_incr empty reason=$reason")
-            return
-        }
-        commitMarketsM15ToUi(loaded, reason = "force_incr_$reason")
-        MoexDiagnostics.log(
-            context,
-            "m15_z",
-            "force_incr z=${"%.2f".format(Locale.US, loaded.last().zScore)} " +
-                "bar=${loaded.last().tradeDate} reason=$reason",
-        )
-    } catch (t: Throwable) {
-        MoexDiagnostics.logError(context, "m15_z", t, "force_incr failed reason=$reason")
-    }
+    requestMarketsM15ForceIncremental(scope, reason)
 }
 
 /** После refreshData / pull-refresh: 1м + live Z (MOEX 15м — отложенно). */

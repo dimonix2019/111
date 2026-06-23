@@ -233,7 +233,10 @@ internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
 }
 
 /** Догрузка 15м с MOEX, если хвост устарел или нет баров за сегодня (МСК). */
-internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: String) {
+internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(
+    reason: String,
+    scope: CoroutineScope,
+) {
     if (selectedTab != MainTab.Markets) {
         refreshM15LiveFormingTail(reason = "${reason}_forming")
     }
@@ -244,15 +247,7 @@ internal suspend fun MoexScreenState.refreshM15TailIfIntradayStale(reason: Strin
     if (src.size < 2 || !portfolio15mSeriesNeedsMoexRefresh(src)) return
     MoexDiagnostics.log(context, "m15_tail", "refresh reason=$reason tab=${selectedTab.label}")
     when (selectedTab) {
-        MainTab.Markets -> {
-            val loaded = loadM15ForMarkets(
-                mode = PortfolioM15LoadMode.INCREMENTAL,
-                wrapInSession = false,
-            )
-            if (loaded.size >= 2) {
-                commitMarketsM15ToUi(loaded, reason = "tail_stale_$reason")
-            }
-        }
+        MainTab.Markets -> requestMarketsM15TailStale(scope = scope, reason = reason)
         MainTab.Portfolio -> refreshPortfolioM15TailSilent()
         else -> {
             refreshMutex.withLock {
@@ -275,7 +270,7 @@ internal suspend fun MoexScreenState.refreshAfterConnectivityRestore(
     launchScope: CoroutineScope,
 ) {
     MoexDiagnostics.log(context, "network", "refresh_after_connectivity reason=$reason tab=${selectedTab.label}")
-    refreshM15TailIfIntradayStale(reason = reason)
+    refreshM15TailIfIntradayStale(reason = reason, scope = launchScope)
     if (selectedTab == MainTab.Markets && activityResumed) {
         val period = selectedPeriod.coerceToMarketsUiPeriod()
         val m15 = marketsM15Source()
