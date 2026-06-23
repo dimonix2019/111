@@ -83,3 +83,27 @@ internal fun buildProdLikeStrategySimMetricsFour(
         fourThresholds = four,
     )
 }
+
+internal fun buildProdLikeStrategySimMetricsCluster(
+    points: List<DataPoint>,
+    fourSeries: List<ZStrategyFourThresholds>,
+    accountSizeRub: Double = DEFAULT_STRATEGY_TEST_ACCOUNT_RUB,
+    periodDescription: String = "prod-like cluster dynamic",
+    simOptions: ZStrategySimOptions = defaultProdLikeSimOptions(),
+): PortfolioMetrics? {
+    if (fourSeries.size != points.size) return null
+    val fallback = fourSeries.lastOrNull()?.toSymmetricFallback()
+        ?: DynamicThresholds(0.7, 0.5, null)
+    return buildZStrategyPortfolioMetrics(
+        points = points,
+        thresholds = fallback,
+        notionalRub = accountSizeRub,
+        leverage = 1.0,
+        commissionPercentPerSide = 0.04,
+        periodDescription = periodDescription,
+        compoundReturns = false,
+        simOptions = simOptions,
+        prodLikeSizing = prodLikeSizingForAccount(accountSizeRub = accountSizeRub),
+        fourThresholdsSeries = fourSeries,
+    )
+}
