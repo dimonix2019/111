@@ -150,6 +150,21 @@ private suspend fun MoexScreenState.executeMarketsM15Refresh(request: MarketsM15
         )
     }
     if (loaded == null || loaded.size < 2) {
+        if (request.kind == MarketsM15RefreshKind.CATCHUP) {
+            val fallback = loadM15ForMarkets(
+                mode = PortfolioM15LoadMode.INCREMENTAL,
+                wrapInSession = false,
+            )
+            if (fallback.size >= 2) {
+                commitMarketsM15ToUi(fallback, reason = "${request.reason}_incr_fallback")
+                MoexDiagnostics.log(
+                    context,
+                    "m15_refresh",
+                    "ok kind=CATCHUP→INCR bar=${fallback.last().tradeDate} reason=${request.reason}",
+                )
+                return true
+            }
+        }
         MoexDiagnostics.log(
             context,
             "m15_refresh",

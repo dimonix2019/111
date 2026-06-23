@@ -23,23 +23,38 @@ internal fun resolveMarketsFormingBarHint(
     patchedPoints: List<DataPoint>,
     basePoints: List<DataPoint>,
 ): MarketsFormingBarHint? {
-    if (liveZ == null || patchedPoints.isEmpty()) return null
-    val last = patchedPoints.last()
-    val barAt = liveBarAt?.trim()?.takeIf { it.isNotEmpty() } ?: last.tradeDate
-    if (last.tradeDate != barAt) return null
-    val isCurrentBucket = last.tradeDate == currentM15BucketTradeDate()
-    val baseLast = basePoints.lastOrNull()
-    val baseClose = baseLast?.takeIf { it.tradeDate == last.tradeDate }?.zScore
-    val livePatchesLast = baseLast == null ||
-        baseLast.tradeDate != last.tradeDate ||
-        abs(baseClose!! - liveZ) > 1e-9
-    if (!isCurrentBucket && !livePatchesLast) return null
-    return MarketsFormingBarHint(
-        barLabel = last.tradeDate,
-        barTimeSec = m15CandleLabelToUnixSec(last.tradeDate),
-        liveZ = liveZ,
-        baseCloseZ = baseClose,
-    )
+    if (liveZ == null) return null
+    val barAt = liveBarAt?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val last = patchedPoints.lastOrNull()
+    if (last != null && last.tradeDate == barAt) {
+        val isCurrentBucket = last.tradeDate == currentM15BucketTradeDate()
+        val baseLast = basePoints.lastOrNull()
+        val baseClose = baseLast?.takeIf { it.tradeDate == last.tradeDate }?.zScore
+        val livePatchesLast = baseLast == null ||
+            baseLast.tradeDate != last.tradeDate ||
+            abs(baseClose!! - liveZ) > 1e-9
+        if (!isCurrentBucket && !livePatchesLast) return null
+        return MarketsFormingBarHint(
+            barLabel = last.tradeDate,
+            barTimeSec = m15CandleLabelToUnixSec(last.tradeDate),
+            liveZ = liveZ,
+            baseCloseZ = baseClose,
+        )
+    }
+    // MOEX 15м отстаёт: live Z есть, но свечу на график не добавляем (нет сиротского шипа).
+    if (last != null && isM15BarLabelAfter(barAt, last.tradeDate)) {
+        val baseClose = basePoints.lastOrNull()
+            ?.takeIf { it.tradeDate == last.tradeDate }
+            ?.zScore
+            ?: last.zScore
+        return MarketsFormingBarHint(
+            barLabel = barAt,
+            barTimeSec = m15CandleLabelToUnixSec(barAt),
+            liveZ = liveZ,
+            baseCloseZ = baseClose,
+        )
+    }
+    return null
 }
 
 internal fun formatMarketsFormingBarHint(hint: MarketsFormingBarHint): String {
@@ -80,8 +95,27 @@ internal fun applyLiveZToM15ChartSeries(
     return when {
         lastPt.tradeDate == targetLabel -> patchLastM15ChartBarWithLiveZ(points, candles, liveZ)
         isM15BarLabelAfter(lastPt.tradeDate, targetLabel) -> points to candles
-        else -> appendFormingM15ChartBar(points, candles, targetLabel, liveZ)
+        isImmediateNextM15BarSlot(lastPt.tradeDate, targetLabel) ->
+            appendFormingM15ChartBar(points, candles, targetLabel, liveZ)
+        else -> points to candles
     }
+}
+
+/** true, если [later] — ровно следующий 15м слот после [earlier] (без пропусков). */
+internal fun isImmediateNextM15BarSlot(earlier: String, later: String): Boolean {
+    return runCatching {
+        m15CandleLabelToUnixSec(later) - m15CandleLabelToUnixSec(earlier) == 15L * 60L
+    }.getOrDefault(false)
+}
+
+/** Пропуск 15м слотов между последним баром на графике и live-слотом (нужен MOEX catchup). */
+internal fun marketsChartLiveBarGapNeedsM15Catchup(
+    lastChartBarLabel: String?,
+    liveBarAt: String?,
+): Boolean {
+    if (lastChartBarLabel.isNullOrBlank() || liveBarAt.isNullOrBlank()) return false
+    if (!isM15BarLabelAfter(liveBarAt, lastChartBarLabel)) return false
+    return !isImmediateNextM15BarSlot(lastChartBarLabel, liveBarAt)
 }
 
 private fun patchLastM15ChartBarWithLiveZ(

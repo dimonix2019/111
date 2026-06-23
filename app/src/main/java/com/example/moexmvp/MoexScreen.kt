@@ -261,6 +261,19 @@ internal fun MoexScreen() {
         else -> MarketsDataSource.Network
     }
 
+    LaunchedEffect(
+        onMarketsTab,
+        screen.marketsLiveZBarAt,
+        marketsChartBase.first.lastOrNull()?.tradeDate,
+    ) {
+        if (!onMarketsTab) return@LaunchedEffect
+        val lastLabel = marketsChartBase.first.lastOrNull()?.tradeDate
+        val liveAt = screen.marketsLiveZBarAt
+        if (marketsChartLiveBarGapNeedsM15Catchup(lastLabel, liveAt)) {
+            screen.scheduleMarketsM15MoexCatchup(scope, reason = "chart_gap", debounceMs = 0L)
+        }
+    }
+
     MoexScreenEffects(screen, scope)
 
     AppUpdateBackgroundChecker(
