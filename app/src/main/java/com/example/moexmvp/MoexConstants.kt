@@ -185,6 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.231 — Fix OTA: проверка подписи/отката перед установкой; кнопки «Удалить» и «Через браузер» при ошибке.
 1.7.230 — «Рынок»: single-flight MOEX 15м refresh; Z/live overlay на базе 255д (parity с монитором).
 1.7.229 — «Рынок»: commitMarketsM15ToUi (store+live Z атомарно); инварианты пайплайна m15_pipe в logcat.
 1.7.228 — Fix «Рынок»: live Z больше не «переезжает» на закрытые 15м бары; формирующаяся свеча только в своём слоте.

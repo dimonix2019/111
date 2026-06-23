@@ -121,6 +121,19 @@ internal fun AppUpdateDialogHost(
                             Text("Открыть в браузере", color = Color(0xFF64B5F6))
                         }
                     }
+                    if (err.contains("Подпись APK") || err.contains("не совпадает")) {
+                        TextButton(onClick = { openAppDetailsSettings(context) }) {
+                            Text("Удалить приложение", color = Color(0xFFFF8A80))
+                        }
+                        TextButton(onClick = { openAppUpdateInBrowser(context) }) {
+                            Text("Скачать APK в браузере", color = Color(0xFF64B5F6))
+                        }
+                    }
+                    if (err.contains("не новее установленной") || err.contains("versionCode")) {
+                        TextButton(onClick = { openAppUpdateInBrowser(context) }) {
+                            Text("Проверить Release", color = Color(0xFF64B5F6))
+                        }
+                    }
                 }
                 if (!canInstall && sentToInstallSettings) {
                     Text(
