@@ -66,8 +66,8 @@ internal fun sanitizeDebugReportPathSegment(raw: String): String =
         .take(120)
         .ifBlank { "unknown" }
 
-internal fun debugReportTargetBranch(): String {
-    val branch = BuildConfig.GIT_BRANCH.trim()
+internal fun debugReportTargetBranch(rawBranch: String = BuildConfig.GIT_BRANCH.trim()): String {
+    val branch = rawBranch.trim()
     return if (branch.isBlank() || branch.equals("local", ignoreCase = true)) "main" else branch
 }
 

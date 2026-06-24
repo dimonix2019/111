@@ -23,8 +23,13 @@ class MoexDebugReportUploadTest {
     }
 
     @Test
-    fun debugReportTargetBranch_usesMainForLocalBuilds() {
-        assertEquals("main", debugReportTargetBranch())
+    fun debugReportTargetBranch_mapsLocalAndBlankToMain() {
+        assertEquals("main", debugReportTargetBranch(""))
+        assertEquals("main", debugReportTargetBranch("local"))
+        assertEquals(
+            "cursor/fix-chart-forming-bar-gap-915f",
+            debugReportTargetBranch("cursor/fix-chart-forming-bar-gap-915f"),
+        )
     }
 
     @Test
