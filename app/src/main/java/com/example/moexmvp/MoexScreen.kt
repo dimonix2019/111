@@ -50,27 +50,20 @@ internal fun MoexScreen() {
     val onMarketsTab = screen.selectedTab == MainTab.Markets
     val onStrategyTestTab = screen.selectedTab == MainTab.StrategyTest
 
-    val marketsM15SimPoints by produceState(
-        initialValue = emptyList<DataPoint>(),
+    val marketsM15SimPoints = remember(
         screen.marketsM15DataEpoch,
+        screen.marketsM15ChartOverlayEpoch,
+        screen.marketsM15SqliteChartEpoch,
         screen.marketsZChartPeriod,
         onMarketsTab,
     ) {
-        if (!onMarketsTab) {
-            value = emptyList()
-            return@produceState
-        }
-        value = withContext(Dispatchers.Default) {
-            filterM15PointsForMarketsPeriod(
-                screen.marketsM15Source(),
-                screen.marketsZChartPeriod,
-            )
-        }
+        if (!onMarketsTab) return@remember emptyList<DataPoint>()
+        screen.buildMarketsM15PointsForZChart(screen.marketsZChartPeriod)
     }
     val marketsChartBase = if (onMarketsTab) {
         rememberM15ZChartSeries(
             simPoints = marketsM15SimPoints,
-            dataEpoch = screen.marketsM15DataEpoch,
+            dataEpoch = screen.marketsM15DataEpoch + screen.marketsM15ChartOverlayEpoch,
         )
     } else {
         emptyList<DataPoint>() to emptyList()
@@ -259,6 +252,38 @@ internal fun MoexScreen() {
         chartSuccess?.marketsDataSource == MarketsDataSource.FifteenMinuteCache ->
             MarketsDataSource.FifteenMinuteCache
         else -> MarketsDataSource.Network
+    }
+
+    LaunchedEffect(onMarketsTab, screen.marketsM15DataEpoch) {
+        if (!onMarketsTab) return@LaunchedEffect
+        screen.refreshMarketsM15SqliteChartCache(reason = "tab_open")
+    }
+
+    LaunchedEffect(onMarketsTab, screen.marketsIntraday1mEpoch, screen.marketsM15DataEpoch) {
+        if (!onMarketsTab) return@LaunchedEffect
+        if (screen.marketsIntraday1mTatn.isEmpty() || screen.marketsIntraday1mTatnp.isEmpty()) return@LaunchedEffect
+        screen.refreshMarketsM15TodayChartOverlay()
+    }
+
+    LaunchedEffect(
+        onMarketsTab,
+        screen.marketsLiveZBarAt,
+        marketsChartBase.first.lastOrNull()?.tradeDate,
+    ) {
+        if (!onMarketsTab) return@LaunchedEffect
+        val lastLabel = marketsChartBase.first.lastOrNull()?.tradeDate
+        val liveAt = screen.marketsLiveZBarAt
+        if (marketsChartLiveBarGapNeedsM15Catchup(lastLabel, liveAt) ||
+            m15SeriesHasIntradayTradingGap(screen.marketsM15Source())
+        ) {
+            MarketsM15ChartDiagnostics.logStage(
+                context,
+                "gap_action",
+                "last_chart=$lastLabel live_bar=$liveAt session{${snapshotM15Series(screen.marketsM15Source()).toLogFields()}} → sqlite_refresh+catchup",
+            )
+            screen.refreshMarketsM15SqliteChartCache(reason = "chart_gap")
+            screen.scheduleMarketsM15MoexCatchup(scope, reason = "chart_gap", debounceMs = 0L)
+        }
     }
 
     MoexScreenEffects(screen, scope)

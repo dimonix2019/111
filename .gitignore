@@ -3,6 +3,7 @@
 local.properties
 # Optional sandbox API defaults for local APK builds only (never commit real tokens).
 sandbox-token.properties
+debug-report-token.properties
 .idea/
 .DS_Store
 build/

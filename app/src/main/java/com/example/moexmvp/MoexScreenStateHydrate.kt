@@ -34,7 +34,13 @@ internal suspend fun MoexScreenState.hydrateMarketsFromLocalCache(preferredPerio
                     if (portfolioM15Points.isEmpty()) portfolioM15Points = pts
                 }
             }
+            refreshMarketsM15SqliteChartCache(reason = "hydrate")
         }
+        MarketsM15ChartDiagnostics.logStage(
+            context,
+            "hydrate",
+            "period=$preferredPeriod ${snapshotM15Series(marketsM15Source()).toLogFields()}",
+        )
         MoexDiagnostics.log(
             context,
             "ui",

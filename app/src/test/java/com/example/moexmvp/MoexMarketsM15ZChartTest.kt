@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -168,6 +169,43 @@ class MoexMarketsM15ZChartTest {
         assertEquals(-0.4, candles[1].open, 1e-9)
         assertEquals(0.7, candles[1].high, 1e-9)
         assertEquals(-0.4, candles[1].low, 1e-9)
+    }
+
+    @Test
+    fun trimMarketsOneDayChartForCrossSessionGap_dropsYesterdayWhenOvernightGap() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val today = java.time.LocalDate.now(zone)
+        val yesterday = today.minusDays(1)
+        val points = listOf(
+            point("${yesterday} 06:45", z = 0.5),
+            point("${yesterday} 23:30", z = 0.2),
+            point("${today} 06:45", z = -2.96),
+        )
+        val trimmed = trimMarketsOneDayChartForCrossSessionGap(points, zone)
+        assertEquals(1, trimmed.size)
+        assertEquals("${today} 06:45", trimmed.single().tradeDate)
+    }
+
+    @Test
+    fun m15TodayOverlayNeedsMoexFetch_whenBaseHasNoTodayBars() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val today = java.time.LocalDate.now(zone)
+        val yesterday = today.minusDays(1)
+        val history = listOf(
+            point("${yesterday} 06:45", z = 0.5),
+            point("${yesterday} 23:30", z = 0.2),
+        )
+        val todayProbe = listOf(point("${today} 06:45", z = -2.96))
+        assertTrue(m15TodayOverlayNeedsMoexFetch(history, todayProbe, zone))
+    }
+
+    @Test
+    fun trimMarketsOneDayChartForCrossSessionGap_keepsYesterdayWhenNoToday() {
+        val points = listOf(
+            point("2026-06-23 06:45", z = 0.5),
+            point("2026-06-23 23:30", z = 0.2),
+        )
+        assertEquals(2, trimMarketsOneDayChartForCrossSessionGap(points).size)
     }
 
     @Test
@@ -644,9 +682,9 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
-    fun applyLiveZToM15ChartSeries_appendsFormingBarWhenLiveSlotIsAhead() {
+    fun applyLiveZToM15ChartSeries_appendsFormingBarWhenLiveSlotIsNext() {
         val closed = "2026-06-23 17:45"
-        val forming = "2026-06-23 22:30"
+        val forming = "2026-06-23 18:00"
         val points = listOf(
             point("2026-06-23 17:30", z = 0.65),
             point(closed, z = 0.70),
@@ -669,6 +707,27 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun applyLiveZToM15ChartSeries_skipsOrphanFormingBarWhenMoexGap() {
+        val closed = "2026-06-23 17:45"
+        val forming = "2026-06-23 22:30"
+        val points = listOf(
+            point("2026-06-23 17:30", z = 0.65),
+            point(closed, z = 0.70),
+        )
+        val candles = buildZScoreCandlesFromM15Points(points)
+        val (patchedPts, patchedCandles) = applyLiveZToM15ChartSeries(
+            points,
+            candles,
+            liveZ = -2.74,
+            liveBarAt = forming,
+        )
+        assertEquals(2, patchedPts.size)
+        assertEquals(2, patchedCandles.size)
+        assertEquals(closed, patchedPts.last().tradeDate)
+        assertEquals(0.70, patchedPts.last().zScore, 1e-9)
+    }
+
+    @Test
     fun applyLiveZToM15ChartSeries_doesNotPatchClosedBarWhenLiveSlotIsAhead() {
         val closed = "2026-06-23 17:45"
         val forming = "2026-06-23 22:30"
@@ -681,7 +740,34 @@ class MoexMarketsM15ZChartTest {
             liveBarAt = forming,
         )
         assertEquals(0.70, patchedPts[0].zScore, 1e-9)
-        assertEquals(forming, patchedPts.last().tradeDate)
+        assertEquals(closed, patchedPts.last().tradeDate)
+    }
+
+    @Test
+    fun resolveMarketsFormingBarHint_whenMoexGapShowsLiveWithoutOrphanCandle() {
+        val closed = "2026-06-23 17:45"
+        val forming = "2026-06-23 22:30"
+        val points = listOf(point(closed, z = 0.70))
+        val hint = resolveMarketsFormingBarHint(
+            liveZ = -2.81,
+            liveBarAt = forming,
+            patchedPoints = points,
+            basePoints = points,
+        )
+        assertNotNull(hint)
+        assertEquals(forming, hint!!.barLabel)
+        assertEquals(-2.81, hint.liveZ, 1e-9)
+        assertEquals(0.70, hint.baseCloseZ!!, 1e-9)
+    }
+
+    @Test
+    fun marketsChartLiveBarGapNeedsM15Catchup_trueWhenManySlotsMissing() {
+        assertTrue(
+            marketsChartLiveBarGapNeedsM15Catchup("2026-06-23 17:45", "2026-06-23 22:30"),
+        )
+        assertFalse(
+            marketsChartLiveBarGapNeedsM15Catchup("2026-06-23 17:45", "2026-06-23 18:00"),
+        )
     }
 
     private fun point(label: String, z: Double, spread: Double = 10.0): DataPoint {

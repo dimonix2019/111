@@ -247,6 +247,8 @@ internal object MoexDiagnostics {
         return buildString {
             append("MOEX MVP event log\n")
             append("version=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n")
+            append("gitBranch=${BuildConfig.GIT_BRANCH}\n")
+            append("gitSha=${BuildConfig.GIT_SHA}\n")
             append("device=${Build.MANUFACTURER} ${Build.MODEL}\n")
             append("android=${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
             append("exported=${timestamp()}\n")
