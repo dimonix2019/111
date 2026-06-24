@@ -172,6 +172,43 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
+    fun trimMarketsOneDayChartForCrossSessionGap_dropsYesterdayWhenOvernightGap() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val today = java.time.LocalDate.now(zone)
+        val yesterday = today.minusDays(1)
+        val points = listOf(
+            point("${yesterday} 06:45", z = 0.5),
+            point("${yesterday} 23:30", z = 0.2),
+            point("${today} 06:45", z = -2.96),
+        )
+        val trimmed = trimMarketsOneDayChartForCrossSessionGap(points, zone)
+        assertEquals(1, trimmed.size)
+        assertEquals("${today} 06:45", trimmed.single().tradeDate)
+    }
+
+    @Test
+    fun m15TodayOverlayNeedsMoexFetch_whenBaseHasNoTodayBars() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val today = java.time.LocalDate.now(zone)
+        val yesterday = today.minusDays(1)
+        val history = listOf(
+            point("${yesterday} 06:45", z = 0.5),
+            point("${yesterday} 23:30", z = 0.2),
+        )
+        val todayProbe = listOf(point("${today} 06:45", z = -2.96))
+        assertTrue(m15TodayOverlayNeedsMoexFetch(history, todayProbe, zone))
+    }
+
+    @Test
+    fun trimMarketsOneDayChartForCrossSessionGap_keepsYesterdayWhenNoToday() {
+        val points = listOf(
+            point("2026-06-23 06:45", z = 0.5),
+            point("2026-06-23 23:30", z = 0.2),
+        )
+        assertEquals(2, trimMarketsOneDayChartForCrossSessionGap(points).size)
+    }
+
+    @Test
     fun filterM15PointsForMarketsPeriod_filtersWithoutRecomputingZ() {
         val points = listOf(
             point("2026-05-17 10:00", z = -1.0),

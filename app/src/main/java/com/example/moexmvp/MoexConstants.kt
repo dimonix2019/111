@@ -185,6 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.238 — Fix «Рынок» 1D: без overnight-дыры (только сегодня) + MOEX 10м overlay если today=0 в кэше.
 1.7.237 — Fix OTA: cache-bust gh-pages + сначала Release URL (raw CDN отставал от app-update.json).
 1.7.236 — «Рынок»: logcat m15_chart — этапы MOEX/SQLite/overlay/график (adb logcat -s MoexDiagnostics | grep m15_chart).
 1.7.235 — «Рынок»: Z-график читает 15м из SQLite (CACHE_ONLY) и сливает с session; догрузка хвоста MOEX при дыре.

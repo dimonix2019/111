@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
@@ -66,6 +67,27 @@ internal fun m15SeriesHasIntradayTradingGap(
         if (prevDay == curDay) return true
     }
     return false
+}
+
+/**
+ * 1D + time-axis: overnight между вчера и сегодня даёт пустую полосу и «сиротскую» свечу справа.
+ * Если есть бары за сегодня — показываем только сегодняшнюю сессию.
+ */
+internal fun trimMarketsOneDayChartForCrossSessionGap(
+    points: List<DataPoint>,
+    zone: ZoneId = moexZoneId,
+): List<DataPoint> {
+    if (points.size < 2) return points
+    val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+    val todayBars = points.filter { it.timestampMillis >= todayStart }
+    if (todayBars.isEmpty()) return points
+    val beforeToday = points.filter { it.timestampMillis < todayStart }
+    if (beforeToday.isEmpty()) return points
+    val gapMin = ChronoUnit.MINUTES.between(
+        Instant.ofEpochMilli(barMillisAt(beforeToday.last())).atZone(zone).toLocalDateTime(),
+        Instant.ofEpochMilli(barMillisAt(todayBars.first())).atZone(zone).toLocalDateTime(),
+    )
+    return if (gapMin > 15L) todayBars else points
 }
 
 /** Live overlay не должен менять закрытые бары в каноническом ряду. */

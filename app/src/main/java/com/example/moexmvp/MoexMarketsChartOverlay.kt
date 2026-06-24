@@ -102,6 +102,17 @@ internal fun m15TodayBarCount(points: List<DataPoint>, zone: ZoneId = moexZoneId
     return points.count { it.timestampMillis >= todayStart }
 }
 
+/** MOEX 10м→15м за сегодня: нет баров в кэше или дыра внутри дня. */
+internal fun m15TodayOverlayNeedsMoexFetch(
+    zBase: List<DataPoint>,
+    todayProbe: List<DataPoint>,
+    zone: ZoneId = moexZoneId,
+): Boolean {
+    if (m15SeriesHasIntradayTradingGap(todayProbe)) return true
+    val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+    return zBase.none { it.timestampMillis >= todayStart }
+}
+
 /** Чтение 255д 15м из SQLite (без сети). */
 internal suspend fun MoexScreenState.loadMarketsM15FromSqliteCache(): List<DataPoint> =
     loadM15ForMarkets(
@@ -160,7 +171,7 @@ internal suspend fun MoexScreenState.refreshMarketsM15TodayChartOverlay(
     val probe = applyTodayM15OverlayForChart(zBase, overlay)
     val todayStart = LocalDate.now(moexZoneId).atStartOfDay(moexZoneId).toInstant().toEpochMilli()
     val todayProbe = probe.filter { it.timestampMillis >= todayStart }
-    if (m15SeriesHasIntradayTradingGap(todayProbe)) {
+    if (m15TodayOverlayNeedsMoexFetch(zBase, todayProbe)) {
         if (isMoexNetworkAvailable(context)) {
             fetchTodayM15ChartOverlayFromMoex10m(zBase)?.let { moexToday ->
                 if (moexToday.size > overlay.size) overlay = moexToday
@@ -178,7 +189,8 @@ internal suspend fun MoexScreenState.refreshMarketsM15TodayChartOverlay(
             append("overlay_bars=${overlay.size} ")
             append("1m_tatn=${snap?.tatn?.size ?: 0} 1m_tatnp=${snap?.tatnp?.size ?: 0} ")
             append("probe{${snapshotM15Series(todayProbe).toLogFields()}} ")
-            append("still_gap=${m15SeriesHasIntradayTradingGap(todayProbe)}")
+            append("still_gap=${m15SeriesHasIntradayTradingGap(todayProbe)} ")
+            append("moex_today_fetch=${m15TodayOverlayNeedsMoexFetch(zBase, todayProbe)}")
         },
     )
     logMarketsM15ChartBuild(marketsZChartPeriod.coerceToMarketsUiPeriod())
