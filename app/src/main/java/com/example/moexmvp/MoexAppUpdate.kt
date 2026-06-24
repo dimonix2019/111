@@ -180,21 +180,31 @@ internal fun appUpdateManifestUrlCandidates(): List<String> = listOf(
     APP_UPDATE_PUBLIC_MANIFEST_URL,
 )
 
+/** raw.githubusercontent.com кэширует gh-pages; bust по часу для manifest, по versionCode для APK. */
+internal fun cacheBustPublicMirrorUrl(url: String, versionCode: Int? = null): String {
+    val trimmed = url.trim()
+    if (!trimmed.contains("raw.githubusercontent.com", ignoreCase = true)) return trimmed
+    val key = versionCode?.takeIf { it > 0 }?.toString()
+        ?: ((System.currentTimeMillis() / 3_600_000L).toString())
+    val sep = if (trimmed.contains('?')) '&' else '?'
+    return "$trimmed${sep}v=$key"
+}
+
 /** Из нескольких источников берём сборку с наибольшим versionCode (release может быть новее gh-pages). */
 internal fun selectBestRemoteAppUpdate(candidates: List<AppRemoteUpdate>): AppRemoteUpdate? =
     candidates.maxByOrNull { it.versionCode }?.let { best ->
-        best.copy(apkDownloadUrl = preferredInAppApkDownloadUrl(best.apkDownloadUrl))
+        best.copy(apkDownloadUrl = preferredInAppApkDownloadUrl(best.apkDownloadUrl, best.versionCode))
     }
 
 /** In-app загрузка: gh-pages (публичное зеркало), не release URL с возможной HTML-страницей. */
-internal fun preferredInAppApkDownloadUrl(primaryUrl: String): String {
+internal fun preferredInAppApkDownloadUrl(primaryUrl: String, versionCode: Int? = null): String {
     val trimmed = primaryUrl.trim()
     if (trimmed.contains("raw.githubusercontent.com", ignoreCase = true) &&
         trimmed.endsWith(".apk", ignoreCase = true)
     ) {
-        return trimmed
+        return cacheBustPublicMirrorUrl(trimmed, versionCode)
     }
-    return APP_UPDATE_PUBLIC_APK_URL
+    return cacheBustPublicMirrorUrl(APP_UPDATE_PUBLIC_APK_URL, versionCode)
 }
 
 internal fun resolveApkDownloadUrl(manifestUrl: String, parsed: AppRemoteUpdate): String {
@@ -205,19 +215,16 @@ internal fun resolveApkDownloadUrl(manifestUrl: String, parsed: AppRemoteUpdate)
     return parsed.apkDownloadUrl.ifBlank { APK_DOWNLOAD_DIRECT_URL }
 }
 
-/** Порядок попыток скачивания: зеркало gh-pages → основной URL → Release. */
-internal fun apkDownloadUrlCandidates(primaryUrl: String): List<String> =
+/** Порядок попыток скачивания: Release → gh-pages (cache-bust) → primary. */
+internal fun apkDownloadUrlCandidates(primaryUrl: String, versionCode: Int? = null): List<String> =
     buildList {
-        if (none { it.equals(APP_UPDATE_PUBLIC_APK_URL, ignoreCase = true) }) {
-            add(APP_UPDATE_PUBLIC_APK_URL)
+        fun addUnique(url: String) {
+            if (url.isNotBlank() && none { it.equals(url, ignoreCase = true) }) add(url)
         }
-        val primary = preferredInAppApkDownloadUrl(primaryUrl)
-        if (primary.isNotBlank() && none { it.equals(primary, ignoreCase = true) }) {
-            add(primary)
-        }
-        if (none { it.equals(APK_DOWNLOAD_DIRECT_URL, ignoreCase = true) }) {
-            add(APK_DOWNLOAD_DIRECT_URL)
-        }
+        addUnique(APK_DOWNLOAD_DIRECT_URL)
+        addUnique(cacheBustPublicMirrorUrl(APP_UPDATE_PUBLIC_APK_URL, versionCode))
+        val primary = preferredInAppApkDownloadUrl(primaryUrl, versionCode)
+        addUnique(primary)
     }
 
 internal fun parseAppUpdateManifestJson(json: String, manifestUrl: String = APP_UPDATE_MANIFEST_URL): AppRemoteUpdate? {
@@ -276,8 +283,13 @@ internal fun fetchRemoteAppUpdateWithDiagnostics(): AppUpdateFetchDiagnostics {
     val candidates = mutableListOf<AppRemoteUpdate>()
 
     for (url in appUpdateManifestUrlCandidates()) {
-        tried += url
-        val result = fetchText(url)
+        val fetchUrl = if (url == APP_UPDATE_PUBLIC_MANIFEST_URL) {
+            cacheBustPublicMirrorUrl(url)
+        } else {
+            url
+        }
+        tried += fetchUrl
+        val result = fetchText(fetchUrl)
         lastHttpCode = result.httpCode ?: lastHttpCode
         if (result.httpCode == 404) privateRepoLikely = true
         result.body?.let { body ->
@@ -397,7 +409,7 @@ internal fun downloadAppUpdateApk(
     destination: File,
     onProgress: ((Float?) -> Unit)? = null
 ) {
-    val urls = apkDownloadUrlCandidates(update.apkDownloadUrl)
+    val urls = apkDownloadUrlCandidates(update.apkDownloadUrl, update.versionCode)
     var lastError: IOException? = null
     for (url in urls) {
         try {

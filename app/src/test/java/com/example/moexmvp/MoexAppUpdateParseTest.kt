@@ -68,28 +68,35 @@ class MoexAppUpdateParseTest {
     }
 
     @Test
-    fun apkDownloadUrlCandidates_prefersGhPagesFirst() {
-        val urls = apkDownloadUrlCandidates(APK_DOWNLOAD_DIRECT_URL)
-        assertEquals(APP_UPDATE_PUBLIC_APK_URL, urls.first())
-        assertTrue(urls.contains(APK_DOWNLOAD_DIRECT_URL))
+    fun apkDownloadUrlCandidates_prefersReleaseBeforeGhPages() {
+        val urls = apkDownloadUrlCandidates(APK_DOWNLOAD_DIRECT_URL, versionCode = 355)
+        assertEquals(APK_DOWNLOAD_DIRECT_URL, urls.first())
+        assertTrue(urls.any { it.startsWith(APP_UPDATE_PUBLIC_APK_URL) && it.contains("v=355") })
+    }
+
+    @Test
+    fun cacheBustPublicMirrorUrl_appendsVersionCodeForApk() {
+        val busted = cacheBustPublicMirrorUrl(APP_UPDATE_PUBLIC_APK_URL, versionCode = 355)
+        assertTrue(busted.contains("v=355"))
     }
 
     @Test
     fun preferredInAppApkDownloadUrl_usesGhPagesForReleaseLink() {
-        assertEquals(
-            APP_UPDATE_PUBLIC_APK_URL,
-            preferredInAppApkDownloadUrl(APK_DOWNLOAD_DIRECT_URL),
+        assertTrue(
+            preferredInAppApkDownloadUrl(APK_DOWNLOAD_DIRECT_URL, versionCode = 136)
+                .startsWith(APP_UPDATE_PUBLIC_APK_URL),
         )
     }
 
     @Test
-    fun selectBestRemoteAppUpdate_rewritesDownloadToGhPages() {
+    fun selectBestRemoteAppUpdate_rewritesDownloadToCacheBustedGhPages() {
         val best = selectBestRemoteAppUpdate(
             listOf(
                 AppRemoteUpdate(135, "1.7.17", APK_DOWNLOAD_DIRECT_URL),
             )
         )
-        assertEquals(APP_UPDATE_PUBLIC_APK_URL, best!!.apkDownloadUrl)
+        assertTrue(best!!.apkDownloadUrl.startsWith(APP_UPDATE_PUBLIC_APK_URL))
+        assertTrue(best.apkDownloadUrl.contains("v=135"))
     }
 
     @Test
@@ -158,7 +165,8 @@ class MoexAppUpdateParseTest {
         assertNotNull(best)
         assertEquals(135, best!!.versionCode)
         assertEquals("1.7.17", best.versionName)
-        assertEquals(ghApk, best.apkDownloadUrl)
+        assertTrue(best.apkDownloadUrl.startsWith(ghApk))
+        assertTrue(best.apkDownloadUrl.contains("v=135"))
     }
 
     @Test
