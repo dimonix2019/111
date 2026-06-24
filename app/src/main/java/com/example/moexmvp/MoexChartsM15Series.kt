@@ -287,6 +287,11 @@ internal fun filterM15PointsForMarketsPeriod(
         .atStartOfDay(moexZoneId)
         .toInstant()
         .toEpochMilli()
-    return ordered.filter { it.timestampMillis >= fromMillis }
+    val filtered = ordered.filter { it.timestampMillis >= fromMillis }
+    return if (period == Period.OneDay) {
+        filterM15PointsForMarketsOneDay(ordered)
+    } else {
+        filtered
+    }
 }
 

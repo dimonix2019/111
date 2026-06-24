@@ -137,4 +137,20 @@ class MoexMarketsLiveZTest {
         assertEquals(0.91, outPts.last().zScore, 1e-9)
         assertEquals(0.91, outCandles.last().close, 1e-9)
     }
+
+    @Test
+    fun replayTodayM15FromIntraday1m_buildsTodayBarsFrom1m() {
+        val day = LocalDate.now(zone).minusDays(1)
+        val history = testM15BarSeries(day, 10, 0, List(80) { 0.1 })
+        val aligned = AlignedIntraday1mQuotes(
+            labels = listOf("10:00", "10:01", "10:02", "10:15", "10:16"),
+            tatnCloses = listOf(650.0, 650.1, 650.2, 650.3, 650.4),
+            tatnpCloses = listOf(600.0, 600.0, 600.0, 600.0, 600.0),
+        )
+        val replayed = replayTodayM15FromIntraday1m(history, aligned, zone)
+        assertNotNull(replayed)
+        val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+        val todayBars = replayed!!.filter { it.timestampMillis >= todayStart }
+        assertTrue(todayBars.isNotEmpty())
+    }
 }

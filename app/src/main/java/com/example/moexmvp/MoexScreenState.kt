@@ -82,6 +82,12 @@ internal class MoexScreenState(val context: Context) {
     var marketsLiveZBarAt by mutableStateOf<String?>(null)
     /** Инкремент при обновлении 1м котировок на «Рынок». */
     var marketsIntraday1mEpoch by mutableStateOf(0)
+    /** Сегодняшние 15м для Z-графика (1м/MOEX overlay, не session cache). */
+    var marketsM15TodayChartOverlay by mutableStateOf<List<DataPoint>>(emptyList())
+    var marketsM15ChartOverlayEpoch by mutableStateOf(0)
+    /** 255д 15м из SQLite (CACHE_ONLY) — для Z-графика, вне Compose state. */
+    var marketsM15SqliteChartCache: List<DataPoint> = emptyList()
+    var marketsM15SqliteChartEpoch by mutableStateOf(0)
     var marketsM15SessionCache: List<DataPoint> = emptyList()
     var marketsM15DataEpoch by mutableStateOf(0)
     /** Single-flight MOEX 15м refresh (catchup / tail / force). */
