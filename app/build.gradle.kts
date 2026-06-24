@@ -16,6 +16,17 @@ fun escapeForBuildConfigString(value: String): String =
 val embedSandboxToken = sandboxEmbedProps.getProperty("SANDBOX_TOKEN", "").trim()
 val embedSandboxAccountId = sandboxEmbedProps.getProperty("SANDBOX_ACCOUNT_ID", "").trim()
 
+/** GitHub PAT для загрузки debug-отчётов (gitignored debug-report-token.properties или CI secret). */
+val debugReportEmbedProps = Properties().apply {
+    val f = rootProject.file("debug-report-token.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val embedDebugReportToken = debugReportEmbedProps.getProperty("DEBUG_REPORT_UPLOAD_TOKEN", "")
+    .trim()
+    .ifBlank { System.getenv("DEBUG_REPORT_UPLOAD_TOKEN")?.trim().orEmpty() }
+val embedGitBranch = System.getenv("DEBUG_REPORT_GIT_BRANCH")?.trim().orEmpty().ifBlank { "local" }
+val embedGitSha = System.getenv("DEBUG_REPORT_GIT_SHA")?.trim().orEmpty()
+
 android {
     namespace = "com.example.moexmvp"
     compileSdk = 34
@@ -24,8 +35,8 @@ android {
         applicationId = "com.example.moexmvp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 357
-        versionName = "1.7.238"
+        versionCode = 358
+        versionName = "1.7.239"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -34,6 +45,10 @@ android {
 
         buildConfigField("String", "SANDBOX_TOKEN_EMBED", escapeForBuildConfigString(embedSandboxToken))
         buildConfigField("String", "SANDBOX_ACCOUNT_EMBED", escapeForBuildConfigString(embedSandboxAccountId))
+        buildConfigField("String", "GIT_BRANCH", escapeForBuildConfigString(embedGitBranch))
+        buildConfigField("String", "GIT_SHA", escapeForBuildConfigString(embedGitSha))
+        buildConfigField("String", "DEBUG_REPORT_UPLOAD_TOKEN", escapeForBuildConfigString(embedDebugReportToken))
+        buildConfigField("String", "GITHUB_REPO", escapeForBuildConfigString("dimonix2019/111"))
     }
 
     /**
