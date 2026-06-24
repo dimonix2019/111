@@ -276,6 +276,11 @@ internal fun MoexScreen() {
         if (marketsChartLiveBarGapNeedsM15Catchup(lastLabel, liveAt) ||
             m15SeriesHasIntradayTradingGap(screen.marketsM15Source())
         ) {
+            MarketsM15ChartDiagnostics.logStage(
+                context,
+                "gap_action",
+                "last_chart=$lastLabel live_bar=$liveAt session{${snapshotM15Series(screen.marketsM15Source()).toLogFields()}} → sqlite_refresh+catchup",
+            )
             screen.refreshMarketsM15SqliteChartCache(reason = "chart_gap")
             screen.scheduleMarketsM15MoexCatchup(scope, reason = "chart_gap", debounceMs = 0L)
         }

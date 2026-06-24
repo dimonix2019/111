@@ -43,6 +43,11 @@ internal suspend fun MoexScreenState.commitMarketsM15ToUi(
     }
     publishMarketsLiveZFromPoints(points, snap = snap)
     refreshMarketsM15TodayChartOverlay(snap)
+    MarketsM15ChartDiagnostics.logStage(
+        context,
+        "commit",
+        "reason=$reason ${snapshotM15Series(points).toLogFields()} alsoPortfolio=$alsoPortfolio",
+    )
     val overlayIssues = validateMarketsUiSnapshot(
         cache = marketsM15Source(),
         portfolio = portfolioM15Points,

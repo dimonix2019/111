@@ -136,12 +136,18 @@ internal suspend fun MoexScreenState.refreshMarketsM15SqliteChartCache(reason: S
         fromSqlite.size > session.size
     if (sqliteRicher) {
         commitMarketsM15ToUi(fromSqlite, reason = "sqlite_chart_$reason")
-        MoexDiagnostics.log(
-            context,
-            "m15_sqlite",
-            "chart sync sessionToday=${sessionToday.size} sqliteToday=${sqliteToday.size} reason=$reason",
-        )
     }
+    MarketsM15ChartDiagnostics.logStage(
+        context,
+        "sqlite_refresh",
+        buildString {
+            append("reason=$reason ")
+            append("session{${snapshotM15Series(session).toLogFields()}} ")
+            append("sqlite{${snapshotM15Series(fromSqlite).toLogFields()}} ")
+            append("synced=$sqliteRicher")
+        },
+    )
+    logMarketsM15ChartBuild(marketsZChartPeriod.coerceToMarketsUiPeriod())
 }
 
 /** Обновить overlay Z-графика (вызывается после 1м poll и commit 15м). */
@@ -165,11 +171,24 @@ internal suspend fun MoexScreenState.refreshMarketsM15TodayChartOverlay(
         marketsM15TodayChartOverlay = overlay
         marketsM15ChartOverlayEpoch++
     }
+    MarketsM15ChartDiagnostics.logStage(
+        context,
+        "overlay_refresh",
+        buildString {
+            append("overlay_bars=${overlay.size} ")
+            append("1m_tatn=${snap?.tatn?.size ?: 0} 1m_tatnp=${snap?.tatnp?.size ?: 0} ")
+            append("probe{${snapshotM15Series(todayProbe).toLogFields()}} ")
+            append("still_gap=${m15SeriesHasIntradayTradingGap(todayProbe)}")
+        },
+    )
+    logMarketsM15ChartBuild(marketsZChartPeriod.coerceToMarketsUiPeriod())
 }
 
 internal fun MoexScreenState.buildMarketsM15PointsForZChart(period: Period): List<DataPoint> {
     val session = marketsM15Source()
     val base = mergeM15SessionWithSqliteForChart(session, marketsM15SqliteChartCache)
     val merged = applyTodayM15OverlayForChart(base, marketsM15TodayChartOverlay)
-    return filterM15PointsForMarketsPeriod(merged, period)
+    val filtered = filterM15PointsForMarketsPeriod(merged, period)
+    logMarketsM15ChartBuild(period)
+    return filtered
 }

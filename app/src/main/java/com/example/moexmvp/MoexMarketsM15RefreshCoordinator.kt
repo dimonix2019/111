@@ -134,6 +134,12 @@ private suspend fun MoexScreenState.runMarketsM15RefreshLoop() {
 }
 
 private suspend fun MoexScreenState.executeMarketsM15Refresh(request: MarketsM15RefreshRequest): Boolean {
+    val before = snapshotM15Series(marketsM15Source())
+    MarketsM15ChartDiagnostics.logStage(
+        context,
+        "refresh_start",
+        "kind=${request.kind} reason=${request.reason} before{${before.toLogFields()}}",
+    )
     if (request.clearLiveTailZ) {
         withContext(Dispatchers.IO) {
             clearM15LiveTailPersistedZ(PortfolioM15Database.get(context.applicationContext).dao())
@@ -144,7 +150,7 @@ private suspend fun MoexScreenState.executeMarketsM15Refresh(request: MarketsM15
             tryRefreshPortfolio15mLiveFormingTailFromMoex(context, PORTFOLIO_M15_LOOKBACK_DAYS)
                 ?: withPortfolioM15LoadLock {
                     val dao = PortfolioM15Database.get(context.applicationContext).dao()
-                    mergePortfolio15mRecentTailFromMoex(dao)
+                    mergePortfolio15mRecentTailFromMoex(dao, logContext = context.applicationContext)
                     loadPortfolio15mLiveFormingTailLocked(context, PORTFOLIO_M15_LOOKBACK_DAYS)
                 }
         }
@@ -176,9 +182,20 @@ private suspend fun MoexScreenState.executeMarketsM15Refresh(request: MarketsM15
             "m15_refresh",
             "skip kind=${request.kind} empty reason=${request.reason}",
         )
+        MarketsM15ChartDiagnostics.logStage(
+            context,
+            "refresh_skip",
+            "kind=${request.kind} reason=${request.reason} before{${before.toLogFields()}}",
+        )
         return false
     }
     commitMarketsM15ToUi(loaded, reason = request.reason)
+    val after = snapshotM15Series(loaded)
+    MarketsM15ChartDiagnostics.logStage(
+        context,
+        "refresh_ok",
+        "kind=${request.kind} reason=${request.reason} after{${after.toLogFields()}}",
+    )
     MoexDiagnostics.log(
         context,
         "m15_refresh",
