@@ -209,16 +209,20 @@ class MoexMarketsM15ZChartTest {
     }
 
     @Test
-    fun filterM15PointsForMarketsPeriod_filtersWithoutRecomputingZ() {
+    fun filterM15PointsForMarketsPeriod_oneDayShowsTodaySessionFrom0645() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val today = java.time.LocalDate.now(zone)
+        val yesterday = today.minusDays(1)
         val points = listOf(
-            point("2026-05-17 10:00", z = -1.0),
-            point("2026-05-19 10:00", z = 0.5),
-            point("2026-05-20 10:00", z = 1.5)
+            point("${yesterday} 10:00", z = -1.0),
+            point("${yesterday} 23:30", z = 0.2),
+            point("${today} 06:45", z = 0.5),
+            point("${today} 07:30", z = 1.5),
         )
 
         val visible = filterM15PointsForMarketsPeriod(points, Period.OneDay)
 
-        assertEquals(listOf("2026-05-19 10:00", "2026-05-20 10:00"), visible.map { it.tradeDate })
+        assertEquals(listOf("${today} 06:45", "${today} 07:30"), visible.map { it.tradeDate })
         assertEquals(listOf(0.5, 1.5), visible.map { it.zScore })
     }
 

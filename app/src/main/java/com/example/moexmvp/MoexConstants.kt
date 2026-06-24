@@ -185,6 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.240 — Fix «Рынок»: Z на графике пересчитывается из spread (не flat persisted); 1D с 06:45; MOEX overlay утра.
 1.7.239 — «О приложении»: кнопка «В GitHub» — журнал + скриншоты в debug-reports/ на ветке сборки.
 1.7.238 — Fix «Рынок» 1D: без overnight-дыры (только сегодня) + MOEX 10м overlay если today=0 в кэше.
 1.7.237 — Fix OTA: cache-bust gh-pages + сначала Release URL (raw CDN отставал от app-update.json).

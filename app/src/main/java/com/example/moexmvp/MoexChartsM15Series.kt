@@ -289,7 +289,7 @@ internal fun filterM15PointsForMarketsPeriod(
         .toEpochMilli()
     val filtered = ordered.filter { it.timestampMillis >= fromMillis }
     return if (period == Period.OneDay) {
-        trimMarketsOneDayChartForCrossSessionGap(filtered)
+        filterM15PointsForMarketsOneDay(ordered)
     } else {
         filtered
     }

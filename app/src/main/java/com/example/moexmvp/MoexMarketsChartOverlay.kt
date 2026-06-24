@@ -102,15 +102,20 @@ internal fun m15TodayBarCount(points: List<DataPoint>, zone: ZoneId = moexZoneId
     return points.count { it.timestampMillis >= todayStart }
 }
 
-/** MOEX 10м→15м за сегодня: нет баров в кэше или дыра внутри дня. */
+/** MOEX 10м→15м за сегодня: нет баров в кэше, дыра внутри дня или утро неполное. */
 internal fun m15TodayOverlayNeedsMoexFetch(
     zBase: List<DataPoint>,
     todayProbe: List<DataPoint>,
     zone: ZoneId = moexZoneId,
 ): Boolean {
     if (m15SeriesHasIntradayTradingGap(todayProbe)) return true
-    val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
-    return zBase.none { it.timestampMillis >= todayStart }
+    val todayStart = m15SessionOpenMillis(LocalDate.now(zone), zone)
+    if (zBase.none { it.timestampMillis >= todayStart }) return true
+    val expected = m15ExpectedTodayBarsSoFar(zone = zone)
+    if (expected >= 3 && todayProbe.size < expected - 2) return true
+    val firstToday = todayProbe.firstOrNull()?.timestampMillis ?: return false
+    if (firstToday > todayStart + 15 * 60_000L && expected >= 2) return true
+    return false
 }
 
 /** Чтение 255д 15м из SQLite (без сети). */
@@ -174,7 +179,7 @@ internal suspend fun MoexScreenState.refreshMarketsM15TodayChartOverlay(
     if (m15TodayOverlayNeedsMoexFetch(zBase, todayProbe)) {
         if (isMoexNetworkAvailable(context)) {
             fetchTodayM15ChartOverlayFromMoex10m(zBase)?.let { moexToday ->
-                if (moexToday.size > overlay.size) overlay = moexToday
+                overlay = mergeTodayM15ChartOverlays(overlay, moexToday)
             }
         }
     }
@@ -198,9 +203,16 @@ internal suspend fun MoexScreenState.refreshMarketsM15TodayChartOverlay(
 
 internal fun MoexScreenState.buildMarketsM15PointsForZChart(period: Period): List<DataPoint> {
     val session = marketsM15Source()
-    val base = mergeM15SessionWithSqliteForChart(session, marketsM15SqliteChartCache)
+    val sqlite = marketsM15SqliteChartCache
+    val base = mergeM15SessionWithSqliteForChart(session, sqlite)
     val merged = applyTodayM15OverlayForChart(base, marketsM15TodayChartOverlay)
     val filtered = filterM15PointsForMarketsPeriod(merged, period)
+    val zBase = mergeM15SessionWithSqliteForChart(session, sqlite)
+    val withZ = if (zBase.size >= Z_SCORE_ROLLING_MIN_BARS) {
+        recalcM15ZForChartDisplayWindow(filtered, zBase)
+    } else {
+        filtered
+    }
     logMarketsM15ChartBuild(period)
-    return filtered
+    return withZ
 }
