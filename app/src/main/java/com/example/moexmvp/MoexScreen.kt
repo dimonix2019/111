@@ -61,10 +61,13 @@ internal fun MoexScreen() {
             return@produceState
         }
         value = withContext(Dispatchers.Default) {
-            filterM15PointsForMarketsPeriod(
-                screen.marketsM15Source(),
-                screen.marketsZChartPeriod,
-            )
+            val base = screen.marketsM15Source()
+            val filtered = filterM15PointsForMarketsPeriod(base, screen.marketsZChartPeriod)
+            if (base.size >= Z_SCORE_ROLLING_MIN_BARS) {
+                recalcM15ZForChartDisplayWindow(filtered, base)
+            } else {
+                filtered
+            }
         }
     }
     val marketsChartBase = if (onMarketsTab) {

@@ -136,7 +136,9 @@ internal fun MoexScreenTabMarkets(
                     if (!landscapeZChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
                             ?: chartSuccess?.points?.lastOrNull()
-                        val displayZ = marketsLiveZScore ?: last?.zScore
+                        val displayZ = marketsLiveZScore
+                            ?: rollingZForLastM15Bar(marketsM15SourcePoints)
+                            ?: last?.zScore
                         val displaySpread = marketsM15SourcePoints.lastOrNull()?.spreadPercent
                             ?: last?.spreadPercent
                         val loadedAtLabel = marketsLiveZBarAt?.let { bar ->
