@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.242 — Fix «Рынок»: до 07:00 МСК Z = последний закрытый бар (вчера 23:30), без fake live 1м.
 1.7.241 — Fix «Рынок»: Z-score на экране — rolling по spread (не stale persistedZ −3.5+).
 1.7.216 — «Тест страт.»: микро-кнопки 44dp (текст выше), Equity до 400dp — под экран Redmi 12 Pro.
 1.7.215 — «Тест страт.»: единая микро-панель (Плечо…−КЗ) + Equity/DD на одном экране; chip-переключатели.

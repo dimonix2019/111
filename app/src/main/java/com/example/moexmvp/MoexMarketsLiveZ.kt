@@ -4,6 +4,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 
 internal fun spreadPercentFromPairCloses(tatnClose: Double, tatnpClose: Double): Double? {
     if (tatnpClose == 0.0) return null
@@ -166,9 +167,16 @@ internal fun m15PointsWithLiveFormingFromIntraday1m(
 
 /** Применить live Z из 1м котировок к in-memory 15м (сводка + Z-график). */
 internal fun MoexScreenState.applyMarketsLiveZFromIntraday1mSnap(snap: MarketsIntraday1mSnapshot) {
+    val now = ZonedDateTime.now(moexZoneId)
+    val src = marketsM15Source()
+    if (!shouldApplyMarketsLiveZFromIntraday1m(snap, now)) {
+        val closed = lastClosedM15BarForDisplay(src, now)
+        marketsLiveZScore = rollingZForClosedM15Bar(src, now)
+        marketsLiveZBarAt = closed?.tradeDate
+        return
+    }
     val tatnClose = snap.tatn.lastOrNull()?.close ?: return
     val tatnpClose = snap.tatnp.lastOrNull()?.close ?: return
-    val src = marketsM15Source()
     val patched = buildM15PointsWithLiveFormingFrom1m(src, tatnClose, tatnpClose) ?: return
     val last = patched.last()
     val prev = marketsM15Source().lastOrNull()

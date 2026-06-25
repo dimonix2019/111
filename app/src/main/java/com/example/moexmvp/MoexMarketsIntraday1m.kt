@@ -99,6 +99,7 @@ internal fun appendFormingIntraday1mFrom10m(
     bars10m: List<CandleBar>,
     now: ZonedDateTime = ZonedDateTime.now(moexZoneId),
 ): List<CandleBar> {
+    if (!isMoexQuotesSessionLikelyOpen(now)) return bars1m
     if (bars10m.isEmpty()) return bars1m
     val nowLdt = now.toLocalDateTime()
     val latest10 = bars10m.filter { !it.timestamp.isAfter(nowLdt) }.maxByOrNull { it.timestamp }
