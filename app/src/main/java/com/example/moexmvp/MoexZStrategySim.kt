@@ -378,6 +378,8 @@ internal fun buildZStrategyPortfolioMetrics(
                                 ) == ZStrategySignal.ExitLong
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
+                            ZStrategyExitMode.OppositeExtreme ->
+                                oppositeExtremeExitLongBetweenBars(prev, current, exit)
                         }
                         if (ruleExit) {
                             closeLongAt(current)
@@ -418,6 +420,8 @@ internal fun buildZStrategyPortfolioMetrics(
                                 ) == ZStrategySignal.ExitShort
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
+                            ZStrategyExitMode.OppositeExtreme ->
+                                oppositeExtremeExitShortBetweenBars(prev, current, exit)
                         }
                         if (ruleExit) {
                             closeShortAt(current)
@@ -557,6 +561,8 @@ internal fun buildZStrategyPortfolioMetrics(
             "выход ±${String.format(Locale.US, "%.1f", exit)}"
         ZStrategyExitMode.ZPeakTrailing ->
             "выход трейл Z ${String.format(Locale.US, "%.2f", zPeakTrailZ)} от пика"
+        ZStrategyExitMode.OppositeExtreme ->
+            "выход противоп. экстремум ±${String.format(Locale.US, "%.1f", exit)}"
     }
     val entryNote = if (entryPullbackZ > 0.0) {
         ", вход откат Z ${String.format(Locale.US, "%.2f", entryPullbackZ)}"

@@ -9,7 +9,9 @@ internal enum class ZStrategyExitMode {
     /** Фиксированный порог |Z| (как сейчас в портфеле). */
     FixedThreshold,
     /** Выход при откате Z от экстремума внутри сделки (трейлинг от пика). */
-    ZPeakTrailing
+    ZPeakTrailing,
+    /** Выход при пересечении противоположного экстремума Z (+/− exit как «другая сторона»). */
+    OppositeExtreme,
 }
 
 internal fun parseZStrategyExitMode(raw: String?): ZStrategyExitMode =

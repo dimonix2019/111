@@ -610,6 +610,12 @@ internal fun StrategyTestExitModeControls(
                 onClick = { onExitModeChange(ZStrategyExitMode.ZPeakTrailing) },
                 modifier = Modifier.weight(1f)
             )
+            StrategyExitModeButton(
+                text = "Прот. Z",
+                selected = exitMode == ZStrategyExitMode.OppositeExtreme,
+                onClick = { onExitModeChange(ZStrategyExitMode.OppositeExtreme) },
+                modifier = Modifier.weight(1f)
+            )
         }
         Text(
             text = when (exitMode) {
@@ -617,6 +623,8 @@ internal fun StrategyTestExitModeControls(
                     "Закрытие по прежнему порогу выхода |Z|; розовые пороги «Портфеля» не меняются."
                 ZStrategyExitMode.ZPeakTrailing ->
                     "После входа запоминаем лучший Z и закрываемся при откате от пика на выбранный шаг."
+                ZStrategyExitMode.OppositeExtreme ->
+                    "Вход на экстремум −Z (LONG), выход при пересечении +Z на уровне порога выхода (и наоборот для SHORT)."
             },
             color = Color(0xFF757575),
             fontSize = 9.sp,
