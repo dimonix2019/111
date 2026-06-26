@@ -617,6 +617,14 @@ internal fun StrategyTestExitModeControls(
                 modifier = Modifier.weight(1f)
             )
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            StrategyExitModeButton(
+                text = "Лок. Z",
+                selected = exitMode == ZStrategyExitMode.LocalExtrema,
+                onClick = { onExitModeChange(ZStrategyExitMode.LocalExtrema) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         Text(
             text = when (exitMode) {
                 ZStrategyExitMode.FixedThreshold ->
@@ -624,7 +632,9 @@ internal fun StrategyTestExitModeControls(
                 ZStrategyExitMode.ZPeakTrailing ->
                     "После входа запоминаем лучший Z и закрываемся при откате от пика на выбранный шаг."
                 ZStrategyExitMode.OppositeExtreme ->
-                    "Вход на экстремум −Z (LONG), выход при пересечении +Z на уровне порога выхода (и наоборот для SHORT)."
+                    "Вход: пересечение −Z. Выход: пересечение +Z на уровне порога выхода (полный разворот)."
+                ZStrategyExitMode.LocalExtrema ->
+                    "Вход на локальном дне Z (3 бара), выход на локальной вершине после отскока ≥ порога выхода."
             },
             color = Color(0xFF757575),
             fontSize = 9.sp,

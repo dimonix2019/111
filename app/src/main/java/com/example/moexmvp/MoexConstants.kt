@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.244 — «Тест страт.»: режим «Лок. Z» — вход на локальном дне Z, выход на локальной вершине.
 1.7.243 — «Тест страт.»: режим выхода «Прот. Z» — закрытие на противоположном экстремуме Z-score.
 1.7.242 — Fix «Рынок»: до 07:00 МСК Z = последний закрытый бар (вчера 23:30), без fake live 1м.
 1.7.241 — Fix «Рынок»: Z-score на экране — rolling по spread (не stale persistedZ −3.5+).

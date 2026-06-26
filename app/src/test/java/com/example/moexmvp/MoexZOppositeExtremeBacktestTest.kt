@@ -9,7 +9,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Гипотеза: вход на экстремум Z, выход на противоположном экстремуме.
+ * Гипотеза экстремумов Z: фикс. выход vs противоп. полюс vs лок. дно→вершина.
  *
  * `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexZOppositeExtremeBacktestTest`
  */
@@ -66,9 +66,26 @@ class MoexZOppositeExtremeBacktestTest {
 
         compareBaselinePairs(points, entry = 1.3, fixedExit = 1.2, oppositeExit = 1.3)
         compareBaselinePairs(points, entry = 1.8, fixedExit = 1.3, oppositeExit = 1.8)
+        compareThreeModes(points, entry = 1.3, exit = 1.2)
+        compareThreeModes(points, entry = 1.8, exit = 1.3)
 
         assertTrue(points.size >= 100)
         assertTrue(bestFixed != null || bestOpposite != null)
+    }
+
+    private fun compareThreeModes(points: List<DataPoint>, entry: Double, exit: Double) {
+        val fixed = runSim(points, entry, exit, ZStrategyExitMode.FixedThreshold)!!
+        val opposite = runSim(points, entry, if (exit >= entry) exit else entry, ZStrategyExitMode.OppositeExtreme)!!
+        val local = runSim(points, entry, exit, ZStrategyExitMode.LocalExtrema)!!
+        println()
+        println("=== Тройное сравнение ±$entry / exit $exit ===")
+        printRow(Row("fixed", entry, exit, fixed, label = "1) фикс. выход"))
+        printRow(Row("opposite", entry, entry, opposite, label = "2) противоп. ±$entry"))
+        printRow(Row("local", entry, exit, local, label = "3) лок. дно→вершина"))
+        println(
+            "  Δ PnL: opposite ${fmt(opposite.totalPnlRubApprox - fixed.totalPnlRubApprox)} ₽ · " +
+                "local ${fmt(local.totalPnlRubApprox - fixed.totalPnlRubApprox)} ₽"
+        )
     }
 
     private fun compareBaselinePairs(

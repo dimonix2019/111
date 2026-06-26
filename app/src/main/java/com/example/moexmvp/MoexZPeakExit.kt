@@ -12,6 +12,8 @@ internal enum class ZStrategyExitMode {
     ZPeakTrailing,
     /** Выход при пересечении противоположного экстремума Z (+/− exit как «другая сторона»). */
     OppositeExtreme,
+    /** Вход на локальном дне/вершине Z, выход на локальном противоположном экстремуме. */
+    LocalExtrema,
 }
 
 internal fun parseZStrategyExitMode(raw: String?): ZStrategyExitMode =
