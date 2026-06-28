@@ -31,7 +31,7 @@ internal fun PortfolioEntryReadinessSection(
     PortfolioCollapsibleSection(
         title = "Почему нет сделки / сигнала",
         subtitle = report.summary.take(120),
-        defaultExpanded = true,
+        defaultExpanded = false,
         compactHeader = true,
     ) {
         Column(

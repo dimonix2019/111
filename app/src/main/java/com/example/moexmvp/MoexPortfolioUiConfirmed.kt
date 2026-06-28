@@ -213,49 +213,6 @@ internal fun ConfirmedPortfolioTabContent(
                     valueTextColor = Color(0xFFFFF8F9)
                 )
             }
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = onTestSpreadPairLongClick,
-                        enabled = !portfolioTestBusy,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF69F0AE))
-                    ) {
-                        Text("Тестовая пара Long", fontSize = 11.sp)
-                    }
-                    OutlinedButton(
-                        onClick = onTestSpreadPairShortClick,
-                        enabled = !portfolioTestBusy,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF8A80))
-                    ) {
-                        Text("Тестовая пара Short", fontSize = 11.sp)
-                    }
-                }
-                if (portfolioTestBusy) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = Color(0xFFF48FB1),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Выполняется…", color = Color(0xFFCE93D8), fontSize = 10.sp)
-                    }
-                }
-            }
         }
         PortfolioTradesWindowSection(
             openExecutions = sandboxSpreadExecutions,
@@ -281,6 +238,55 @@ internal fun ConfirmedPortfolioTabContent(
                 onEntryThresholdChange = {},
                 onExitThresholdChange = {}
             )
+        }
+        PortfolioCollapsibleSection(
+            title = "Тестовая пара",
+            subtitle = "Long / Short — проверка входа на ${executionAccountShortRu(executionMode)}",
+            defaultExpanded = false,
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onTestSpreadPairLongClick,
+                        enabled = !portfolioTestBusy,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF69F0AE)),
+                    ) {
+                        Text("Тестовая пара Long", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onTestSpreadPairShortClick,
+                        enabled = !portfolioTestBusy,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF8A80)),
+                    ) {
+                        Text("Тестовая пара Short", fontSize = 11.sp)
+                    }
+                }
+                if (portfolioTestBusy) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color(0xFFF48FB1),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Выполняется…", color = Color(0xFFCE93D8), fontSize = 10.sp)
+                    }
+                }
+            }
         }
 
         if (portfolioError != null) {
