@@ -151,8 +151,11 @@ class MoexMarketsLiveZTest {
         val b = resolveUnifiedLiveZSnapshot(history, snap, now = now)
         assertEquals(a.zScore, b.zScore)
         assertEquals(a.spreadPercent, b.spreadPercent)
-        assertEquals(a.monitorPoints.last().zScore, b.monitorPoints.last().zScore)
+        assertEquals(a.monitorPoints.last().zScore, b.monitorPoints.last().zScore, 1e-9)
         assertEquals(a.liveFrom1m, b.liveFrom1m)
+        if (a.liveFrom1m) {
+            assertEquals(a.zScore!!, a.monitorPoints.last().zScore, 1e-9)
+        }
     }
 
     @Test
