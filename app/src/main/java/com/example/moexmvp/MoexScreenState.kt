@@ -137,7 +137,8 @@ internal class MoexScreenState(val context: Context) {
     var dataLoadProgress by mutableStateOf<DataLoadProgress?>(null)
     /** Счётчик активных загрузок; пока > 0, прогресс-бар не скрывается. */
     var dataLoadSessions by mutableStateOf(0)
-    /** UI портфеля собран для [portfolioTabUiSessionKey]; 0 = нужен rebuild. */
+    /** Сводка PnL закрытых сделок из GetOperations (Prod); null = только таблица приложения. */
+    var portfolioBrokerWindowPnlSummary by mutableStateOf<ProdSpreadWindowPnlSummary?>(null)
     var portfolioTabUiBuiltKey: Long = 0L
     /** Период 15м «Рынок», для которого уже есть in-memory ряд. */
     var marketsM15LoadedPeriod: Period? = null

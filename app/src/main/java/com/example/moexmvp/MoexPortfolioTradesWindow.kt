@@ -137,7 +137,9 @@ internal data class PortfolioTradesBucketUi(
     val tradeCount: Int,
     val totalPnlRub: Double,
     val groups: List<PortfolioTradeGroupRow>,
-    val isOpenTrades: Boolean
+    val isOpenTrades: Boolean,
+    /** Подпись источника PnL, напр. «Tinkoff». */
+    val pnlSourceLabel: String? = null,
 )
 
 /** Фильтр таблиц сделок: скрыть ручные, оставить авто (и тестовые). */
@@ -161,6 +163,9 @@ internal fun buildPortfolioTradesBuckets(
     lookbackDays: Long,
     windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
     tradesAutoOnlyFilter: Boolean = false,
+    closedPnlOverrideRub: Double? = null,
+    closedPnlSourceLabel: String? = null,
+    closedTradeCountOverride: Int? = null,
 ): Pair<PortfolioTradesBucketUi, PortfolioTradesBucketUi> {
     val openFiltered = filterSandboxExecutionsForTradesTable(
         openExecutions,
@@ -180,9 +185,10 @@ internal fun buildPortfolioTradesBuckets(
         isOpenTrades = true
     ) to PortfolioTradesBucketUi(
         title = "Закрытые",
-        tradeCount = closedGroups.size,
-        totalPnlRub = sumTradeGroupsNetPnl(closedGroups),
+        tradeCount = closedTradeCountOverride ?: closedGroups.size,
+        totalPnlRub = closedPnlOverrideRub ?: sumTradeGroupsNetPnl(closedGroups),
         groups = closedGroups,
-        isOpenTrades = false
+        isOpenTrades = false,
+        pnlSourceLabel = closedPnlSourceLabel,
     )
 }

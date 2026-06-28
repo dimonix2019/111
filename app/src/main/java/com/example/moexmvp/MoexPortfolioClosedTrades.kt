@@ -209,6 +209,7 @@ internal fun mergePortfolioClosedTableRowsForMode(
     fromReplay: List<PortfolioConfirmedTradeTableRow>,
     fromOpens: List<PortfolioConfirmedTradeTableRow>,
     fromProdBroker: List<PortfolioConfirmedTradeTableRow>,
+    fromProdOperations: List<PortfolioConfirmedTradeTableRow> = emptyList(),
 ): List<PortfolioConfirmedTradeTableRow> {
     if (mode != TinkoffExecutionMode.Prod) {
         return if (fromProdBroker.isEmpty()) {
@@ -217,10 +218,25 @@ internal fun mergePortfolioClosedTableRowsForMode(
             mergeClosedPortfolioTableRowsPreferBroker(fromReplay, fromOpens, fromProdBroker)
         }
     }
+    if (fromProdOperations.isNotEmpty()) {
+        return mergeProdClosedRowsWithOperationsWindow(fromProdBroker, fromProdOperations)
+    }
     // Prod: не смешивать MOEX-симуляцию «сигнал» (100k×leverage) с реальными сделками.
     val execReplay = fromReplay.filter { !isPortfolioSignalOnlyClosedRow(it) }
     val execOpens = fromOpens.filter { !isPortfolioSignalOnlyClosedRow(it) }
     return mergeClosedPortfolioTableRowsPreferBroker(execReplay, execOpens, fromProdBroker)
+}
+
+/** Prod: строки из GetOperations (T-B) + закрытые через приложение (T-P); без MOEX-симуляции. */
+internal fun mergeProdClosedRowsWithOperationsWindow(
+    fromProdBroker: List<PortfolioConfirmedTradeTableRow>,
+    fromProdOperations: List<PortfolioConfirmedTradeTableRow>,
+): List<PortfolioConfirmedTradeTableRow> {
+    if (fromProdOperations.isEmpty()) return fromProdBroker
+    if (fromProdBroker.isEmpty()) return fromProdOperations
+    val brokerKeys = fromProdBroker.map { closedTradeDedupKey(it) }.toSet()
+    val extraOps = fromProdOperations.filter { closedTradeDedupKey(it) !in brokerKeys }
+    return fromProdBroker + extraOps
 }
 
 /** Объединить закрытые строки replay и синтеза; при дубликате предпочитаем replay (T-xxx). */

@@ -601,7 +601,10 @@ internal fun PortfolioTradesBucketHeader(
             fontWeight = FontWeight.SemiBold
         )
         Text(
-            text = "PnL ${formatRubSigned(bucket.totalPnlRub)}",
+            text = buildString {
+                append("PnL ${formatRubSigned(bucket.totalPnlRub)}")
+                bucket.pnlSourceLabel?.let { append(" · $it") }
+            },
             color = pnlColor,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold
@@ -618,14 +621,21 @@ internal fun PortfolioTradesWindowSection(
     modifier: Modifier = Modifier,
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
+    brokerClosedPnlSummary: ProdSpreadWindowPnlSummary? = null,
 ) {
     var tradesAutoOnlyFilter by remember { mutableStateOf(false) }
     val depthLabel = portfolioLookbackPeriodLabel(lookbackDays)
+    val closedPnlOverride = brokerClosedPnlSummary?.netRub
+    val closedCountOverride = brokerClosedPnlSummary?.roundTripCount
+    val closedSourceLabel = brokerClosedPnlSummary?.let { "Tinkoff" }
     val (openBucket, closedBucket) = buildPortfolioTradesBuckets(
         openExecutions = openExecutions,
         closedRows = closedRows,
         lookbackDays = lookbackDays,
         tradesAutoOnlyFilter = tradesAutoOnlyFilter,
+        closedPnlOverrideRub = closedPnlOverride,
+        closedPnlSourceLabel = closedSourceLabel,
+        closedTradeCountOverride = closedCountOverride,
     )
     val openRiskAssessments = remember(openBucket.groups, realTradeEntryThreshold) {
         buildPortfolioTradeGroupRiskAssessments(openBucket.groups, realTradeEntryThreshold)

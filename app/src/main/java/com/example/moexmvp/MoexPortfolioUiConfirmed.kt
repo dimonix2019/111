@@ -83,6 +83,7 @@ internal fun ConfirmedPortfolioTabContent(
     onCloseAllTradesClick: () -> Unit,
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
+    brokerClosedPnlSummary: ProdSpreadWindowPnlSummary? = null,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -263,6 +264,7 @@ internal fun ConfirmedPortfolioTabContent(
             realTradeEntryThreshold = realTradeEntryThreshold,
             onCloseOpenTrade = onCloseOpenTrade,
             closingTradeId = closingTradeId,
+            brokerClosedPnlSummary = brokerClosedPnlSummary,
         )
         PortfolioCollapsibleSection(
             title = "Плечо и комиссия",

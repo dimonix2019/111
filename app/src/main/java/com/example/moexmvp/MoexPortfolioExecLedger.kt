@@ -233,6 +233,7 @@ internal fun filterConfirmedTableRowsByPortfolioMode(
         }
         when {
             isPortfolioTestTradeConfirmLabel(row.confirmLabel) -> true
+            row.confirmLabel == "брокер" -> true
             row.confirmLabel.startsWith("авто") -> portfolioLedgerIncludeAuto
             row.confirmLabel.startsWith("ручное") -> !portfolioLedgerIncludeAuto
             row.confirmLabel == "сигнал" || row.confirmLabel == "—" -> true

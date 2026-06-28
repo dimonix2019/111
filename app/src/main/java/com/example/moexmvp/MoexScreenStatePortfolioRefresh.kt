@@ -92,11 +92,37 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
     } else {
         emptyList()
     }
+    val windowStart = portfolioTradesWindowStartMillis(portfolioLookbackDays)
+    val windowEnd = System.currentTimeMillis()
+    val prodOpsClosed = if (execMode == TinkoffExecutionMode.Prod) {
+        withContext(Dispatchers.IO) {
+            val ops = fetchProdSpreadOperationsInWindow(context, windowStart, windowEnd)
+            if (ops.isNullOrEmpty()) {
+                portfolioBrokerWindowPnlSummary = null
+                emptyList()
+            } else {
+                portfolioBrokerWindowPnlSummary = summarizeProdSpreadOperations(
+                    operations = ops,
+                    fromMillis = windowStart,
+                    toMillis = windowEnd,
+                )
+                buildClosedRowsFromProdOperationsWindow(
+                    operations = ops,
+                    fromMillis = windowStart,
+                    toMillis = windowEnd,
+                )
+            }
+        }
+    } else {
+        portfolioBrokerWindowPnlSummary = null
+        emptyList()
+    }
     val mergedClosed = mergePortfolioClosedTableRowsForMode(
         mode = execMode,
         fromReplay = executed.tableRows,
         fromOpens = closedFromOpens,
         fromProdBroker = prodBrokerClosed,
+        fromProdOperations = prodOpsClosed,
     )
     confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
         mergedClosed,
