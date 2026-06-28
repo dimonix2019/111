@@ -65,6 +65,47 @@ internal fun MoexScreenTabPortfolio(
                     executionMode = executionMode,
                 )
             }
+            val entryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            val exitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)
+                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
+            val entryReadiness by produceState(
+                initialValue = buildPortfolioEntryReadiness(
+                    PortfolioEntryReadinessInput(
+                        points = emptyList(),
+                        position = zStrategyPosition,
+                        thresholds = portfolioChartZThresholds(entryThreshold, exitThreshold),
+                        monitorEnabled = false,
+                        networkAvailable = false,
+                        autoExecute = sandboxSpreadAutoExecute,
+                        execUiState = SandboxExecUiState.Off,
+                        dailySignalLimit = dailySignalLimit,
+                        hasPendingVirtualTrade = pendingVirtualTrade != null,
+                    )
+                ),
+                enrichmentPoints,
+                zStrategyPosition,
+                entryThreshold,
+                exitThreshold,
+                sandboxSpreadAutoExecute,
+                dailySignalLimit,
+                pendingVirtualTrade,
+                executionMode,
+                bgMonitorToggleEpoch,
+            ) {
+                value = withContext(Dispatchers.Default) {
+                    buildPortfolioEntryReadinessFromContext(
+                        context = context.applicationContext,
+                        points = enrichmentPoints,
+                        position = zStrategyPosition,
+                        thresholds = portfolioChartZThresholds(entryThreshold, exitThreshold),
+                        autoExecute = sandboxSpreadAutoExecute,
+                        executionMode = executionMode,
+                        dailySignalLimit = dailySignalLimit,
+                        hasPendingVirtualTrade = pendingVirtualTrade != null,
+                    )
+                }
+            }
             val launchTestSpreadPair: (StrategySignalType) -> Unit = { signalType ->
                 scope.launch {
                     portfolioTestBusy = true
@@ -172,6 +213,14 @@ internal fun MoexScreenTabPortfolio(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                item {
+                    PortfolioEntryReadinessSection(
+                        report = entryReadiness,
+                        position = zStrategyPosition,
+                        entryThreshold = entryThreshold,
+                        exitThreshold = exitThreshold,
+                    )
+                }
                 item {
                     ConfirmedPortfolioTabContent(
                         confirmedTradeTableRows = confirmedPortfolioTableRows,
