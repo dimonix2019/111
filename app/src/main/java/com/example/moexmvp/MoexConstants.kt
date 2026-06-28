@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.251 — Prod «Открытые» и шторка: PnL gross из GetPortfolio (счёт Tinkoff); комиссия расчётная; без MOEX-перезаписи.
 1.7.250 — Prod «Портфель»: PnL закрытых = Σ payment по счёту Tinkoff (GetOperations), подпись «счёт Tinkoff».
 1.7.249 — Prod «Портфель»: сводный PnL и таблица закрытых из GetOperations (Tinkoff), метка «брокер».
 1.7.248 — Fix Prod: PnL закрытых сделок из GetOperations (окно по wall-clock); время выхода ≥ входа; без MOEX×leverage на Prod.

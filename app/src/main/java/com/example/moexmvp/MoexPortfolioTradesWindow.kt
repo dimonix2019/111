@@ -166,6 +166,7 @@ internal fun buildPortfolioTradesBuckets(
     closedPnlOverrideRub: Double? = null,
     closedPnlSourceLabel: String? = null,
     closedTradeCountOverride: Int? = null,
+    openPnlSourceLabel: String? = null,
 ): Pair<PortfolioTradesBucketUi, PortfolioTradesBucketUi> {
     val openFiltered = filterSandboxExecutionsForTradesTable(
         openExecutions,
@@ -182,7 +183,8 @@ internal fun buildPortfolioTradesBuckets(
         tradeCount = openGroups.size,
         totalPnlRub = sumTradeGroupsNetPnl(openGroups),
         groups = openGroups,
-        isOpenTrades = true
+        isOpenTrades = true,
+        pnlSourceLabel = openPnlSourceLabel,
     ) to PortfolioTradesBucketUi(
         title = "Закрытые",
         tradeCount = closedTradeCountOverride ?: closedGroups.size,

@@ -628,6 +628,7 @@ internal fun PortfolioTradesWindowSection(
     val closedPnlOverride = brokerClosedPnlSummary?.netRub
     val closedCountOverride = brokerClosedPnlSummary?.roundTripCount
     val closedSourceLabel = brokerClosedPnlSummary?.let { prodSpreadPnlSourceLabel(it.source) }
+    val openSourceLabel = openPnlBrokerSourceLabel(openExecutions)
     val (openBucket, closedBucket) = buildPortfolioTradesBuckets(
         openExecutions = openExecutions,
         closedRows = closedRows,
@@ -636,6 +637,7 @@ internal fun PortfolioTradesWindowSection(
         closedPnlOverrideRub = closedPnlOverride,
         closedPnlSourceLabel = closedSourceLabel,
         closedTradeCountOverride = closedCountOverride,
+        openPnlSourceLabel = openSourceLabel,
     )
     val openRiskAssessments = remember(openBucket.groups, realTradeEntryThreshold) {
         buildPortfolioTradeGroupRiskAssessments(openBucket.groups, realTradeEntryThreshold)

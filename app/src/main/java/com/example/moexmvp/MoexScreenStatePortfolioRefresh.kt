@@ -135,12 +135,8 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
         opensAfterJournalClose,
         ledgerIncludeAuto,
     )
-    val brokerLegPnl = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
-        modeFiltered.firstOrNull()?.signalType?.let { signal ->
-            withContext(Dispatchers.IO) { loadProdSpreadBrokerSnapshot(context, signal) }
-        }
-    } else {
-        null
+    val brokerLegPnl = modeFiltered.firstOrNull()?.signalType?.let { signal ->
+        withContext(Dispatchers.IO) { loadSpreadLegBrokerPnl(context, signal, execMode) }
     }
     val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage)
     sandboxSpreadExecutions = withContext(Dispatchers.IO) {
