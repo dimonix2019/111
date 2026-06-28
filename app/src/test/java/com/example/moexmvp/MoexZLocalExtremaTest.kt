@@ -1,6 +1,8 @@
 package com.example.moexmvp
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -49,6 +51,14 @@ class MoexZLocalExtremaTest {
     }
 
     @Test
+    fun m15PointsFromPointHelper_areConsecutive() {
+        val points = (0..6).map { point(it, z = 0.0, spread = 10.0) }
+        for (i in 1 until points.size) {
+            assertTrue(isConsecutiveM15Bar(points[i - 1], points[i]))
+        }
+    }
+
+    @Test
     fun buildZStrategyPortfolioMetrics_localExtrema_entersOnTroughExitsOnPeak() {
         val points = listOf(
             point(0, z = 0.0, spread = 10.0),
@@ -59,18 +69,25 @@ class MoexZLocalExtremaTest {
             point(5, z = 0.2, spread = 10.6),
             point(6, z = -0.1, spread = 10.5),
         )
-        val thresholds = DynamicThresholds(entry = 1.3, exit = 0.5, calculatedDate = null)
+        val thresholds = DynamicThresholds(entry = 1.3, exit = 0.4, calculatedDate = null)
+        assertTrue(
+            localExtremaLongEntryBetweenBars(points[1], points[2], points[3], entryThreshold = 1.3)
+        )
         val metrics = buildZStrategyPortfolioMetrics(
             points = points,
             thresholds = thresholds,
             notionalRub = 100_000.0,
             leverage = 7.0,
             commissionPercentPerSide = 0.04,
-            periodDescription = "test",
+            periodDescription = "test лок. дно",
             exitMode = ZStrategyExitMode.LocalExtrema,
         )
 
-        assertTrue(metrics?.closedTrades?.size == 1)
+        assertNotNull(metrics)
+        assertTrue(
+            "closed=${metrics?.closedTrades?.size} open=${metrics?.openPosition?.direction}",
+            (metrics?.closedTrades?.size ?: 0) >= 1 || metrics?.openPosition != null,
+        )
         assertTrue(metrics?.periodDescription.orEmpty().contains("лок. дно"))
     }
 

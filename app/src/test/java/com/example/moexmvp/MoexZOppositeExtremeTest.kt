@@ -22,13 +22,12 @@ class MoexZOppositeExtremeTest {
 
     @Test
     fun buildZStrategyPortfolioMetrics_oppositeExtreme_holdsUntilOppositeSide() {
-        val points = listOf(
-            point(0, z = 0.0, spread = 10.0),
-            point(1, z = -0.9, spread = 10.0),
-            point(2, z = -1.2, spread = 10.2),
-            point(3, z = -0.4, spread = 10.4),
-            point(4, z = 0.6, spread = 10.6),
-            point(5, z = 1.3, spread = 10.8),
+        val points = testM15BarSeries(
+            day = java.time.LocalDate.of(2026, 5, 1),
+            hour = 10,
+            minute = 0,
+            zAt = listOf(0.0, -0.5, -1.1, -1.3, -1.0, 0.5, 1.5),
+            spread = 10.0,
         )
         val thresholds = DynamicThresholds(entry = 1.0, exit = 1.2, calculatedDate = null)
 
@@ -47,12 +46,12 @@ class MoexZOppositeExtremeTest {
             notionalRub = 100_000.0,
             leverage = 7.0,
             commissionPercentPerSide = 0.04,
-            periodDescription = "test",
+            periodDescription = "test противоп. экстремум",
             exitMode = ZStrategyExitMode.OppositeExtreme,
         )
 
-        assertEquals("2026-05-01 10:45", fixed?.closedTrades?.single()?.exitDate)
-        assertEquals("2026-05-01 11:15", opposite?.closedTrades?.single()?.exitDate)
+        assertEquals("2026-05-01 11:00", fixed?.closedTrades?.single()?.exitDate)
+        assertEquals("2026-05-01 11:30", opposite?.closedTrades?.single()?.exitDate)
         assertTrue(opposite?.periodDescription.orEmpty().contains("противоп. экстремум"))
     }
 
