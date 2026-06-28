@@ -627,7 +627,7 @@ internal fun PortfolioTradesWindowSection(
     val depthLabel = portfolioLookbackPeriodLabel(lookbackDays)
     val closedPnlOverride = brokerClosedPnlSummary?.netRub
     val closedCountOverride = brokerClosedPnlSummary?.roundTripCount
-    val closedSourceLabel = brokerClosedPnlSummary?.let { "Tinkoff" }
+    val closedSourceLabel = brokerClosedPnlSummary?.let { prodSpreadPnlSourceLabel(it.source) }
     val (openBucket, closedBucket) = buildPortfolioTradesBuckets(
         openExecutions = openExecutions,
         closedRows = closedRows,

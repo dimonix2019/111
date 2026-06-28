@@ -20,11 +20,6 @@ internal fun parseFormattedRubString(value: String?): Double? {
     return normalized.toDoubleOrNull()
 }
 
-internal fun parsePortfolioTotalRubDouble(portfolioJson: JSONObject): Double? {
-    val formatted = formatSandboxPortfolioTotalRub(portfolioJson) ?: return null
-    return parseFormattedRubString(formatted)
-}
-
 internal data class ProdCloseRealizedCapture(
     val legPnl: SpreadLegBrokerPnl,
     val realizedNetRub: Double,
@@ -111,11 +106,27 @@ internal data class ProdSpreadWindowPnlSummary(
     val netRub: Double,
     val grossYieldRub: Double,
     val commissionRub: Double,
-    /** Число операций с yield (закрытые круги в UI Tinkoff). */
+    /** Число операций TATN/TATNP + комиссий за период. */
     val roundTripCount: Int,
     val fromMillis: Long,
     val toMillis: Long,
+    /** Откуда взята цифра: движение денег payment или расчёт yield. */
+    val source: ProdSpreadWindowPnlSource = ProdSpreadWindowPnlSource.AccountPayments,
 )
+
+internal enum class ProdSpreadWindowPnlSource {
+    /** Σ payment по операциям счёta (прямо из Tinkoff). */
+    AccountPayments,
+    /** Σ yield − комиссии (fallback). */
+    YieldMinusCommission,
+    /** Δ totalAmountPortfolio GetPortfolio с сохранённого снимка. */
+    PortfolioTotalDelta,
+}
+
+internal fun parsePortfolioTotalRubDouble(portfolioJson: JSONObject): Double? {
+    val formatted = formatSandboxPortfolioTotalRub(portfolioJson) ?: return null
+    return parseFormattedRubString(formatted)
+}
 
 internal suspend fun fetchProdSpreadOperationsInWindow(
     context: Context,
@@ -144,6 +155,55 @@ internal fun summarizeProdSpreadOperations(
     operations: List<JSONObject>,
     fromMillis: Long,
     toMillis: Long,
+): ProdSpreadWindowPnlSummary =
+    summarizeProdSpreadAccountCashFlow(operations, fromMillis, toMillis)
+        ?: summarizeProdSpreadYieldFallback(operations, fromMillis, toMillis)
+
+/**
+ * PnL за период = Σ payment по операциям TATN/TATNP и комиссиям на счёте.
+ * Это фактическое движение денег в Tinkoff, без расчёта спреда в приложении.
+ */
+internal fun summarizeProdSpreadAccountCashFlow(
+    operations: List<JSONObject>,
+    fromMillis: Long,
+    toMillis: Long,
+): ProdSpreadWindowPnlSummary? {
+    var netPayment = 0.0
+    var commissionAbs = 0.0
+    var opCount = 0
+    var hasExplicitPayment = false
+    for (op in operations) {
+        val opMillis = parseOperationDateMillis(op) ?: continue
+        if (opMillis < fromMillis || opMillis > toMillis) continue
+        if (isNonTradingPortfolioOperation(op)) continue
+        if (!isSpreadAccountOperation(op)) continue
+        val payment = parseOperationPaymentRub(op)
+        if (payment != null) {
+            hasExplicitPayment = true
+            netPayment += payment
+        } else if (!isFeeOnlySpreadOperation(op)) {
+            continue
+        }
+        val comm = operationCommissionRub(op)
+        if (comm > 0.0) commissionAbs += comm
+        opCount++
+    }
+    if (!hasExplicitPayment || opCount == 0) return null
+    return ProdSpreadWindowPnlSummary(
+        netRub = netPayment,
+        grossYieldRub = netPayment,
+        commissionRub = commissionAbs,
+        roundTripCount = opCount,
+        fromMillis = fromMillis,
+        toMillis = toMillis,
+        source = ProdSpreadWindowPnlSource.AccountPayments,
+    )
+}
+
+private fun summarizeProdSpreadYieldFallback(
+    operations: List<JSONObject>,
+    fromMillis: Long,
+    toMillis: Long,
 ): ProdSpreadWindowPnlSummary {
     var grossYield = 0.0
     var commission = 0.0
@@ -165,6 +225,7 @@ internal fun summarizeProdSpreadOperations(
         roundTripCount = roundTrips,
         fromMillis = fromMillis,
         toMillis = toMillis,
+        source = ProdSpreadWindowPnlSource.YieldMinusCommission,
     )
 }
 
@@ -172,57 +233,139 @@ internal fun buildClosedRowsFromProdOperationsWindow(
     operations: List<JSONObject>,
     fromMillis: Long,
     toMillis: Long,
+    accountSummary: ProdSpreadWindowPnlSummary? = null,
 ): List<PortfolioConfirmedTradeTableRow> {
     val parsed = operations.mapNotNull { op ->
         val opMillis = parseOperationDateMillis(op) ?: return@mapNotNull null
         if (opMillis < fromMillis || opMillis > toMillis) return@mapNotNull null
-        val ticker = resolveOperationTicker(op) ?: return@mapNotNull null
-        if (ticker != "TATN" && ticker != "TATNP") return@mapNotNull null
-        val yield = parseOperationMoneyField(op, "yield", "yield_value") ?: return@mapNotNull null
+        if (isNonTradingPortfolioOperation(op)) return@mapNotNull null
+        if (!isSpreadAccountOperation(op)) return@mapNotNull null
+        val payment = parseOperationPaymentRub(op)
+        if (payment == null && !isFeeOnlySpreadOperation(op)) return@mapNotNull null
         val comm = operationCommissionRub(op)
-        ParsedYieldOperation(
+        ParsedAccountOperation(
             millis = opMillis,
-            ticker = ticker,
-            yieldRub = yield,
+            ticker = resolveOperationTicker(op),
+            paymentRub = payment ?: 0.0,
             commissionRub = comm,
             quantity = parseOperationQuantityLots(op),
+            isFeeOnly = resolveOperationTicker(op) == null,
         )
     }.sortedByDescending { it.millis }
-    return parsed.mapIndexed { index, op ->
-        val timeMsk = formatPortfolioExecutionTableMsk(op.millis)
-        val net = op.yieldRub - op.commissionRub
-        PortfolioConfirmedTradeTableRow(
-            tradeId = "T-B%03d".format(Locale.US, index + 1),
-            tradeDisplayId = "—",
-            directionLabel = "spread",
-            entryTimeMsk = timeMsk,
-            exitTimeMsk = timeMsk,
-            longLegTicker = "TATN",
-            shortLegTicker = "TATNP",
-            longLegSideRu = "—",
-            shortLegSideRu = "—",
-            volumeText = spreadVolumeText(op.quantity.coerceAtLeast(1)),
-            confirmLabel = "брокер",
-            entryZ = 0.0,
-            exitZ = 0.0,
-            notificationIdsText = "—",
-            legLongPnlSplitRubApprox = net / 2.0,
-            legShortPnlSplitRubApprox = net / 2.0,
-            grossPnlRubApprox = op.yieldRub,
-            netPnlRubApprox = net,
-            commissionRubApprox = op.commissionRub,
-            overnightRubApprox = 0.0,
-        )
+    val rows = parsed.mapIndexed { index, op ->
+        buildProdAccountOperationRow(index + 1, op)
+    }
+    return ensureProdBrokerSummaryRow(rows, accountSummary)
+}
+
+/** Одна строка «Σ счёт», если операции есть в сводке, но детализация пуста. */
+internal fun ensureProdBrokerSummaryRow(
+    rows: List<PortfolioConfirmedTradeTableRow>,
+    summary: ProdSpreadWindowPnlSummary?,
+): List<PortfolioConfirmedTradeTableRow> {
+    if (summary == null || rows.isNotEmpty()) return rows
+    return listOf(buildProdAccountSummaryRow(summary))
+}
+
+internal fun prodSpreadPnlSourceLabel(source: ProdSpreadWindowPnlSource): String = when (source) {
+    ProdSpreadWindowPnlSource.AccountPayments -> "счёт Tinkoff"
+    ProdSpreadWindowPnlSource.YieldMinusCommission -> "Tinkoff (yield)"
+    ProdSpreadWindowPnlSource.PortfolioTotalDelta -> "счёт Tinkoff Δ"
+}
+
+private fun buildProdAccountSummaryRow(summary: ProdSpreadWindowPnlSummary): PortfolioConfirmedTradeTableRow {
+    val timeMsk = formatPortfolioExecutionTableMsk(summary.toMillis)
+    return PortfolioConfirmedTradeTableRow(
+        tradeId = "T-B001",
+        tradeDisplayId = "Σ",
+        directionLabel = "spread",
+        entryTimeMsk = timeMsk,
+        exitTimeMsk = timeMsk,
+        longLegTicker = "TATN",
+        shortLegTicker = "TATNP",
+        longLegSideRu = "—",
+        shortLegSideRu = "—",
+        volumeText = "${summary.roundTripCount} оп.",
+        confirmLabel = "счёт",
+        entryZ = 0.0,
+        exitZ = 0.0,
+        notificationIdsText = "—",
+        legLongPnlSplitRubApprox = summary.netRub / 2.0,
+        legShortPnlSplitRubApprox = summary.netRub / 2.0,
+        grossPnlRubApprox = summary.netRub,
+        netPnlRubApprox = summary.netRub,
+        commissionRubApprox = summary.commissionRub,
+        overnightRubApprox = 0.0,
+    )
+}
+
+private fun buildProdAccountOperationRow(
+    index: Int,
+    op: ParsedAccountOperation,
+): PortfolioConfirmedTradeTableRow {
+    val timeMsk = formatPortfolioExecutionTableMsk(op.millis)
+    val ticker = op.ticker ?: "—"
+    val net = op.paymentRub
+    return PortfolioConfirmedTradeTableRow(
+        tradeId = "T-B%03d".format(Locale.US, index),
+        tradeDisplayId = "—",
+        directionLabel = if (op.isFeeOnly) "комиссия" else "spread",
+        entryTimeMsk = timeMsk,
+        exitTimeMsk = timeMsk,
+        longLegTicker = if (ticker == "TATNP") "TATN" else ticker,
+        shortLegTicker = if (ticker == "TATN") "TATNP" else ticker,
+        longLegSideRu = "—",
+        shortLegSideRu = "—",
+        volumeText = if (op.isFeeOnly) "—" else spreadVolumeText(op.quantity.coerceAtLeast(1)),
+        confirmLabel = "брокер",
+        entryZ = 0.0,
+        exitZ = 0.0,
+        notificationIdsText = "—",
+        legLongPnlSplitRubApprox = net / 2.0,
+        legShortPnlSplitRubApprox = net / 2.0,
+        grossPnlRubApprox = net + op.commissionRub,
+        netPnlRubApprox = net,
+        commissionRubApprox = op.commissionRub,
+        overnightRubApprox = 0.0,
+    )
+}
+
+private data class ParsedAccountOperation(
+    val millis: Long,
+    val ticker: String?,
+    val paymentRub: Double,
+    val commissionRub: Double,
+    val quantity: Int,
+    val isFeeOnly: Boolean,
+)
+
+private fun parseOperationPaymentRub(op: JSONObject): Double? =
+    parseOperationMoneyField(op, "payment", "payment_value")
+
+private fun isNonTradingPortfolioOperation(op: JSONObject): Boolean {
+    val type = op.firstNonBlankString("operationType", "type", "operation_type").orEmpty().uppercase(Locale.US)
+    return when {
+        type.contains("PAY_IN") || type.contains("PAY_OUT") -> true
+        type.contains("INPUT") || type.contains("OUTPUT") -> true
+        type.contains("TAX") -> true
+        type.contains("DIVIDEND") || type.contains("DIV") -> true
+        type.contains("COUPON") -> true
+        type.contains("TRANSFER") && !type.contains("FEE") -> true
+        else -> false
     }
 }
 
-private data class ParsedYieldOperation(
-    val millis: Long,
-    val ticker: String,
-    val yieldRub: Double,
-    val commissionRub: Double,
-    val quantity: Int,
-)
+private fun isSpreadAccountOperation(op: JSONObject): Boolean {
+    val type = op.firstNonBlankString("operationType", "type", "operation_type").orEmpty().uppercase(Locale.US)
+    if (type.contains("FEE") || type.contains("COMMISSION") || type.contains("SERVICE")) return true
+    val ticker = resolveOperationTicker(op) ?: return false
+    return ticker == "TATN" || ticker == "TATNP"
+}
+
+private fun isFeeOnlySpreadOperation(op: JSONObject): Boolean {
+    val type = op.firstNonBlankString("operationType", "type", "operation_type").orEmpty().uppercase(Locale.US)
+    return type.contains("FEE") || type.contains("COMMISSION") || type.contains("SERVICE")
+}
 
 private fun operationCommissionRub(op: JSONObject): Double {
     val direct = abs(parseOperationMoneyField(op, "commission") ?: 0.0)

@@ -101,15 +101,17 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
                 portfolioBrokerWindowPnlSummary = null
                 emptyList()
             } else {
-                portfolioBrokerWindowPnlSummary = summarizeProdSpreadOperations(
+                val summary = summarizeProdSpreadOperations(
                     operations = ops,
                     fromMillis = windowStart,
                     toMillis = windowEnd,
                 )
+                portfolioBrokerWindowPnlSummary = summary
                 buildClosedRowsFromProdOperationsWindow(
                     operations = ops,
                     fromMillis = windowStart,
                     toMillis = windowEnd,
+                    accountSummary = summary,
                 )
             }
         }
