@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.248 — Fix Prod: PnL закрытых сделок из GetOperations (окно по wall-clock); время выхода ≥ входа; без MOEX×leverage на Prod.
 1.7.247 — Fix CI: тест unified Z (float delta); публикация 1.7.246–247 на gh-pages.
 1.7.246 — Единый Z/спред для сводки «Рынок» и шторки монитора (resolveUnifiedLiveZSnapshot).
 1.7.245 — «Портфель»: чек-лист «Почему нет сделки» — монитор, сеть, 15м, Z-пересечение, авто/ручной.

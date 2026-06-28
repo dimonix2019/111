@@ -44,6 +44,8 @@ internal suspend fun captureProdCloseRealizedPnl(
     exitLegs: List<SandboxLegOrderResult>,
     exitTimestampMillis: Long,
     mtmBeforeClose: SpreadLegBrokerPnl? = null,
+    /** Wall-clock момент закрытия — для GetOperations (не 15м бар). */
+    exitExecutedAtMillis: Long = System.currentTimeMillis(),
 ): ProdCloseRealizedCapture? {
     if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) return null
     val mode = TinkoffExecutionMode.Prod
@@ -62,7 +64,8 @@ internal suspend fun captureProdCloseRealizedPnl(
     }
 
     val fromMillis = execution.executedAtMillis - 60_000L
-    val toMillis = exitTimestampMillis + 5 * 60_000L
+    val closeWall = maxOf(exitExecutedAtMillis, execution.executedAtMillis + 1L)
+    val toMillis = closeWall + 5 * 60_000L
     var opCapture = fetchSpreadRealizedLegPnlFromOperations(
         token = token,
         accountId = accountId,
@@ -250,6 +253,7 @@ internal suspend fun recordProdClosedTradeAfterExit(
     exitTimestampMillis: Long,
     exitZScore: Double,
     mtmBeforeClose: SpreadLegBrokerPnl?,
+    exitExecutedAtMillis: Long = System.currentTimeMillis(),
 ): ProdClosedSpreadExecRecord? {
     if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) return null
     val capture = captureProdCloseRealizedPnl(
@@ -258,12 +262,14 @@ internal suspend fun recordProdClosedTradeAfterExit(
         exitLegs = exitLegs,
         exitTimestampMillis = exitTimestampMillis,
         mtmBeforeClose = mtmBeforeClose,
+        exitExecutedAtMillis = exitExecutedAtMillis,
     ) ?: return null
+    val exitWall = maxOf(exitExecutedAtMillis, execution.executedAtMillis + 1L)
     return TinkoffClosedSpreadExecLog.recordClose(
         context = context,
         execution = execution,
         brokerPnl = capture.legPnl,
-        exitTimestampMillis = exitTimestampMillis,
+        exitTimestampMillis = exitWall,
         exitZScore = exitZScore,
         realizedNetRub = capture.realizedNetRub,
         entryPortfolioCashRub = capture.entryPortfolioCashRub,

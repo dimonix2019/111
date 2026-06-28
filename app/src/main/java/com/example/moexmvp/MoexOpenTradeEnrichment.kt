@@ -342,6 +342,7 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
             commissionPercentPerSide = portfolioCommissionPercent,
             portfolioLedgerIncludeAuto = ledgerIncludeAuto,
             pnlLeverage = portfolioPnlLeverageMultiplier(mode, portfolioLeverage),
+            executionMode = mode,
         ).second
     }
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(opensAfterJournalClose, ledgerIncludeAuto)
@@ -419,6 +420,7 @@ internal suspend fun loadPortfolioTradesForZChart(
                 portfolioLedgerIncludeAuto = true,
                 includeAllLedgerEntries = true,
                 pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), leverage),
+                executionMode = currentExecutionMode(context),
             )
         }
         val prodBrokerClosed = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {

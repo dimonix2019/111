@@ -44,6 +44,7 @@ internal suspend fun closePortfolioOpenTrade(
     val legs = executeSpreadExitIfConfigured(context, entrySignal, execution.quantityLots)
     val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
     val (exitTs, exitZ) = resolveExitBarForPortfolioClose(context, execution, null, null)
+    val exitExecutedAt = System.currentTimeMillis()
     if (legs.isNotEmpty()) {
         val app = context.applicationContext
         val bar = loadZStrategySignalSeries(app, PortfolioM15LoadMode.CACHE_ONLY)
@@ -70,6 +71,7 @@ internal suspend fun closePortfolioOpenTrade(
             exitTimestampMillis = exitTs,
             exitZScore = exitZ,
             mtmBeforeClose = brokerBeforeClose,
+            exitExecutedAtMillis = exitExecutedAt,
         )
     } else {
         null
@@ -92,6 +94,7 @@ internal suspend fun closePortfolioOpenTrade(
         leverage = leverage,
         closedRecord = closedRecord,
         brokerPnlBeforeClose = brokerBeforeClose,
+        exitExecutedAtMillis = exitExecutedAt,
     )
     "Сделка ${execution.tradeId} закрыта"
 }
@@ -181,12 +184,14 @@ internal suspend fun notifySandboxTradeClosedAfterClose(
     commissionPercentPerSide: Double = 0.04,
     brokerPnlBeforeClose: SpreadLegBrokerPnl? = null,
     closedRecord: ProdClosedSpreadExecRecord? = null,
+    exitExecutedAtMillis: Long = System.currentTimeMillis(),
 ) {
     val app = context.applicationContext
     val exitSpread = resolveSpreadPercentAtBar(app, exitBarTimestampMillis, execution.entrySpreadPercent)
     val entryDate = portfolioDateLabelFromMskTableTime(execution.entryTimeMsk)
+    val exitWall = maxOf(exitExecutedAtMillis, execution.executedAtMillis + 1L)
     val exitDate = portfolioDateLabelFromMskTableTime(
-        formatPortfolioExecutionTableMsk(exitBarTimestampMillis)
+        formatPortfolioExecutionTableMsk(exitWall)
     )
     val pnl = when {
         closedRecord != null -> computeProdClosedTradePnl(closedRecord, commissionPercentPerSide)
@@ -195,7 +200,7 @@ internal suspend fun notifySandboxTradeClosedAfterClose(
             computeProdClosedTradePnlFromBroker(
                 execution = execution,
                 brokerPnl = brokerPnlBeforeClose,
-                exitTimestampMillis = exitBarTimestampMillis,
+                exitTimestampMillis = exitWall,
                 commissionPercentPerSide = commissionPercentPerSide,
             )
         }

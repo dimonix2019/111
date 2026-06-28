@@ -19,6 +19,7 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
     portfolioLedgerIncludeAuto: Boolean,
     includeAllLedgerEntries: Boolean = false,
     pnlLeverage: Double = leverage,
+    executionMode: TinkoffExecutionMode = TinkoffExecutionMode.Sandbox,
 ): Pair<List<PortfolioConfirmedTradeTableRow>, List<SandboxSpreadExecUi>> {
     if (openExecutions.isEmpty() || points.size < 2 || allJournalEvents.isEmpty()) {
         return emptyList<PortfolioConfirmedTradeTableRow>() to openExecutions
@@ -31,6 +32,10 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
     val allowAllOpens = ledger.isEmpty()
     if (!allowAllOpens && allowedPairs.isEmpty()) {
         return emptyList<PortfolioConfirmedTradeTableRow>() to openExecutions
+    }
+    val effectivePnlLeverage = when (executionMode) {
+        TinkoffExecutionMode.Prod -> 1.0
+        else -> pnlLeverage
     }
 
     val remainingExits = allJournalEvents
@@ -86,7 +91,7 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
             else -> ZStrategyPosition.Flat
         }
         val tradeNotionalRub = resolveTradeNotionalRubForPnl(open, points, notionalRub)
-        val effectiveNotionalRub = tradeNotionalRub * pnlLeverage
+        val effectiveNotionalRub = tradeNotionalRub * effectivePnlLeverage
         val commissionPerSideRub = effectiveNotionalRub * (commissionPercentPerSide / 100.0)
         val borrowedRub = tradeNotionalRub * (pnlLeverage - 1.0).coerceAtLeast(0.0)
         val overnightFeePerDayRub = borrowedRub * (TINKOFF_OVERNIGHT_FEE_PERCENT_PER_DAY / 100.0)
@@ -115,7 +120,7 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
         val tag = spreadLegPushCorrelationTag(open.barTimestampMillis, open.signalType)
         val (commRub, ovnRub) = portfolioTradeCommissionAndOvernightRub(
             notionalRub = tradeNotionalRub,
-            leverage = pnlLeverage,
+            leverage = effectivePnlLeverage,
             commissionPercentPerSide = commissionPercentPerSide,
             entryDateLabel = entryPoint.tradeDate,
             exitDateLabel = exitPoint.tradeDate,
@@ -133,12 +138,17 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
             signalType = open.signalType,
             fallbackReceivedAtMillis = open.executedAtMillis,
         )
+        val exitMillis = resolveClosedTradeExitWallMillis(
+            openExecutedAtMillis = open.executedAtMillis,
+            exitEvent = exitEvent,
+            exitBarTimestampMillis = exitPoint.timestampMillis,
+        )
         closedRows += PortfolioConfirmedTradeTableRow(
             tradeId = "T-O%03d".format(Locale.US, tradeSeq),
             tradeDisplayId = tradeDisplayId,
             directionLabel = if (direction == ZStrategyPosition.Short) "short" else "long",
             entryTimeMsk = formatPortfolioExecutionTableMsk(open.executedAtMillis),
-            exitTimeMsk = formatPortfolioExecutionTableMsk(exitPoint.timestampMillis),
+            exitTimeMsk = formatPortfolioExecutionTableMsk(exitMillis),
             longLegTicker = legs.longTicker,
             shortLegTicker = legs.shortTicker,
             longLegSideRu = legs.longSideRu,
@@ -160,6 +170,20 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
         )
     }
     return closedRows to stillOpen
+}
+
+/** Время выхода для таблицы: wall-clock журнала, не раньше входа на счёте. */
+internal fun resolveClosedTradeExitWallMillis(
+    openExecutedAtMillis: Long,
+    exitEvent: StrategySignalEvent,
+    exitBarTimestampMillis: Long,
+): Long {
+    val exitWall = when {
+        exitEvent.receivedAtMillis > openExecutedAtMillis -> exitEvent.receivedAtMillis
+        exitBarTimestampMillis > openExecutedAtMillis -> exitBarTimestampMillis
+        else -> openExecutedAtMillis + 1L
+    }
+    return exitWall
 }
 
 private fun SandboxSpreadExecUi.toSyntheticEnterEvent(): StrategySignalEvent =

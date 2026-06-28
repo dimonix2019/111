@@ -130,6 +130,7 @@ internal suspend fun loadOpenPortfolioTradeGroupsForRiskMonitor(
         leverage = 7.0,
         commissionPercentPerSide = 0.04,
         portfolioLedgerIncludeAuto = ledgerIncludeAuto,
+        executionMode = currentExecutionMode(context),
     )
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(
         opensAfterJournalClose,

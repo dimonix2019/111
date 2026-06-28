@@ -64,6 +64,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
     val sandboxRaw = withContext(Dispatchers.IO) {
         TinkoffSandboxSpreadExecLog.loadRecent(context)
     }
+    val execMode = currentExecutionMode(context)
     val (closedFromOpens, opensAfterJournalClose) = withContext(Dispatchers.Default) {
         buildClosedRowsFromSandboxOpensAndJournalExits(
             openExecutions = sandboxRaw,
@@ -75,10 +76,11 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
             portfolioLedgerIncludeAuto = ledgerIncludeAuto,
-            pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage),
+            pnlLeverage = portfolioPnlLeverageMultiplier(execMode, portfolioLeverage),
+            executionMode = execMode,
         )
     }
-    val prodBrokerClosed = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+    val prodBrokerClosed = if (execMode == TinkoffExecutionMode.Prod) {
         withContext(Dispatchers.IO) {
             buildClosedRowsFromProdBrokerLog(
                 records = TinkoffClosedSpreadExecLog.loadRecent(context),
@@ -91,7 +93,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
         emptyList()
     }
     val mergedClosed = mergePortfolioClosedTableRowsForMode(
-        mode = currentExecutionMode(context),
+        mode = execMode,
         fromReplay = executed.tableRows,
         fromOpens = closedFromOpens,
         fromProdBroker = prodBrokerClosed,
@@ -99,7 +101,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
     confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
         mergedClosed,
         ledgerIncludeAuto,
-        executionMode = currentExecutionMode(context),
+        executionMode = execMode,
     )
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(
         opensAfterJournalClose,
