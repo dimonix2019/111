@@ -793,17 +793,28 @@ internal fun PortfolioTradesWindowSection(
     closingTradeId: String? = null,
     brokerClosedPnlSummary: ProdSpreadWindowPnlSummary? = null,
 ) {
-    var tradesAutoOnlyFilter by remember { mutableStateOf(false) }
+    var closedSourceFilter by remember { mutableStateOf(PortfolioClosedTradesSourceFilter.All) }
     val depthLabel = portfolioLookbackPeriodLabel(lookbackDays)
-    val closedPnlOverride = brokerClosedPnlSummary?.netRub
-    val closedCountOverride = brokerClosedPnlSummary?.roundTripCount
-    val closedSourceLabel = brokerClosedPnlSummary?.let { prodSpreadPnlSourceLabel(it.source) }
+    val closedPnlOverride = when (closedSourceFilter) {
+        PortfolioClosedTradesSourceFilter.All -> brokerClosedPnlSummary?.netRub
+        else -> null
+    }
+    val closedCountOverride = when (closedSourceFilter) {
+        PortfolioClosedTradesSourceFilter.All -> brokerClosedPnlSummary?.roundTripCount
+        else -> null
+    }
+    val closedSourceLabel = when (closedSourceFilter) {
+        PortfolioClosedTradesSourceFilter.Broker,
+        PortfolioClosedTradesSourceFilter.All,
+        -> brokerClosedPnlSummary?.let { prodSpreadPnlSourceLabel(it.source) }
+        PortfolioClosedTradesSourceFilter.TestOnly -> null
+    }
     val openSourceLabel = openPnlBrokerSourceLabel(openExecutions)
     val (openBucket, closedBucket) = buildPortfolioTradesBuckets(
         openExecutions = openExecutions,
         closedRows = closedRows,
         lookbackDays = lookbackDays,
-        tradesAutoOnlyFilter = tradesAutoOnlyFilter,
+        closedSourceFilter = closedSourceFilter,
         closedPnlOverrideRub = closedPnlOverride,
         closedPnlSourceLabel = closedSourceLabel,
         closedTradeCountOverride = closedCountOverride,
@@ -828,18 +839,6 @@ internal fun PortfolioTradesWindowSection(
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PortfolioTradesSourceFilterChip(
-                label = "Всё",
-                selected = !tradesAutoOnlyFilter,
-                onClick = { tradesAutoOnlyFilter = false },
-            )
-            PortfolioTradesSourceFilterChip(
-                label = "только Авто",
-                selected = tradesAutoOnlyFilter,
-                onClick = { tradesAutoOnlyFilter = true },
-            )
-        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -864,27 +863,60 @@ internal fun PortfolioTradesWindowSection(
                 )
             }
         }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF263238), RoundedCornerShape(8.dp))
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+        PortfolioCollapsibleSection(
+            title = "Закрытые сделки",
+            subtitle = buildString {
+                append("PnL ${formatRubSigned(closedBucket.totalPnlRub)}")
+                closedBucket.pnlSourceLabel?.let { append(" · $it") }
+                append(" · ${closedBucket.tradeCount} шт.")
+            },
+            defaultExpanded = false,
         ) {
-            PortfolioTradesBucketHeader(closedBucket)
-            if (closedBucket.groups.isEmpty()) {
-                Text(
-                    text = "Нет закрытых сделок за $depthLabel.",
-                    color = Color(0xFF9E9E9E),
-                    fontSize = 11.sp
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                PortfolioTradesSourceFilterChip(
+                    label = "Всё",
+                    selected = closedSourceFilter == PortfolioClosedTradesSourceFilter.All,
+                    onClick = { closedSourceFilter = PortfolioClosedTradesSourceFilter.All },
                 )
-            } else {
-                PortfolioTradeOrdersGroupedTable(
-                    groups = closedBucket.groups,
-                    caption = "",
-                    riskAssessments = closedRiskAssessments,
-                    showRiskScoreBreakdown = true,
+                PortfolioTradesSourceFilterChip(
+                    label = "Брокер",
+                    selected = closedSourceFilter == PortfolioClosedTradesSourceFilter.Broker,
+                    onClick = { closedSourceFilter = PortfolioClosedTradesSourceFilter.Broker },
                 )
+                PortfolioTradesSourceFilterChip(
+                    label = "только тест",
+                    selected = closedSourceFilter == PortfolioClosedTradesSourceFilter.TestOnly,
+                    onClick = { closedSourceFilter = PortfolioClosedTradesSourceFilter.TestOnly },
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF263238), RoundedCornerShape(8.dp))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (closedBucket.groups.isEmpty()) {
+                    Text(
+                        text = when (closedSourceFilter) {
+                            PortfolioClosedTradesSourceFilter.Broker ->
+                                "Нет сделок брокера за $depthLabel."
+                            PortfolioClosedTradesSourceFilter.TestOnly ->
+                                "Нет тестовых сделок за $depthLabel."
+                            PortfolioClosedTradesSourceFilter.All ->
+                                "Нет закрытых сделок за $depthLabel."
+                        },
+                        color = Color(0xFF9E9E9E),
+                        fontSize = 11.sp,
+                    )
+                } else {
+                    PortfolioTradeOrdersGroupedTable(
+                        groups = closedBucket.groups,
+                        caption = "",
+                        riskAssessments = closedRiskAssessments,
+                        showRiskScoreBreakdown = true,
+                    )
+                }
             }
         }
     }

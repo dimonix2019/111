@@ -20,7 +20,7 @@ class MoexPortfolioTradesWindowTest {
     }
 
     @Test
-    fun buildBuckets_autoOnlyFilter_hidesManualTrades() {
+    fun buildBuckets_openShowsLatestOnly() {
         val executedAt = ZonedDateTime.of(2026, 5, 15, 10, 0, 0, 0, ZoneId.of("Europe/Moscow"))
             .toInstant()
             .toEpochMilli()
@@ -34,49 +34,65 @@ class MoexPortfolioTradesWindowTest {
             source = PortfolioExecSource.MANUAL,
             confirmLabel = "ручное",
         )
-        val manualClosed = PortfolioConfirmedTradeTableRow(
-            tradeId = "T-M",
-            directionLabel = "long",
-            entryTimeMsk = "2026-05-15 10:00",
-            exitTimeMsk = "2026-05-16 11:00",
-            longLegTicker = "TATN",
-            shortLegTicker = "TATNP",
-            longLegSideRu = "L",
-            shortLegSideRu = "S",
-            volumeText = "1+1",
-            confirmLabel = "ручное",
-            entryZ = 1.0,
-            exitZ = 0.5,
-            notificationIdsText = "—",
-            legLongPnlSplitRubApprox = 0.0,
-            legShortPnlSplitRubApprox = 0.0,
-            grossPnlRubApprox = 0.0,
-            netPnlRubApprox = 0.0,
-        )
-        val autoClosed = manualClosed.copy(tradeId = "T-A", confirmLabel = "авто")
         val zone = ZoneId.of("Europe/Moscow")
         val windowStart = ZonedDateTime.of(2026, 5, 13, 0, 0, 0, 0, zone).toInstant().toEpochMilli()
         val (openAll, closedAll) = buildPortfolioTradesBuckets(
             listOf(manualOpen, autoOpen),
-            listOf(manualClosed, autoClosed),
+            emptyList(),
             lookbackDays = 30L,
             windowStartMillis = windowStart,
-            tradesAutoOnlyFilter = false,
         )
         assertEquals(1, openAll.tradeCount)
         assertEquals("D-A", openAll.groups.single().tradeId)
-        assertEquals(2, closedAll.tradeCount)
-        val (openAuto, closedAuto) = buildPortfolioTradesBuckets(
-            listOf(manualOpen, autoOpen),
-            listOf(manualClosed, autoClosed),
+        assertEquals(0, closedAll.tradeCount)
+    }
+
+    @Test
+    fun buildBuckets_closedSourceFilter_brokerAndTestOnly() {
+        val testClosed = closedRow("T-T", "ручное · тест")
+        val brokerClosed = closedRow("T-B", "брокер")
+        val autoClosed = closedRow("T-A", "авто")
+        val windowStart = ZonedDateTime.of(2026, 5, 13, 0, 0, 0, 0, ZoneId.of("Europe/Moscow"))
+            .toInstant()
+            .toEpochMilli()
+        val (_, all) = buildPortfolioTradesBuckets(
+            emptyList(),
+            listOf(testClosed, brokerClosed, autoClosed),
             lookbackDays = 30L,
             windowStartMillis = windowStart,
-            tradesAutoOnlyFilter = true,
+            closedSourceFilter = PortfolioClosedTradesSourceFilter.All,
         )
-        assertEquals(1, openAuto.tradeCount)
-        assertEquals("D-A", openAuto.groups.single().tradeId)
-        assertEquals(1, closedAuto.tradeCount)
-        assertEquals("T-A", closedAuto.groups.single().tradeId)
+        assertEquals(3, all.tradeCount)
+        val (_, brokerOnly) = buildPortfolioTradesBuckets(
+            emptyList(),
+            listOf(testClosed, brokerClosed, autoClosed),
+            lookbackDays = 30L,
+            windowStartMillis = windowStart,
+            closedSourceFilter = PortfolioClosedTradesSourceFilter.Broker,
+        )
+        assertEquals(1, brokerOnly.tradeCount)
+        assertEquals("T-B", brokerOnly.groups.single().tradeId)
+        val (_, testOnly) = buildPortfolioTradesBuckets(
+            emptyList(),
+            listOf(testClosed, brokerClosed, autoClosed),
+            lookbackDays = 30L,
+            windowStartMillis = windowStart,
+            closedSourceFilter = PortfolioClosedTradesSourceFilter.TestOnly,
+        )
+        assertEquals(1, testOnly.tradeCount)
+        assertEquals("T-T", testOnly.groups.single().tradeId)
+    }
+
+    @Test
+    fun filterClosedTradesBySourceFilter_testOnly() {
+        val rows = listOf(
+            closedRow("1", "ручное · тест"),
+            closedRow("2", "брокер"),
+            closedRow("3", "авто"),
+        )
+        assertEquals(1, filterClosedTradesBySourceFilter(rows, PortfolioClosedTradesSourceFilter.TestOnly).size)
+        assertEquals(1, filterClosedTradesBySourceFilter(rows, PortfolioClosedTradesSourceFilter.Broker).size)
+        assertEquals(3, filterClosedTradesBySourceFilter(rows, PortfolioClosedTradesSourceFilter.All).size)
     }
 
     @Test
@@ -130,7 +146,27 @@ class MoexPortfolioTradesWindowTest {
         assertEquals("D-NEW", resolveSingleOpenExecutionForDisplay(listOf(older, newer))?.tradeId)
     }
 
-  private fun sandboxExec(executedAt: Long) = SandboxSpreadExecUi(
+    private fun closedRow(tradeId: String, confirm: String) = PortfolioConfirmedTradeTableRow(
+        tradeId = tradeId,
+        directionLabel = "long",
+        entryTimeMsk = "2026-05-15 10:00",
+        exitTimeMsk = "2026-05-16 11:00",
+        longLegTicker = "TATN",
+        shortLegTicker = "TATNP",
+        longLegSideRu = "L",
+        shortLegSideRu = "S",
+        volumeText = "1+1",
+        confirmLabel = confirm,
+        entryZ = 1.0,
+        exitZ = 0.5,
+        notificationIdsText = "—",
+        legLongPnlSplitRubApprox = 0.0,
+        legShortPnlSplitRubApprox = 0.0,
+        grossPnlRubApprox = 0.0,
+        netPnlRubApprox = 0.0,
+    )
+
+    private fun sandboxExec(executedAt: Long) = SandboxSpreadExecUi(
         tradeId = "D-1",
         signalType = StrategySignalType.EnterLong,
         zScore = 1.0,

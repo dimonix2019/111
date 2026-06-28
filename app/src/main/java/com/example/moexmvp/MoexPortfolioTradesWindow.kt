@@ -142,46 +142,27 @@ internal data class PortfolioTradesBucketUi(
     val pnlSourceLabel: String? = null,
 )
 
-/** Фильтр таблиц сделок: скрыть ручные, оставить авто (и тестовые). */
-internal fun filterSandboxExecutionsForTradesTable(
-    executions: List<SandboxSpreadExecUi>,
-    autoOnly: Boolean,
-): List<SandboxSpreadExecUi> =
-    if (!autoOnly) executions
-    else filterSandboxExecutionsByPortfolioMode(executions, portfolioLedgerIncludeAuto = true)
-
-internal fun filterConfirmedTableRowsForTradesTable(
+/** Фильтр закрытых сделок в блоке «Закрытые». */
+internal fun filterClosedRowsForTradesTable(
     rows: List<PortfolioConfirmedTradeTableRow>,
-    autoOnly: Boolean,
+    filter: PortfolioClosedTradesSourceFilter,
 ): List<PortfolioConfirmedTradeTableRow> =
-    if (!autoOnly) rows
-    else filterConfirmedTableRowsByPortfolioMode(rows, portfolioLedgerIncludeAuto = true)
-
-/** Стратегия — не более одной открытой сделки; для UI берём последнюю по времени входа. */
-internal fun resolveSingleOpenExecutionForDisplay(
-    executions: List<SandboxSpreadExecUi>,
-): SandboxSpreadExecUi? = executions.maxByOrNull { it.executedAtMillis }
+    filterClosedTradesBySourceFilter(rows, filter)
 
 internal fun buildPortfolioTradesBuckets(
     openExecutions: List<SandboxSpreadExecUi>,
     closedRows: List<PortfolioConfirmedTradeTableRow>,
     lookbackDays: Long,
     windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
-    tradesAutoOnlyFilter: Boolean = false,
+    closedSourceFilter: PortfolioClosedTradesSourceFilter = PortfolioClosedTradesSourceFilter.All,
     closedPnlOverrideRub: Double? = null,
     closedPnlSourceLabel: String? = null,
     closedTradeCountOverride: Int? = null,
     openPnlSourceLabel: String? = null,
 ): Pair<PortfolioTradesBucketUi, PortfolioTradesBucketUi> {
-    val openFiltered = filterSandboxExecutionsForTradesTable(
-        openExecutions,
-        autoOnly = tradesAutoOnlyFilter,
-    )
-    val openSingle = resolveSingleOpenExecutionForDisplay(openFiltered)?.let { listOf(it) } ?: emptyList()
-    val closedFiltered = filterConfirmedTableRowsForTradesTable(
-        filterClosedTradeRowsInWindow(closedRows, lookbackDays, windowStartMillis),
-        autoOnly = tradesAutoOnlyFilter,
-    )
+    val openSingle = resolveSingleOpenExecutionForDisplay(openExecutions)?.let { listOf(it) } ?: emptyList()
+    val closedInWindow = filterClosedTradeRowsInWindow(closedRows, lookbackDays, windowStartMillis)
+    val closedFiltered = filterClosedRowsForTradesTable(closedInWindow, closedSourceFilter)
     val openGroups = openSingle.map { it.toTradeGroup() }
     val closedGroups = closedFiltered.map { it.toTradeGroup() }
     return PortfolioTradesBucketUi(
@@ -193,10 +174,23 @@ internal fun buildPortfolioTradesBuckets(
         pnlSourceLabel = openPnlSourceLabel,
     ) to PortfolioTradesBucketUi(
         title = "Закрытые",
-        tradeCount = closedTradeCountOverride ?: closedGroups.size,
-        totalPnlRub = closedPnlOverrideRub ?: sumTradeGroupsNetPnl(closedGroups),
+        tradeCount = when {
+            closedSourceFilter != PortfolioClosedTradesSourceFilter.All -> closedGroups.size
+            closedTradeCountOverride != null -> closedTradeCountOverride
+            else -> closedGroups.size
+        },
+        totalPnlRub = when {
+            closedSourceFilter == PortfolioClosedTradesSourceFilter.All &&
+                closedPnlOverrideRub != null -> closedPnlOverrideRub
+            else -> sumTradeGroupsNetPnl(closedGroups)
+        },
         groups = closedGroups,
         isOpenTrades = false,
         pnlSourceLabel = closedPnlSourceLabel,
     )
 }
+
+/** Стратегия — не более одной открытой сделки; для UI берём последнюю по времени входа. */
+internal fun resolveSingleOpenExecutionForDisplay(
+    executions: List<SandboxSpreadExecUi>,
+): SandboxSpreadExecUi? = executions.maxByOrNull { it.executedAtMillis }

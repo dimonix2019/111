@@ -141,7 +141,7 @@ internal suspend fun loadOpenPortfolioTradeGroupsForRiskMonitor(
         executions = modeFiltered,
         points = points,
     )
-    filterSandboxExecutionsForTradesTable(enriched, autoOnly = false)
+    enriched
         .asReversed()
         .map { it.toTradeGroup() }
 }

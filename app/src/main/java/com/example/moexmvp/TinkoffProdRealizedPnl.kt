@@ -241,14 +241,19 @@ internal fun buildClosedRowsFromProdOperationsWindow(
         if (isNonTradingPortfolioOperation(op)) return@mapNotNull null
         if (!isSpreadAccountOperation(op)) return@mapNotNull null
         val payment = parseOperationPaymentRub(op)
-        if (payment == null && !isFeeOnlySpreadOperation(op)) return@mapNotNull null
+        val yield = parseOperationMoneyField(op, "yield", "yield_value")
+        if (yield == null && payment == null && !isFeeOnlySpreadOperation(op)) return@mapNotNull null
         val comm = operationCommissionRub(op)
+        val qty = parseOperationQuantityUnits(op)
         ParsedAccountOperation(
             millis = opMillis,
             ticker = resolveOperationTicker(op),
             paymentRub = payment ?: 0.0,
+            yieldRub = yield,
             commissionRub = comm,
-            quantity = parseOperationQuantityLots(op),
+            quantityUnits = qty,
+            sideRu = parseOperationSideRu(op),
+            tradeNotionalRub = parseOperationTradeNotionalRub(op, qty),
             isFeeOnly = resolveOperationTicker(op) == null,
         )
     }.sortedByDescending { it.millis }
@@ -305,37 +310,64 @@ private fun buildProdAccountOperationRow(
 ): PortfolioConfirmedTradeTableRow {
     val timeMsk = formatPortfolioExecutionTableMsk(op.millis)
     val ticker = op.ticker ?: "—"
-    val net = op.paymentRub
+    val resultRub = op.yieldRub ?: op.paymentRub
+    val sideText = formatBrokerOperationLegText(op.sideRu, op.quantityUnits, op.tradeNotionalRub)
+    val (longSide, shortSide) = when (ticker) {
+        "TATN" -> sideText to "—"
+        "TATNP" -> "—" to sideText
+        else -> sideText to "—"
+    }
+    val (longPnl, shortPnl) = when (ticker) {
+        "TATN" -> resultRub to Double.NaN
+        "TATNP" -> Double.NaN to resultRub
+        else -> resultRub / 2.0 to resultRub / 2.0
+    }
     return PortfolioConfirmedTradeTableRow(
         tradeId = "T-B%03d".format(Locale.US, index),
         tradeDisplayId = "—",
-        directionLabel = if (op.isFeeOnly) "комиссия" else "spread",
+        directionLabel = if (op.isFeeOnly) "комиссия" else op.sideRu,
         entryTimeMsk = timeMsk,
         exitTimeMsk = timeMsk,
         longLegTicker = if (ticker == "TATNP") "TATN" else ticker,
         shortLegTicker = if (ticker == "TATN") "TATNP" else ticker,
-        longLegSideRu = "—",
-        shortLegSideRu = "—",
-        volumeText = if (op.isFeeOnly) "—" else spreadVolumeText(op.quantity.coerceAtLeast(1)),
+        longLegSideRu = longSide,
+        shortLegSideRu = shortSide,
+        volumeText = formatBrokerOperationQuantityText(op.quantityUnits),
         confirmLabel = "брокер",
         entryZ = 0.0,
         exitZ = 0.0,
         notificationIdsText = "—",
-        legLongPnlSplitRubApprox = net / 2.0,
-        legShortPnlSplitRubApprox = net / 2.0,
-        grossPnlRubApprox = net + op.commissionRub,
-        netPnlRubApprox = net,
+        legLongPnlSplitRubApprox = longPnl,
+        legShortPnlSplitRubApprox = shortPnl,
+        grossPnlRubApprox = resultRub + op.commissionRub,
+        netPnlRubApprox = resultRub,
         commissionRubApprox = op.commissionRub,
         overnightRubApprox = 0.0,
     )
+}
+
+internal fun formatBrokerOperationQuantityText(quantityUnits: Int): String =
+    if (quantityUnits > 0) "$quantityUnits ак." else "—"
+
+internal fun formatBrokerOperationLegText(
+    sideRu: String,
+    quantityUnits: Int,
+    tradeNotionalRub: Double,
+): String {
+    val qtyPart = if (quantityUnits > 0) "$quantityUnits ак." else "—"
+    val sumPart = if (tradeNotionalRub > 0.0) formatRubSigned(tradeNotionalRub) else "—"
+    return "$sideRu · $qtyPart · $sumPart"
 }
 
 private data class ParsedAccountOperation(
     val millis: Long,
     val ticker: String?,
     val paymentRub: Double,
+    val yieldRub: Double?,
     val commissionRub: Double,
-    val quantity: Int,
+    val quantityUnits: Int,
+    val sideRu: String,
+    val tradeNotionalRub: Double,
     val isFeeOnly: Boolean,
 )
 
@@ -377,13 +409,43 @@ private fun operationCommissionRub(op: JSONObject): Double {
     return 0.0
 }
 
-private fun parseOperationQuantityLots(op: JSONObject): Int {
+private fun parseOperationQuantityUnits(op: JSONObject): Int {
+    val qObj = op.optJSONObject("quantity")
+        ?: op.optJSONObject("quantityDone")
+        ?: op.optJSONObject("quantityLots")
+    qObj?.let { quotationUnitsToDouble(it)?.toInt()?.takeIf { it > 0 }?.let { return it } }
     val qty = op.optInt("quantity", op.optInt("quantityDone", 0))
     if (qty > 0) return qty
-    val lots = op.optInt("quantityLots", op.optInt("lots", 0))
-    if (lots > 0) return lots
-    return op.optJSONObject("quantity")?.optInt("value", 0) ?: 0
+    return op.optInt("quantityLots", op.optInt("lots", 0))
 }
+
+private fun parseOperationSideRu(op: JSONObject): String {
+    val type = op.firstNonBlankString("operationType", "type", "operation_type").orEmpty().uppercase(Locale.US)
+    return when {
+        type.contains("BUY") -> "покупка"
+        type.contains("SELL") -> "продажа"
+        else -> {
+            val payment = parseOperationPaymentRub(op) ?: 0.0
+            when {
+                payment < -0.01 -> "покупка"
+                payment > 0.01 -> "продажа"
+                else -> "—"
+            }
+        }
+    }
+}
+
+private fun parseOperationTradeNotionalRub(op: JSONObject, quantityUnits: Int): Double {
+    parseOperationMoneyField(op, "price", "Price")?.let { price ->
+        if (quantityUnits > 0) return abs(price * quantityUnits)
+    }
+    parseOperationPaymentRub(op)?.let { payment ->
+        return abs(payment)
+    }
+    return 0.0
+}
+
+private fun parseOperationQuantityLots(op: JSONObject): Int = parseOperationQuantityUnits(op)
 
 private fun scaleMtmLegsToRealizedNet(
     mtm: SpreadLegBrokerPnl?,

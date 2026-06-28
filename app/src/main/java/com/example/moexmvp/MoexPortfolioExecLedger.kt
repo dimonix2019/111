@@ -17,6 +17,26 @@ internal enum class PortfolioExecSource {
 internal fun isPortfolioTestTradeConfirmLabel(confirmLabel: String): Boolean =
     confirmLabel.contains("· тест")
 
+internal fun isPortfolioBrokerClosedRow(confirmLabel: String): Boolean =
+    confirmLabel == "брокер" || confirmLabel == "счёт"
+
+internal enum class PortfolioClosedTradesSourceFilter {
+    All,
+    Broker,
+    TestOnly,
+}
+
+internal fun filterClosedTradesBySourceFilter(
+    rows: List<PortfolioConfirmedTradeTableRow>,
+    filter: PortfolioClosedTradesSourceFilter,
+): List<PortfolioConfirmedTradeTableRow> = when (filter) {
+    PortfolioClosedTradesSourceFilter.All -> rows
+    PortfolioClosedTradesSourceFilter.Broker ->
+        rows.filter { isPortfolioBrokerClosedRow(it.confirmLabel) }
+    PortfolioClosedTradesSourceFilter.TestOnly ->
+        rows.filter { isPortfolioTestTradeConfirmLabel(it.confirmLabel) }
+}
+
 /** Однобуквенный тип сделки: Р — ручная, А — авто (подпись на графике Z). */
 internal fun portfolioTradeSourceTypeLetter(confirmLabel: String): String = when {
     confirmLabel.startsWith("авто") -> "А"
