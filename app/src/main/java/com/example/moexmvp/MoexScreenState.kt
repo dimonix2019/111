@@ -78,6 +78,8 @@ internal class MoexScreenState(val context: Context) {
     /** Живой Z с последнего 15м refresh (сводка «Рынок»), не из persisted. */
     var marketsLiveZScore by mutableStateOf<Double?>(null)
     var marketsLiveZBarAt by mutableStateOf<String?>(null)
+    /** Спред % на том же баре, что [marketsLiveZScore] (единый источник со шторкой). */
+    var marketsLiveSpreadPercent by mutableStateOf<Double?>(null)
     /** Инкремент при обновлении 1м котировок на «Рынок». */
     var marketsIntraday1mEpoch by mutableStateOf(0)
     var marketsM15SessionCache: List<DataPoint> = emptyList()

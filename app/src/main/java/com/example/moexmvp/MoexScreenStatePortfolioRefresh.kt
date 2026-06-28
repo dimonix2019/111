@@ -169,9 +169,10 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
 }
 
 internal fun MoexScreenState.publishMarketsLiveZFromPoints(points: List<DataPoint>) {
-    val last = points.lastOrNull() ?: return
-    marketsLiveZScore = last.zScore
-    marketsLiveZBarAt = last.tradeDate
+    val unified = resolveUnifiedLiveZSnapshot(points, intraday1m = null)
+    marketsLiveZScore = unified.zScore
+    marketsLiveZBarAt = unified.barAt
+    marketsLiveSpreadPercent = unified.spreadPercent
 }
 
 /**

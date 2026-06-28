@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -42,11 +43,12 @@ class MoexMarketsLiveZTest {
 
     @Test
     fun liveZScoreFromIntraday1m_recomputesFormingBar() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val now = LocalDate.of(2026, 6, 26).atTime(10, 15).atZone(zone)
         val step = 15 * 60_000L
-        val bucket = currentM15BucketStartMillis()
-        val ts0 = bucket - 80 * step
+        val bucket = currentM15BucketStartMillis(now.toInstant(), zone)
         val history = (0 until 80).map { i ->
-            point(ts0 + i * step, 7.0 + i * 0.01, z = 0.1)
+            point(bucket - (80 - i) * step, 7.0 + i * 0.01, z = 0.1)
         }
         val snap = MarketsIntraday1mSnapshot(
             tatn = listOf(CandlePoint("10:00", 680.0, 681.0, 679.0, 680.0)),
@@ -54,7 +56,7 @@ class MoexMarketsLiveZTest {
             tatnLastBarMillis = bucket,
             tatnpLastBarMillis = bucket,
         )
-        val z = liveZScoreFromIntraday1m(history, snap)
+        val z = resolveUnifiedLiveZSnapshot(history, snap, now = now).zScore
         requireNotNull(z)
         assertNotEquals(0.1, z, 1e-9)
     }
@@ -96,6 +98,61 @@ class MoexMarketsLiveZTest {
         val ms10 = intraday1mLabelToM15BucketMs("10:07", zone)
         val ms14 = intraday1mLabelToM15BucketMs("10:14", zone)
         assertEquals(ms10, ms14)
+    }
+
+    @Test
+    fun resolveUnifiedLiveZSnapshot_before0700_ignoresLive1m() {
+        val step = 15 * 60_000L
+        val day = LocalDate.of(2026, 6, 26)
+        val zone = ZoneId.of("Europe/Moscow")
+        val closedTs = day.minusDays(1).atTime(23, 30).atZone(zone).toInstant().toEpochMilli()
+        val formingTs = day.atTime(6, 45).atZone(zone).toInstant().toEpochMilli()
+        val history = (0 until 78).map { i ->
+            point(closedTs - (78 - i) * step, 7.0 + i * 0.01, z = -0.5)
+        } + listOf(
+            point(closedTs, 8.33, z = -1.68),
+            point(formingTs, 9.99, z = 0.77),
+        )
+        val snap = MarketsIntraday1mSnapshot(
+            tatn = listOf(CandlePoint("06:50", 680.0, 681.0, 679.0, 680.0)),
+            tatnp = listOf(CandlePoint("06:50", 600.0, 601.0, 599.0, 600.0)),
+            tatnLastBarMillis = formingTs,
+            tatnpLastBarMillis = formingTs,
+        )
+        val morning = day.atTime(6, 50).atZone(zone)
+        val unified = resolveUnifiedLiveZSnapshot(history, snap, now = morning)
+        val legacyLive = buildM15PointsWithLiveFormingFrom1m(
+            history,
+            tatnClose = 680.0,
+            tatnpClose = 600.0,
+        )!!.last().zScore
+        val closedZ = rollingZForClosedM15Bar(history, morning)
+        assertFalse(unified.liveFrom1m)
+        assertNotEquals(legacyLive, unified.zScore)
+        assertEquals(closedZ, unified.zScore)
+    }
+
+    @Test
+    fun resolveUnifiedLiveZSnapshot_summaryMatchesShutterPath() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val now = LocalDate.of(2026, 6, 26).atTime(10, 15).atZone(zone)
+        val step = 15 * 60_000L
+        val bucket = currentM15BucketStartMillis(now.toInstant(), zone)
+        val history = (0 until 80).map { i ->
+            point(bucket - (80 - i) * step, 7.0 + i * 0.01, z = 0.1)
+        }
+        val snap = MarketsIntraday1mSnapshot(
+            tatn = listOf(CandlePoint("10:00", 680.0, 681.0, 679.0, 680.0)),
+            tatnp = listOf(CandlePoint("10:00", 600.0, 601.0, 599.0, 600.0)),
+            tatnLastBarMillis = bucket,
+            tatnpLastBarMillis = bucket,
+        )
+        val a = resolveUnifiedLiveZSnapshot(history, snap, now = now)
+        val b = resolveUnifiedLiveZSnapshot(history, snap, now = now)
+        assertEquals(a.zScore, b.zScore)
+        assertEquals(a.spreadPercent, b.spreadPercent)
+        assertEquals(a.monitorPoints.last().zScore, b.monitorPoints.last().zScore)
+        assertEquals(a.liveFrom1m, b.liveFrom1m)
     }
 
     @Test

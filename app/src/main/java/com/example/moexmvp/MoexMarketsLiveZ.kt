@@ -145,49 +145,88 @@ internal fun buildIntraday1mZScoreSeries(
     return Intraday1mZSeries(labels, zScores)
 }
 
-/** Live Z из 1м TATN/TATNP поверх кэшированного 15м ряда (сводка, шторка, монитор). */
+/** Единый снимок Z/спреда для сводки «Рынок» и шторки монитора. */
+internal data class UnifiedLiveZSnapshot(
+    val zScore: Double?,
+    val barAt: String?,
+    val spreadPercent: Double?,
+    val monitorPoints: List<DataPoint>,
+    val liveFrom1m: Boolean,
+)
+
+/**
+ * Единый расчёт Z/спреда/15м для сводки и шторки.
+ * До 07:00 МСК — последний закрытый 15м бар (без fake live 1м).
+ */
+internal fun resolveUnifiedLiveZSnapshot(
+    m15Points: List<DataPoint>,
+    intraday1m: MarketsIntraday1mSnapshot? = null,
+    now: ZonedDateTime = ZonedDateTime.now(moexZoneId),
+): UnifiedLiveZSnapshot {
+    if (m15Points.isEmpty()) {
+        return UnifiedLiveZSnapshot(null, null, null, m15Points, liveFrom1m = false)
+    }
+    if (intraday1m != null && shouldApplyMarketsLiveZFromIntraday1m(intraday1m, now)) {
+        val tatnClose = intraday1m.tatn.lastOrNull()?.close
+        val tatnpClose = intraday1m.tatnp.lastOrNull()?.close
+        if (tatnClose != null && tatnpClose != null) {
+            val bucketMs = maxOf(intraday1m.tatnLastBarMillis, intraday1m.tatnpLastBarMillis)
+                .takeIf { it > 0L }
+                ?: currentM15BucketStartMillis(now.toInstant(), moexZoneId)
+            val patched = buildM15PointsWithLiveFormingFrom1m(
+                m15Points,
+                tatnClose,
+                tatnpClose,
+                bucketMs = bucketMs,
+                zone = moexZoneId,
+            )
+            if (patched != null) {
+                val last = patched.last()
+                return UnifiedLiveZSnapshot(
+                    zScore = last.zScore,
+                    barAt = last.tradeDate,
+                    spreadPercent = last.spreadPercent,
+                    monitorPoints = patched,
+                    liveFrom1m = true,
+                )
+            }
+        }
+    }
+    val closed = lastClosedM15BarForDisplay(m15Points, now)
+    return UnifiedLiveZSnapshot(
+        zScore = rollingZForClosedM15Bar(m15Points, now),
+        barAt = closed?.tradeDate,
+        spreadPercent = closed?.spreadPercent ?: m15Points.last().spreadPercent,
+        monitorPoints = m15Points,
+        liveFrom1m = false,
+    )
+}
+
 internal fun liveZScoreFromIntraday1m(
     m15Points: List<DataPoint>,
     snap: MarketsIntraday1mSnapshot,
-): Double? {
-    val tatnClose = snap.tatn.lastOrNull()?.close ?: return null
-    val tatnpClose = snap.tatnp.lastOrNull()?.close ?: return null
-    return buildM15PointsWithLiveFormingFrom1m(m15Points, tatnClose, tatnpClose)?.last()?.zScore
-}
+): Double? = resolveUnifiedLiveZSnapshot(m15Points, snap).zScore
 
-/** 15м ряд с актуальным формирующимся баром из 1м (для фонового монитора). */
 internal fun m15PointsWithLiveFormingFromIntraday1m(
     m15Points: List<DataPoint>,
     snap: MarketsIntraday1mSnapshot,
-): List<DataPoint> {
-    val tatnClose = snap.tatn.lastOrNull()?.close ?: return m15Points
-    val tatnpClose = snap.tatnp.lastOrNull()?.close ?: return m15Points
-    return buildM15PointsWithLiveFormingFrom1m(m15Points, tatnClose, tatnpClose) ?: m15Points
-}
+): List<DataPoint> = resolveUnifiedLiveZSnapshot(m15Points, snap).monitorPoints
 
-/** Применить live Z из 1м котировок к in-memory 15м (сводка + Z-график). */
 internal fun MoexScreenState.applyMarketsLiveZFromIntraday1mSnap(snap: MarketsIntraday1mSnapshot) {
-    val now = ZonedDateTime.now(moexZoneId)
     val src = marketsM15Source()
-    if (!shouldApplyMarketsLiveZFromIntraday1m(snap, now)) {
-        val closed = lastClosedM15BarForDisplay(src, now)
-        marketsLiveZScore = rollingZForClosedM15Bar(src, now)
-        marketsLiveZBarAt = closed?.tradeDate
-        return
-    }
-    val tatnClose = snap.tatn.lastOrNull()?.close ?: return
-    val tatnpClose = snap.tatnp.lastOrNull()?.close ?: return
-    val patched = buildM15PointsWithLiveFormingFrom1m(src, tatnClose, tatnpClose) ?: return
-    val last = patched.last()
-    val prev = marketsM15Source().lastOrNull()
-    marketsLiveZScore = last.zScore
-    marketsLiveZBarAt = last.tradeDate
+    val unified = resolveUnifiedLiveZSnapshot(src, snap)
+    marketsLiveZScore = unified.zScore
+    marketsLiveZBarAt = unified.barAt
+    marketsLiveSpreadPercent = unified.spreadPercent
+    if (!unified.liveFrom1m) return
+    val last = unified.monitorPoints.lastOrNull() ?: return
+    val prev = src.lastOrNull()
     val structureChanged = prev == null ||
         prev.timestampMillis != last.timestampMillis ||
         kotlin.math.abs(prev.spreadPercent - last.spreadPercent) > 0.005
     if (structureChanged) {
-        marketsM15SessionCache = patched
+        marketsM15SessionCache = unified.monitorPoints
         marketsM15DataEpoch++
-        bumpMarketsLoadedAtFromM15(patched)
+        bumpMarketsLoadedAtFromM15(unified.monitorPoints)
     }
 }

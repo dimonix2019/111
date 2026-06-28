@@ -139,7 +139,8 @@ internal fun MoexScreenTabMarkets(
                         val displayZ = marketsLiveZScore
                             ?: rollingZForLastM15Bar(marketsM15SourcePoints)
                             ?: last?.zScore
-                        val displaySpread = marketsM15SourcePoints.lastOrNull()?.spreadPercent
+                        val displaySpread = marketsLiveSpreadPercent
+                            ?: marketsM15SourcePoints.lastOrNull()?.spreadPercent
                             ?: last?.spreadPercent
                         val loadedAtLabel = marketsLiveZBarAt?.let { bar ->
                             runCatching {
