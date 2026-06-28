@@ -595,7 +595,11 @@ internal fun PortfolioTradesBucketHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "${bucket.title} · ${bucket.tradeCount} сделок",
+            text = if (bucket.isOpenTrades) {
+                if (bucket.tradeCount == 0) "Открытая · нет" else "Открытая сделка"
+            } else {
+                "${bucket.title} · ${bucket.tradeCount} сделок"
+            },
             color = Color(0xFFE0E0E0),
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold
@@ -609,6 +613,172 @@ internal fun PortfolioTradesBucketHeader(
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+@Composable
+private fun PortfolioOpenTradeDetailLine(
+    label: String,
+    value: String,
+    valueColor: Color = Color(0xFFE0E0E0),
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = Color(0xFF9E9E9E),
+            fontSize = 11.sp,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = value,
+            color = valueColor,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
+internal fun PortfolioOpenTradeDetailPanel(
+    group: PortfolioTradeGroupRow,
+    pnlSourceLabel: String?,
+    risk: StrategyTestTradeRiskAssessment?,
+    onCloseOpenTrade: ((tradeId: String) -> Unit)?,
+    closingTradeId: String?,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val longOrder = group.orders.firstOrNull()
+    val shortOrder = group.orders.getOrNull(1)
+    val execFills = remember(group.tradeId) {
+        TradeExecutionLog.fillsForTrade(context, group.tradeId)
+    }
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (risk != null && strategyTestTradeRiskIsFlagged(risk)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = strategyTestTradeRiskLevelColor(risk.level),
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    text = "Риск: ${formatPortfolioTradeRiskTotalScore(risk)}",
+                    color = strategyTestTradeRiskLevelColor(risk.level),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+        PortfolioOpenTradeDetailLine("ID", group.tradeDisplayId)
+        if (group.entrySignalId != "—") {
+            PortfolioOpenTradeDetailLine("Сигнал", group.entrySignalId)
+        }
+        if (group.entrySignalBarTimeMsk != "—") {
+            PortfolioOpenTradeDetailLine("Бар сигнала", group.entrySignalBarTimeMsk)
+        }
+        if (group.entrySignalReceivedMsk != "—") {
+            PortfolioOpenTradeDetailLine("Получен", group.entrySignalReceivedMsk)
+        }
+        PortfolioOpenTradeDetailLine("Вход", group.entryTimeMsk)
+        PortfolioOpenTradeDetailLine("Z вход", formatPortfolioTableZ(group.entryZ))
+        PortfolioOpenTradeDetailLine("Z сейчас", formatPortfolioTableZ(group.exitZ))
+        PortfolioOpenTradeDetailLine("Направление", group.directionLabel)
+        PortfolioOpenTradeDetailLine("Объём", group.volumeText)
+        PortfolioOpenTradeDetailLine("Подтв.", group.confirmLabel)
+        longOrder?.let { leg ->
+            PortfolioOpenTradeDetailLine(
+                label = "Long · ${leg.ticker}",
+                value = leg.sideRu,
+                valueColor = Color(0xFF81C784),
+            )
+        }
+        shortOrder?.let { leg ->
+            PortfolioOpenTradeDetailLine(
+                label = "Short · ${leg.ticker}",
+                value = leg.sideRu,
+                valueColor = Color(0xFFFFAB91),
+            )
+        }
+        PortfolioOpenTradeDetailLine(
+            label = "PnL Long",
+            value = formatPortfolioTableRub(group.legLongPnlSplitRubApprox),
+            valueColor = if (group.legLongPnlSplitRubApprox.isNaN()) {
+                Color(0xFF757575)
+            } else {
+                rubDeltaColor(group.legLongPnlSplitRubApprox)
+            },
+        )
+        PortfolioOpenTradeDetailLine(
+            label = "PnL Short",
+            value = formatPortfolioTableRub(group.legShortPnlSplitRubApprox),
+            valueColor = if (group.legShortPnlSplitRubApprox.isNaN()) {
+                Color(0xFF757575)
+            } else {
+                rubDeltaColor(group.legShortPnlSplitRubApprox)
+            },
+        )
+        val netLabel = buildString {
+            append("PnL net")
+            pnlSourceLabel?.let { append(" · $it") }
+        }
+        PortfolioOpenTradeDetailLine(
+            label = netLabel,
+            value = formatPortfolioTableRub(group.netPnlRubApprox),
+            valueColor = if (group.netPnlRubApprox.isNaN()) {
+                Color(0xFF757575)
+            } else {
+                rubDeltaColor(group.netPnlRubApprox)
+            },
+        )
+        PortfolioOpenTradeDetailLine(
+            label = "Комиссия",
+            value = formatPortfolioTableCostRub(group.commissionRubApprox),
+            valueColor = Color(0xFFFFAB91),
+        )
+        PortfolioOpenTradeDetailLine(
+            label = "Overnight",
+            value = formatPortfolioTableCostRub(group.overnightRubApprox),
+            valueColor = Color(0xFFFFAB91),
+        )
+        if (execFills.isNotEmpty()) {
+            Text(
+                text = execFills.joinToString("\n") { fill ->
+                    "${fill.phase.name} ${fill.ticker}: ${TradeExecutionLog.formatLegFillSummary(fill)}"
+                },
+                color = Color(0xFF80CBC4),
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+            )
+        }
+        if (onCloseOpenTrade != null) {
+            Spacer(Modifier.height(4.dp))
+            OutlinedButton(
+                onClick = { onCloseOpenTrade(group.tradeId) },
+                enabled = closingTradeId != group.tradeId,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = Color(0xFFFFAB91),
+                ),
+            ) {
+                Text(
+                    text = if (closingTradeId == group.tradeId) "Закрытие…" else "Закрыть сделку",
+                    fontSize = 12.sp,
+                )
+            }
+        }
     }
 }
 
@@ -680,20 +850,17 @@ internal fun PortfolioTradesWindowSection(
             PortfolioTradesBucketHeader(openBucket)
             if (openBucket.groups.isEmpty()) {
                 Text(
-                    text = "Нет открытых сделок за $depthLabel.",
+                    text = "Нет открытой сделки.",
                     color = Color(0xFF9E9E9E),
                     fontSize = 11.sp
                 )
             } else {
-                PortfolioTradeOrdersGroupedTable(
-                    groups = openBucket.groups,
-                    caption = "",
-                    exitZColumnTitle = "Z сейч.",
+                PortfolioOpenTradeDetailPanel(
+                    group = openBucket.groups.single(),
+                    pnlSourceLabel = openBucket.pnlSourceLabel,
+                    risk = openRiskAssessments.firstOrNull(),
                     onCloseOpenTrade = onCloseOpenTrade,
                     closingTradeId = closingTradeId,
-                    riskAssessments = openRiskAssessments,
-                    showRiskScoreBreakdown = true,
-                    showLeadingOpenRiskIcon = true,
                 )
             }
         }

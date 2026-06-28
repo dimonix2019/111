@@ -157,6 +157,11 @@ internal fun filterConfirmedTableRowsForTradesTable(
     if (!autoOnly) rows
     else filterConfirmedTableRowsByPortfolioMode(rows, portfolioLedgerIncludeAuto = true)
 
+/** Стратегия — не более одной открытой сделки; для UI берём последнюю по времени входа. */
+internal fun resolveSingleOpenExecutionForDisplay(
+    executions: List<SandboxSpreadExecUi>,
+): SandboxSpreadExecUi? = executions.maxByOrNull { it.executedAtMillis }
+
 internal fun buildPortfolioTradesBuckets(
     openExecutions: List<SandboxSpreadExecUi>,
     closedRows: List<PortfolioConfirmedTradeTableRow>,
@@ -172,14 +177,15 @@ internal fun buildPortfolioTradesBuckets(
         openExecutions,
         autoOnly = tradesAutoOnlyFilter,
     )
+    val openSingle = resolveSingleOpenExecutionForDisplay(openFiltered)?.let { listOf(it) } ?: emptyList()
     val closedFiltered = filterConfirmedTableRowsForTradesTable(
         filterClosedTradeRowsInWindow(closedRows, lookbackDays, windowStartMillis),
         autoOnly = tradesAutoOnlyFilter,
     )
-    val openGroups = openFiltered.asReversed().map { it.toTradeGroup() }
+    val openGroups = openSingle.map { it.toTradeGroup() }
     val closedGroups = closedFiltered.map { it.toTradeGroup() }
     return PortfolioTradesBucketUi(
-        title = "Открытые",
+        title = "Открытая",
         tradeCount = openGroups.size,
         totalPnlRub = sumTradeGroupsNetPnl(openGroups),
         groups = openGroups,

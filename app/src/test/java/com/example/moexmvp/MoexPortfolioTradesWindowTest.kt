@@ -24,15 +24,15 @@ class MoexPortfolioTradesWindowTest {
         val executedAt = ZonedDateTime.of(2026, 5, 15, 10, 0, 0, 0, ZoneId.of("Europe/Moscow"))
             .toInstant()
             .toEpochMilli()
+        val autoOpen = sandboxExec(executedAt = executedAt + 60_000).copy(
+            tradeId = "D-A",
+            source = PortfolioExecSource.AUTO,
+            confirmLabel = "авто",
+        )
         val manualOpen = sandboxExec(executedAt = executedAt).copy(
             tradeId = "D-M",
             source = PortfolioExecSource.MANUAL,
             confirmLabel = "ручное",
-        )
-        val autoOpen = sandboxExec(executedAt = executedAt).copy(
-            tradeId = "D-A",
-            source = PortfolioExecSource.AUTO,
-            confirmLabel = "авто",
         )
         val manualClosed = PortfolioConfirmedTradeTableRow(
             tradeId = "T-M",
@@ -63,7 +63,8 @@ class MoexPortfolioTradesWindowTest {
             windowStartMillis = windowStart,
             tradesAutoOnlyFilter = false,
         )
-        assertEquals(2, openAll.tradeCount)
+        assertEquals(1, openAll.tradeCount)
+        assertEquals("D-A", openAll.groups.single().tradeId)
         assertEquals(2, closedAll.tradeCount)
         val (openAuto, closedAuto) = buildPortfolioTradesBuckets(
             listOf(manualOpen, autoOpen),
@@ -120,6 +121,13 @@ class MoexPortfolioTradesWindowTest {
         assertEquals(0, open.tradeCount)
         assertEquals(1, closed.tradeCount)
         assertEquals(1000.0, closed.totalPnlRub, 0.01)
+    }
+
+    @Test
+    fun resolveSingleOpenExecutionForDisplay_picksLatestByExecutedAt() {
+        val older = sandboxExec(executedAt = 1_000L).copy(tradeId = "D-OLD")
+        val newer = sandboxExec(executedAt = 2_000L).copy(tradeId = "D-NEW")
+        assertEquals("D-NEW", resolveSingleOpenExecutionForDisplay(listOf(older, newer))?.tradeId)
     }
 
   private fun sandboxExec(executedAt: Long) = SandboxSpreadExecUi(
