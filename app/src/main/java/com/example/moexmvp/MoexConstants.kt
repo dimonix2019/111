@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.255 — Fix Prod «Закрытые»: GetOperationsByCursor + yield из trades; без строк −15 ₽ (только комиссии).
 1.7.254 — «Закрытые» под спойлером; фильтры Всё/Брокер/только тест; PnL брокера = yield Tinkoff + сумма сделки.
 1.7.253 — «Портфель»: спойлеры свернуты; «Тестовая пара» внизу вкладки.
 1.7.252 — «Портфель»: открытая сделка — текстовые поля (одна позиция), не таблица; закрытые — таблица.

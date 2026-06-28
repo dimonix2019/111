@@ -75,6 +75,55 @@ class TinkoffProdWindowPnlTest {
     }
 
     @Test
+    fun buildClosedRowsFromProdOperationsWindow_skipsFeeOnlyAndYieldLessOps() {
+        val day = Instant.parse("2026-06-28T16:11:00Z").toEpochMilli()
+        val rows = buildClosedRowsFromProdOperationsWindow(
+            operations = listOf(
+                feeOp(day, payment = -15.1),
+                tradeOp(day + 1_000, ticker = "TATN", payment = -45_760.0, yield = -170.0, commission = 15.0, qty = 80),
+            ),
+            fromMillis = day - 1_000,
+            toMillis = day + 120_000,
+        )
+        assertEquals(1, rows.size)
+        assertEquals(-170.0, rows.single().netPnlRubApprox, 0.05)
+    }
+
+    @Test
+    fun flattenSpreadOperationsFromApi_readsYieldFromNestedTradesAndInstrumentUid() {
+        val day = Instant.parse("2026-06-28T16:13:00Z").toEpochMilli()
+        val cursorItem = JSONObject()
+            .put("id", "op-1")
+            .put("date", Instant.ofEpochMilli(day).toString())
+            .put("instrumentUid", "TATN_TQBR")
+            .put("operationType", "OPERATION_TYPE_SELL")
+            .put("payment", money(-45_760.0))
+            .put("commission", money(15.0))
+            .put("quantity", 80)
+            .put(
+                "tradesInfo",
+                JSONObject().put(
+                    "trades",
+                    org.json.JSONArray().put(
+                        JSONObject()
+                            .put("yield", money(-95.0))
+                            .put("quantity", 80),
+                    ),
+                ),
+            )
+        val flat = flattenSpreadOperationsFromApi(listOf(cursorItem))
+        assertEquals(1, flat.size)
+        val rows = buildClosedRowsFromProdOperationsWindow(
+            operations = flat,
+            fromMillis = day - 1_000,
+            toMillis = day + 1_000,
+        )
+        assertEquals(1, rows.size)
+        assertEquals(-95.0, rows.single().netPnlRubApprox, 0.05)
+        assertEquals("TATN", rows.single().longLegTicker)
+    }
+
+    @Test
     fun ensureProdBrokerSummaryRow_whenOnlyFeesInSummary() {
         val day = Instant.parse("2026-06-28T16:11:05Z").toEpochMilli()
         val summary = ProdSpreadWindowPnlSummary(

@@ -137,6 +137,8 @@ internal suspend fun fetchProdSpreadOperationsInWindow(
     val mode = TinkoffExecutionMode.Prod
     val token = TinkoffSandboxStorage.getActiveToken(context, mode) ?: return null
     val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode) ?: return null
+    val byCursor = fetchProdSpreadOperationsByCursor(token, accountId, fromMillis, toMillis)
+    if (!byCursor.isNullOrEmpty()) return byCursor
     val root = runCatching {
         tinkoffProdOperationsPostAsync(
             token,
@@ -148,7 +150,124 @@ internal suspend fun fetchProdSpreadOperationsInWindow(
                 .put("state", "OPERATION_STATE_EXECUTED"),
         )
     }.getOrNull() ?: return null
-    return collectOperationsArray(root)
+    return flattenSpreadOperationsFromApi(collectOperationsArray(root))
+}
+
+/** GetOperationsByCursor — yield и ticker на OperationItem (рекомендуемый API T‑Invest). */
+private suspend fun fetchProdSpreadOperationsByCursor(
+    token: String,
+    accountId: String,
+    fromMillis: Long,
+    toMillis: Long,
+): List<JSONObject>? {
+    val rawItems = mutableListOf<JSONObject>()
+    var cursor: String? = null
+    var pageGuard = 0
+    while (pageGuard++ < 32) {
+        val body = JSONObject()
+            .put("accountId", accountId.trim())
+            .put("from", Instant.ofEpochMilli(fromMillis).toString())
+            .put("to", Instant.ofEpochMilli(toMillis).toString())
+            .put("state", "OPERATION_STATE_EXECUTED")
+            .put("limit", 1000)
+            .put("withoutTrades", false)
+            .put("withoutCommissions", false)
+        if (!cursor.isNullOrBlank()) body.put("cursor", cursor)
+        val root = runCatching {
+            tinkoffProdOperationsPostAsync(token, "GetOperationsByCursor", body)
+        }.getOrNull() ?: break
+        val items = root.optJSONArray("items")
+            ?: root.optJSONArray("Items")
+        if (items == null || items.length() == 0) break
+        for (i in 0 until items.length()) {
+            items.optJSONObject(i)?.let { rawItems.add(it) }
+        }
+        val hasNext = root.optBoolean("hasNext", root.optBoolean("has_next", false))
+        val next = root.firstNonBlankString("nextCursor", "next_cursor")
+        if (!hasNext || next.isNullOrBlank()) break
+        cursor = next
+    }
+    if (rawItems.isEmpty()) return null
+    return flattenSpreadOperationsFromApi(rawItems)
+}
+
+/** Развернуть items/trades/childOperations в плоский список с yield и ticker. */
+internal fun flattenSpreadOperationsFromApi(raw: List<JSONObject>): List<JSONObject> {
+    val out = mutableListOf<JSONObject>()
+    val seen = mutableSetOf<String>()
+    fun emit(op: JSONObject) {
+        val key = op.firstNonBlankString("id", "Id", "operationId")
+            ?: "${parseOperationDateMillis(op)}-${resolveOperationTicker(op)}-${parseOperationPaymentRub(op)}"
+        if (!seen.add(key)) return
+        out += op
+    }
+    for (item in raw) {
+        emit(normalizeSpreadOperationJson(item))
+        expandNestedSpreadOperations(item, ::emit)
+    }
+    return out
+}
+
+private fun normalizeSpreadOperationJson(op: JSONObject): JSONObject {
+    val normalized = JSONObject(op.toString())
+    resolveOperationTicker(op)?.let { ticker ->
+        if (normalized.optString("ticker", "").isBlank()) normalized.put("ticker", ticker)
+    }
+    parseOperationYieldRub(op)?.let { yield ->
+        if (normalized.optJSONObject("yield") == null) {
+            normalized.put("yield", moneyJsonFromRub(yield))
+        }
+    }
+    return normalized
+}
+
+private fun expandNestedSpreadOperations(op: JSONObject, emit: (JSONObject) -> Unit) {
+    val childArr = op.optJSONArray("childOperations")
+        ?: op.optJSONArray("child_operations")
+    if (childArr != null) {
+        for (i in 0 until childArr.length()) {
+            val child = childArr.optJSONObject(i) ?: continue
+            emit(mergeSpreadOperationContext(parent = op, child = child))
+            expandNestedSpreadOperations(child, emit)
+        }
+    }
+    val tradesInfo = op.optJSONObject("tradesInfo") ?: op.optJSONObject("trades_info")
+    val trades = tradesInfo?.optJSONArray("trades") ?: op.optJSONArray("trades")
+    if (trades != null) {
+        if (parseOperationYieldRub(op) != null) return
+        for (i in 0 until trades.length()) {
+            val trade = trades.optJSONObject(i) ?: continue
+            emit(mergeSpreadOperationContext(parent = op, child = trade, fromTrade = true))
+        }
+    }
+}
+
+private fun mergeSpreadOperationContext(
+    parent: JSONObject,
+    child: JSONObject,
+    fromTrade: Boolean = false,
+): JSONObject {
+    val merged = JSONObject(parent.toString())
+    child.keys().forEach { key ->
+        merged.put(key, child.get(key))
+    }
+    if (fromTrade) {
+        child.firstNonBlankString("date", "dateTime", "date_time")?.let { merged.put("date", it) }
+    }
+    listOf("figi", "FIGI", "instrumentUid", "instrument_uid", "ticker", "Ticker", "type", "operationType").forEach { key ->
+        if (!merged.has(key) || merged.optString(key, "").isBlank()) {
+            parent.opt(key)?.let { merged.put(key, it) }
+        }
+    }
+    parseOperationYieldRub(child)?.let { merged.put("yield", moneyJsonFromRub(it)) }
+        ?: parseOperationYieldRub(parent)?.let { merged.put("yield", moneyJsonFromRub(it)) }
+    return merged
+}
+
+private fun moneyJsonFromRub(rub: Double): JSONObject {
+    val units = rub.toLong()
+    val nano = ((rub - units) * 1_000_000_000).toInt()
+    return JSONObject().put("units", units).put("nano", nano).put("currency", "rub")
 }
 
 internal fun summarizeProdSpreadOperations(
@@ -212,9 +331,7 @@ private fun summarizeProdSpreadYieldFallback(
         val opMillis = parseOperationDateMillis(op) ?: continue
         if (opMillis < fromMillis || opMillis > toMillis) continue
         commission += operationCommissionRub(op)
-        val ticker = resolveOperationTicker(op) ?: continue
-        if (ticker != "TATN" && ticker != "TATNP") continue
-        val yield = parseOperationMoneyField(op, "yield", "yield_value") ?: continue
+        val yield = parseOperationYieldRub(op) ?: continue
         grossYield += yield
         roundTrips++
     }
@@ -241,8 +358,9 @@ internal fun buildClosedRowsFromProdOperationsWindow(
         if (isNonTradingPortfolioOperation(op)) return@mapNotNull null
         if (!isSpreadAccountOperation(op)) return@mapNotNull null
         val payment = parseOperationPaymentRub(op)
-        val yield = parseOperationMoneyField(op, "yield", "yield_value")
-        if (yield == null && payment == null && !isFeeOnlySpreadOperation(op)) return@mapNotNull null
+        val yield = parseOperationYieldRub(op)
+        if (isFeeOnlySpreadOperation(op)) return@mapNotNull null
+        if (yield == null) return@mapNotNull null
         val comm = operationCommissionRub(op)
         val qty = parseOperationQuantityUnits(op)
         ParsedAccountOperation(
@@ -310,7 +428,7 @@ private fun buildProdAccountOperationRow(
 ): PortfolioConfirmedTradeTableRow {
     val timeMsk = formatPortfolioExecutionTableMsk(op.millis)
     val ticker = op.ticker ?: "—"
-    val resultRub = op.yieldRub ?: op.paymentRub
+    val resultRub = checkNotNull(op.yieldRub) { "broker row requires yield" }
     val sideText = formatBrokerOperationLegText(op.sideRu, op.quantityUnits, op.tradeNotionalRub)
     val (longSide, shortSide) = when (ticker) {
         "TATN" -> sideText to "—"
@@ -374,6 +492,28 @@ private data class ParsedAccountOperation(
 private fun parseOperationPaymentRub(op: JSONObject): Double? =
     parseOperationMoneyField(op, "payment", "payment_value")
 
+internal fun parseOperationYieldRub(op: JSONObject): Double? {
+    parseOperationMoneyField(op, "yield", "yield_value", "yieldValue")?.let { return it }
+    val tradesInfo = op.optJSONObject("tradesInfo") ?: op.optJSONObject("trades_info")
+    val trades = tradesInfo?.optJSONArray("trades") ?: op.optJSONArray("trades")
+    if (trades != null) {
+        var sum = 0.0
+        var matched = false
+        for (i in 0 until trades.length()) {
+            val trade = trades.optJSONObject(i) ?: continue
+            parseOperationMoneyField(trade, "yield", "yield_value", "yieldValue")?.let {
+                sum += it
+                matched = true
+            }
+        }
+        if (matched) return sum
+    }
+    return null
+}
+
+private fun parseOperationPriceRub(op: JSONObject): Double? =
+    parseOperationMoneyField(op, "price", "Price")
+
 private fun isNonTradingPortfolioOperation(op: JSONObject): Boolean {
     val type = op.firstNonBlankString("operationType", "type", "operation_type").orEmpty().uppercase(Locale.US)
     return when {
@@ -436,7 +576,7 @@ private fun parseOperationSideRu(op: JSONObject): String {
 }
 
 private fun parseOperationTradeNotionalRub(op: JSONObject, quantityUnits: Int): Double {
-    parseOperationMoneyField(op, "price", "Price")?.let { price ->
+    parseOperationPriceRub(op)?.let { price ->
         if (quantityUnits > 0) return abs(price * quantityUnits)
     }
     parseOperationPaymentRub(op)?.let { payment ->
@@ -470,20 +610,20 @@ internal suspend fun fetchSpreadRealizedLegPnlFromOperations(
     toMillis: Long,
     signalType: StrategySignalType,
 ): OperationsLegCapture? {
-    val root = runCatching {
-        tinkoffProdOperationsPostAsync(
-            token,
-            "GetOperations",
-            JSONObject()
-                .put("accountId", accountId.trim())
-                .put("from", Instant.ofEpochMilli(fromMillis).toString())
-                .put("to", Instant.ofEpochMilli(toMillis).toString())
-                .put("state", "OPERATION_STATE_EXECUTED"),
-        )
-    }.getOrNull() ?: return null
-
-    val operations = collectOperationsArray(root)
-    if (operations.isEmpty()) return null
+    val operations = fetchProdSpreadOperationsByCursor(token, accountId, fromMillis, toMillis)
+        ?: runCatching {
+            val root = tinkoffProdOperationsPostAsync(
+                token,
+                "GetOperations",
+                JSONObject()
+                    .put("accountId", accountId.trim())
+                    .put("from", Instant.ofEpochMilli(fromMillis).toString())
+                    .put("to", Instant.ofEpochMilli(toMillis).toString())
+                    .put("state", "OPERATION_STATE_EXECUTED"),
+            )
+            flattenSpreadOperationsFromApi(collectOperationsArray(root))
+        }.getOrNull()
+    if (operations.isNullOrEmpty()) return null
 
     var tatnYield = 0.0
     var tatnpYield = 0.0
@@ -494,7 +634,7 @@ internal suspend fun fetchSpreadRealizedLegPnlFromOperations(
         val opMillis = parseOperationDateMillis(op) ?: continue
         if (opMillis < fromMillis || opMillis > toMillis) continue
         val ticker = resolveOperationTicker(op) ?: continue
-        val yieldRub = parseOperationMoneyField(op, "yield", "yield_value") ?: continue
+        val yieldRub = parseOperationYieldRub(op) ?: continue
         when (ticker) {
             "TATN" -> {
                 tatnYield += yieldRub
@@ -557,19 +697,26 @@ private fun JSONObject.firstNonBlankString(vararg keys: String): String? {
 }
 
 private fun resolveOperationTicker(op: JSONObject): String? {
+    op.optJSONObject("instrument")?.optString("ticker", "")?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.uppercase(Locale.US)
+        ?.let { return it }
     op.firstNonBlankString("ticker", "Ticker")?.uppercase(Locale.US)?.let { return it }
     val figi = op.firstNonBlankString("figi", "FIGI")?.uppercase(Locale.US).orEmpty()
     val uid = op.firstNonBlankString(
         "instrumentUid",
         "instrument_uid",
-        "instrumentUid",
+        "positionUid",
+        "position_uid",
         "uid",
     )?.uppercase(Locale.US).orEmpty()
     val type = op.firstNonBlankString("operationType", "type", "operation_type").orEmpty()
-    val desc = op.firstNonBlankString("description", "name").orEmpty().uppercase(Locale.US)
+    val desc = op.firstNonBlankString("description", "name", "Name").orEmpty().uppercase(Locale.US)
     return when {
-        "TATNP" in figi || "TATNP" in uid || "TATNP_TQBR" in uid -> "TATNP"
-        "TATN" in figi || "TATN" in uid || "TATN_TQBR" in uid -> "TATN"
+        TINKOFF_MOEX_TATNP_INSTRUMENT_ID in uid || "TATNP" in uid -> "TATNP"
+        TINKOFF_MOEX_TATN_INSTRUMENT_ID in uid || ("TATN" in uid && "TATNP" !in uid) -> "TATN"
+        "TATNP" in figi -> "TATNP"
+        "TATN" in figi -> "TATN"
         type.contains("TATNP") || desc.contains("TATNP") -> "TATNP"
         type.contains("TATN") || desc.contains("TATN") -> "TATN"
         desc.contains("ПРИВИЛЕГИР") -> "TATNP"
