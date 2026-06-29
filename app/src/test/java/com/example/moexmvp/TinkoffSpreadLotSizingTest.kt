@@ -36,6 +36,24 @@ class TinkoffSpreadLotSizingTest {
         assertEquals(62, sizing.quantityLots)
     }
 
+    /** Prod ~100k ликвидного ×7 → ~626 лот / ~700k номинал (после снятия cap 80 в 1.7.260). */
+    @Test
+    fun computeSpreadQuantityLots_prod100kLeverage7_about626Lots() {
+        val sizing = computeSpreadQuantityLots(
+            SpreadLotSizingInput(
+                cashRub = 100_000.0,
+                priceTatN = 576.0,
+                priceTatNp = 542.0,
+                liquidPortfolioRub = 100_000.0,
+                correctedMarginRub = 0.0,
+                leverageForNotional = 7.0,
+            )
+        )
+        assertEquals(626, sizing.lotsFromLeverage)
+        assertEquals(626, sizing.quantityLots)
+        assertTrue(sizing.executionNotionalRub in 695_000.0..705_000.0)
+    }
+
     @Test
     fun computeSpreadQuantityLots_usesFullLeverageOnLargeAccount() {
         val sizing = computeSpreadQuantityLots(
