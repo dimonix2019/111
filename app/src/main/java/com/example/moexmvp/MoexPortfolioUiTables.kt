@@ -644,12 +644,101 @@ private fun PortfolioOpenTradeDetailLine(
 }
 
 @Composable
+internal fun PortfolioOpenTradePnlForecastPanel(
+    forecast: OpenTradePnlForecast,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFF263238), RoundedCornerShape(8.dp))
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "Прогноз PnL по Z (оценка)",
+            color = Color(0xFF80DEEA),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = buildString {
+                append("При μ≈")
+                append(String.format(Locale.US, "%.2f", forecast.spreadMeanPercent))
+                append("%, σ≈")
+                append(formatOpenTradePnlForecastSigma(forecast.spreadSigmaPercent))
+                append(" п.п., номинал ≈")
+                append(String.format(Locale.US, "%.0f", forecast.notionalRub))
+                append(" ₽ · net = gross − комиссия − overnight")
+            },
+            color = Color(0xFF90A4AE),
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("Сценарий", color = Color(0xFF78909C), fontSize = 9.sp)
+            Text("Z → net ₽", color = Color(0xFF78909C), fontSize = 9.sp)
+        }
+        forecast.rows.forEach { row ->
+            val labelColor = when {
+                row.isExitLevel -> Color(0xFFFFCC80)
+                row.isCurrentLevel -> Color(0xFF80CBC4)
+                else -> Color(0xFFB0BEC5)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = row.label,
+                        color = labelColor,
+                        fontSize = 10.sp,
+                        fontWeight = if (row.isExitLevel || row.isCurrentLevel) {
+                            FontWeight.Medium
+                        } else {
+                            FontWeight.Normal
+                        },
+                    )
+                    Text(
+                        text = buildString {
+                            append(formatPortfolioTableZ(row.zTarget))
+                            append(" · ")
+                            append(formatOpenTradePnlForecastSpreadDelta(row.spreadDeltaPts))
+                        },
+                        color = Color(0xFF607D8B),
+                        fontSize = 9.sp,
+                    )
+                }
+                Text(
+                    text = formatPortfolioTableRub(row.netRubApprox),
+                    color = rubDeltaColor(row.netRubApprox),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+        Text(
+            text = "₽ считаются от Δспреда (TATN/TATNP), не от Z напрямую; μ/σ rolling 30д меняются — факт может отличаться.",
+            color = Color(0xFF546E7A),
+            fontSize = 8.sp,
+            lineHeight = 10.sp,
+        )
+    }
+}
+
+@Composable
 internal fun PortfolioOpenTradeDetailPanel(
     group: PortfolioTradeGroupRow,
     pnlSourceLabel: String?,
     risk: StrategyTestTradeRiskAssessment?,
     onCloseOpenTrade: ((tradeId: String) -> Unit)?,
     closingTradeId: String?,
+    forecast: OpenTradePnlForecast? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -694,6 +783,9 @@ internal fun PortfolioOpenTradeDetailPanel(
         PortfolioOpenTradeDetailLine("Вход", group.entryTimeMsk)
         PortfolioOpenTradeDetailLine("Z вход", formatPortfolioTableZ(group.entryZ))
         PortfolioOpenTradeDetailLine("Z сейчас", formatPortfolioTableZ(group.exitZ))
+        forecast?.let { fc ->
+            PortfolioOpenTradePnlForecastPanel(forecast = fc)
+        }
         PortfolioOpenTradeDetailLine("Направление", group.directionLabel)
         PortfolioOpenTradeDetailLine("Объём", group.volumeText)
         PortfolioOpenTradeDetailLine("Подтв.", group.confirmLabel)
@@ -788,6 +880,11 @@ internal fun PortfolioTradesWindowSection(
     closedRows: List<PortfolioConfirmedTradeTableRow>,
     lookbackDays: Long,
     realTradeEntryThreshold: Double,
+    realTradeExitThreshold: Double,
+    m15Points: List<DataPoint>,
+    leverage: Double,
+    commissionPercentPerSide: Double,
+    executionMode: TinkoffExecutionMode,
     modifier: Modifier = Modifier,
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
@@ -820,6 +917,27 @@ internal fun PortfolioTradesWindowSection(
         closedTradeCountOverride = closedCountOverride,
         openPnlSourceLabel = openSourceLabel,
     )
+    val openForecast = remember(
+        openExecutions,
+        m15Points,
+        realTradeEntryThreshold,
+        realTradeExitThreshold,
+        leverage,
+        commissionPercentPerSide,
+        executionMode,
+    ) {
+        openExecutions.firstOrNull()?.let { exec ->
+            buildOpenTradePnlForecast(
+                exec = exec,
+                points = m15Points,
+                entryThreshold = realTradeEntryThreshold,
+                exitThreshold = realTradeExitThreshold,
+                leverage = leverage,
+                commissionPercentPerSide = commissionPercentPerSide,
+                executionMode = executionMode,
+            )
+        }
+    }
     val openRiskAssessments = remember(openBucket.groups, realTradeEntryThreshold) {
         buildPortfolioTradeGroupRiskAssessments(openBucket.groups, realTradeEntryThreshold)
     }
@@ -860,6 +978,7 @@ internal fun PortfolioTradesWindowSection(
                     risk = openRiskAssessments.firstOrNull(),
                     onCloseOpenTrade = onCloseOpenTrade,
                     closingTradeId = closingTradeId,
+                    forecast = openForecast,
                 )
             }
         }

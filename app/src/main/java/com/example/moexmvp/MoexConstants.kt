@@ -180,6 +180,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.261 — «Портфель»: прогноз PnL по уровням Z (выход, 0, противоп.) при фикс. μ/σ 15м.
 1.7.260 — Prod/Sandbox: снят cap 80 лот — размер пары только cash × плечо × маржа Tinkoff.
 1.7.259 — Fix FLAT в сводке «Рынок» при открытой 1L/1S: синхронизация prefs с исполнениями и монитором.
 1.7.258 — Fix пропуск сигнала Z: пересечение на формирующемся 15м баре; live Z из 1м в UI.

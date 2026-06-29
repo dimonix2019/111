@@ -84,6 +84,7 @@ internal fun ConfirmedPortfolioTabContent(
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
     brokerClosedPnlSummary: ProdSpreadWindowPnlSummary? = null,
+    m15Points: List<DataPoint> = emptyList(),
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -219,6 +220,11 @@ internal fun ConfirmedPortfolioTabContent(
             closedRows = confirmedTradeTableRows,
             lookbackDays = lookbackDays,
             realTradeEntryThreshold = realTradeEntryThreshold,
+            realTradeExitThreshold = realTradeExitThreshold,
+            m15Points = m15Points,
+            leverage = leverage,
+            commissionPercentPerSide = commissionPercentPerSide,
+            executionMode = executionMode,
             onCloseOpenTrade = onCloseOpenTrade,
             closingTradeId = closingTradeId,
             brokerClosedPnlSummary = brokerClosedPnlSummary,

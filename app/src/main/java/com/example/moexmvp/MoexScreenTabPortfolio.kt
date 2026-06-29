@@ -290,6 +290,7 @@ internal fun MoexScreenTabPortfolio(
                         onCloseOpenTrade = { tradeId -> pendingCloseTradeId = tradeId },
                         closingTradeId = closingTradeId,
                         brokerClosedPnlSummary = portfolioBrokerWindowPnlSummary,
+                        m15Points = enrichmentPoints,
                     )
                 }
                 dailyReconciliation?.let { rec ->
