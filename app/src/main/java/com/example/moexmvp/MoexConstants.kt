@@ -181,6 +181,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.258 — Fix пропуск сигнала Z: пересечение на формирующемся 15м баре; live Z из 1м в UI.
 1.7.257 — Fix «Почему нет сделки»: 15м «догрузка» снимается после Обновить (слот 15м, forming bar, MOEX заново).
 1.7.256 — «Почему нет сделки»: убран чек «Баров для Z ≥ 48» (прогрев Z остаётся в расчёте).
 1.7.255 — Fix Prod «Закрытые»: GetOperationsByCursor + yield из trades; без строк −15 ₽ (только комиссии).

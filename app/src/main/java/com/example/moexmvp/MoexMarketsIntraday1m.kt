@@ -28,6 +28,17 @@ internal data class MarketsIntraday1mSnapshot(
     val fetchedAtMillis: Long = System.currentTimeMillis(),
 )
 
+internal fun MoexScreenState.cachedMarketsIntraday1mSnapshot(): MarketsIntraday1mSnapshot? {
+    if (marketsIntraday1mTatn.isEmpty() || marketsIntraday1mTatnp.isEmpty()) return null
+    return MarketsIntraday1mSnapshot(
+        tatn = marketsIntraday1mTatn,
+        tatnp = marketsIntraday1mTatnp,
+        tatnLastBarMillis = marketsIntraday1mLastBarMillis,
+        tatnpLastBarMillis = marketsIntraday1mLastBarMillis,
+        fetchedAtMillis = marketsIntraday1mFetchedAtMillis,
+    )
+}
+
 private val quotesLogTimeFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
 internal fun isMoexMainSessionLikelyOpen(

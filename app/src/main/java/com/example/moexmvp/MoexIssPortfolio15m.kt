@@ -100,6 +100,16 @@ internal fun currentM15BucketStartMillis(
     return bucket.toInstant().toEpochMilli()
 }
 
+/** Бар ещё формируется (текущий 15м слот) — Z может меняться каждую минуту. */
+internal fun isM15BarStillForming(
+    barTimestampMillis: Long,
+    nowMillis: Long = System.currentTimeMillis(),
+    zone: ZoneId = moexZoneId,
+): Boolean {
+    val bucketStart = currentM15BucketStartMillis(Instant.ofEpochMilli(nowMillis), zone)
+    return barTimestampMillis >= bucketStart
+}
+
 /**
  * 15м ряд для кнопок «Тестовая пара»: всегда догружаем хвост MOEX (включая формирующийся бар),
  * без ожидания [PORTFOLIO_M15_TAIL_MAX_AGE_MS].

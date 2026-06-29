@@ -497,7 +497,16 @@ internal suspend fun MoexScreenState.refreshData(
                         val m15ForSignal = withContext(Dispatchers.IO) {
                             loadZStrategySignalSeries(context, PortfolioM15LoadMode.INCREMENTAL)
                         }
-                        if (!backgroundMonitorEnabled && m15ForSignal.size >= 2) {
+                        val intradaySnap = cachedMarketsIntraday1mSnapshot()
+                            ?: withContext(Dispatchers.IO) {
+                                if (isMoexNetworkAvailable(context)) {
+                                    runCatching { fetchMarketsIntraday1mLive() }.getOrNull()
+                                } else {
+                                    null
+                                }
+                            }
+                        val signalPoints = resolveUnifiedLiveZSnapshot(m15ForSignal, intradaySnap).monitorPoints
+                        if (!backgroundMonitorEnabled && signalPoints.size >= 2) {
                             val signalThresholds = DynamicThresholds(
                                 entry = (realTradeEntryThreshold ?: dynamicThresholds.entry)
                                     .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
@@ -507,15 +516,15 @@ internal suspend fun MoexScreenState.refreshData(
                             )
                             val signalLastProcessed = resolveLastProcessed15mBarTimestampForReplay(context)
                             val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
-                                points = m15ForSignal,
+                                points = signalPoints,
                                 lastProcessedBarTimestampMillis = signalLastProcessed,
                                 initialPosition = zStrategyPosition,
                                 thresholds = signalThresholds,
                             )
-                            zStrategyReplayBarIndexRange(m15ForSignal, signalLastProcessed)?.let { range ->
+                            zStrategyReplayBarIndexRange(signalPoints, signalLastProcessed)?.let { range ->
                                 persistM15LiveBarSnapshots(
                                     context,
-                                    range.map { m15ForSignal[it] },
+                                    range.map { signalPoints[it] },
                                 )
                             }
                             for (edge in signalEdges) {
@@ -693,14 +702,14 @@ internal suspend fun MoexScreenState.refreshData(
                             ZStrategySignal.None -> Unit
                             }
                             }
-                            if (shouldAdvanceLastProcessed15mBar(m15ForSignal, signalLastProcessed)) {
-                                saveLastProcessed15mBarTimestamp(context, m15ForSignal.last().timestampMillis)
+                            if (shouldAdvanceLastProcessed15mBar(signalPoints, signalLastProcessed)) {
+                                saveLastProcessed15mBarTimestamp(context, signalPoints.last().timestampMillis)
                             }
                             if (replayPosition != zStrategyPosition) {
                                 zStrategyPosition = replayPosition
                                 saveStrategyPosition(context, zStrategyPosition)
                             }
-                            previousZScoreForAlert = m15ForSignal.last().zScore
+                            previousZScoreForAlert = signalPoints.last().zScore
                         }
                     }
                     signalEvents = loadStrategySignalEvents(context)
