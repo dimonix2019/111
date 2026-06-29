@@ -12,6 +12,7 @@ internal data class OpenTradePnlForecastRow(
     val netRubApprox: Double,
     val isExitLevel: Boolean = false,
     val isCurrentLevel: Boolean = false,
+    val isBrokerFact: Boolean = false,
 )
 
 internal data class OpenTradePnlForecast(
@@ -21,9 +22,15 @@ internal data class OpenTradePnlForecast(
     val spreadSigmaPercent: Double,
     val notionalRub: Double,
     val rows: List<OpenTradePnlForecastRow>,
+    /** Прогноз калиброван по факту Tinkoff (вход → сейчас), не только μ/σ MOEX. */
+    val calibratedFromBroker: Boolean = false,
 )
 
-/** Сценарии PnL при целевых Z (при неизменных μ, σ последнего 15м бара). */
+/**
+ * Сценарии PnL при целевых Z.
+ * «Сейчас» = факт с брокера; остальное — линейная экстраполяция по ΔZ от входа
+ * (если есть broker gross), иначе Δспред от Z₀ с σ rolling 15м.
+ */
 internal fun buildOpenTradePnlForecast(
     exec: SandboxSpreadExecUi,
     points: List<DataPoint>,
@@ -68,6 +75,23 @@ internal fun buildOpenTradePnlForecast(
     )
     val exitCommRub = effNotional * (commissionPercentPerSide / 100.0)
 
+    val brokerGrossRub = brokerOpenTradeGrossRub(exec)
+    val brokerNetRub = exec.netPnlRubApprox.takeUnless { it.isNaN() }
+    val zDeltaCurrent = if (currentZ != null) currentZ - entryZ else null
+    val calibratedFromBroker = brokerGrossRub != null &&
+        brokerNetRub != null &&
+        zDeltaCurrent != null &&
+        abs(zDeltaCurrent) > 0.05
+
+    val sigmaForSpreadModel = if (calibratedFromBroker && zDeltaCurrent != null) {
+        val currentSpread = points.last().spreadPercent
+        abs((currentSpread - entrySpread) / zDeltaCurrent)
+            .takeIf { it > 1e-6 }
+            ?: stats.stdDev
+    } else {
+        stats.stdDev
+    }
+
     val targets = forecastZTargets(
         signalType = exec.signalType,
         entryZ = entryZ,
@@ -77,30 +101,80 @@ internal fun buildOpenTradePnlForecast(
     )
 
     val rows = targets.map { target ->
-        val spreadTarget = stats.mean + target.z * stats.stdDev
-        val spreadDelta = openSpreadMtmPoints(exec.signalType, entrySpread, spreadTarget)
-        val grossRub = spreadPnlToRubApprox(spreadDelta, effNotional)
-        val netRub = grossRub - entryCommRub - exitCommRub - overnightRub
-        OpenTradePnlForecastRow(
-            label = target.label,
-            zTarget = target.z,
-            spreadTargetPercent = spreadTarget,
-            spreadDeltaPts = spreadDelta,
-            grossRub = grossRub,
-            netRubApprox = netRub,
-            isExitLevel = target.isExit,
-            isCurrentLevel = target.isCurrent,
-        )
+        if (target.isCurrent && brokerNetRub != null && brokerGrossRub != null) {
+            val spreadDelta = openSpreadMtmPoints(
+                exec.signalType,
+                entrySpread,
+                points.last().spreadPercent,
+            )
+            OpenTradePnlForecastRow(
+                label = "Сейчас · факт Tinkoff",
+                zTarget = target.z,
+                spreadTargetPercent = points.last().spreadPercent,
+                spreadDeltaPts = spreadDelta,
+                grossRub = brokerGrossRub,
+                netRubApprox = brokerNetRub,
+                isCurrentLevel = true,
+                isBrokerFact = true,
+            )
+        } else if (calibratedFromBroker && zDeltaCurrent != null && brokerGrossRub != null) {
+            val zDelta = target.z - entryZ
+            val fraction = zDelta / zDeltaCurrent
+            val grossRub = brokerGrossRub * fraction
+            val exitCommScaled = exitCommRub * abs(fraction).coerceIn(0.0, 1.0)
+            val targetSpread = entrySpread + zDelta * sigmaForSpreadModel
+            val spreadDelta = openSpreadMtmPoints(exec.signalType, entrySpread, targetSpread)
+            val netRub = grossRub - entryCommRub - exitCommScaled - overnightRub * abs(fraction).coerceIn(0.0, 1.0)
+            OpenTradePnlForecastRow(
+                label = target.label,
+                zTarget = target.z,
+                spreadTargetPercent = targetSpread,
+                spreadDeltaPts = spreadDelta,
+                grossRub = grossRub,
+                netRubApprox = netRub,
+                isExitLevel = target.isExit,
+                isCurrentLevel = target.isCurrent,
+            )
+        } else {
+            val targetSpread = entrySpread + (target.z - entryZ) * stats.stdDev
+            val spreadDelta = openSpreadMtmPoints(exec.signalType, entrySpread, targetSpread)
+            val grossRub = spreadPnlToRubApprox(spreadDelta, effNotional)
+            val netRub = grossRub - entryCommRub - exitCommRub - overnightRub
+            OpenTradePnlForecastRow(
+                label = target.label,
+                zTarget = target.z,
+                spreadTargetPercent = targetSpread,
+                spreadDeltaPts = spreadDelta,
+                grossRub = grossRub,
+                netRubApprox = netRub,
+                isExitLevel = target.isExit,
+                isCurrentLevel = target.isCurrent,
+            )
+        }
     }
 
     return OpenTradePnlForecast(
         entryZ = entryZ,
         entrySpreadPercent = entrySpread,
         spreadMeanPercent = stats.mean,
-        spreadSigmaPercent = stats.stdDev,
+        spreadSigmaPercent = sigmaForSpreadModel,
         notionalRub = notionalRub,
         rows = rows,
+        calibratedFromBroker = calibratedFromBroker,
     )
+}
+
+/** Gross PnL открытой сделки с GetPortfolio (сумма expectedYield ног). */
+internal fun brokerOpenTradeGrossRub(exec: SandboxSpreadExecUi): Double? {
+    if (exec.signalType != StrategySignalType.EnterLong &&
+        exec.signalType != StrategySignalType.EnterShort
+    ) {
+        return null
+    }
+    if (exec.legLongPnlSplitRubApprox.isNaN() || exec.legShortPnlSplitRubApprox.isNaN()) {
+        return null
+    }
+    return exec.legLongPnlSplitRubApprox + exec.legShortPnlSplitRubApprox
 }
 
 private data class ForecastZTarget(

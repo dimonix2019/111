@@ -669,7 +669,12 @@ internal fun PortfolioOpenTradePnlForecastPanel(
                 append(formatOpenTradePnlForecastSigma(forecast.spreadSigmaPercent))
                 append(" п.п., номинал ≈")
                 append(String.format(Locale.US, "%.0f", forecast.notionalRub))
-                append(" ₽ · net = gross − комиссия − overnight")
+                append(" ₽")
+                if (forecast.calibratedFromBroker) {
+                    append(" · сценарии от факта Tinkoff (вход→сейчас)")
+                } else {
+                    append(" · оценка по Δспред MOEX")
+                }
             },
             color = Color(0xFF90A4AE),
             fontSize = 9.sp,
@@ -684,6 +689,7 @@ internal fun PortfolioOpenTradePnlForecastPanel(
         }
         forecast.rows.forEach { row ->
             val labelColor = when {
+                row.isBrokerFact -> Color(0xFF81C784)
                 row.isExitLevel -> Color(0xFFFFCC80)
                 row.isCurrentLevel -> Color(0xFF80CBC4)
                 else -> Color(0xFFB0BEC5)
@@ -723,7 +729,7 @@ internal fun PortfolioOpenTradePnlForecastPanel(
             }
         }
         Text(
-            text = "₽ считаются от Δспреда (TATN/TATNP), не от Z напрямую; μ/σ rolling 30д меняются — факт может отличаться.",
+            text = "«Сейчас» = PnL счёта Tinkoff. Прочие строки — экстраполяция по ΔZ от входа; MOEX Z и цены fill могут расходиться.",
             color = Color(0xFF546E7A),
             fontSize = 8.sp,
             lineHeight = 10.sp,

@@ -80,12 +80,17 @@ class MoexOpenTradePnlForecastTest {
     }
 
     @Test
-    fun buildForecast_entryRowNearZeroGross() {
+    fun buildForecast_currentRowUsesBrokerFactNotMoexSpread() {
         val points = (0 until 60).map { i ->
-            m15Point(i * 900_000L, spread = 6.0 + (i % 3) * 0.01, z = 0.0)
+            m15Point(i * 900_000L, spread = 6.62 + (i % 5) * 0.01, z = 0.49)
         }
+        val exec = openLongExec(entryZ = -2.16, exitZ = 0.49).copy(
+            legLongPnlSplitRubApprox = 624.0,
+            legShortPnlSplitRubApprox = -494.0,
+            netPnlRubApprox = 99.0,
+        )
         val forecast = buildOpenTradePnlForecast(
-            exec = openLongExec(entryZ = -2.16, exitZ = Double.NaN),
+            exec = exec,
             points = points,
             entryThreshold = 1.8,
             exitThreshold = 1.3,
@@ -93,7 +98,34 @@ class MoexOpenTradePnlForecastTest {
             commissionPercentPerSide = 0.04,
             executionMode = TinkoffExecutionMode.Prod,
         )!!
-        val entryRow = forecast.rows.first { it.label.startsWith("Z₀") }
-        assertEquals(0.0, entryRow.grossRub, 500.0)
+        assertTrue(forecast.calibratedFromBroker)
+        val now = forecast.rows.first { it.isBrokerFact }
+        assertEquals(99.0, now.netRubApprox, 0.01)
+        assertEquals(130.0, now.grossRub, 0.01)
+        assertTrue(now.netRubApprox < 200.0)
+    }
+
+    @Test
+    fun buildForecast_calibratedScenariosScaleFromBrokerGross() {
+        val points = (0 until 60).map { i ->
+            m15Point(i * 900_000L, spread = 6.5, z = 0.49)
+        }
+        val exec = openLongExec(entryZ = -2.16, exitZ = 0.49).copy(
+            legLongPnlSplitRubApprox = 100.0,
+            legShortPnlSplitRubApprox = 30.0,
+            netPnlRubApprox = 99.0,
+        )
+        val forecast = buildOpenTradePnlForecast(
+            exec = exec,
+            points = points,
+            entryThreshold = 1.8,
+            exitThreshold = 1.3,
+            leverage = 7.0,
+            commissionPercentPerSide = 0.04,
+            executionMode = TinkoffExecutionMode.Prod,
+        )!!
+        val exitRow = forecast.rows.first { it.isExitLevel }
+        assertTrue(exitRow.grossRub in 1.0..130.0)
+        assertTrue(exitRow.grossRub < forecast.rows.first { it.isBrokerFact }.grossRub)
     }
 }
