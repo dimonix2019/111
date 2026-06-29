@@ -79,9 +79,8 @@ internal const val SPREAD_LOT_MARGIN_RATE_PER_LEG = 0.30
 /** Буфер на комиссию/slippage от номинала пары. */
 internal const val SPREAD_LOT_COMMISSION_BUFFER_FRACTION = 0.002
 internal const val SPREAD_LOT_MIN_LOTS = 1
-internal const val SPREAD_LOT_MAX_LOTS = 80
-/** «Тест страт.» без Prod-cap: верхняя граница лотов для проекции крупного депозита. */
-internal const val STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED = 999
+/** Без искусственного cap — лимит только cash/маржа Tinkoff (GetMarginAttributes). */
+internal const val SPREAD_LOT_MAX_LOTS = Int.MAX_VALUE
 /** Prod: доля номинала пары на прирост скорректированной маржи (эмпирика ~10+10 → 5.4k). */
 internal const val SPREAD_LOT_MARGIN_PAIR_FRACTION = 0.50
 /** Prod: плечо для расчёта целевого номинала = liquid × leverage / pairNotional. */
@@ -181,6 +180,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.260 — Prod/Sandbox: снят cap 80 лот — размер пары только cash × плечо × маржа Tinkoff.
 1.7.259 — Fix FLAT в сводке «Рынок» при открытой 1L/1S: синхронизация prefs с исполнениями и монитором.
 1.7.258 — Fix пропуск сигнала Z: пересечение на формирующемся 15м баре; live Z из 1м в UI.
 1.7.257 — Fix «Почему нет сделки»: 15м «догрузка» снимается после Обновить (слот 15м, forming bar, MOEX заново).
