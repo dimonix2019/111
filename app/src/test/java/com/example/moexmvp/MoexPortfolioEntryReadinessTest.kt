@@ -93,23 +93,4 @@ class MoexPortfolioEntryReadinessTest {
         assertTrue(report.items.none { it.label.contains("Пересечение Z") && it.status == PortfolioEntryReadinessStatus.Blocked })
     }
 
-    @Test
-    fun buildReport_blocksWithoutEnoughBars() {
-        val d = LocalDate.of(2026, 6, 27)
-        val only = bar(d, 10, 15, -1.0)
-        val report = buildPortfolioEntryReadiness(
-            PortfolioEntryReadinessInput(
-                points = List(Z_SCORE_ROLLING_MIN_BARS - 1) { only },
-                position = ZStrategyPosition.Flat,
-                thresholds = thresholds,
-                monitorEnabled = true,
-                networkAvailable = true,
-                autoExecute = true,
-                execUiState = SandboxExecUiState.Ready,
-                dailySignalLimit = DailySignalLimit(date = d.toString(), sentCount = 0),
-                hasPendingVirtualTrade = false,
-            )
-        )
-        assertTrue(report.items.any { it.label.startsWith("Баров для Z") && it.status == PortfolioEntryReadinessStatus.Blocked })
-    }
 }

@@ -98,18 +98,6 @@ internal fun buildPortfolioEntryReadiness(input: PortfolioEntryReadinessInput): 
         )
     )
 
-    add(
-        PortfolioEntryReadinessItem(
-            status = if (barCount >= Z_SCORE_ROLLING_MIN_BARS) {
-                PortfolioEntryReadinessStatus.Ok
-            } else {
-                PortfolioEntryReadinessStatus.Blocked
-            },
-            label = "Баров для Z ≥ $Z_SCORE_ROLLING_MIN_BARS",
-            detail = "Сейчас $barCount",
-        )
-    )
-
     val consecutive = prevBar != null && lastBar != null && isConsecutiveM15Bar(prevBar, lastBar)
     add(
         PortfolioEntryReadinessItem(
