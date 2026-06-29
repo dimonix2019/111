@@ -103,7 +103,7 @@ internal fun MarketsSummaryStrip(
             }
         }
         Text(
-            text = "Сигналы сегодня: $signalsToday / $signalsMax",
+            text = "Push-сигналы сегодня: $signalsToday / $signalsMax (не журнал)",
             color = Color(0xFFFFCC80),
             fontSize = 12.sp
         )

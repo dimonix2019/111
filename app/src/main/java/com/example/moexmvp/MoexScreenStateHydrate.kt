@@ -57,5 +57,6 @@ internal suspend fun MoexScreenState.hydrateDeferredUiState() {
             strategyTestAccountSizeRub = loadStrategyTestAccountSizeRub(context)
             strategyTestCapitalUsagePercent = loadStrategyTestCapitalUsagePercent(context)
             strategyTestMaxLossDdPercent = loadStrategyTestMaxLossDdPercent(context)
+            syncZStrategyPositionFromOpenExecutions()
         }
     }

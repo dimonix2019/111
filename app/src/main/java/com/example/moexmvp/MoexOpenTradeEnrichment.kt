@@ -303,6 +303,7 @@ internal suspend fun MoexScreenState.refreshProdOpenTradesFromBroker(
             },
         )
     }
+    syncZStrategyPositionFromOpenExecutions(sandboxSpreadExecutions)
     enforceProdMoneyStopIfNeeded()
     refreshProdClosedTradesInPortfolioUi(journalEvents)
 }
@@ -388,6 +389,7 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
         journalEvents = journalEvents,
         points = points,
     )
+    syncZStrategyPositionFromOpenExecutions(sandboxSpreadExecutions)
     enforceProdMoneyStopIfNeeded()
 }
 

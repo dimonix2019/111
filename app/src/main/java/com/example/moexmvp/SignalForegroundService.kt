@@ -195,7 +195,7 @@ class SignalForegroundService : Service() {
             MoexDiagnostics.logError(applicationContext, "monitor", e, "open_trade_red_risk_notify")
         }
         var dayLimit = loadDailySignalLimit(applicationContext, LocalDate.now())
-        val initialPosition = loadSavedStrategyPosition(applicationContext)
+        val initialPosition = syncSavedZStrategyPositionFromOpenExecutions(applicationContext)
         val lastProcessedBarTs = resolveLastProcessed15mBarTimestampForReplay(applicationContext)
         val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
             points = monitorPoints,

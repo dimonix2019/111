@@ -156,6 +156,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
         points = portfolioM15Points.ifEmpty { points },
         prodBrokerPnlReady = brokerLegPnl != null,
     )
+    syncZStrategyPositionFromOpenExecutions(sandboxSpreadExecutions)
     portfolioTabUiBuiltKey = portfolioTabUiSessionKey()
 }
 
@@ -713,6 +714,7 @@ internal suspend fun MoexScreenState.refreshData(
                         }
                     }
                     signalEvents = loadStrategySignalEvents(context)
+                    syncZStrategyPositionFromOpenExecutions()
                     portfolioTabUiBuiltKey = 0L
                     launchScope.launch {
                         refreshPortfolioAfterJournalChange(refreshTailIfStale = true)
