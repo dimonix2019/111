@@ -146,9 +146,44 @@ internal fun portfolio15mSeriesTailStale(points: List<DataPoint>): Boolean {
 }
 
 /** Последний закрытый/формирующийся 15м бар старше ~20 мин — пора догрузить хвост. */
-internal fun portfolio15mSeriesIntradayStale(points: List<DataPoint>): Boolean {
+internal fun portfolio15mSeriesIntradayStale(
+    points: List<DataPoint>,
+    nowMillis: Long = System.currentTimeMillis(),
+): Boolean {
     val lastTs = points.lastOrNull()?.timestampMillis ?: return true
-    return System.currentTimeMillis() - lastTs > PORTFOLIO_M15_INTRADAY_STALE_MS
+    val zone = moexZoneId
+    val now = Instant.ofEpochMilli(nowMillis).atZone(zone)
+    val bucketStart = currentM15BucketStartMillis(now.toInstant(), zone)
+
+    // Текущий или предыдущий 15м слот — норма (формирующийся бар).
+    val bucketLagMs = bucketStart - lastTs
+    if (bucketLagMs in 0..15L * 60_000L) return false
+
+    val lastDay = Instant.ofEpochMilli(lastTs).atZone(zone).toLocalDate()
+    val today = now.toLocalDate()
+
+    if (!isMoexMainSessionLikelyOpen(now)) {
+        if (lastDay == today) return false
+        if (lastDay.isBefore(today) && isMoexLastTradingDay(lastDay, today)) return false
+    }
+
+    if (lastDay.isBefore(today)) return true
+
+    return (nowMillis - lastTs) > PORTFOLIO_M15_INTRADAY_STALE_MS
+}
+
+/** Последний торговый день ≤ [today] (пятница в выходные / перед открытием). */
+internal fun isMoexLastTradingDay(lastBarDay: LocalDate, today: LocalDate): Boolean {
+    var probe = today
+    repeat(8) {
+        if (probe.dayOfWeek != java.time.DayOfWeek.SATURDAY &&
+            probe.dayOfWeek != java.time.DayOfWeek.SUNDAY
+        ) {
+            return lastBarDay == probe
+        }
+        probe = probe.minusDays(1)
+    }
+    return false
 }
 
 /** Нужна догрузка MOEX: хвост устарел или последний бар не за сегодня (МСК). */

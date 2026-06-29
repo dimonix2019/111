@@ -73,8 +73,14 @@ internal fun buildPortfolioEntryReadiness(input: PortfolioEntryReadinessInput): 
     val barCount = points.size
     val lastBar = points.lastOrNull()
     val prevBar = points.getOrNull(barCount - 2)
-    val stale = points.isEmpty() || portfolio15mSeriesIntradayStale(points)
+    val stale = points.isEmpty() || portfolio15mSeriesIntradayStale(points, input.nowMillis)
     val lastBarAgeMin = lastBar?.let { (input.nowMillis - it.timestampMillis) / 60_000L }
+    val sessionOpen = isMoexMainSessionLikelyOpen(
+        java.time.ZonedDateTime.ofInstant(
+            java.time.Instant.ofEpochMilli(input.nowMillis),
+            moexZoneId,
+        ),
+    )
 
     add(
         PortfolioEntryReadinessItem(
@@ -88,11 +94,19 @@ internal fun buildPortfolioEntryReadiness(input: PortfolioEntryReadinessInput): 
                 points.isEmpty() -> "Нет 15м баров — нажмите «Обновить»"
                 stale -> {
                     val barLabel = lastBar?.tradeDate ?: "?"
-                    "Последний бар $barLabel (${lastBarAgeMin ?: "?"} мин назад) — нужна догрузка"
+                    if (!sessionOpen) {
+                        "Последний бар $barLabel — вне сессии, нужна догрузка"
+                    } else {
+                        "Последний бар $barLabel (${lastBarAgeMin ?: "?"} мин назад) — нужна догрузка"
+                    }
                 }
                 else -> {
                     val barLabel = lastBar?.tradeDate ?: "?"
-                    "Последний бар $barLabel (${lastBarAgeMin ?: "?"} мин назад)"
+                    if (!sessionOpen) {
+                        "Последний бар $barLabel (сессия закрыта)"
+                    } else {
+                        "Последний бар $barLabel (${lastBarAgeMin ?: "?"} мин назад)"
+                    }
                 }
             },
         )

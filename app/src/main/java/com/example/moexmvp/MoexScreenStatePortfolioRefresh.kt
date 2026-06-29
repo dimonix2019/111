@@ -346,9 +346,15 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(
                 portfolioTabUiBuiltKey = 0L
                 return@refreshPortfolioUnlocked
             }
-            portfolioM15Points = loaded
-            if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
-            rebuildPortfolioUiFromPoints(loaded)
+            var points = loaded
+            if (m15Mode != PortfolioM15LoadMode.CACHE_ONLY) {
+                loadPortfolio15mLiveFormingTailLocked(context, portfolioLookbackDays)
+                    ?.takeIf { it.size >= 2 }
+                    ?.let { points = it }
+            }
+            portfolioM15Points = points
+            if (marketsM15Source().isEmpty()) storeMarketsM15(points)
+            rebuildPortfolioUiFromPoints(points)
         } finally {
             portfolioLoading = false
         }

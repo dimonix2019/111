@@ -41,9 +41,13 @@ internal fun MoexScreenTabPortfolio(
                 lastGoodMarkets?.points,
             ) {
                 value = withContext(Dispatchers.Default) {
+                    val portfolio = portfolioM15Points
+                    val markets = marketsM15Source()
                     when {
-                        portfolioM15Points.isNotEmpty() -> portfolioM15Points
-                        marketsM15Source().isNotEmpty() -> marketsM15Source()
+                        portfolio.isNotEmpty() && markets.isNotEmpty() ->
+                            pickPortfolioExecutionReplayPoints(markets, portfolio)
+                        portfolio.isNotEmpty() -> portfolio
+                        markets.isNotEmpty() -> markets
                         !lastGoodMarkets?.points.isNullOrEmpty() ->
                             applyZScoresDefault(lastGoodMarkets!!.points)
                         else -> emptyList()
@@ -241,7 +245,7 @@ internal fun MoexScreenTabPortfolio(
                             }
                         },
                         onMoex15mFullReload = {
-                            scope.launch { refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL) }
+                            scope.launch { refreshPortfolio(PortfolioM15LoadMode.FULL_REFRESH) }
                         },
                         leverage = portfolioLeverage,
                         commissionPercentPerSide = portfolioCommissionPercent,
