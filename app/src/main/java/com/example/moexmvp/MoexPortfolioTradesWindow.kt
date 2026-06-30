@@ -159,11 +159,14 @@ internal fun buildPortfolioTradesBuckets(
     closedPnlSourceLabel: String? = null,
     closedTradeCountOverride: Int? = null,
     openPnlSourceLabel: String? = null,
+    m15Points: List<DataPoint> = emptyList(),
 ): Pair<PortfolioTradesBucketUi, PortfolioTradesBucketUi> {
     val openSingle = resolveSingleOpenExecutionForDisplay(openExecutions)?.let { listOf(it) } ?: emptyList()
     val closedInWindow = filterClosedTradeRowsInWindow(closedRows, lookbackDays, windowStartMillis)
     val closedFiltered = filterClosedRowsForTradesTable(closedInWindow, closedSourceFilter)
-    val openGroups = openSingle.map { it.toTradeGroup() }
+    val openGroups = openSingle.map { exec ->
+        enrichOpenTradeGroupSpreadDrivers(exec.toTradeGroup(), exec, m15Points)
+    }
     val closedGroups = closedFiltered.map { it.toTradeGroup() }
     return PortfolioTradesBucketUi(
         title = "Открытая",

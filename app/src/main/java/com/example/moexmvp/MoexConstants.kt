@@ -180,6 +180,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.263 — «Портфель»: открытая сделка — спрэд вход/сейчас, Δ спред (PnL), номинал (80+80 · ≈₽).
 1.7.262 — Fix прогноз PnL: «Сейчас» = факт Tinkoff; сценарии калибруются от вход→сейчас, не μ+Z×σ MOEX.
 1.7.261 — «Портфель»: прогноз PnL по уровням Z (выход, 0, противоп.) при фикс. μ/σ 15м.
 1.7.260 — Prod/Sandbox: снят cap 80 лот — размер пары только cash × плечо × маржа Tinkoff.

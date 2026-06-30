@@ -789,6 +789,29 @@ internal fun PortfolioOpenTradeDetailPanel(
         PortfolioOpenTradeDetailLine("Вход", group.entryTimeMsk)
         PortfolioOpenTradeDetailLine("Z вход", formatPortfolioTableZ(group.entryZ))
         PortfolioOpenTradeDetailLine("Z сейчас", formatPortfolioTableZ(group.exitZ))
+        if (!group.entrySpreadPercent.isNaN()) {
+            PortfolioOpenTradeDetailLine(
+                label = "Спрэд вход",
+                value = formatPortfolioSpreadPercent(group.entrySpreadPercent),
+            )
+        }
+        if (!group.currentSpreadPercent.isNaN()) {
+            PortfolioOpenTradeDetailLine(
+                label = "Спрэд сейчас",
+                value = formatPortfolioSpreadPercent(group.currentSpreadPercent),
+            )
+        }
+        if (!group.spreadMtmPoints.isNaN()) {
+            PortfolioOpenTradeDetailLine(
+                label = "Δ спред (PnL)",
+                value = formatOpenTradePnlForecastSpreadDelta(group.spreadMtmPoints),
+                valueColor = rubDeltaColor(group.spreadMtmPoints),
+            )
+        }
+        PortfolioOpenTradeDetailLine(
+            label = "Номинал",
+            value = formatPortfolioOpenTradeNotional(group.volumeText, group.executionNotionalRub),
+        )
         forecast?.let { fc ->
             PortfolioOpenTradePnlForecastPanel(forecast = fc)
         }
@@ -922,6 +945,7 @@ internal fun PortfolioTradesWindowSection(
         closedPnlSourceLabel = closedSourceLabel,
         closedTradeCountOverride = closedCountOverride,
         openPnlSourceLabel = openSourceLabel,
+        m15Points = m15Points,
     )
     val openForecast = remember(
         openExecutions,

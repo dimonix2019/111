@@ -58,7 +58,15 @@ internal data class PortfolioTradeGroupRow(
     val entrySignalBarTimeMsk: String = "—",
     val entrySignalReceivedMsk: String = "—",
     val orders: List<PortfolioOrderTableRow>,
-    val isOpen: Boolean = false
+    val isOpen: Boolean = false,
+    /** Спрэд TATN/TATNP на входе (15м или запись сделки). */
+    val entrySpreadPercent: Double = Double.NaN,
+    /** Спрёд на последнем 15м баре (драйвер MOEX-PnL). */
+    val currentSpreadPercent: Double = Double.NaN,
+    /** Δ спреда в п.п. в сторону прибыли (long: текущий−вход). */
+    val spreadMtmPoints: Double = Double.NaN,
+    /** Номинал пары (executionNotionalRub или qty×цены). */
+    val executionNotionalRub: Double = Double.NaN,
 )
 
 /** Один ордер (нога спрэда) внутри сделки. */
