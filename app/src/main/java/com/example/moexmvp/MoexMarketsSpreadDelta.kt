@@ -43,6 +43,8 @@ internal data class SpreadDelta15mChartContext(
     /** Сдвиг правой оси: чистый ₽ = Δпп × rubPerSpreadPoint + netOffsetRub. */
     val netOffsetRub: Double = 0.0,
     val fromEntry: Boolean,
+    /** Δ п.п. на баре входа (может ≠ 0, если спрэд бара ≠ entrySpread). */
+    val entryDeltaPp: Double? = null,
     val pnlAxisBrokerCalibrated: Boolean = false,
 )
 
@@ -100,10 +102,11 @@ internal fun buildSpreadDeltaTvReferenceLines(
 ): List<ChartReferenceLine> {
     val lines = mutableListOf<ChartReferenceLine>()
     val zeroLine = if (context.fromEntry) {
+        val entry = context.entryDeltaPp ?: 0.0
         ChartReferenceLine(
-            value = 0.0,
+            value = entry,
             color = Color(0xFFFFB74D),
-            label = "вход 0",
+            label = "вход ${formatSpreadDeltaPp(entry)}",
             dashOnPx = 6f,
             dashOffPx = 6f,
         )
@@ -187,6 +190,18 @@ internal fun resolveSpreadDeltaCalibrationPp(
 }
 
 /** Хвост Δпп: broker gross → п.п., чтобы линия двигалась с Tinkoff, а не только шкала ₽. */
+/** Δ п.п. на первом 15м-баре с временем ≥ входа (до broker-патча хвоста). */
+internal fun resolveSpreadDeltaAtEntryBar(
+    chartPoints: List<DataPoint>,
+    deltasPp: List<Double>,
+    entryMillis: Long,
+): Double? {
+    if (chartPoints.isEmpty() || chartPoints.size != deltasPp.size) return null
+    val entryIndex = chartPoints.indexOfFirst { barMillisAt(it) >= entryMillis }
+    val idx = if (entryIndex >= 0) entryIndex else chartPoints.lastIndex
+    return deltasPp.getOrNull(idx)
+}
+
 internal fun patchSpreadDeltaTailFromBroker(
     deltasPp: List<Double>,
     brokerGrossRub: Double?,
@@ -318,6 +333,7 @@ internal fun buildSpreadDelta15mChartContext(
             commissionPercentPerSide = commissionPercentPerSide,
             tradeAmountRub = tradeAmountRub,
         )
+        val entryDeltaPp = resolveSpreadDeltaAtEntryBar(chartPoints, moexDeltas, entryMillis)
         val deltas = if (rubAxis.mode == SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated) {
             patchSpreadDeltaTailFromBroker(moexDeltas, brokerGross, effNotional)
         } else {
@@ -336,6 +352,7 @@ internal fun buildSpreadDelta15mChartContext(
             rubPerSpreadPoint = rubAxis.rubPerSpreadPoint,
             netOffsetRub = rubAxis.netOffsetRub,
             fromEntry = true,
+            entryDeltaPp = entryDeltaPp,
             pnlAxisBrokerCalibrated = rubAxis.mode == SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated,
         )
     }

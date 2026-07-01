@@ -180,6 +180,81 @@ class MoexMarketsSpreadDeltaTest {
     }
 
     @Test
+    fun buildSpreadDeltaTvReferenceLines_fromEntry_usesEntryDeltaNotZero() {
+        val ctx = SpreadDelta15mChartContext(
+            title = "Δ",
+            subtitle = "",
+            labels = listOf("2026-05-19 10:00"),
+            deltasPp = listOf(0.35),
+            rubPerSpreadPoint = 100.0,
+            fromEntry = true,
+            entryDeltaPp = 0.35,
+        )
+        val lines = buildSpreadDeltaTvReferenceLines(ctx)
+        assertEquals(0.35, lines[0].value, 1e-9)
+        assertEquals("вход +0.35", lines[0].label)
+    }
+
+    @Test
+    fun resolveSpreadDeltaAtEntryBar_findsFirstBarAtOrAfterEntry() {
+        val points = listOf(
+            point("2026-05-17 10:00", spread = 8.0),
+            point("2026-05-18 10:00", spread = 8.15),
+        )
+        val deltas = listOf(0.0, 0.15)
+        val entryMillis = points[1].timestampMillis
+        assertEquals(0.15, requireNotNull(resolveSpreadDeltaAtEntryBar(points, deltas, entryMillis)), 1e-9)
+    }
+
+    @Test
+    fun buildSpreadDelta15mChartContext_fromEntry_entryDeltaMatchesBarSpread() {
+        val points = listOf(
+            point("2026-05-17 10:00", spread = 8.0),
+            point("2026-05-18 10:00", spread = 8.15),
+        )
+        val exec = SandboxSpreadExecUi(
+            tradeId = "D-entry-delta",
+            signalType = StrategySignalType.EnterLong,
+            zScore = -2.0,
+            barTimestampMillis = points[1].timestampMillis,
+            executedAtMillis = points[1].timestampMillis + 1,
+            entrySpreadPercent = 8.0,
+            source = PortfolioExecSource.AUTO,
+            directionLabel = "long",
+            entryTimeMsk = "2026-05-18 10:00",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "L",
+            shortLegSideRu = "S",
+            volumeText = "1+1",
+            confirmLabel = "авто",
+            correlationTag = "t",
+            notificationIdsText = "—",
+            legs = emptyList(),
+            quantityLots = 1,
+            executionNotionalRub = 89_440.0,
+            legLongPnlSplitRubApprox = 100.0,
+            legShortPnlSplitRubApprox = 50.0,
+            netPnlRubApprox = 150.0,
+        )
+        val ctx = requireNotNull(
+            buildSpreadDelta15mChartContext(
+                chartPoints = points,
+                sourcePoints = points,
+                openExec = exec,
+                executionMode = TinkoffExecutionMode.Prod,
+                leverage = 7.0,
+                commissionPercentPerSide = 0.04,
+                tradeAmountRub = 10_000.0,
+            ),
+        )
+        assertEquals(0.15, requireNotNull(ctx.entryDeltaPp), 1e-9)
+        val entryLine = buildSpreadDeltaTvReferenceLines(ctx).first()
+        assertEquals(0.15, entryLine.value, 1e-9)
+        assertTrue(entryLine.label.contains("+0.15"))
+    }
+
+    @Test
     fun buildSpreadDeltaTvReferenceLines_includesTailPnl() {
         val ctx = SpreadDelta15mChartContext(
             title = "Δ",

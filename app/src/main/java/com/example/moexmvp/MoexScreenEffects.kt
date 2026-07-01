@@ -520,12 +520,20 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     }
 
     LaunchedEffect(selectedTab, configuration.orientation) {
+        val portrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
         if (selectedTab == MainTab.Markets) {
             val coerced = marketsZChartPeriod.coerceToMarketsUiPeriod()
             if (coerced != marketsZChartPeriod) marketsZChartPeriod = coerced
             if (coerced != selectedPeriod) selectedPeriod = coerced
         }
-        if (selectedTab != MainTab.Markets &&
+        if (portrait &&
+            (marketsSpreadDeltaChartFullscreen || marketsZChartFullscreen)
+        ) {
+            marketsSpreadDeltaChartFullscreen = false
+            marketsZChartFullscreen = false
+            selectedTab = MainTab.Markets
+            (context as? ComponentActivity)?.unlockScreenOrientation()
+        } else if (selectedTab != MainTab.Markets &&
             (marketsSpreadDeltaChartFullscreen || marketsZChartFullscreen)
         ) {
             marketsSpreadDeltaChartFullscreen = false
