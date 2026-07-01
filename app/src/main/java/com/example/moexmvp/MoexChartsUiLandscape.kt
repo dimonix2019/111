@@ -212,6 +212,7 @@ internal fun SpreadDelta15mChartCard(
         yScale = YAxisScale.Auto,
         yAxisTickFormatter = ::formatSpreadDeltaAxisTick,
         rightAxisRubPerSpreadPoint = context.rubPerSpreadPoint,
+        rightAxisRubNetOffset = context.netOffsetRub,
         referenceLines = listOf(SPREAD_DELTA_ZERO_LINE),
         showLegend = false,
         enableZoomPan = enableZoomPan,

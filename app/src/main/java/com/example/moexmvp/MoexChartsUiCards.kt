@@ -77,6 +77,7 @@ internal fun ChartCard(
     chartHeightDp: Int = 180,
     rightAxisPercentBase: Double? = null,
     rightAxisRubPerSpreadPoint: Double? = null,
+    rightAxisRubNetOffset: Double = 0.0,
     yAxisTickFormatter: (Double) -> String = ::formatAxisValue,
     subtitle: String? = null,
     yScale: YAxisScale = YAxisScale.Auto,
@@ -272,7 +273,9 @@ internal fun ChartCard(
                         .asReversed()
                         .forEach { tick ->
                             Text(
-                                text = formatRubAxisValue(tick * rightAxisRubPerSpreadPoint),
+                                text = formatRubAxisValue(
+                                    tick * rightAxisRubPerSpreadPoint + rightAxisRubNetOffset,
+                                ),
                                 fontSize = 10.sp,
                                 color = Color(0xFFD7E3F4),
                                 maxLines = 1,
@@ -296,7 +299,7 @@ internal fun ChartCard(
                         append("${chartSeries.name}: ${yAxisTickFormatter(value)}")
                         rightAxisRubPerSpreadPoint?.let { rubPer ->
                             append(" · чистый ")
-                            append(formatRubAxisValue(value * rubPer))
+                            append(formatRubAxisValue(value * rubPer + rightAxisRubNetOffset))
                         }
                     }
                 }

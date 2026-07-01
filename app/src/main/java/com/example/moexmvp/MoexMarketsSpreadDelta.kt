@@ -36,11 +36,22 @@ internal data class SpreadDelta15mChartContext(
     val subtitle: String,
     val labels: List<String>,
     val deltasPp: List<Double>,
-    /** Чистый ₽ ≈ Δпп × rubPerSpreadPoint (калибровка как в шторке). */
+    /** Gross ₽ на 1 п.п. Δ (номинал / 100); стабильная шкала. */
     val rubPerSpreadPoint: Double,
+    /** Сдвиг правой оси: чистый ₽ = Δпп × rubPerSpreadPoint + netOffsetRub. */
+    val netOffsetRub: Double = 0.0,
     val fromEntry: Boolean,
     val pnlAxisBrokerCalibrated: Boolean = false,
 )
+
+internal data class SpreadDeltaChartRubAxis(
+    val rubPerSpreadPoint: Double,
+    val netOffsetRub: Double = 0.0,
+    val mode: SpreadDeltaChartPnlAxisMode,
+)
+
+internal fun spreadDeltaNetRubAtPp(deltaPp: Double, axis: SpreadDeltaChartRubAxis): Double =
+    deltaPp * axis.rubPerSpreadPoint + axis.netOffsetRub
 
 internal enum class SpreadDeltaChartPnlAxisMode {
     /** netPnlRubApprox / Δпп — parity со шторкой (GetPortfolio). */
@@ -71,11 +82,23 @@ internal fun resolveSpreadDeltaCalibrationPp(
     }
 }
 
+/** Хвост Δпп: broker gross → п.п., чтобы линия двигалась с Tinkoff, а не только шкала ₽. */
+internal fun patchSpreadDeltaTailFromBroker(
+    deltasPp: List<Double>,
+    brokerGrossRub: Double?,
+    effNotionalRub: Double,
+): List<Double> {
+    if (deltasPp.isEmpty() || brokerGrossRub == null) return deltasPp
+    val tail = brokerImpliedSpreadDeltaPp(brokerGrossRub, effNotionalRub) ?: return deltasPp
+    if (abs(deltasPp.last() - tail) < 1e-9) return deltasPp
+    return deltasPp.toMutableList().also { it[it.lastIndex] = tail }
+}
+
 /**
  * ₽ на 1 п.п. Δ спреда для правой оси.
- * При открытой сделке: net Tinkoff / live MOEX Δпп (хвост 1м); broker implied — если MOEX Δ ≈ 0.
+ * При открытой сделке с брокером: фикс. номинал/100 + сдвиг комиссии/overnight; хвост Δ — broker gross.
  */
-internal fun resolveSpreadDeltaChartRubPerPoint(
+internal fun resolveSpreadDeltaChartRubAxis(
     openExec: SandboxSpreadExecUi?,
     currentDeltaPp: Double,
     sourcePoints: List<DataPoint>,
@@ -83,31 +106,18 @@ internal fun resolveSpreadDeltaChartRubPerPoint(
     leverage: Double,
     commissionPercentPerSide: Double,
     tradeAmountRub: Double,
-): Pair<Double, SpreadDeltaChartPnlAxisMode> {
+): SpreadDeltaChartRubAxis {
     val pnlLeverage = portfolioPnlLeverageMultiplier(executionMode, leverage)
     if (openExec == null) {
-        return spreadPnlRubPerSpreadPoint(tradeAmountRub * pnlLeverage) to
-            SpreadDeltaChartPnlAxisMode.ReferenceGross
+        return SpreadDeltaChartRubAxis(
+            rubPerSpreadPoint = spreadPnlRubPerSpreadPoint(tradeAmountRub * pnlLeverage),
+            mode = SpreadDeltaChartPnlAxisMode.ReferenceGross,
+        )
     }
     val history = sourcePoints
     val tradeNotional = resolveTradeNotionalRubForPnl(openExec, history, tradeAmountRub)
     val effNotional = tradeNotional * pnlLeverage
-    val brokerNet = openExec.netPnlRubApprox.takeUnless { it.isNaN() }
-    val brokerGross = brokerOpenTradeGrossRub(openExec)
-    val brokerCalibrated = brokerGross != null && brokerNet != null
-    val calibDelta = resolveSpreadDeltaCalibrationPp(
-        moexDeltaPp = currentDeltaPp,
-        brokerGrossRub = brokerGross,
-        effNotionalRub = effNotional,
-    )
-
-    if (brokerCalibrated && calibDelta != null) {
-        return (brokerNet!! / calibDelta) to SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated
-    }
-    if (brokerNet != null && calibDelta != null) {
-        return (brokerNet / calibDelta) to SpreadDeltaChartPnlAxisMode.NetMoexEstimate
-    }
-
+    val fixedRubPer = spreadPnlRubPerSpreadPoint(effNotional)
     val entryDateLabel = history
         .minByOrNull { kotlin.math.abs(it.timestampMillis - openExec.barTimestampMillis) }
         ?.tradeDate ?: openExec.entryTimeMsk
@@ -120,14 +130,42 @@ internal fun resolveSpreadDeltaChartRubPerPoint(
         exitDateLabel = exitDateLabel,
         includeExitCommission = false,
     )
-    val grossRub = spreadPnlToRubApprox(currentDeltaPp, effNotional)
-    val netRub = grossRub - commRub - ovnRub
-    if (abs(currentDeltaPp) > 1e-6) {
-        return (netRub / currentDeltaPp) to SpreadDeltaChartPnlAxisMode.NetMoexEstimate
-    }
-    return spreadPnlRubPerSpreadPoint(effNotional) to SpreadDeltaChartPnlAxisMode.NetMoexEstimate
-}
+    val holdingCostOffset = -(commRub + ovnRub)
+    val brokerNet = openExec.netPnlRubApprox.takeUnless { it.isNaN() }
+    val brokerGross = brokerOpenTradeGrossRub(openExec)
+    val brokerCalibrated = brokerGross != null && brokerNet != null
 
+    if (brokerCalibrated) {
+        val brokerTail = brokerImpliedSpreadDeltaPp(brokerGross!!, effNotional) ?: 0.0
+        val netOffset = brokerNet!! - brokerTail * fixedRubPer
+        return SpreadDeltaChartRubAxis(
+            rubPerSpreadPoint = fixedRubPer,
+            netOffsetRub = netOffset,
+            mode = SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated,
+        )
+    }
+    if (brokerNet != null) {
+        return SpreadDeltaChartRubAxis(
+            rubPerSpreadPoint = fixedRubPer,
+            netOffsetRub = netOffset,
+            mode = SpreadDeltaChartPnlAxisMode.NetMoexEstimate,
+        )
+    }
+
+    if (abs(currentDeltaPp) > 1e-6) {
+        val grossRub = spreadPnlToRubApprox(currentDeltaPp, effNotional)
+        val netRub = grossRub - commRub - ovnRub
+        return SpreadDeltaChartRubAxis(
+            rubPerSpreadPoint = netRub / currentDeltaPp,
+            mode = SpreadDeltaChartPnlAxisMode.NetMoexEstimate,
+        )
+    }
+    return SpreadDeltaChartRubAxis(
+        rubPerSpreadPoint = fixedRubPer,
+        netOffsetRub = netOffset,
+        mode = SpreadDeltaChartPnlAxisMode.NetMoexEstimate,
+    )
+}
 /**
  * 15м Δ спреда для графика «Рынок».
  * Открытая сделка — Δ от входа (без сброса по дням, до 3+ суток).
@@ -157,41 +195,49 @@ internal fun buildSpreadDelta15mChartContext(
         )
         if (entrySpread.isNaN()) return null
         val entryMillis = openLeg.barTimestampMillis
-        val deltas = chartPoints.map { pt ->
+        val moexDeltas = chartPoints.map { pt ->
             if (barMillisAt(pt) < entryMillis) {
                 0.0
             } else {
                 openSpreadMtmPoints(openLeg.signalType, entrySpread, pt.spreadPercent)
             }
         }
-        val currentDelta = deltas.lastOrNull() ?: 0.0
-        val (rubPerPoint, pnlMode) = resolveSpreadDeltaChartRubPerPoint(
+        val tradeNotional = resolveTradeNotionalRubForPnl(openLeg, history, tradeAmountRub)
+        val effNotional = tradeNotional * portfolioPnlLeverageMultiplier(executionMode, leverage)
+        val brokerGross = brokerOpenTradeGrossRub(openLeg)
+        val rubAxis = resolveSpreadDeltaChartRubAxis(
             openExec = openLeg,
-            currentDeltaPp = currentDelta,
+            currentDeltaPp = moexDeltas.lastOrNull() ?: 0.0,
             sourcePoints = history,
             executionMode = executionMode,
             leverage = leverage,
             commissionPercentPerSide = commissionPercentPerSide,
             tradeAmountRub = tradeAmountRub,
         )
+        val deltas = if (rubAxis.mode == SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated) {
+            patchSpreadDeltaTailFromBroker(moexDeltas, brokerGross, effNotional)
+        } else {
+            moexDeltas
+        }
         return SpreadDelta15mChartContext(
             title = "Δ спред 15м · от входа",
-            subtitle = when (pnlMode) {
+            subtitle = when (rubAxis.mode) {
                 SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated ->
-                    "Правая ось — чистый PnL (шторка · Tinkoff); хвост Δ — live 1м"
+                    "Правая ось — чистый PnL (фикс. номинал); хвост Δ — Tinkoff gross"
                 else ->
                     "Правая ось — чистый PnL (оценка MOEX · комиссия и overnight)"
             },
             labels = chartPoints.map { it.tradeDate },
             deltasPp = deltas,
-            rubPerSpreadPoint = rubPerPoint,
+            rubPerSpreadPoint = rubAxis.rubPerSpreadPoint,
+            netOffsetRub = rubAxis.netOffsetRub,
             fromEntry = true,
-            pnlAxisBrokerCalibrated = pnlMode == SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated,
+            pnlAxisBrokerCalibrated = rubAxis.mode == SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated,
         )
     }
 
     val daySeries = spreadDeltaFromDayOpenSeries(chartPoints) ?: return null
-    val (rubPerPoint, _) = resolveSpreadDeltaChartRubPerPoint(
+    val rubAxis = resolveSpreadDeltaChartRubAxis(
         openExec = null,
         currentDeltaPp = daySeries.deltasPp.lastOrNull() ?: 0.0,
         sourcePoints = history,
@@ -211,7 +257,8 @@ internal fun buildSpreadDelta15mChartContext(
         },
         labels = daySeries.labels,
         deltasPp = daySeries.deltasPp,
-        rubPerSpreadPoint = rubPerPoint,
+        rubPerSpreadPoint = rubAxis.rubPerSpreadPoint,
+        netOffsetRub = rubAxis.netOffsetRub,
         fromEntry = false,
     )
 }

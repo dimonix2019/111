@@ -79,9 +79,9 @@ class MoexMarketsSpreadDeltaTest {
     }
 
     @Test
-    fun resolveSpreadDeltaChartRubPerPoint_brokerNetMatchesShutterAtCurrentDelta() {
+    fun resolveSpreadDeltaChartRubAxis_fixedScaleDoesNotDependOnMoexDelta() {
         val exec = SandboxSpreadExecUi(
-            tradeId = "P-1",
+            tradeId = "P-2",
             signalType = StrategySignalType.EnterLong,
             zScore = -2.0,
             barTimestampMillis = 1_000L,
@@ -99,22 +99,48 @@ class MoexMarketsSpreadDeltaTest {
             correlationTag = "t",
             notificationIdsText = "—",
             legs = emptyList(),
-            legLongPnlSplitRubApprox = 120.0,
-            legShortPnlSplitRubApprox = 10.0,
-            netPnlRubApprox = 94.22,
+            executionNotionalRub = 89_440.0,
+            legLongPnlSplitRubApprox = 280.0,
+            legShortPnlSplitRubApprox = 30.0,
+            netPnlRubApprox = 253.0,
         )
-        val (rubPer, mode) = resolveSpreadDeltaChartRubPerPoint(
+        val wide = resolveSpreadDeltaChartRubAxis(
             openExec = exec,
-            currentDeltaPp = 0.5,
+            currentDeltaPp = 0.69,
             sourcePoints = emptyList(),
             executionMode = TinkoffExecutionMode.Prod,
             leverage = 7.0,
             commissionPercentPerSide = 0.04,
             tradeAmountRub = 10_000.0,
         )
-        assertEquals(SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated, mode)
-        assertEquals(94.22, 0.5 * rubPer, 0.05)
-        assertEquals(94.22, signalMonitorOpenTradeSnapshot(exec)!!.pnlRub, 0.01)
+        val flat = resolveSpreadDeltaChartRubAxis(
+            openExec = exec,
+            currentDeltaPp = 0.05,
+            sourcePoints = emptyList(),
+            executionMode = TinkoffExecutionMode.Prod,
+            leverage = 7.0,
+            commissionPercentPerSide = 0.04,
+            tradeAmountRub = 10_000.0,
+        )
+        assertEquals(SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated, wide.mode)
+        assertEquals(894.4, wide.rubPerSpreadPoint, 0.01)
+        assertEquals(wide.rubPerSpreadPoint, flat.rubPerSpreadPoint, 1e-9)
+        assertEquals(wide.netOffsetRub, flat.netOffsetRub, 1e-9)
+    }
+
+    @Test
+    fun patchSpreadDeltaTailFromBroker_movesLineToBrokerImpliedDelta() {
+        val moexTail = 0.69
+        val brokerGross = 310.0
+        val effNotional = 89_440.0
+        val patched = patchSpreadDeltaTailFromBroker(
+            listOf(0.1, 0.2, moexTail),
+            brokerGross,
+            effNotional,
+        )
+        val brokerTail = brokerImpliedSpreadDeltaPp(brokerGross, effNotional)!!
+        assertEquals(brokerTail, patched.last(), 1e-6)
+        assertTrue(abs(brokerTail - moexTail) > 0.05)
     }
 
     @Test
@@ -144,13 +170,19 @@ class MoexMarketsSpreadDeltaTest {
     }
 
     @Test
-    fun resolveSpreadDeltaChartRubPerPoint_tailPnLMatchesShutterWhenMoexDiffersFromBroker() {
+    fun buildSpreadDelta15mChartContext_tailNetNearBrokerShutter() {
+        val points = listOf(
+            point("2026-05-17 10:00", spread = 8.0),
+            point("2026-05-18 10:00", spread = 8.69),
+        )
+        val gross = 310.0
+        val net = 253.0
         val exec = SandboxSpreadExecUi(
-            tradeId = "P-2",
+            tradeId = "D-broker",
             signalType = StrategySignalType.EnterLong,
             zScore = -2.0,
-            barTimestampMillis = 1_000L,
-            executedAtMillis = 2_000L,
+            barTimestampMillis = points[0].timestampMillis,
+            executedAtMillis = points[0].timestampMillis + 1,
             entrySpreadPercent = 8.0,
             source = PortfolioExecSource.AUTO,
             directionLabel = "long",
@@ -164,23 +196,32 @@ class MoexMarketsSpreadDeltaTest {
             correlationTag = "t",
             notificationIdsText = "—",
             legs = emptyList(),
+            quantityLots = 1,
             executionNotionalRub = 89_440.0,
             legLongPnlSplitRubApprox = 280.0,
             legShortPnlSplitRubApprox = 30.0,
-            netPnlRubApprox = 253.0,
+            netPnlRubApprox = net,
         )
-        val moexDelta = 0.69
-        val (rubPer, mode) = resolveSpreadDeltaChartRubPerPoint(
-            openExec = exec,
-            currentDeltaPp = moexDelta,
-            sourcePoints = emptyList(),
-            executionMode = TinkoffExecutionMode.Prod,
-            leverage = 7.0,
-            commissionPercentPerSide = 0.04,
-            tradeAmountRub = 10_000.0,
+        val ctx = requireNotNull(
+            buildSpreadDelta15mChartContext(
+                chartPoints = points,
+                sourcePoints = points,
+                openExec = exec,
+                executionMode = TinkoffExecutionMode.Prod,
+                leverage = 7.0,
+                commissionPercentPerSide = 0.04,
+                tradeAmountRub = 10_000.0,
+            ),
         )
-        assertEquals(SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated, mode)
-        assertEquals(253.0, moexDelta * rubPer, 0.05)
+        assertTrue(ctx.pnlAxisBrokerCalibrated)
+        val brokerTail = brokerImpliedSpreadDeltaPp(gross, 89_440.0)!!
+        assertEquals(brokerTail, ctx.deltasPp.last(), 1e-4)
+        val tailNet = spreadDeltaNetRubAtPp(
+            ctx.deltasPp.last(),
+            SpreadDeltaChartRubAxis(ctx.rubPerSpreadPoint, ctx.netOffsetRub, SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated),
+        )
+        assertEquals(net, tailNet, 2.0)
+        assertEquals(net, signalMonitorOpenTradeSnapshot(exec)!!.pnlRub, 0.01)
     }
 
     @Test
@@ -230,8 +271,11 @@ class MoexMarketsSpreadDeltaTest {
         assertTrue(ctx.pnlAxisBrokerCalibrated)
         assertEquals(0.0, ctx.deltasPp[0], 1e-9)
         assertEquals(0.2, ctx.deltasPp[1], 1e-9)
-        assertEquals(0.5, ctx.deltasPp[2], 1e-9)
-        assertEquals(447.2, ctx.deltasPp[2] * ctx.rubPerSpreadPoint, 0.1)
+        val tailNet = spreadDeltaNetRubAtPp(
+            ctx.deltasPp[2],
+            SpreadDeltaChartRubAxis(ctx.rubPerSpreadPoint, ctx.netOffsetRub, SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated),
+        )
+        assertEquals(447.2, tailNet, 2.0)
     }
 
     @Test

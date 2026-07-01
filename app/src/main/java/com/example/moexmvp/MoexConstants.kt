@@ -183,6 +183,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.271 — Fix Δ спред: фикс. шкала ₽ (номинал/100); хвост линии — broker gross (двигается с Tinkoff).
 1.7.270 — Fix Δ спред fullscreen: правая ось ₽ = net шторки (калибровка net / live MOEX Δпп, не broker implied).
 1.7.269 — Δ спред: live-спред 1м на хвосте; ₽/п.п. от gross Tinkoff; Z-score — fullscreen только по кнопке.
 1.7.268 — «Рынок»: Δ спред 15м — кнопка полноэкранного режима (landscape + zoom).
