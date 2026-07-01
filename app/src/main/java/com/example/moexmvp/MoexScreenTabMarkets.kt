@@ -478,18 +478,6 @@ internal fun MoexScreenTabMarkets(
                                     )
                                 }
                             }
-                            if (marketsM15SourcePoints.isNotEmpty()) {
-                                item {
-                                    IntradaySpreadDeltaLineChartCard(
-                                        title = "Δ спред · 1м",
-                                        tatn = tatn1m,
-                                        tatnp = tatnp1m,
-                                        m15Points = marketsM15SourcePoints,
-                                        initialWindowWidth = intraday1mWindow.first,
-                                        initialWindowStart = intraday1mWindow.second,
-                                    )
-                                }
-                            }
                         }
                         val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()
                         val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isMarketsDataLoadActive)
@@ -506,28 +494,6 @@ internal fun MoexScreenTabMarkets(
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
                                     onFullscreenClick = enterZChartFullscreen,
-                                )
-                            }
-                            item {
-                                ChartCard(
-                                    title = "Spread 15м = (TATN / TATNP - 1) * 100",
-                                    series = listOf(
-                                        ChartSeries(
-                                            "Spread %",
-                                            Color(0xFF69F0AE),
-                                            marketsM15ChartPoints.map { it.spreadPercent }
-                                        )
-                                    ),
-                                    labels = marketsM15ChartPoints.map { it.tradeDate },
-                                    chartHeightDp = MARKETS_SPREAD_CHART_HEIGHT_DP,
-                                    rightAxisPercentBase = spreadPercentBaseForChartRightAxis(marketsM15ChartPoints),
-                                    yScale = YAxisScale.Auto,
-                                    showLegend = false,
-                                    enableZoomPan = false,
-                                    markerScale = 1f,
-                                    showZoomHint = false,
-                                    m15TimeLabels = true,
-                                    xLabelStyle = ChartXLabelStyleHorizontal,
                                 )
                             }
                             spreadDelta15mContext?.let { spreadDelta15m ->
