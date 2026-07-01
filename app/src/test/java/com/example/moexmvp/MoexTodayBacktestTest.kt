@@ -727,59 +727,150 @@ class MoexTodayBacktestTest {
     @Test
     fun moexBacktest_255d_dual50k_threshold18_13_plus_07_05() = runBlocking {
         val (_, points) = loadTatn15mPoints()
-        val m50_18_13 = runBacktest(points, THRESH_18_13, BACKTEST_NOTIONAL_50K_RUB)!!
-        val m50_07_05 = runBacktest(points, THRESH_07_05, BACKTEST_NOTIONAL_50K_RUB)!!
-        val m100_18_13 = runBacktest(points, THRESH_18_13, BACKTEST_NOTIONAL_100K_RUB)!!
-        val m100_07_05 = runBacktest(points, THRESH_07_05, BACKTEST_NOTIONAL_100K_RUB)!!
+        printDualThresholdPairReport(
+            points = points,
+            outer = THRESH_18_13,
+            inner = THRESH_07_05,
+            outerLabel = "1.8/1.3",
+            innerLabel = "0.7/0.5",
+            leverage = BACKTEST_LEVERAGE_X1,
+        )
+        printDualThresholdPairReport(
+            points = points,
+            outer = THRESH_18_13,
+            inner = THRESH_07_05,
+            outerLabel = "1.8/1.3",
+            innerLabel = "0.7/0.5",
+            leverage = BACKTEST_LEVERAGE_X7,
+        )
+    }
 
-        val dualPnl = m50_18_13.totalPnlRubApprox + m50_07_05.totalPnlRubApprox
-        val dualCommission = m50_18_13.totalCommissionRub + m50_07_05.totalCommissionRub
-        val dualTrades = m50_18_13.closedTrades.size + m50_07_05.closedTrades.size
-        val dualMaxDd = maxDrawdownOfSummedDailyEquity(m50_18_13, m50_07_05)
-        val overlapBars = countBarsWithBothLegsOpen(points, THRESH_18_13, THRESH_07_05)
+    private fun printDualThresholdPairReport(
+        points: List<DataPoint>,
+        outer: DynamicThresholds,
+        inner: DynamicThresholds,
+        outerLabel: String,
+        innerLabel: String,
+        leverage: Double,
+    ) {
+        val capitalRub = BACKTEST_NOTIONAL_100K_RUB
+        val legNotional = BACKTEST_NOTIONAL_50K_RUB
+        val m50Outer = runBacktest(points, outer, legNotional, leverage = leverage)!!
+        val m50Inner = runBacktest(points, inner, legNotional, leverage = leverage)!!
+        val m100Outer = runBacktest(points, outer, capitalRub, leverage = leverage)!!
+        val m100Inner = runBacktest(points, inner, capitalRub, leverage = leverage)!!
+
+        val dualPnl = m50Outer.totalPnlRubApprox + m50Inner.totalPnlRubApprox
+        val dualReturnOnCapital = dualPnl / capitalRub * 100.0
+        val dualMaxDd = maxDrawdownOfSummedDailyEquity(m50Outer, m50Inner)
+        val dualMaxDdPct = dualMaxDd / capitalRub * 100.0
+        val dualTrades = m50Outer.closedTrades.size + m50Inner.closedTrades.size
+        val overlapBars = countBarsWithBothLegsOpen(points, outer, inner)
         val overlapPct = overlapBars * 100.0 / (points.size - 1).coerceAtLeast(1)
+        val levLabel = if (leverage == leverage.roundToInt().toDouble()) "x${leverage.roundToInt()}" else "x$leverage"
 
-        println("=== MOEX 255д: 2×50k (1.8/1.3 + 0.7/0.5) vs 1×100k ===")
+        println("=== MOEX 255д: 2×50k ($outerLabel + $innerLabel) vs 1×100k · $levLabel ===")
         println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров)")
-        println("Капитал везде ~100k ₽ (две ноги по 50k или одна на 100k), x1, комиссия 0.04%/сторона")
+        println("Капитал ${(capitalRub / 1000).roundToInt()}k ₽ · номинал ноги ${(legNotional / 1000).roundToInt()}k · комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона")
         println()
-        printBacktestRow("2 ноги: 50k @ 1.8/1.3 (внешняя)", m50_18_13)
-        printBacktestRow("2 ноги: 50k @ 0.7/0.5 (внутренняя)", m50_07_05)
+        printDualThresholdReturnsHeader()
+        printDualThresholdReturnsRow(
+            label = "2×50k $outerLabel (внешняя)",
+            m = m50Outer,
+            capitalRub = capitalRub,
+            legCapitalRub = legNotional,
+        )
+        printDualThresholdReturnsRow(
+            label = "2×50k $innerLabel (внутр.)",
+            m = m50Inner,
+            capitalRub = capitalRub,
+            legCapitalRub = legNotional,
+        )
         println(
             String.format(
                 Locale.US,
-                "%-28s | %5d | %12.2f | %12.2f | %10.2f | %8s",
-                "ИТОГО 2×50k (сумма ног)",
+                "%-30s | %5d | %10.0f | %7.2f%% | %7.2f%% | %6.1f%% | %6.1f%%",
+                "ИТОГО 2×50k (сумма)",
                 dualTrades,
                 dualPnl,
-                dualMaxDd,
-                dualCommission,
-                "—"
+                dualReturnOnCapital,
+                dualReturnOnCapital,
+                dualMaxDdPct,
+                dualMaxDd / capitalRub * 100.0,
             )
         )
-        println("  баров 15м с обеими ногами в позиции: $overlapBars (${fmt(overlapPct)}% ряда)")
+        println("  overlap: $overlapBars баров (${fmt(overlapPct)}% ряда с обеими ногами)")
         println()
-        printBacktestRow("1 сделка: 100k @ 1.8/1.3", m100_18_13)
-        printBacktestRow("1 сделка: 100k @ 0.7/0.5", m100_07_05)
+        printDualThresholdReturnsRow(
+            label = "1×100k $outerLabel",
+            m = m100Outer,
+            capitalRub = capitalRub,
+            legCapitalRub = capitalRub,
+        )
+        printDualThresholdReturnsRow(
+            label = "1×100k $innerLabel",
+            m = m100Inner,
+            capitalRub = capitalRub,
+            legCapitalRub = capitalRub,
+        )
+        val bestSingleReturn = maxOf(
+            returnOnCapitalPercent(m100Outer, capitalRub),
+            returnOnCapitalPercent(m100Inner, capitalRub),
+        )
         println("---")
-        val vsOuter = dualPnl - m100_18_13.totalPnlRubApprox
-        val vsInner = dualPnl - m100_07_05.totalPnlRubApprox
-        val bestSingle = maxOf(m100_18_13.totalPnlRubApprox, m100_07_05.totalPnlRubApprox)
-        println("Δ PnL: 2×50k минус 100k@1.8/1.3 = ${fmt(vsOuter)} ₽")
-        println("Δ PnL: 2×50k минус 100k@0.7/0.5 = ${fmt(vsInner)} ₽")
-        println("Δ PnL: 2×50k минус лучшая одна нога = ${fmt(dualPnl - bestSingle)} ₽")
         println(
-            "Δ комиссий: 2×50k ${fmt(dualCommission)} vs 100k@0.7/0.5 ${fmt(m100_07_05.totalCommissionRub)} " +
-                "(+${fmt(dualCommission - m100_07_05.totalCommissionRub)} ₽ при двух ногах)"
+            "Δ доходность 2×50k vs лучшая 1×100k: ${fmtPct(dualReturnOnCapital - bestSingleReturn)} п.п. " +
+                "(${fmtPct(dualReturnOnCapital)}% vs ${fmtPct(bestSingleReturn)}%)"
         )
         println(
-            "Эфф. PnL на 100k капитала: 2×50k ${fmt(dualPnl)} (${fmt(dualPnl / 100_000 * 100)}%) · " +
-                "100k@1.8/1.3 ${fmt(m100_18_13.totalPnlRubApprox)} (${fmt(m100_18_13.totalReturnPercent)}%) · " +
-                "100k@0.7/0.5 ${fmt(m100_07_05.totalPnlRubApprox)} (${fmt(m100_07_05.totalReturnPercent)}%)"
+            "Δ доходность 2×50k vs 1×100k $outerLabel: ${fmtPct(dualReturnOnCapital - returnOnCapitalPercent(m100Outer, capitalRub))} п.п."
         )
-        val innerTrades = m50_07_05.closedTrades.size
-        val outerTrades = m50_18_13.closedTrades.size
-        println("Сделок: внутренняя 0.7/0.5 = $innerTrades, внешняя 1.8/1.3 = $outerTrades (сумма $dualTrades)")
+        println(
+            "Δ доходность 2×50k vs 1×100k $innerLabel: ${fmtPct(dualReturnOnCapital - returnOnCapitalPercent(m100Inner, capitalRub))} п.п."
+        )
+        println()
+    }
+
+    private fun printDualThresholdReturnsHeader() {
+        println(
+            String.format(
+                Locale.US,
+                "%-30s | %5s | %10s | %8s | %8s | %8s | %8s",
+                "вариант",
+                "сделок",
+                "PnL ₽",
+                "ret/100k",
+                "ret/ном",
+                "DD/100k",
+                "DD/ном",
+            )
+        )
+        println("-".repeat(96))
+    }
+
+    private fun printDualThresholdReturnsRow(
+        label: String,
+        m: PortfolioMetrics,
+        capitalRub: Double,
+        legCapitalRub: Double,
+    ) {
+        val retCapital = returnOnCapitalPercent(m, capitalRub)
+        val retNotional = m.totalReturnPercent
+        val ddCapitalPct = if (capitalRub > 0) m.maxDrawdownRubApprox / capitalRub * 100.0 else 0.0
+        val ddNotionalPct = if (legCapitalRub > 0) m.maxDrawdownRubApprox / legCapitalRub * 100.0 else 0.0
+        println(
+            String.format(
+                Locale.US,
+                "%-30s | %5d | %10.0f | %7.2f%% | %7.2f%% | %6.1f%% | %6.1f%%",
+                label,
+                m.closedTrades.size,
+                m.totalPnlRubApprox,
+                retCapital,
+                retNotional,
+                ddCapitalPct,
+                ddNotionalPct,
+            )
+        )
     }
 
     @Test
