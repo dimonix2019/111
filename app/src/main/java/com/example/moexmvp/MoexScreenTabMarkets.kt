@@ -132,6 +132,24 @@ internal fun MoexScreenTabMarkets(
             buildSpreadHourlyVolatilityReport(marketsM15SourcePoints)
         }
     }
+    val spreadDelta15mContext = remember(
+        marketsM15ChartPoints,
+        marketsM15SourcePoints,
+        sandboxSpreadExecutions,
+        sandboxSpreadExecReload,
+        executionMode,
+        portfolioLeverage,
+        portfolioTradeAmountRub,
+    ) {
+        buildSpreadDelta15mChartContext(
+            chartPoints = marketsM15ChartPoints,
+            sourcePoints = marketsM15SourcePoints.ifEmpty { marketsM15ChartPoints },
+            openExec = resolveSingleOpenExecutionForDisplay(sandboxSpreadExecutions),
+            executionMode = executionMode,
+            leverage = portfolioLeverage,
+            tradeAmountRub = portfolioTradeAmountRub,
+        )
+    }
                 Column(Modifier.fillMaxSize()) {
                     if (!landscapeZChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
@@ -452,10 +470,11 @@ internal fun MoexScreenTabMarkets(
                                     xLabelStyle = ChartXLabelStyleHorizontal,
                                 )
                             }
-                            spreadDeltaFromDayOpenSeries(marketsM15ChartPoints)?.let { spreadDelta15m ->
+                            spreadDelta15mContext?.let { spreadDelta15m ->
                                 item {
                                     ChartCard(
-                                        title = "Δ спред 15м · п.п. от открытия дня",
+                                        title = spreadDelta15m.title,
+                                        subtitle = spreadDelta15m.subtitle,
                                         series = listOf(
                                             ChartSeries(
                                                 "Δ п.п.",
@@ -466,6 +485,8 @@ internal fun MoexScreenTabMarkets(
                                         labels = spreadDelta15m.labels,
                                         chartHeightDp = MARKETS_SPREAD_CHART_HEIGHT_DP,
                                         yScale = YAxisScale.Auto,
+                                        yAxisTickFormatter = ::formatSpreadDeltaAxisTick,
+                                        rightAxisRubPerSpreadPoint = spreadDelta15m.rubPerSpreadPoint,
                                         referenceLines = listOf(SPREAD_DELTA_ZERO_LINE),
                                         showLegend = false,
                                         enableZoomPan = false,

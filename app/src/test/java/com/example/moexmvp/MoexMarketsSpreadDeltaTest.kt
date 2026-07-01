@@ -1,7 +1,9 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -68,6 +70,81 @@ class MoexMarketsSpreadDeltaTest {
         assertEquals(spread10 - 4.78, series.deltasPp[0], 1e-9)
         val spread11 = spreadPercentFromPairCloses(651.0, 600.5)!!
         assertEquals(spread11 - 4.78, series.deltasPp[1], 1e-9)
+    }
+
+    @Test
+    fun spreadPnlRubPerSpreadPoint_scalesLinearly() {
+        assertEquals(894.4, spreadPnlRubPerSpreadPoint(89_440.0), 0.01)
+        assertEquals(894.4, spreadPnlToRubApprox(1.0, 89_440.0), 0.01)
+    }
+
+    @Test
+    fun buildSpreadDelta15mChartContext_fromEntry_spansMultipleDaysWithoutDailyReset() {
+        val points = listOf(
+            point("2026-05-17 10:00", spread = 8.0),
+            point("2026-05-18 10:00", spread = 8.2),
+            point("2026-05-19 10:00", spread = 8.5),
+        )
+        val exec = SandboxSpreadExecUi(
+            tradeId = "D-1",
+            signalType = StrategySignalType.EnterLong,
+            zScore = -2.0,
+            barTimestampMillis = points[0].timestampMillis,
+            executedAtMillis = points[0].timestampMillis + 1,
+            entrySpreadPercent = 8.0,
+            source = PortfolioExecSource.AUTO,
+            directionLabel = "long",
+            entryTimeMsk = "2026-05-17 10:00",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "L",
+            shortLegSideRu = "S",
+            volumeText = "1+1",
+            confirmLabel = "авто",
+            correlationTag = "t",
+            notificationIdsText = "—",
+            legs = emptyList(),
+            quantityLots = 1,
+            executionNotionalRub = 89_440.0,
+        )
+        val ctx = requireNotNull(
+            buildSpreadDelta15mChartContext(
+                chartPoints = points,
+                sourcePoints = points,
+                openExec = exec,
+                executionMode = TinkoffExecutionMode.Prod,
+                leverage = 7.0,
+                tradeAmountRub = 10_000.0,
+            ),
+        )
+        assertTrue(ctx.fromEntry)
+        assertEquals(0.0, ctx.deltasPp[0], 1e-9)
+        assertEquals(0.2, ctx.deltasPp[1], 1e-9)
+        assertEquals(0.5, ctx.deltasPp[2], 1e-9)
+        assertEquals(894.4, ctx.rubPerSpreadPoint, 0.01)
+        assertEquals(447.2, ctx.deltasPp[2] * ctx.rubPerSpreadPoint, 0.1)
+    }
+
+    @Test
+    fun buildSpreadDelta15mChartContext_withoutOpenTrade_usesDayOpenDelta() {
+        val points = listOf(
+            point("2026-05-19 07:30", spread = 4.78),
+            point("2026-05-19 10:00", spread = 5.00),
+        )
+        val ctx = requireNotNull(
+            buildSpreadDelta15mChartContext(
+                chartPoints = points,
+                sourcePoints = points,
+                openExec = null,
+                executionMode = TinkoffExecutionMode.Prod,
+                leverage = 7.0,
+                tradeAmountRub = 10_000.0,
+            ),
+        )
+        assertFalse(ctx.fromEntry)
+        assertEquals(0.0, ctx.deltasPp[0], 1e-9)
+        assertEquals(0.22, ctx.deltasPp[1], 1e-9)
+        assertEquals(100.0, ctx.rubPerSpreadPoint, 1e-9)
     }
 
     @Test

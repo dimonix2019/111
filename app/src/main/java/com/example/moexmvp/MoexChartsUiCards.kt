@@ -71,6 +71,9 @@ internal fun ChartCard(
     labels: List<String>,
     chartHeightDp: Int = 180,
     rightAxisPercentBase: Double? = null,
+    rightAxisRubPerSpreadPoint: Double? = null,
+    yAxisTickFormatter: (Double) -> String = ::formatAxisValue,
+    subtitle: String? = null,
     yScale: YAxisScale = YAxisScale.Auto,
     referenceLines: List<ChartReferenceLine> = emptyList(),
     pointMarkers: List<ChartPointMarker> = emptyList(),
@@ -104,6 +107,14 @@ internal fun ChartCard(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(title, fontWeight = FontWeight.Bold, color = Color.White)
+        subtitle?.let {
+            Text(
+                text = it,
+                color = Color(0xFF80CBC4),
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+            )
+        }
         if (showZoomHint && enableZoomPan) {
             Text(
                 text = "Масштаб: два пальца · сдвиг: перетаскивание · двойной тап: весь период",
@@ -125,7 +136,7 @@ internal fun ChartCard(
                     .asReversed()
                     .forEach { tick ->
                         Text(
-                            text = formatAxisValue(tick),
+                            text = yAxisTickFormatter(tick),
                             fontSize = 10.sp,
                             color = Color(0xFFD7E3F4)
                         )
@@ -153,7 +164,7 @@ internal fun ChartCard(
                         .height(chartHeightDp.dp)
                         .width(64.dp),
                     verticalArrangement = Arrangement.SpaceBetween,
-                    horizontalAlignment = Alignment.End
+                    horizontalAlignment = Alignment.End,
                 ) {
                     axisScale.yTicks
                         .asReversed()
@@ -162,6 +173,25 @@ internal fun ChartCard(
                                 text = formatPercentDeltaFromBase(tick, rightAxisPercentBase),
                                 fontSize = 10.sp,
                                 color = Color(0xFFD7E3F4)
+                            )
+                        }
+                }
+            } else if (rightAxisRubPerSpreadPoint != null) {
+                Column(
+                    modifier = Modifier
+                        .height(chartHeightDp.dp)
+                        .width(64.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    axisScale.yTicks
+                        .asReversed()
+                        .forEach { tick ->
+                            Text(
+                                text = formatRubAxisValue(tick * rightAxisRubPerSpreadPoint),
+                                fontSize = 10.sp,
+                                color = Color(0xFFD7E3F4),
+                                maxLines = 1,
                             )
                         }
                 }
@@ -178,7 +208,13 @@ internal fun ChartCard(
             val label = labels.getOrNull(selected)
             val values = series.mapNotNull { chartSeries ->
                 chartSeries.values.getOrNull(selected)?.let { value ->
-                    "${chartSeries.name}: ${formatAxisValue(value)}"
+                    buildString {
+                        append("${chartSeries.name}: ${yAxisTickFormatter(value)}")
+                        rightAxisRubPerSpreadPoint?.let { rubPer ->
+                            append(" · gross ")
+                            append(formatRubAxisValue(value * rubPer))
+                        }
+                    }
                 }
             }
             if (!label.isNullOrBlank() && values.isNotEmpty()) {
@@ -198,7 +234,7 @@ internal fun ChartCard(
             }
         }
         Text(
-            text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
+            text = "Min: ${yAxisTickFormatter(stats.min)}   Max: ${yAxisTickFormatter(stats.max)}",
             fontSize = 12.sp,
             color = Color(0xFFD7E3F4)
         )
