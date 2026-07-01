@@ -2,6 +2,7 @@ package com.example.moexmvp
 
 import android.app.Activity
 import android.content.res.Configuration
+import androidx.activity.ComponentActivity
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +32,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -56,6 +60,7 @@ internal fun MoexScreenTabMarkets(
     scope: CoroutineScope,
     modifier: Modifier,
     landscapeZChartFullscreen: Boolean,
+    landscapeSpreadDeltaFullscreen: Boolean,
     chartSuccess: UiState.Success?,
     staleMarkets: Boolean,
     marketsM15SourcePoints: List<DataPoint>,
@@ -65,6 +70,7 @@ internal fun MoexScreenTabMarkets(
     marketsZStrategyTapMetrics: PortfolioMetrics?,
     dataSourceLabel: MarketsDataSource,
 ) {
+    val landscapeMarketsChartFullscreen = landscapeZChartFullscreen || landscapeSpreadDeltaFullscreen
     val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.marketsZChartPeriod) {
         chartInitialWindowForLastCalendarDays(
             marketsM15ChartPoints,
@@ -76,6 +82,35 @@ internal fun MoexScreenTabMarkets(
     }
     Column(modifier) {
     with(screen) {
+        val configuration = LocalConfiguration.current
+        val activity = context as? ComponentActivity
+        val exitSpreadDeltaFullscreen: () -> Unit = {
+            marketsSpreadDeltaChartFullscreen = false
+            activity?.unlockScreenOrientation()
+        }
+        val enterSpreadDeltaFullscreen: () -> Unit = {
+            marketsSpreadDeltaChartFullscreen = true
+            activity?.lockLandscapeOrientation()
+        }
+        var spreadDeltaWasLandscape by remember { mutableStateOf(false) }
+        LaunchedEffect(configuration.orientation, marketsSpreadDeltaChartFullscreen) {
+            val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            if (marketsSpreadDeltaChartFullscreen) {
+                if (spreadDeltaWasLandscape && !landscape) {
+                    exitSpreadDeltaFullscreen()
+                }
+                spreadDeltaWasLandscape = landscape
+            } else {
+                spreadDeltaWasLandscape = false
+            }
+        }
+        DisposableEffect(marketsSpreadDeltaChartFullscreen) {
+            onDispose {
+                if (marketsSpreadDeltaChartFullscreen) {
+                    activity?.unlockScreenOrientation()
+                }
+            }
+        }
         val markerSourcePoints = marketsM15SourcePoints.ifEmpty { marketsM15ChartPoints }
         val signalJournalKey = signalEvents.size to
             signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
@@ -153,7 +188,7 @@ internal fun MoexScreenTabMarkets(
         )
     }
                 Column(Modifier.fillMaxSize()) {
-                    if (!landscapeZChartFullscreen) {
+                    if (!landscapeMarketsChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
                             ?: chartSuccess?.points?.lastOrNull()
                         val displayZ = marketsLiveZScore
@@ -203,10 +238,20 @@ internal fun MoexScreenTabMarkets(
                         onRefresh = { scope.launch { refreshData(showLoading = false, launchScope = scope, selectedPeriod = selectedPeriod) } },
                         modifier = Modifier
                             .weight(1f)
-                            .padding(top = if (landscapeZChartFullscreen) 0.dp else 8.dp),
-                        enabled = !landscapeZChartFullscreen,
+                            .padding(top = if (landscapeMarketsChartFullscreen) 0.dp else 8.dp),
+                        enabled = !landscapeMarketsChartFullscreen,
                     ) {
-                        if (landscapeZChartFullscreen) {
+                        if (landscapeSpreadDeltaFullscreen) {
+                            spreadDelta15mContext?.let { spreadDeltaCtx ->
+                                LandscapeSpreadDeltaFullscreenPane(
+                                    context = spreadDeltaCtx,
+                                    onExit = exitSpreadDeltaFullscreen,
+                                    initialWindowWidth = marketsZInitialWindow.first,
+                                    initialWindowStart = marketsZInitialWindow.second,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        } else if (landscapeZChartFullscreen) {
                             val landscapePeriod = marketsZChartPeriod.coerceToMarketsUiPeriod()
                             LandscapeZScoreFullscreenPane(
                                 modifier = Modifier.fillMaxSize(),
@@ -474,28 +519,9 @@ internal fun MoexScreenTabMarkets(
                             }
                             spreadDelta15mContext?.let { spreadDelta15m ->
                                 item {
-                                    ChartCard(
-                                        title = spreadDelta15m.title,
-                                        subtitle = spreadDelta15m.subtitle,
-                                        series = listOf(
-                                            ChartSeries(
-                                                "Δ п.п.",
-                                                SPREAD_DELTA_LINE_COLOR,
-                                                spreadDelta15m.deltasPp,
-                                            ),
-                                        ),
-                                        labels = spreadDelta15m.labels,
-                                        chartHeightDp = MARKETS_SPREAD_CHART_HEIGHT_DP,
-                                        yScale = YAxisScale.Auto,
-                                        yAxisTickFormatter = ::formatSpreadDeltaAxisTick,
-                                        rightAxisRubPerSpreadPoint = spreadDelta15m.rubPerSpreadPoint,
-                                        referenceLines = listOf(SPREAD_DELTA_ZERO_LINE),
-                                        showLegend = false,
-                                        enableZoomPan = false,
-                                        markerScale = 1f,
-                                        showZoomHint = false,
-                                        m15TimeLabels = true,
-                                        xLabelStyle = ChartXLabelStyleHorizontal,
+                                    SpreadDelta15mChartCard(
+                                        context = spreadDelta15m,
+                                        onFullscreenClick = enterSpreadDeltaFullscreen,
                                     )
                                 }
                             }

@@ -3,6 +3,7 @@ package com.example.moexmvp
 import android.app.Activity
 import android.content.res.Configuration
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -523,6 +524,10 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             val coerced = marketsZChartPeriod.coerceToMarketsUiPeriod()
             if (coerced != marketsZChartPeriod) marketsZChartPeriod = coerced
             if (coerced != selectedPeriod) selectedPeriod = coerced
+        }
+        if (selectedTab != MainTab.Markets && marketsSpreadDeltaChartFullscreen) {
+            marketsSpreadDeltaChartFullscreen = false
+            (context as? ComponentActivity)?.unlockScreenOrientation()
         }
     }
 

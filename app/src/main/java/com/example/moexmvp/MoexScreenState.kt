@@ -47,6 +47,8 @@ internal class MoexScreenState(val context: Context) {
     var selectedPeriod by mutableStateOf(Period.OneDay)
     /** Период 15м Z-графика (портрет/альбом); смена не вызывает refresh MOEX — только фильтр кэша. */
     var marketsZChartPeriod by mutableStateOf(Period.OneDay)
+    /** Полноэкранный Δ спред 15м (кнопка → landscape). */
+    var marketsSpreadDeltaChartFullscreen by mutableStateOf(false)
     var realtimeEnabled by mutableStateOf(true)
     /** ON_RESUME / ON_PAUSE — останавливает авто-опрос «Рынок» в фоне. */
     var activityResumed by mutableStateOf(false)

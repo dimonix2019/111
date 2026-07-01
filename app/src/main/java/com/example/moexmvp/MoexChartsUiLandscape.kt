@@ -131,6 +131,76 @@ internal fun LandscapeZScoreFullscreenPane(
 }
 
 @Composable
+internal fun LandscapeSpreadDeltaFullscreenPane(
+    context: SpreadDelta15mChartContext,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier,
+    initialWindowWidth: Float = 1f,
+    initialWindowStart: Float = 0f,
+) {
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize(),
+    ) {
+        val chartH = maxHeight.value
+            .takeIf { it.isFinite() && it > 0f }
+            ?.roundToInt()
+            ?.coerceIn(120, 720)
+            ?: 320
+        SpreadDelta15mChartCard(
+            context = context,
+            chartHeightDp = chartH,
+            enableZoomPan = true,
+            showZoomHint = true,
+            landscapeMinimal = true,
+            initialWindowWidth = initialWindowWidth,
+            initialWindowStart = initialWindowStart,
+            onExitFullscreenClick = onExit,
+        )
+    }
+}
+
+@Composable
+internal fun SpreadDelta15mChartCard(
+    context: SpreadDelta15mChartContext,
+    chartHeightDp: Int = MARKETS_SPREAD_CHART_HEIGHT_DP,
+    enableZoomPan: Boolean = false,
+    showZoomHint: Boolean = false,
+    landscapeMinimal: Boolean = false,
+    initialWindowWidth: Float = 1f,
+    initialWindowStart: Float = 0f,
+    onFullscreenClick: (() -> Unit)? = null,
+    onExitFullscreenClick: (() -> Unit)? = null,
+) {
+    ChartCard(
+        title = context.title,
+        subtitle = context.subtitle,
+        series = listOf(
+            ChartSeries(
+                "Δ п.п.",
+                SPREAD_DELTA_LINE_COLOR,
+                context.deltasPp,
+            ),
+        ),
+        labels = context.labels,
+        chartHeightDp = chartHeightDp,
+        yScale = YAxisScale.Auto,
+        yAxisTickFormatter = ::formatSpreadDeltaAxisTick,
+        rightAxisRubPerSpreadPoint = context.rubPerSpreadPoint,
+        referenceLines = listOf(SPREAD_DELTA_ZERO_LINE),
+        showLegend = false,
+        enableZoomPan = enableZoomPan,
+        showZoomHint = showZoomHint,
+        m15TimeLabels = true,
+        xLabelStyle = ChartXLabelStyleHorizontal,
+        landscapeMinimal = landscapeMinimal,
+        initialWindowWidth = initialWindowWidth,
+        initialWindowStart = initialWindowStart,
+        onFullscreenClick = onFullscreenClick,
+        onExitFullscreenClick = onExitFullscreenClick,
+    )
+}
+
+@Composable
 internal fun Legend(
     series: List<ChartSeries>,
     referenceLines: List<ChartReferenceLine> = emptyList(),

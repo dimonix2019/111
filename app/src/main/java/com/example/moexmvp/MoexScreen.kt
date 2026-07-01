@@ -41,10 +41,14 @@ internal fun MoexScreen() {
     }
 
     val configuration = LocalConfiguration.current
+    val landscapeSpreadDeltaFullscreen =
+        configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            screen.selectedTab == MainTab.Markets &&
+            screen.marketsSpreadDeltaChartFullscreen
     val landscapeZChartFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-            (screen.selectedTab == MainTab.Markets || screen.selectedTab == MainTab.StrategyTest)
-
+            (screen.selectedTab == MainTab.Markets || screen.selectedTab == MainTab.StrategyTest) &&
+            !landscapeSpreadDeltaFullscreen
     val chartSuccess = (screen.state as? UiState.Success) ?: screen.lastGoodMarkets
     val staleMarkets = screen.marketsStale || (screen.realtimeError != null && chartSuccess != null)
     val onMarketsTab = screen.selectedTab == MainTab.Markets
@@ -268,10 +272,10 @@ internal fun MoexScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(if (landscapeZChartFullscreen) 0.dp else 12.dp)
+            .padding(if (landscapeZChartFullscreen || landscapeSpreadDeltaFullscreen) 0.dp else 12.dp)
     ) {
         Column(Modifier.fillMaxSize()) {
-            if (!landscapeZChartFullscreen) {
+            if (!landscapeZChartFullscreen && !landscapeSpreadDeltaFullscreen) {
                 MainTabSelector(
                     selected = screen.selectedTab,
                     onSelect = { screen.selectedTab = it }
@@ -308,6 +312,7 @@ internal fun MoexScreen() {
                 scope = scope,
                 modifier = Modifier.weight(1f).fillMaxSize(),
                 landscapeZChartFullscreen = landscapeZChartFullscreen,
+                landscapeSpreadDeltaFullscreen = landscapeSpreadDeltaFullscreen,
                 chartSuccess = chartSuccess,
                 staleMarkets = staleMarkets,
                 marketsM15SourcePoints = marketsM15SimPoints,
