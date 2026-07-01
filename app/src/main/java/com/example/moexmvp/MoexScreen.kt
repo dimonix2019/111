@@ -45,10 +45,15 @@ internal fun MoexScreen() {
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
             screen.selectedTab == MainTab.Markets &&
             screen.marketsSpreadDeltaChartFullscreen
-    val landscapeZChartFullscreen =
+    val landscapeMarketsZFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-            (screen.selectedTab == MainTab.Markets || screen.selectedTab == MainTab.StrategyTest) &&
-            !landscapeSpreadDeltaFullscreen
+            screen.selectedTab == MainTab.Markets &&
+            screen.marketsZChartFullscreen
+    val landscapeZChartFullscreen =
+        landscapeMarketsZFullscreen ||
+            (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                screen.selectedTab == MainTab.StrategyTest &&
+                !landscapeSpreadDeltaFullscreen)
     val chartSuccess = (screen.state as? UiState.Success) ?: screen.lastGoodMarkets
     val staleMarkets = screen.marketsStale || (screen.realtimeError != null && chartSuccess != null)
     val onMarketsTab = screen.selectedTab == MainTab.Markets

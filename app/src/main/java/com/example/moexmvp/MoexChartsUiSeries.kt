@@ -41,6 +41,19 @@ internal fun applyLiveZToM15ChartSeries(
     return patchedPts to patchedCandles
 }
 
+/** Хвост Δ спреда: spread% последнего 15м бара = live из 1м (parity со шторкой). */
+internal fun applyLiveSpreadToM15ChartPoints(
+    points: List<DataPoint>,
+    liveSpreadPercent: Double?,
+): List<DataPoint> {
+    if (liveSpreadPercent == null || points.isEmpty()) return points
+    val last = points.last()
+    if (kotlin.math.abs(last.spreadPercent - liveSpreadPercent) < 1e-9) return points
+    val patched = points.toMutableList()
+    patched[patched.lastIndex] = last.copy(spreadPercent = liveSpreadPercent)
+    return patched
+}
+
 @Composable
 internal fun rememberM15ZChartSeries(
     simPoints: List<DataPoint>,

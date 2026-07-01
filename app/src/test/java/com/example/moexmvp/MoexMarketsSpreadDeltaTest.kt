@@ -2,12 +2,12 @@ package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import kotlin.math.abs
 
 class MoexMarketsSpreadDeltaTest {
 
@@ -113,8 +113,30 @@ class MoexMarketsSpreadDeltaTest {
             tradeAmountRub = 10_000.0,
         )
         assertEquals(SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated, mode)
-        assertEquals(94.22, 0.5 * rubPer, 0.01)
+        val effNotional = resolveTradeNotionalRubForPnl(exec, emptyList(), 10_000.0) *
+            portfolioPnlLeverageMultiplier(TinkoffExecutionMode.Prod, 7.0)
+        val impliedDelta = brokerImpliedSpreadDeltaPp(130.0, effNotional)!!
+        assertEquals(94.22, impliedDelta * rubPer, 0.05)
         assertEquals(94.22, signalMonitorOpenTradeSnapshot(exec)!!.pnlRub, 0.01)
+    }
+
+    @Test
+    fun applyLiveSpreadToM15ChartPoints_patchesLastBarOnly() {
+        val points = listOf(
+            point("2026-05-19 10:00", spread = 5.00),
+            point("2026-05-19 10:15", spread = 5.10),
+        )
+        val patched = applyLiveSpreadToM15ChartPoints(points, 5.25)
+        assertEquals(5.00, patched[0].spreadPercent, 1e-9)
+        assertEquals(5.25, patched[1].spreadPercent, 1e-9)
+    }
+
+    @Test
+    fun resolveSpreadDeltaCalibrationPp_prefersBrokerImplied() {
+        val brokerDelta = brokerImpliedSpreadDeltaPp(130.0, 89_440.0)!!
+        val calib = resolveSpreadDeltaCalibrationPp(0.05, 130.0, 89_440.0)
+        assertEquals(brokerDelta, calib!!, 1e-6)
+        assertTrue(abs(brokerDelta) > 0.1)
     }
 
     @Test

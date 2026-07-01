@@ -525,8 +525,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             if (coerced != marketsZChartPeriod) marketsZChartPeriod = coerced
             if (coerced != selectedPeriod) selectedPeriod = coerced
         }
-        if (selectedTab != MainTab.Markets && marketsSpreadDeltaChartFullscreen) {
+        if (selectedTab != MainTab.Markets &&
+            (marketsSpreadDeltaChartFullscreen || marketsZChartFullscreen)
+        ) {
             marketsSpreadDeltaChartFullscreen = false
+            marketsZChartFullscreen = false
             (context as? ComponentActivity)?.unlockScreenOrientation()
         }
     }

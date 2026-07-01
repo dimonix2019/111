@@ -49,6 +49,8 @@ internal class MoexScreenState(val context: Context) {
     var marketsZChartPeriod by mutableStateOf(Period.OneDay)
     /** Полноэкранный Δ спред 15м (кнопка → landscape). */
     var marketsSpreadDeltaChartFullscreen by mutableStateOf(false)
+    /** Полноэкранный Z-score 15м на «Рынок» (кнопка → landscape). */
+    var marketsZChartFullscreen by mutableStateOf(false)
     var realtimeEnabled by mutableStateOf(true)
     /** ON_RESUME / ON_PAUSE — останавливает авто-опрос «Рынок» в фоне. */
     var activityResumed by mutableStateOf(false)

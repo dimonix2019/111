@@ -51,9 +51,29 @@ internal enum class SpreadDeltaChartPnlAxisMode {
     ReferenceGross,
 }
 
+/** Δпп, подразумеваемый gross PnL брокера и номиналом (Tinkoff expectedYield). */
+internal fun brokerImpliedSpreadDeltaPp(grossRub: Double, effNotionalRub: Double): Double? {
+    if (effNotionalRub <= 1e-6) return null
+    return grossRub * 100.0 / effNotionalRub
+}
+
+/** Знаменатель калибровки ₽/п.п.: broker gross → Δпп, иначе MOEX Δпп. */
+internal fun resolveSpreadDeltaCalibrationPp(
+    moexDeltaPp: Double,
+    brokerGrossRub: Double?,
+    effNotionalRub: Double,
+): Double? {
+    val brokerDelta = brokerGrossRub?.let { brokerImpliedSpreadDeltaPp(it, effNotionalRub) }
+    return when {
+        brokerDelta != null && abs(brokerDelta) > 1e-6 -> brokerDelta
+        abs(moexDeltaPp) > 1e-6 -> moexDeltaPp
+        else -> null
+    }
+}
+
 /**
  * ₽ на 1 п.п. Δ спреда для правой оси.
- * При открытой сделке калибруется от [SandboxSpreadExecUi.netPnlRubApprox] (шторка / T‑Invest).
+ * При открытой сделке: net Tinkoff / Δпп (broker implied или live MOEX).
  */
 internal fun resolveSpreadDeltaChartRubPerPoint(
     openExec: SandboxSpreadExecUi?,
@@ -73,13 +93,19 @@ internal fun resolveSpreadDeltaChartRubPerPoint(
     val tradeNotional = resolveTradeNotionalRubForPnl(openExec, history, tradeAmountRub)
     val effNotional = tradeNotional * pnlLeverage
     val brokerNet = openExec.netPnlRubApprox.takeUnless { it.isNaN() }
-    val brokerCalibrated = brokerOpenTradeGrossRub(openExec) != null && brokerNet != null
+    val brokerGross = brokerOpenTradeGrossRub(openExec)
+    val brokerCalibrated = brokerGross != null && brokerNet != null
+    val calibDelta = resolveSpreadDeltaCalibrationPp(
+        moexDeltaPp = currentDeltaPp,
+        brokerGrossRub = brokerGross,
+        effNotionalRub = effNotional,
+    )
 
-    if (brokerCalibrated && abs(currentDeltaPp) > 1e-6) {
-        return (brokerNet!! / currentDeltaPp) to SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated
+    if (brokerCalibrated && calibDelta != null) {
+        return (brokerNet!! / calibDelta) to SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated
     }
-    if (brokerNet != null && abs(currentDeltaPp) > 1e-6) {
-        return (brokerNet / currentDeltaPp) to SpreadDeltaChartPnlAxisMode.NetMoexEstimate
+    if (brokerNet != null && calibDelta != null) {
+        return (brokerNet / calibDelta) to SpreadDeltaChartPnlAxisMode.NetMoexEstimate
     }
 
     val entryDateLabel = history
@@ -152,7 +178,7 @@ internal fun buildSpreadDelta15mChartContext(
             title = "Δ спред 15м · от входа",
             subtitle = when (pnlMode) {
                 SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated ->
-                    "Правая ось — чистый PnL (как шторка · счёт Tinkoff)"
+                    "Правая ось — чистый PnL (шторка · Tinkoff); хвост Δ — live 1м"
                 else ->
                     "Правая ось — чистый PnL (оценка MOEX · комиссия и overnight)"
             },

@@ -11,13 +11,23 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -596,6 +606,8 @@ internal fun TradingViewZScoreChartCard(
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
+    onFullscreenClick: (() -> Unit)? = null,
+    onExitFullscreenClick: (() -> Unit)? = null,
 ) {
     if (candles.isEmpty()) return
     val payload = remember(
@@ -628,14 +640,60 @@ internal fun TradingViewZScoreChartCard(
             .then(if (landscapeMinimal) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
             .background(Color(0xFF131722), RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp)),
     ) {
-        if (!landscapeMinimal && title.isNotBlank()) {
-            Text(
-                text = title,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFFE5E7EB),
-                fontSize = 14.sp,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            )
+        if (!landscapeMinimal && (title.isNotBlank() || onFullscreenClick != null || onExitFullscreenClick != null)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (title.isNotBlank()) {
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFE5E7EB),
+                        fontSize = 14.sp,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 4.dp),
+                    )
+                } else {
+                    Box(modifier = Modifier.weight(1f))
+                }
+                when {
+                    onExitFullscreenClick != null -> {
+                        IconButton(
+                            onClick = onExitFullscreenClick,
+                            modifier = Modifier.size(36.dp),
+                            colors = IconButtonDefaults.iconButtonColors(
+                                contentColor = Color(0xFF90CAF9),
+                            ),
+                        ) {
+                            Icon(
+                                Icons.Filled.CloseFullscreen,
+                                contentDescription = "Свернуть",
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                    onFullscreenClick != null -> {
+                        IconButton(
+                            onClick = onFullscreenClick,
+                            modifier = Modifier.size(36.dp),
+                            colors = IconButtonDefaults.iconButtonColors(
+                                contentColor = Color(0xFF90CAF9),
+                            ),
+                        ) {
+                            Icon(
+                                Icons.Filled.OpenInFull,
+                                contentDescription = "На весь экран",
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
         Box(
             modifier = Modifier

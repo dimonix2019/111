@@ -84,29 +84,37 @@ internal fun MoexScreenTabMarkets(
     with(screen) {
         val configuration = LocalConfiguration.current
         val activity = context as? ComponentActivity
-        val exitSpreadDeltaFullscreen: () -> Unit = {
+        val exitMarketsChartFullscreen: () -> Unit = {
             marketsSpreadDeltaChartFullscreen = false
+            marketsZChartFullscreen = false
             activity?.unlockScreenOrientation()
         }
         val enterSpreadDeltaFullscreen: () -> Unit = {
+            marketsZChartFullscreen = false
             marketsSpreadDeltaChartFullscreen = true
             activity?.lockLandscapeOrientation()
         }
-        var spreadDeltaWasLandscape by remember { mutableStateOf(false) }
-        LaunchedEffect(configuration.orientation, marketsSpreadDeltaChartFullscreen) {
+        val enterZChartFullscreen: () -> Unit = {
+            marketsSpreadDeltaChartFullscreen = false
+            marketsZChartFullscreen = true
+            activity?.lockLandscapeOrientation()
+        }
+        var marketsChartFullscreenWasLandscape by remember { mutableStateOf(false) }
+        val anyMarketsChartFullscreen = marketsSpreadDeltaChartFullscreen || marketsZChartFullscreen
+        LaunchedEffect(configuration.orientation, anyMarketsChartFullscreen) {
             val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-            if (marketsSpreadDeltaChartFullscreen) {
-                if (spreadDeltaWasLandscape && !landscape) {
-                    exitSpreadDeltaFullscreen()
+            if (anyMarketsChartFullscreen) {
+                if (marketsChartFullscreenWasLandscape && !landscape) {
+                    exitMarketsChartFullscreen()
                 }
-                spreadDeltaWasLandscape = landscape
+                marketsChartFullscreenWasLandscape = landscape
             } else {
-                spreadDeltaWasLandscape = false
+                marketsChartFullscreenWasLandscape = false
             }
         }
-        DisposableEffect(marketsSpreadDeltaChartFullscreen) {
+        DisposableEffect(anyMarketsChartFullscreen) {
             onDispose {
-                if (marketsSpreadDeltaChartFullscreen) {
+                if (anyMarketsChartFullscreen) {
                     activity?.unlockScreenOrientation()
                 }
             }
@@ -167,8 +175,11 @@ internal fun MoexScreenTabMarkets(
             buildSpreadHourlyVolatilityReport(marketsM15SourcePoints)
         }
     }
+    val spreadDeltaChartPoints = remember(marketsM15ChartPoints, marketsLiveSpreadPercent) {
+        applyLiveSpreadToM15ChartPoints(marketsM15ChartPoints, marketsLiveSpreadPercent)
+    }
     val spreadDelta15mContext = remember(
-        marketsM15ChartPoints,
+        spreadDeltaChartPoints,
         marketsM15SourcePoints,
         sandboxSpreadExecutions,
         sandboxSpreadExecReload,
@@ -178,8 +189,8 @@ internal fun MoexScreenTabMarkets(
         portfolioTradeAmountRub,
     ) {
         buildSpreadDelta15mChartContext(
-            chartPoints = marketsM15ChartPoints,
-            sourcePoints = marketsM15SourcePoints.ifEmpty { marketsM15ChartPoints },
+            chartPoints = spreadDeltaChartPoints,
+            sourcePoints = marketsM15SourcePoints.ifEmpty { spreadDeltaChartPoints },
             openExec = resolveSingleOpenExecutionForDisplay(sandboxSpreadExecutions),
             executionMode = executionMode,
             leverage = portfolioLeverage,
@@ -245,7 +256,7 @@ internal fun MoexScreenTabMarkets(
                             spreadDelta15mContext?.let { spreadDeltaCtx ->
                                 LandscapeSpreadDeltaFullscreenPane(
                                     context = spreadDeltaCtx,
-                                    onExit = exitSpreadDeltaFullscreen,
+                                    onExit = exitMarketsChartFullscreen,
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
                                     modifier = Modifier.fillMaxSize(),
@@ -271,6 +282,7 @@ internal fun MoexScreenTabMarkets(
                                 useDesktopStyle = true,
                                 displayMode = ChartDisplayMode.Candles,
                                 showPlotlyToolbar = true,
+                                onExitFullscreenClick = exitMarketsChartFullscreen,
                                 tradeTapHintFormatter = { idx ->
                                     formatZStrategyTradeTapHint(
                                         idx,
@@ -493,6 +505,7 @@ internal fun MoexScreenTabMarkets(
                                     tradeSegments = zChartOverlay.tradeSegments,
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
+                                    onFullscreenClick = enterZChartFullscreen,
                                 )
                             }
                             item {

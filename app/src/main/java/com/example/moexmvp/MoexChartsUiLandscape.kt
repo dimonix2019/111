@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,7 +21,10 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -37,7 +39,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -85,16 +86,41 @@ internal fun LandscapeZScoreFullscreenPane(
     areaFillColor: String? = null,
     strategyTestTradeItems: List<StrategyTestTradeItem> = emptyList(),
     openPosition: PortfolioOpenPosition? = null,
+    onExitFullscreenClick: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        if (showPeriodSelector) {
-            MarketsPeriodSelector(
-                selected = selectedPeriod,
-                onSelect = onPeriodSelect,
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (showPeriodSelector) {
+                MarketsPeriodSelector(
+                    selected = selectedPeriod,
+                    onSelect = onPeriodSelect,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Box(modifier = Modifier.weight(1f))
+            }
+            onExitFullscreenClick?.let { onExit ->
+                IconButton(
+                    onClick = onExit,
+                    modifier = Modifier.size(36.dp),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = Color(0xFF90CAF9),
+                    ),
+                ) {
+                    Icon(
+                        Icons.Filled.CloseFullscreen,
+                        contentDescription = "Свернуть",
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
         }
         BoxWithConstraints(
             modifier = Modifier
