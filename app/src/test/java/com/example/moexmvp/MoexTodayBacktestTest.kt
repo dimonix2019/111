@@ -18,6 +18,7 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_noSignalDayStreaks_threshold08_07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_compare_threshold08_07_vs_08_05_notional50k`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_vs_single100k`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_threshold18_13_plus_07_05`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_baseline_vs_pullbackEntry_peakExit`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_only_fixedExit07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_peakTrail_grid`
@@ -41,6 +42,8 @@ class MoexTodayBacktestTest {
         const val BACKTEST_COMMISSION_PCT_PER_SIDE = 0.04
         val THRESH_08_07 = DynamicThresholds(0.8, 0.7, null)
         val THRESH_08_05 = DynamicThresholds(0.8, 0.5, null)
+        val THRESH_18_13 = DynamicThresholds(1.8, 1.3, null)
+        val THRESH_07_05 = DynamicThresholds(0.7, 0.5, null)
     }
 
     @Test
@@ -719,6 +722,64 @@ class MoexTodayBacktestTest {
             "Эфф. PnL на 100k капитала: 2×50k ${fmt(dualPnl)} (${fmt(dualPnl / 100_000 * 100)}%) · " +
                 "100k@0.7 ${fmt(m100_07.totalPnlRubApprox)} (${fmt(m100_07.totalReturnPercent)}%)"
         )
+    }
+
+    @Test
+    fun moexBacktest_255d_dual50k_threshold18_13_plus_07_05() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        val m50_18_13 = runBacktest(points, THRESH_18_13, BACKTEST_NOTIONAL_50K_RUB)!!
+        val m50_07_05 = runBacktest(points, THRESH_07_05, BACKTEST_NOTIONAL_50K_RUB)!!
+        val m100_18_13 = runBacktest(points, THRESH_18_13, BACKTEST_NOTIONAL_100K_RUB)!!
+        val m100_07_05 = runBacktest(points, THRESH_07_05, BACKTEST_NOTIONAL_100K_RUB)!!
+
+        val dualPnl = m50_18_13.totalPnlRubApprox + m50_07_05.totalPnlRubApprox
+        val dualCommission = m50_18_13.totalCommissionRub + m50_07_05.totalCommissionRub
+        val dualTrades = m50_18_13.closedTrades.size + m50_07_05.closedTrades.size
+        val dualMaxDd = maxDrawdownOfSummedDailyEquity(m50_18_13, m50_07_05)
+        val overlapBars = countBarsWithBothLegsOpen(points, THRESH_18_13, THRESH_07_05)
+        val overlapPct = overlapBars * 100.0 / (points.size - 1).coerceAtLeast(1)
+
+        println("=== MOEX 255д: 2×50k (1.8/1.3 + 0.7/0.5) vs 1×100k ===")
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров)")
+        println("Капитал везде ~100k ₽ (две ноги по 50k или одна на 100k), x1, комиссия 0.04%/сторона")
+        println()
+        printBacktestRow("2 ноги: 50k @ 1.8/1.3 (внешняя)", m50_18_13)
+        printBacktestRow("2 ноги: 50k @ 0.7/0.5 (внутренняя)", m50_07_05)
+        println(
+            String.format(
+                Locale.US,
+                "%-28s | %5d | %12.2f | %12.2f | %10.2f | %8s",
+                "ИТОГО 2×50k (сумма ног)",
+                dualTrades,
+                dualPnl,
+                dualMaxDd,
+                dualCommission,
+                "—"
+            )
+        )
+        println("  баров 15м с обеими ногами в позиции: $overlapBars (${fmt(overlapPct)}% ряда)")
+        println()
+        printBacktestRow("1 сделка: 100k @ 1.8/1.3", m100_18_13)
+        printBacktestRow("1 сделка: 100k @ 0.7/0.5", m100_07_05)
+        println("---")
+        val vsOuter = dualPnl - m100_18_13.totalPnlRubApprox
+        val vsInner = dualPnl - m100_07_05.totalPnlRubApprox
+        val bestSingle = maxOf(m100_18_13.totalPnlRubApprox, m100_07_05.totalPnlRubApprox)
+        println("Δ PnL: 2×50k минус 100k@1.8/1.3 = ${fmt(vsOuter)} ₽")
+        println("Δ PnL: 2×50k минус 100k@0.7/0.5 = ${fmt(vsInner)} ₽")
+        println("Δ PnL: 2×50k минус лучшая одна нога = ${fmt(dualPnl - bestSingle)} ₽")
+        println(
+            "Δ комиссий: 2×50k ${fmt(dualCommission)} vs 100k@0.7/0.5 ${fmt(m100_07_05.totalCommissionRub)} " +
+                "(+${fmt(dualCommission - m100_07_05.totalCommissionRub)} ₽ при двух ногах)"
+        )
+        println(
+            "Эфф. PnL на 100k капитала: 2×50k ${fmt(dualPnl)} (${fmt(dualPnl / 100_000 * 100)}%) · " +
+                "100k@1.8/1.3 ${fmt(m100_18_13.totalPnlRubApprox)} (${fmt(m100_18_13.totalReturnPercent)}%) · " +
+                "100k@0.7/0.5 ${fmt(m100_07_05.totalPnlRubApprox)} (${fmt(m100_07_05.totalReturnPercent)}%)"
+        )
+        val innerTrades = m50_07_05.closedTrades.size
+        val outerTrades = m50_18_13.closedTrades.size
+        println("Сделок: внутренняя 0.7/0.5 = $innerTrades, внешняя 1.8/1.3 = $outerTrades (сумма $dualTrades)")
     }
 
     @Test
