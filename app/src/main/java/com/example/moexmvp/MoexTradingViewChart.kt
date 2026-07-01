@@ -283,6 +283,7 @@ internal fun buildTradingViewChartPayloadJson(
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
+    chartBackgroundHex: String? = null,
 ): String {
     val candleArr = JSONArray()
     val seenTimes = linkedSetOf<Long>()
@@ -414,6 +415,9 @@ internal fun buildTradingViewChartPayloadJson(
         )
     if (!areaFillColor.isNullOrBlank()) {
         root.put("areaFillColor", areaFillColor)
+    }
+    if (!chartBackgroundHex.isNullOrBlank()) {
+        root.put("backgroundColor", chartBackgroundHex)
     }
     return root.toString()
 }
@@ -606,6 +610,7 @@ internal fun TradingViewZScoreChartCard(
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
+    chartBackgroundHex: String? = null,
     onFullscreenClick: (() -> Unit)? = null,
     onExitFullscreenClick: (() -> Unit)? = null,
 ) {
@@ -621,6 +626,7 @@ internal fun TradingViewZScoreChartCard(
         initialWindowWidth,
         initialWindowStart,
         areaFillColor,
+        chartBackgroundHex,
     ) {
         buildTradingViewChartPayloadJson(
             candles = candles,
@@ -633,12 +639,18 @@ internal fun TradingViewZScoreChartCard(
             initialWindowWidth = initialWindowWidth,
             initialWindowStart = initialWindowStart,
             areaFillColor = areaFillColor,
+            chartBackgroundHex = chartBackgroundHex,
         )
     }
+    val cardBg = chartBackgroundHex?.let { hex ->
+        runCatching {
+            Color(AndroidColor.parseColor(hex))
+        }.getOrNull()
+    } ?: Color(0xFF131722)
     Column(
         modifier = modifier
             .then(if (landscapeMinimal) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
-            .background(Color(0xFF131722), RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp)),
+            .background(cardBg, RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp)),
     ) {
         if (!landscapeMinimal && (title.isNotBlank() || onFullscreenClick != null || onExitFullscreenClick != null)) {
             Row(

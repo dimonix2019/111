@@ -54,6 +54,26 @@ internal fun applyLiveSpreadToM15ChartPoints(
     return patched
 }
 
+/** Хвост spread-графика: свечи и точки с live spread% из 1м. */
+internal fun applyLiveSpreadToM15SpreadChart(
+    points: List<DataPoint>,
+    candles: List<CandlePoint>,
+    liveSpreadPercent: Double?,
+): Pair<List<DataPoint>, List<CandlePoint>> {
+    val patchedPts = applyLiveSpreadToM15ChartPoints(points, liveSpreadPercent)
+    if (liveSpreadPercent == null || candles.isEmpty()) return patchedPts to candles
+    val last = candles.last()
+    if (kotlin.math.abs(last.close - liveSpreadPercent) < 1e-9) return patchedPts to candles
+    val open = last.open
+    val patchedCandles = candles.toMutableList()
+    patchedCandles[patchedCandles.lastIndex] = last.copy(
+        close = liveSpreadPercent,
+        high = maxOf(open, liveSpreadPercent),
+        low = minOf(open, liveSpreadPercent),
+    )
+    return patchedPts to patchedCandles
+}
+
 @Composable
 internal fun rememberM15ZChartSeries(
     simPoints: List<DataPoint>,

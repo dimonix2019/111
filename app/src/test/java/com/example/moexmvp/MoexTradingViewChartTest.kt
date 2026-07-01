@@ -81,6 +81,34 @@ class MoexTradingViewChartTest {
     }
 
     @Test
+    fun buildTradingViewChartPayloadJson_includesOptionalBackgroundColor() {
+        val candles = listOf(
+            CandlePoint("2026-05-19 10:00", open = 5.0, high = 5.1, low = 4.9, close = 5.05),
+        )
+        val points = listOf(
+            DataPoint(
+                timestampMillis = m15CandleLabelToUnixSec("2026-05-19 10:00") * 1000L,
+                tradeDate = "2026-05-19 10:00",
+                tatnClose = 100.0,
+                tatnpClose = 90.0,
+                spreadPercent = 5.05,
+                diff = 10.0,
+                zScore = 0.05,
+            ),
+        )
+        val json = JSONObject(
+            buildTradingViewChartPayloadJson(
+                candles = candles,
+                displayPoints = points,
+                referenceLines = emptyList(),
+                pointMarkers = emptyList(),
+                chartBackgroundHex = MARKETS_SPREAD_CHART_BG_HEX,
+            )
+        )
+        assertEquals(MARKETS_SPREAD_CHART_BG_HEX, json.getString("backgroundColor"))
+    }
+
+    @Test
     fun buildTradingViewChartPayloadJson_markerTradeIdMatchesTradeSegment() {
         val candles = listOf(
             CandlePoint("2026-05-19 10:00", open = 0.0, high = 0.1, low = -0.1, close = 0.05),

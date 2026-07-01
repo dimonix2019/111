@@ -438,7 +438,21 @@
       return RIGHT_OFFSET_BARS;
     }
 
+    function applyBackground(color) {
+      if (!color || typeof color !== 'string') return;
+      TV.bg = color;
+      document.body.style.background = color;
+      const chartEl = document.getElementById('chart');
+      if (chartEl) chartEl.style.background = color;
+      if (chart) {
+        chart.applyOptions({
+          layout: { background: { type: LightweightCharts.ColorType.Solid, color } },
+        });
+      }
+    }
+
     function renderPayload(data) {
+      applyBackground(data.backgroundColor);
       const candles = dedupeCandles(data.candles || []);
       if (!candles.length) return;
 
