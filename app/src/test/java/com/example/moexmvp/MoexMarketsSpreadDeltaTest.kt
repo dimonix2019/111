@@ -113,10 +113,7 @@ class MoexMarketsSpreadDeltaTest {
             tradeAmountRub = 10_000.0,
         )
         assertEquals(SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated, mode)
-        val effNotional = resolveTradeNotionalRubForPnl(exec, emptyList(), 10_000.0) *
-            portfolioPnlLeverageMultiplier(TinkoffExecutionMode.Prod, 7.0)
-        val impliedDelta = brokerImpliedSpreadDeltaPp(130.0, effNotional)!!
-        assertEquals(94.22, impliedDelta * rubPer, 0.05)
+        assertEquals(94.22, 0.5 * rubPer, 0.05)
         assertEquals(94.22, signalMonitorOpenTradeSnapshot(exec)!!.pnlRub, 0.01)
     }
 
@@ -132,11 +129,58 @@ class MoexMarketsSpreadDeltaTest {
     }
 
     @Test
-    fun resolveSpreadDeltaCalibrationPp_prefersBrokerImplied() {
+    fun resolveSpreadDeltaCalibrationPp_prefersMoexDeltaForShutterParity() {
         val brokerDelta = brokerImpliedSpreadDeltaPp(130.0, 89_440.0)!!
-        val calib = resolveSpreadDeltaCalibrationPp(0.05, 130.0, 89_440.0)
+        val calib = resolveSpreadDeltaCalibrationPp(0.5, 130.0, 89_440.0)
+        assertEquals(0.5, calib!!, 1e-6)
+        assertTrue(abs(brokerDelta - 0.5) > 0.05)
+    }
+
+    @Test
+    fun resolveSpreadDeltaCalibrationPp_fallsBackToBrokerWhenMoexFlat() {
+        val brokerDelta = brokerImpliedSpreadDeltaPp(253.0, 89_440.0)!!
+        val calib = resolveSpreadDeltaCalibrationPp(0.0, 253.0, 89_440.0)
         assertEquals(brokerDelta, calib!!, 1e-6)
-        assertTrue(abs(brokerDelta) > 0.1)
+    }
+
+    @Test
+    fun resolveSpreadDeltaChartRubPerPoint_tailPnLMatchesShutterWhenMoexDiffersFromBroker() {
+        val exec = SandboxSpreadExecUi(
+            tradeId = "P-2",
+            signalType = StrategySignalType.EnterLong,
+            zScore = -2.0,
+            barTimestampMillis = 1_000L,
+            executedAtMillis = 2_000L,
+            entrySpreadPercent = 8.0,
+            source = PortfolioExecSource.AUTO,
+            directionLabel = "long",
+            entryTimeMsk = "2026-05-17 10:00",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "L",
+            shortLegSideRu = "S",
+            volumeText = "1+1",
+            confirmLabel = "авто",
+            correlationTag = "t",
+            notificationIdsText = "—",
+            legs = emptyList(),
+            executionNotionalRub = 89_440.0,
+            legLongPnlSplitRubApprox = 280.0,
+            legShortPnlSplitRubApprox = 30.0,
+            netPnlRubApprox = 253.0,
+        )
+        val moexDelta = 0.69
+        val (rubPer, mode) = resolveSpreadDeltaChartRubPerPoint(
+            openExec = exec,
+            currentDeltaPp = moexDelta,
+            sourcePoints = emptyList(),
+            executionMode = TinkoffExecutionMode.Prod,
+            leverage = 7.0,
+            commissionPercentPerSide = 0.04,
+            tradeAmountRub = 10_000.0,
+        )
+        assertEquals(SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated, mode)
+        assertEquals(253.0, moexDelta * rubPer, 0.05)
     }
 
     @Test

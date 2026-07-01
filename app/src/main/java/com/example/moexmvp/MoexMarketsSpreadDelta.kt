@@ -57,7 +57,7 @@ internal fun brokerImpliedSpreadDeltaPp(grossRub: Double, effNotionalRub: Double
     return grossRub * 100.0 / effNotionalRub
 }
 
-/** Знаменатель калибровки ₽/п.п.: broker gross → Δпп, иначе MOEX Δпп. */
+/** Знаменатель калибровки ₽/п.п.: live MOEX Δпп (parity со шторкой на хвосте), иначе broker implied. */
 internal fun resolveSpreadDeltaCalibrationPp(
     moexDeltaPp: Double,
     brokerGrossRub: Double?,
@@ -65,15 +65,15 @@ internal fun resolveSpreadDeltaCalibrationPp(
 ): Double? {
     val brokerDelta = brokerGrossRub?.let { brokerImpliedSpreadDeltaPp(it, effNotionalRub) }
     return when {
-        brokerDelta != null && abs(brokerDelta) > 1e-6 -> brokerDelta
         abs(moexDeltaPp) > 1e-6 -> moexDeltaPp
+        brokerDelta != null && abs(brokerDelta) > 1e-6 -> brokerDelta
         else -> null
     }
 }
 
 /**
  * ₽ на 1 п.п. Δ спреда для правой оси.
- * При открытой сделке: net Tinkoff / Δпп (broker implied или live MOEX).
+ * При открытой сделке: net Tinkoff / live MOEX Δпп (хвост 1м); broker implied — если MOEX Δ ≈ 0.
  */
 internal fun resolveSpreadDeltaChartRubPerPoint(
     openExec: SandboxSpreadExecUi?,
