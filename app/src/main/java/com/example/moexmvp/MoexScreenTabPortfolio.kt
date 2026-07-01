@@ -249,8 +249,15 @@ internal fun MoexScreenTabPortfolio(
                         },
                         leverage = portfolioLeverage,
                         commissionPercentPerSide = portfolioCommissionPercent,
+                        tradeAmountRub = portfolioTradeAmountRub,
                         onLeverageChange = { portfolioLeverage = it },
                         onCommissionChange = { portfolioCommissionPercent = it },
+                        onTradeAmountChange = { v ->
+                            portfolioTradeAmountRub = v.coerceIn(
+                                STRATEGY_TEST_ACCOUNT_RUB_MIN,
+                                STRATEGY_TEST_ACCOUNT_RUB_MAX,
+                            )
+                        },
                         realTradeEntryThreshold = (realTradeEntryThreshold ?: dynamicThresholds.entry)
                             .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
                         realTradeExitThreshold = (realTradeExitThreshold ?: dynamicThresholds.exit)

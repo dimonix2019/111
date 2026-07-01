@@ -199,6 +199,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
     }
 
+    LaunchedEffect(portfolioTradeAmountRub) {
+        withContext(Dispatchers.IO) {
+            TinkoffSandboxStorage.setPortfolioTradeAmountRub(context, portfolioTradeAmountRub)
+        }
+    }
+
     LaunchedEffect(Unit) {
         val rt = loadRealTradeZThresholds(context, dynamicThresholds)
         if (realTradeEntryThreshold == null) realTradeEntryThreshold = rt.entry

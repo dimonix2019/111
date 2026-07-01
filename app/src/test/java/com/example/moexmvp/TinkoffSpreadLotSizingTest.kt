@@ -71,6 +71,23 @@ class TinkoffSpreadLotSizingTest {
     }
 
     @Test
+    fun computeSpreadQuantityLots_tradeAmountCap_limitsLeverageSizing() {
+        val sizing = computeSpreadQuantityLots(
+            SpreadLotSizingInput(
+                cashRub = 10_000.0,
+                priceTatN = 576.0,
+                priceTatNp = 542.0,
+                liquidPortfolioRub = 10_000.0,
+                correctedMarginRub = 0.0,
+                leverageForNotional = 7.0,
+            )
+        )
+        assertEquals(62, sizing.lotsFromLeverage)
+        assertEquals(62, sizing.quantityLots)
+        assertTrue(sizing.executionNotionalRub < 100_000.0)
+    }
+
+    @Test
     fun computeSpreadQuantityLots_limitsByMarginHeadroomWhenLoaded() {
         val sizing = computeSpreadQuantityLots(
             SpreadLotSizingInput(

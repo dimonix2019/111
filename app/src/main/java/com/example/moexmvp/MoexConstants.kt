@@ -57,6 +57,9 @@ internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 /** Debounce rapid threshold/leverage tweaks on «Тест страт.» before rerunning simulation. */
 internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 750L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
+/** «Портфель»: целевая сумма в одной сделке (лимит для лот-сайзинга и fallback PnL). */
+internal const val DEFAULT_PORTFOLIO_TRADE_AMOUNT_RUB = 10_000.0
+internal const val PREF_PORTFOLIO_TRADE_AMOUNT_RUB = "portfolio_trade_amount_rub"
 /** «Тест страт.»: размер счёта по умолчанию (как субсчёт «Арбитраж» ~10k). */
 internal const val DEFAULT_STRATEGY_TEST_ACCOUNT_RUB = 10_000.0
 /** «Тест страт.»: доля капитала в сделку (остальное — резерв), parity Prod ≈80%. */
@@ -180,6 +183,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.264 — «Портфель»: контрол «Сумма в сделке» (10k ₽); «Закрыть все сделки» под «Тестовая пара».
 1.7.263 — «Портфель»: открытая сделка — спрэд вход/сейчас, Δ спред (PnL), номинал (80+80 · ≈₽).
 1.7.262 — Fix прогноз PnL: «Сейчас» = факт Tinkoff; сценарии калибруются от вход→сейчас, не μ+Z×σ MOEX.
 1.7.261 — «Портфель»: прогноз PnL по уровням Z (выход, 0, противоп.) при фикс. μ/σ 15м.

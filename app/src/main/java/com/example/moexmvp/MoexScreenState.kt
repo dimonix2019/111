@@ -31,6 +31,7 @@ internal class MoexScreenState(val context: Context) {
     var portfolioLookbackDays by mutableStateOf(loadPortfolioLookbackDays(context))
     var portfolioLeverage by mutableStateOf(7.0)
     var portfolioCommissionPercent by mutableStateOf(0.04)
+    var portfolioTradeAmountRub by mutableStateOf(DEFAULT_PORTFOLIO_TRADE_AMOUNT_RUB)
     var strategyTestAccountSizeRub by mutableStateOf(DEFAULT_STRATEGY_TEST_ACCOUNT_RUB)
     var strategyTestCapitalUsagePercent by mutableStateOf(DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT)
     /** Money-stop: % просадки на сделку от «Размер счёта» (0 = без лимита). */

@@ -54,6 +54,7 @@ internal suspend fun MoexScreenState.hydrateDeferredUiState() {
             portfolioLedgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
             executeSignalsOnSandbox = TinkoffSandboxStorage.isExecuteSignalsOnSandbox(context)
             sandboxSpreadAutoExecute = TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)
+            portfolioTradeAmountRub = TinkoffSandboxStorage.getPortfolioTradeAmountRub(context)
             strategyTestAccountSizeRub = loadStrategyTestAccountSizeRub(context)
             strategyTestCapitalUsagePercent = loadStrategyTestCapitalUsagePercent(context)
             strategyTestMaxLossDdPercent = loadStrategyTestMaxLossDdPercent(context)
