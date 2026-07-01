@@ -20,6 +20,7 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_vs_single100k`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_threshold18_13_plus_07_05`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual_thresholds_1m_compound`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_3y_dual_thresholds_1m_compound`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_baseline_vs_pullbackEntry_peakExit`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_only_fixedExit07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_peakTrail_grid`
@@ -39,6 +40,7 @@ class MoexTodayBacktestTest {
         const val BACKTEST_NOTIONAL_50K_RUB = 50_000.0
         const val BACKTEST_NOTIONAL_100K_RUB = 100_000.0
         const val BACKTEST_CAPITAL_1M_RUB = 1_000_000.0
+        const val BACKTEST_LOOKBACK_3Y_DAYS = 1095L
         const val BACKTEST_LEVERAGE_X1 = 1.0
         const val BACKTEST_LEVERAGE_X7 = 7.0
         const val BACKTEST_COMMISSION_PCT_PER_SIDE = 0.04
@@ -772,6 +774,33 @@ class MoexTodayBacktestTest {
         )
     }
 
+    @Test
+    fun moexBacktest_3y_dual_thresholds_1m_compound() = runBlocking {
+        val (_, points) = loadTatn15mPoints(BACKTEST_LOOKBACK_3Y_DAYS)
+        printDualThresholdPairReport(
+            points = points,
+            outer = THRESH_18_13,
+            inner = THRESH_07_05,
+            outerLabel = "1.8/1.3",
+            innerLabel = "0.7/0.5",
+            leverage = BACKTEST_LEVERAGE_X1,
+            capitalRub = BACKTEST_CAPITAL_1M_RUB,
+            compoundReturns = true,
+            periodLabel = "3г",
+        )
+        printDualThresholdPairReport(
+            points = points,
+            outer = THRESH_18_13,
+            inner = THRESH_07_05,
+            outerLabel = "1.8/1.3",
+            innerLabel = "0.7/0.5",
+            leverage = BACKTEST_LEVERAGE_X7,
+            capitalRub = BACKTEST_CAPITAL_1M_RUB,
+            compoundReturns = true,
+            periodLabel = "3г",
+        )
+    }
+
     private fun printDualThresholdPairReport(
         points: List<DataPoint>,
         outer: DynamicThresholds,
@@ -781,6 +810,7 @@ class MoexTodayBacktestTest {
         leverage: Double,
         capitalRub: Double = BACKTEST_NOTIONAL_100K_RUB,
         compoundReturns: Boolean = false,
+        periodLabel: String = "${PORTFOLIO_M15_LOOKBACK_DAYS}д",
     ) {
         val legNotional = capitalRub / 2.0
         val m50Outer = runBacktest(
@@ -809,7 +839,7 @@ class MoexTodayBacktestTest {
         val periodDays = periodCalendarDays(points)
 
         println(
-            "=== MOEX 255д: 2×½ + 1×полный ($outerLabel + $innerLabel) · $levLabel · $capLabel · ${formatCapitalLabel(capitalRub)} ==="
+            "=== MOEX $periodLabel: 2×½ + 1×полный ($outerLabel + $innerLabel) · $levLabel · $capLabel · ${formatCapitalLabel(capitalRub)} ==="
         )
         println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров, ~${periodDays.roundToInt()} дн.)")
         println(
@@ -1222,9 +1252,11 @@ class MoexTodayBacktestTest {
         return count
     }
 
-    private suspend fun loadTatn15mPoints(): Pair<LocalDate, List<DataPoint>> {
+    private suspend fun loadTatn15mPoints(
+        lookbackDays: Long = PORTFOLIO_M15_LOOKBACK_DAYS,
+    ): Pair<LocalDate, List<DataPoint>> {
         val today = LocalDate.now(zone)
-        val from = today.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
+        val from = today.minusDays(lookbackDays)
         val till = portfolioM15MoexFetchTillDate()
         val entities = fetchPortfolio15mSpreadEntitiesChunked(from, till)
         assertTrue("Нет 15м данных с MOEX ($from…$till)", entities.isNotEmpty())
