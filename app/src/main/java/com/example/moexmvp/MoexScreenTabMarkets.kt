@@ -466,18 +466,6 @@ internal fun MoexScreenTabMarkets(
                                     initialWindowStart = intraday1mWindow.second,
                                 )
                             }
-                            if (marketsM15SourcePoints.size >= Z_SCORE_ROLLING_MIN_BARS) {
-                                item {
-                                    IntradayZScoreLineChartCard(
-                                        title = "Z-score · 1м",
-                                        tatn = tatn1m,
-                                        tatnp = tatnp1m,
-                                        m15Points = marketsM15SourcePoints,
-                                        initialWindowWidth = intraday1mWindow.first,
-                                        initialWindowStart = intraday1mWindow.second,
-                                    )
-                                }
-                            }
                         }
                         val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()
                         val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isMarketsDataLoadActive)

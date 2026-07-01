@@ -185,6 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.277 — «Рынок»: убран график Z-score 1м.
 1.7.276 — «Рынок»: убраны графики Δ спред 1м и Spread 15м (остался Δ спред 15м TradingView).
 1.7.275 — «Рынок»: выход из fullscreen графика при повороте в портрет; линия «вход» — фактическая Δ на баре входа.
 1.7.274 — «Рынок»: Δ спред 15м — TradingView как Z-score; оси Δ п.п. и PnL ₽ (те же данные).
