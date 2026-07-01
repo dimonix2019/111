@@ -284,6 +284,8 @@ internal fun buildTradingViewChartPayloadJson(
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
     chartBackgroundHex: String? = null,
+    pnlRubPerSpreadPoint: Double? = null,
+    pnlNetOffsetRub: Double = 0.0,
 ): String {
     val candleArr = JSONArray()
     val seenTimes = linkedSetOf<Long>()
@@ -418,6 +420,14 @@ internal fun buildTradingViewChartPayloadJson(
     }
     if (!chartBackgroundHex.isNullOrBlank()) {
         root.put("backgroundColor", chartBackgroundHex)
+    }
+    if (pnlRubPerSpreadPoint != null) {
+        root.put(
+            "pnlAxis",
+            JSONObject()
+                .put("rubPerPoint", pnlRubPerSpreadPoint)
+                .put("netOffset", pnlNetOffsetRub),
+        )
     }
     return root.toString()
 }
@@ -597,6 +607,7 @@ internal fun TradingViewZScoreChart(
 @Composable
 internal fun TradingViewZScoreChartCard(
     title: String,
+    subtitle: String? = null,
     candles: List<CandlePoint>,
     displayPoints: List<DataPoint>,
     chartHeightDp: Int,
@@ -611,6 +622,8 @@ internal fun TradingViewZScoreChartCard(
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
     chartBackgroundHex: String? = null,
+    pnlRubPerSpreadPoint: Double? = null,
+    pnlNetOffsetRub: Double = 0.0,
     onFullscreenClick: (() -> Unit)? = null,
     onExitFullscreenClick: (() -> Unit)? = null,
 ) {
@@ -627,6 +640,8 @@ internal fun TradingViewZScoreChartCard(
         initialWindowStart,
         areaFillColor,
         chartBackgroundHex,
+        pnlRubPerSpreadPoint,
+        pnlNetOffsetRub,
     ) {
         buildTradingViewChartPayloadJson(
             candles = candles,
@@ -640,6 +655,8 @@ internal fun TradingViewZScoreChartCard(
             initialWindowStart = initialWindowStart,
             areaFillColor = areaFillColor,
             chartBackgroundHex = chartBackgroundHex,
+            pnlRubPerSpreadPoint = pnlRubPerSpreadPoint,
+            pnlNetOffsetRub = pnlNetOffsetRub,
         )
     }
     val cardBg = chartBackgroundHex?.let { hex ->
@@ -652,7 +669,7 @@ internal fun TradingViewZScoreChartCard(
             .then(if (landscapeMinimal) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
             .background(cardBg, RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp)),
     ) {
-        if (!landscapeMinimal && (title.isNotBlank() || onFullscreenClick != null || onExitFullscreenClick != null)) {
+        if (!landscapeMinimal && (title.isNotBlank() || !subtitle.isNullOrBlank() || onFullscreenClick != null || onExitFullscreenClick != null)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -660,18 +677,26 @@ internal fun TradingViewZScoreChartCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (title.isNotBlank()) {
-                    Text(
-                        text = title,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFE5E7EB),
-                        fontSize = 14.sp,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 4.dp),
-                    )
-                } else {
-                    Box(modifier = Modifier.weight(1f))
+                Column(modifier = Modifier.weight(1f)) {
+                    if (title.isNotBlank()) {
+                        Text(
+                            text = title,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFE5E7EB),
+                            fontSize = 14.sp,
+                            modifier = Modifier
+                                .padding(start = 4.dp),
+                        )
+                    }
+                    subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
+                        Text(
+                            text = sub,
+                            color = Color(0xFF80CBC4),
+                            fontSize = 10.sp,
+                            lineHeight = 12.sp,
+                            modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                        )
+                    }
                 }
                 when {
                     onExitFullscreenClick != null -> {

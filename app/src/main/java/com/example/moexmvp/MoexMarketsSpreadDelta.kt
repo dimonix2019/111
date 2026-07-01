@@ -5,6 +5,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 internal data class SpreadDeltaSeries(
     val labels: List<String>,
@@ -52,6 +54,108 @@ internal data class SpreadDeltaChartRubAxis(
 
 internal fun spreadDeltaNetRubAtPp(deltaPp: Double, axis: SpreadDeltaChartRubAxis): Double =
     deltaPp * axis.rubPerSpreadPoint + axis.netOffsetRub
+
+/** 15м свечи Δ спреда (п.п.): close = Δ, open = Δ предыдущего бара. */
+internal fun buildSpreadDeltaCandles(
+    labels: List<String>,
+    deltasPp: List<Double>,
+): List<CandlePoint> {
+    if (labels.isEmpty() || labels.size != deltasPp.size) return emptyList()
+    return labels.indices.map { i ->
+        val close = deltasPp[i]
+        val open = if (i == 0) close else deltasPp[i - 1]
+        CandlePoint(
+            label = labels[i],
+            open = open,
+            high = max(open, close),
+            low = min(open, close),
+            close = close,
+        )
+    }
+}
+
+/** Точки для TradingView (zScore = Δ п.п. для маркеров/совместимости). */
+internal fun buildSpreadDeltaDisplayPoints(
+    labels: List<String>,
+    deltasPp: List<Double>,
+): List<DataPoint> {
+    if (labels.isEmpty() || labels.size != deltasPp.size) return emptyList()
+    return labels.indices.map { i ->
+        val label = labels[i]
+        val ts = runCatching { m15CandleLabelToUnixSec(label) * 1000L }.getOrElse { 0L }
+        DataPoint(
+            timestampMillis = ts,
+            tradeDate = label,
+            tatnClose = 0.0,
+            tatnpClose = 0.0,
+            spreadPercent = 0.0,
+            diff = 0.0,
+            zScore = deltasPp[i],
+        )
+    }
+}
+
+internal fun buildSpreadDeltaTvReferenceLines(
+    context: SpreadDelta15mChartContext,
+): List<ChartReferenceLine> {
+    val lines = mutableListOf<ChartReferenceLine>()
+    val zeroLine = if (context.fromEntry) {
+        ChartReferenceLine(
+            value = 0.0,
+            color = Color(0xFFFFB74D),
+            label = "вход 0",
+            dashOnPx = 6f,
+            dashOffPx = 6f,
+        )
+    } else {
+        SPREAD_DELTA_ZERO_LINE
+    }
+    lines += zeroLine
+    val tailDelta = context.deltasPp.lastOrNull()
+    if (tailDelta != null && !tailDelta.isNaN()) {
+        val tailPnl = spreadDeltaNetRubAtPp(
+            tailDelta,
+            SpreadDeltaChartRubAxis(
+                rubPerSpreadPoint = context.rubPerSpreadPoint,
+                netOffsetRub = context.netOffsetRub,
+                mode = if (context.pnlAxisBrokerCalibrated) {
+                    SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated
+                } else {
+                    SpreadDeltaChartPnlAxisMode.ReferenceGross
+                },
+            ),
+        )
+        lines += ChartReferenceLine(
+            value = tailDelta,
+            color = Color(0xFF60A5FA),
+            label = buildString {
+                append("сейчас ")
+                append(formatSpreadDeltaPp(tailDelta))
+                append(" · ")
+                append(formatRubAxisValue(tailPnl))
+            },
+        )
+    }
+    return lines
+}
+
+internal fun spreadDeltaTvSubtitle(context: SpreadDelta15mChartContext): String {
+    val tailDelta = context.deltasPp.lastOrNull() ?: return context.subtitle
+    val tailPnl = spreadDeltaNetRubAtPp(
+        tailDelta,
+        SpreadDeltaChartRubAxis(
+            rubPerSpreadPoint = context.rubPerSpreadPoint,
+            netOffsetRub = context.netOffsetRub,
+            mode = SpreadDeltaChartPnlAxisMode.ReferenceGross,
+        ),
+    )
+    return buildString {
+        append(formatSpreadDeltaPp(tailDelta))
+        append(" · PnL ")
+        append(formatRubAxisValue(tailPnl))
+        if (context.pnlAxisBrokerCalibrated) append(" · шторка")
+    }
+}
 
 internal enum class SpreadDeltaChartPnlAxisMode {
     /** netPnlRubApprox / Δпп — parity со шторкой (GetPortfolio). */

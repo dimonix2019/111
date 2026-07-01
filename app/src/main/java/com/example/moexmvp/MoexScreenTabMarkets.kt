@@ -178,42 +178,6 @@ internal fun MoexScreenTabMarkets(
     val spreadDeltaChartPoints = remember(marketsM15ChartPoints, marketsLiveSpreadPercent) {
         applyLiveSpreadToM15ChartPoints(marketsM15ChartPoints, marketsLiveSpreadPercent)
     }
-    val marketsSpreadCandles = remember(marketsM15ChartPoints) {
-        buildSpreadCandlesFromM15Points(marketsM15ChartPoints)
-    }
-    val marketsSpreadChartSeries = remember(
-        marketsM15ChartPoints,
-        marketsSpreadCandles,
-        marketsLiveSpreadPercent,
-    ) {
-        applyLiveSpreadToM15SpreadChart(
-            marketsM15ChartPoints,
-            marketsSpreadCandles,
-            marketsLiveSpreadPercent,
-        )
-    }
-    val spreadChartPoints = marketsSpreadChartSeries.first
-    val spreadChartCandles = marketsSpreadChartSeries.second
-    val openExecForSpreadChart = remember(sandboxSpreadExecutions, sandboxSpreadExecReload) {
-        resolveSingleOpenExecutionForDisplay(sandboxSpreadExecutions)
-    }
-    val spreadChartReferenceLines = remember(
-        marketsLiveSpreadPercent,
-        spreadChartPoints,
-        openExecForSpreadChart,
-        marketsM15SourcePoints,
-    ) {
-        val current = marketsLiveSpreadPercent
-            ?: spreadChartPoints.lastOrNull()?.spreadPercent
-        val entry = openExecForSpreadChart?.let { exec ->
-            resolveEntrySpreadPercent(
-                exec.entrySpreadPercent,
-                exec.barTimestampMillis,
-                marketsM15SourcePoints.ifEmpty { spreadChartPoints },
-            ).takeUnless { it.isNaN() }
-        }
-        buildSpreadChartReferenceLines(current, entry)
-    }
     val spreadDelta15mContext = remember(
         spreadDeltaChartPoints,
         marketsM15SourcePoints,
@@ -545,17 +509,25 @@ internal fun MoexScreenTabMarkets(
                                 )
                             }
                             item {
-                                TradingViewZScoreChartCard(
-                                    title = "Spread 15м · (TATN/TATNP−1)×100",
-                                    candles = spreadChartCandles,
-                                    displayPoints = spreadChartPoints,
+                                ChartCard(
+                                    title = "Spread 15м = (TATN / TATNP - 1) * 100",
+                                    series = listOf(
+                                        ChartSeries(
+                                            "Spread %",
+                                            Color(0xFF69F0AE),
+                                            marketsM15ChartPoints.map { it.spreadPercent }
+                                        )
+                                    ),
+                                    labels = marketsM15ChartPoints.map { it.tradeDate },
                                     chartHeightDp = MARKETS_SPREAD_CHART_HEIGHT_DP,
-                                    referenceLines = spreadChartReferenceLines,
-                                    pointMarkers = emptyList(),
-                                    tradeSegments = emptyList(),
-                                    initialWindowWidth = marketsZInitialWindow.first,
-                                    initialWindowStart = marketsZInitialWindow.second,
-                                    chartBackgroundHex = MARKETS_SPREAD_CHART_BG_HEX,
+                                    rightAxisPercentBase = spreadPercentBaseForChartRightAxis(marketsM15ChartPoints),
+                                    yScale = YAxisScale.Auto,
+                                    showLegend = false,
+                                    enableZoomPan = false,
+                                    markerScale = 1f,
+                                    showZoomHint = false,
+                                    m15TimeLabels = true,
+                                    xLabelStyle = ChartXLabelStyleHorizontal,
                                 )
                             }
                             spreadDelta15mContext?.let { spreadDelta15m ->

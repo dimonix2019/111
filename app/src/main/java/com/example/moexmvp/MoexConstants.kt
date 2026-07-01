@@ -121,9 +121,9 @@ internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 internal const val MARKETS_INTRADAY_QUOTES_CHART_HEIGHT_DP = 110
 /** Z-score 1м — в 3 раза ниже котировок TATN/TATNP. */
 internal const val MARKETS_INTRADAY_Z1M_CHART_HEIGHT_DP = MARKETS_INTRADAY_QUOTES_CHART_HEIGHT_DP / 3
-internal const val MARKETS_SPREAD_CHART_HEIGHT_DP = 320
-/** Фон TradingView-графика спреда 15м на «Рынок». */
-internal const val MARKETS_SPREAD_CHART_BG_HEX = "#0D2818"
+internal const val MARKETS_SPREAD_CHART_HEIGHT_DP = 104
+/** Высота TradingView-графика Δ спреда 15м (как Z-score). */
+internal const val MARKETS_SPREAD_DELTA_TV_HEIGHT_DP = 320
 internal const val MARKETS_VOLATILITY_CHART_HEIGHT_DP = 66
 
 /** Мин. интервал между refresh после восстановления сети (защита от шторма callback). */
@@ -185,6 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.274 — «Рынок»: Δ спред 15м — TradingView как Z-score; оси Δ п.п. и PnL ₽ (те же данные).
 1.7.273 — «Рынок»: Spread 15м — TradingView как Z-score; зелёный фон; линии «сейчас» и «вход».
 1.7.272 — Fix CI: сборка 1.7.271 не публиковалась (ошибка компиляции); публикация APK.
 1.7.271 — Fix Δ спред: фикс. шкала ₽ (номинал/100); хвост линии — broker gross (двигается с Tinkoff).

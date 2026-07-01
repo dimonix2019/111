@@ -188,7 +188,7 @@ internal fun LandscapeSpreadDeltaFullscreenPane(
 @Composable
 internal fun SpreadDelta15mChartCard(
     context: SpreadDelta15mChartContext,
-    chartHeightDp: Int = MARKETS_SPREAD_CHART_HEIGHT_DP,
+    chartHeightDp: Int = MARKETS_SPREAD_DELTA_TV_HEIGHT_DP,
     enableZoomPan: Boolean = false,
     showZoomHint: Boolean = false,
     landscapeMinimal: Boolean = false,
@@ -197,31 +197,29 @@ internal fun SpreadDelta15mChartCard(
     onFullscreenClick: (() -> Unit)? = null,
     onExitFullscreenClick: (() -> Unit)? = null,
 ) {
-    ChartCard(
+    if (context.labels.isEmpty() || context.deltasPp.isEmpty()) return
+    val candles = remember(context.labels, context.deltasPp) {
+        buildSpreadDeltaCandles(context.labels, context.deltasPp)
+    }
+    val displayPoints = remember(context.labels, context.deltasPp) {
+        buildSpreadDeltaDisplayPoints(context.labels, context.deltasPp)
+    }
+    val referenceLines = remember(context) { buildSpreadDeltaTvReferenceLines(context) }
+    val subtitle = remember(context) { spreadDeltaTvSubtitle(context) }
+    TradingViewZScoreChartCard(
         title = context.title,
-        subtitle = context.subtitle,
-        series = listOf(
-            ChartSeries(
-                "Δ п.п.",
-                SPREAD_DELTA_LINE_COLOR,
-                context.deltasPp,
-            ),
-        ),
-        labels = context.labels,
+        subtitle = if (landscapeMinimal) null else subtitle,
+        candles = candles,
+        displayPoints = displayPoints,
         chartHeightDp = chartHeightDp,
-        yScale = YAxisScale.Auto,
-        yAxisTickFormatter = ::formatSpreadDeltaAxisTick,
-        rightAxisRubPerSpreadPoint = context.rubPerSpreadPoint,
-        rightAxisRubNetOffset = context.netOffsetRub,
-        referenceLines = listOf(SPREAD_DELTA_ZERO_LINE),
-        showLegend = false,
-        enableZoomPan = enableZoomPan,
-        showZoomHint = showZoomHint,
-        m15TimeLabels = true,
-        xLabelStyle = ChartXLabelStyleHorizontal,
+        referenceLines = referenceLines,
+        pointMarkers = emptyList(),
+        tradeSegments = emptyList(),
         landscapeMinimal = landscapeMinimal,
         initialWindowWidth = initialWindowWidth,
         initialWindowStart = initialWindowStart,
+        pnlRubPerSpreadPoint = context.rubPerSpreadPoint,
+        pnlNetOffsetRub = context.netOffsetRub,
         onFullscreenClick = onFullscreenClick,
         onExitFullscreenClick = onExitFullscreenClick,
     )

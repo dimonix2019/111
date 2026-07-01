@@ -170,6 +170,34 @@ class MoexMarketsSpreadDeltaTest {
     }
 
     @Test
+    fun buildSpreadDeltaCandles_usesDeltaPpAsClose() {
+        val labels = listOf("2026-05-19 10:00", "2026-05-19 10:15")
+        val deltas = listOf(0.0, 0.22)
+        val candles = buildSpreadDeltaCandles(labels, deltas)
+        assertEquals(0.0, candles[0].close, 1e-9)
+        assertEquals(0.0, candles[1].open, 1e-9)
+        assertEquals(0.22, candles[1].close, 1e-9)
+    }
+
+    @Test
+    fun buildSpreadDeltaTvReferenceLines_includesTailPnl() {
+        val ctx = SpreadDelta15mChartContext(
+            title = "Δ",
+            subtitle = "",
+            labels = listOf("2026-05-19 10:00"),
+            deltasPp = listOf(0.5),
+            rubPerSpreadPoint = 100.0,
+            netOffsetRub = -10.0,
+            fromEntry = true,
+            pnlAxisBrokerCalibrated = true,
+        )
+        val lines = buildSpreadDeltaTvReferenceLines(ctx)
+        assertEquals(2, lines.size)
+        assertTrue(lines[1].label.contains("сейчас"))
+        assertTrue(lines[1].label.contains("₽"))
+    }
+
+    @Test
     fun buildSpreadDelta15mChartContext_tailNetNearBrokerShutter() {
         val points = listOf(
             point("2026-05-17 10:00", spread = 8.0),

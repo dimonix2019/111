@@ -46,6 +46,7 @@
 
     let chart = null;
     let series = null;
+    let pnlSeries = null;
     let highlightSeries = null;
     let markersPlugin = null;
     let priceLines = [];
@@ -438,6 +439,53 @@
       return RIGHT_OFFSET_BARS;
     }
 
+    function formatRubAxis(value) {
+      const v = Number(value);
+      if (!Number.isFinite(v)) return '';
+      const a = Math.abs(v);
+      if (a >= 1e6) return (v >= 0 ? '+' : '') + (v / 1e6).toFixed(1) + 'M ₽';
+      if (a >= 1e4) return (v >= 0 ? '+' : '') + Math.round(v / 1e3) + 'k ₽';
+      return (v >= 0 ? '+' : '') + Math.round(v) + ' ₽';
+    }
+
+    function applyPnlAxis(data, candles) {
+      const axis = data.pnlAxis;
+      if (!chart || !series) return;
+      if (!axis || typeof axis.rubPerPoint !== 'number') {
+        if (pnlSeries) {
+          pnlSeries.setData([]);
+        }
+        series.applyOptions({ priceScaleId: 'right' });
+        chart.priceScale('left').applyOptions({ visible: false });
+        chart.priceScale('right').applyOptions({ visible: true, borderVisible: true });
+        return;
+      }
+      const rubPer = axis.rubPerPoint;
+      const netOffset = typeof axis.netOffset === 'number' ? axis.netOffset : 0;
+      series.applyOptions({ priceScaleId: 'left' });
+      chart.priceScale('left').applyOptions({ visible: true, borderVisible: true });
+      if (!pnlSeries) {
+        pnlSeries = chart.addSeries(LightweightCharts.LineSeries, {
+          color: 'rgba(105, 240, 250, 0.45)',
+          lineWidth: 1,
+          priceScaleId: 'right',
+          lastValueVisible: true,
+          priceLineVisible: false,
+          crosshairMarkerVisible: false,
+        });
+      }
+      const pnlData = candles.map((c) => ({
+        time: c.time,
+        value: c.close * rubPer + netOffset,
+      }));
+      pnlSeries.setData(pnlData);
+      chart.priceScale('right').applyOptions({
+        visible: true,
+        borderVisible: true,
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+      });
+    }
+
     function applyBackground(color) {
       if (!color || typeof color !== 'string') return;
       TV.bg = color;
@@ -498,6 +546,7 @@
 
       series.setData(candles);
       lastCandleTimes = candles.map((c) => c.time);
+      applyPnlAxis(data, candles);
       if (markersPlugin) {
         try { markersPlugin.detach(); } catch (e) {}
         markersPlugin = null;
