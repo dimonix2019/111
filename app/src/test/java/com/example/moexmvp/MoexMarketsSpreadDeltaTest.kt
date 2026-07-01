@@ -79,6 +79,45 @@ class MoexMarketsSpreadDeltaTest {
     }
 
     @Test
+    fun resolveSpreadDeltaChartRubPerPoint_brokerNetMatchesShutterAtCurrentDelta() {
+        val exec = SandboxSpreadExecUi(
+            tradeId = "P-1",
+            signalType = StrategySignalType.EnterLong,
+            zScore = -2.0,
+            barTimestampMillis = 1_000L,
+            executedAtMillis = 2_000L,
+            entrySpreadPercent = 8.0,
+            source = PortfolioExecSource.AUTO,
+            directionLabel = "long",
+            entryTimeMsk = "2026-05-17 10:00",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "L",
+            shortLegSideRu = "S",
+            volumeText = "1+1",
+            confirmLabel = "авто",
+            correlationTag = "t",
+            notificationIdsText = "—",
+            legs = emptyList(),
+            legLongPnlSplitRubApprox = 120.0,
+            legShortPnlSplitRubApprox = 10.0,
+            netPnlRubApprox = 94.22,
+        )
+        val (rubPer, mode) = resolveSpreadDeltaChartRubPerPoint(
+            openExec = exec,
+            currentDeltaPp = 0.5,
+            sourcePoints = emptyList(),
+            executionMode = TinkoffExecutionMode.Prod,
+            leverage = 7.0,
+            commissionPercentPerSide = 0.04,
+            tradeAmountRub = 10_000.0,
+        )
+        assertEquals(SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated, mode)
+        assertEquals(94.22, 0.5 * rubPer, 0.01)
+        assertEquals(94.22, signalMonitorOpenTradeSnapshot(exec)!!.pnlRub, 0.01)
+    }
+
+    @Test
     fun buildSpreadDelta15mChartContext_fromEntry_spansMultipleDaysWithoutDailyReset() {
         val points = listOf(
             point("2026-05-17 10:00", spread = 8.0),
@@ -106,6 +145,9 @@ class MoexMarketsSpreadDeltaTest {
             legs = emptyList(),
             quantityLots = 1,
             executionNotionalRub = 89_440.0,
+            legLongPnlSplitRubApprox = 300.0,
+            legShortPnlSplitRubApprox = 147.2,
+            netPnlRubApprox = 447.2,
         )
         val ctx = requireNotNull(
             buildSpreadDelta15mChartContext(
@@ -114,14 +156,15 @@ class MoexMarketsSpreadDeltaTest {
                 openExec = exec,
                 executionMode = TinkoffExecutionMode.Prod,
                 leverage = 7.0,
+                commissionPercentPerSide = 0.04,
                 tradeAmountRub = 10_000.0,
             ),
         )
         assertTrue(ctx.fromEntry)
+        assertTrue(ctx.pnlAxisBrokerCalibrated)
         assertEquals(0.0, ctx.deltasPp[0], 1e-9)
         assertEquals(0.2, ctx.deltasPp[1], 1e-9)
         assertEquals(0.5, ctx.deltasPp[2], 1e-9)
-        assertEquals(894.4, ctx.rubPerSpreadPoint, 0.01)
         assertEquals(447.2, ctx.deltasPp[2] * ctx.rubPerSpreadPoint, 0.1)
     }
 
@@ -138,6 +181,7 @@ class MoexMarketsSpreadDeltaTest {
                 openExec = null,
                 executionMode = TinkoffExecutionMode.Prod,
                 leverage = 7.0,
+                commissionPercentPerSide = 0.04,
                 tradeAmountRub = 10_000.0,
             ),
         )

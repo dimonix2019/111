@@ -211,7 +211,7 @@ internal fun ChartCard(
                     buildString {
                         append("${chartSeries.name}: ${yAxisTickFormatter(value)}")
                         rightAxisRubPerSpreadPoint?.let { rubPer ->
-                            append(" · gross ")
+                            append(" · чистый ")
                             append(formatRubAxisValue(value * rubPer))
                         }
                     }

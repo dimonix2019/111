@@ -139,6 +139,7 @@ internal fun MoexScreenTabMarkets(
         sandboxSpreadExecReload,
         executionMode,
         portfolioLeverage,
+        portfolioCommissionPercent,
         portfolioTradeAmountRub,
     ) {
         buildSpreadDelta15mChartContext(
@@ -147,6 +148,7 @@ internal fun MoexScreenTabMarkets(
             openExec = resolveSingleOpenExecutionForDisplay(sandboxSpreadExecutions),
             executionMode = executionMode,
             leverage = portfolioLeverage,
+            commissionPercentPerSide = portfolioCommissionPercent,
             tradeAmountRub = portfolioTradeAmountRub,
         )
     }
