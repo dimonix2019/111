@@ -147,7 +147,7 @@ internal fun resolveSpreadDeltaChartRubAxis(
     if (brokerNet != null) {
         return SpreadDeltaChartRubAxis(
             rubPerSpreadPoint = fixedRubPer,
-            netOffsetRub = netOffset,
+            netOffsetRub = holdingCostOffset,
             mode = SpreadDeltaChartPnlAxisMode.NetMoexEstimate,
         )
     }
@@ -162,7 +162,7 @@ internal fun resolveSpreadDeltaChartRubAxis(
     }
     return SpreadDeltaChartRubAxis(
         rubPerSpreadPoint = fixedRubPer,
-        netOffsetRub = netOffset,
+        netOffsetRub = holdingCostOffset,
         mode = SpreadDeltaChartPnlAxisMode.NetMoexEstimate,
     )
 }
