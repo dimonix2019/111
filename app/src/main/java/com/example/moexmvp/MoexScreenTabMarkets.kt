@@ -401,6 +401,18 @@ internal fun MoexScreenTabMarkets(
                                     )
                                 }
                             }
+                            if (marketsM15SourcePoints.isNotEmpty()) {
+                                item {
+                                    IntradaySpreadDeltaLineChartCard(
+                                        title = "Δ спред · 1м",
+                                        tatn = tatn1m,
+                                        tatnp = tatnp1m,
+                                        m15Points = marketsM15SourcePoints,
+                                        initialWindowWidth = intraday1mWindow.first,
+                                        initialWindowStart = intraday1mWindow.second,
+                                    )
+                                }
+                            }
                         }
                         val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()
                         val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isMarketsDataLoadActive)
@@ -439,6 +451,30 @@ internal fun MoexScreenTabMarkets(
                                     m15TimeLabels = true,
                                     xLabelStyle = ChartXLabelStyleHorizontal,
                                 )
+                            }
+                            spreadDeltaFromDayOpenSeries(marketsM15ChartPoints)?.let { spreadDelta15m ->
+                                item {
+                                    ChartCard(
+                                        title = "Δ спред 15м · п.п. от открытия дня",
+                                        series = listOf(
+                                            ChartSeries(
+                                                "Δ п.п.",
+                                                SPREAD_DELTA_LINE_COLOR,
+                                                spreadDelta15m.deltasPp,
+                                            ),
+                                        ),
+                                        labels = spreadDelta15m.labels,
+                                        chartHeightDp = MARKETS_SPREAD_CHART_HEIGHT_DP,
+                                        yScale = YAxisScale.Auto,
+                                        referenceLines = listOf(SPREAD_DELTA_ZERO_LINE),
+                                        showLegend = false,
+                                        enableZoomPan = false,
+                                        markerScale = 1f,
+                                        showZoomHint = false,
+                                        m15TimeLabels = true,
+                                        xLabelStyle = ChartXLabelStyleHorizontal,
+                                    )
+                                }
                             }
                             spreadHourlyVolatility?.let { hourlyVolatility ->
                                 item {
