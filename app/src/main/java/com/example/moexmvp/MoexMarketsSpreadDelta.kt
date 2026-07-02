@@ -255,8 +255,9 @@ internal fun resolveSpreadDeltaChartRubAxis(
     val brokerCalibrated = brokerGross != null && brokerNet != null
 
     if (brokerCalibrated) {
-        val brokerTail = brokerImpliedSpreadDeltaPp(brokerGross!!, effNotional) ?: 0.0
-        val netOffset = brokerNet!! - brokerTail * fixedRubPer
+        val calibPp = resolveSpreadDeltaCalibrationPp(currentDeltaPp, brokerGross, effNotional)
+            ?: currentDeltaPp
+        val netOffset = brokerNet!! - calibPp * fixedRubPer
         return SpreadDeltaChartRubAxis(
             rubPerSpreadPoint = fixedRubPer,
             netOffsetRub = netOffset,
@@ -321,9 +322,6 @@ internal fun buildSpreadDelta15mChartContext(
                 openSpreadMtmPoints(openLeg.signalType, entrySpread, pt.spreadPercent)
             }
         }
-        val tradeNotional = resolveTradeNotionalRubForPnl(openLeg, history, tradeAmountRub)
-        val effNotional = tradeNotional * portfolioPnlLeverageMultiplier(executionMode, leverage)
-        val brokerGross = brokerOpenTradeGrossRub(openLeg)
         val rubAxis = resolveSpreadDeltaChartRubAxis(
             openExec = openLeg,
             currentDeltaPp = moexDeltas.lastOrNull() ?: 0.0,
@@ -334,21 +332,16 @@ internal fun buildSpreadDelta15mChartContext(
             tradeAmountRub = tradeAmountRub,
         )
         val entryDeltaPp = resolveSpreadDeltaAtEntryBar(chartPoints, moexDeltas, entryMillis)
-        val deltas = if (rubAxis.mode == SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated) {
-            patchSpreadDeltaTailFromBroker(moexDeltas, brokerGross, effNotional)
-        } else {
-            moexDeltas
-        }
         return SpreadDelta15mChartContext(
             title = "Δ спред 15м · от входа",
             subtitle = when (rubAxis.mode) {
                 SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated ->
-                    "Правая ось — чистый PnL (фикс. номинал); хвост Δ — Tinkoff gross"
+                    "Правая ось — чистый PnL как в шторке; Δ — live MOEX"
                 else ->
                     "Правая ось — чистый PnL (оценка MOEX · комиссия и overnight)"
             },
             labels = chartPoints.map { it.tradeDate },
-            deltasPp = deltas,
+            deltasPp = moexDeltas,
             rubPerSpreadPoint = rubAxis.rubPerSpreadPoint,
             netOffsetRub = rubAxis.netOffsetRub,
             fromEntry = true,

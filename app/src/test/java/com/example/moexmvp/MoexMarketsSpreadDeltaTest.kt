@@ -125,7 +125,10 @@ class MoexMarketsSpreadDeltaTest {
         assertEquals(SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated, wide.mode)
         assertEquals(894.4, wide.rubPerSpreadPoint, 0.01)
         assertEquals(wide.rubPerSpreadPoint, flat.rubPerSpreadPoint, 1e-9)
-        assertEquals(wide.netOffsetRub, flat.netOffsetRub, 1e-9)
+        val wideTailNet = 0.69 * wide.rubPerSpreadPoint + wide.netOffsetRub
+        val flatTailNet = 0.05 * flat.rubPerSpreadPoint + flat.netOffsetRub
+        assertEquals(253.0, wideTailNet, 0.05)
+        assertEquals(253.0, flatTailNet, 0.05)
     }
 
     @Test
@@ -317,8 +320,7 @@ class MoexMarketsSpreadDeltaTest {
             ),
         )
         assertTrue(ctx.pnlAxisBrokerCalibrated)
-        val brokerTail = brokerImpliedSpreadDeltaPp(gross, 89_440.0)!!
-        assertEquals(brokerTail, ctx.deltasPp.last(), 1e-4)
+        assertEquals(0.69, ctx.deltasPp.last(), 1e-4)
         val tailNet = spreadDeltaNetRubAtPp(
             ctx.deltasPp.last(),
             SpreadDeltaChartRubAxis(ctx.rubPerSpreadPoint, ctx.netOffsetRub, SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated),

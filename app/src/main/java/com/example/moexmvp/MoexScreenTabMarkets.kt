@@ -178,10 +178,15 @@ internal fun MoexScreenTabMarkets(
     val spreadDeltaChartPoints = remember(marketsM15ChartPoints, marketsLiveSpreadPercent) {
         applyLiveSpreadToM15ChartPoints(marketsM15ChartPoints, marketsLiveSpreadPercent)
     }
+    val openExecForDelta = resolveSingleOpenExecutionForDisplay(sandboxSpreadExecutions)
     val spreadDelta15mContext = remember(
         spreadDeltaChartPoints,
         marketsM15SourcePoints,
-        sandboxSpreadExecutions,
+        marketsLiveSpreadPercent,
+        openExecForDelta?.tradeId,
+        openExecForDelta?.netPnlRubApprox,
+        openExecForDelta?.legLongPnlSplitRubApprox,
+        openExecForDelta?.legShortPnlSplitRubApprox,
         sandboxSpreadExecReload,
         executionMode,
         portfolioLeverage,
@@ -191,7 +196,7 @@ internal fun MoexScreenTabMarkets(
         buildSpreadDelta15mChartContext(
             chartPoints = spreadDeltaChartPoints,
             sourcePoints = marketsM15SourcePoints.ifEmpty { spreadDeltaChartPoints },
-            openExec = resolveSingleOpenExecutionForDisplay(sandboxSpreadExecutions),
+            openExec = openExecForDelta,
             executionMode = executionMode,
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,

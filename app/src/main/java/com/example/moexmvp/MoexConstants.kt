@@ -185,6 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.280 — Fix Δ спред 15м: правая ось ₽ = PnL шторки; live MOEX Δ; обновление Tinkoff на вкладке «Рынок».
 1.7.279 — Prod: PnL при закрытии сделки — данные со счёта Tinkoff (операции + Δ cash), без MOEX-симуляции.
 1.7.278 — «Тест страт.»: убран «Пороги = Портфель»; пороги симуляции не меняют боевые.
 1.7.277 — «Рынок»: убран график Z-score 1м.
