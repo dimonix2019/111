@@ -28,9 +28,12 @@ internal data class ProdCloseRealizedCapture(
     val operationsCommissionRub: Double,
 )
 
+/** Задержки опроса GetOperations / GetPortfolio после закрытия (брокер может отставать). */
+internal val PROD_CLOSE_OPERATIONS_POLL_DELAYS_MS = longArrayOf(0L, 1_500L, 3_000L, 4_500L, 6_000L)
+
 /**
  * Реализованный PnL закрытой сделки на Prod:
- * - чистый результат = Δ денег на счёте (как в T‑Invest);
+ * - чистый результат = Δ денег на счёте (как в T‑Invest) или Σ payment из GetOperations;
  * - ноги = сумма yield из GetOperations за период сделки (не expectedYield MTM).
  */
 internal suspend fun captureProdCloseRealizedPnl(
@@ -47,53 +50,91 @@ internal suspend fun captureProdCloseRealizedPnl(
     val token = TinkoffSandboxStorage.getActiveToken(context, mode) ?: return null
     val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode) ?: return null
 
-    val exitCash = exitLegs.lastOrNull()?.portfolioCashRub?.let { parseFormattedRubString(it) }
-        ?: runCatching {
-            parsePortfolioCashRubDouble(tinkoffGetPortfolio(mode, token, accountId))
-        }.getOrNull()
-    val entryCash = execution.entryPortfolioCashRub.takeIf { it > 0.0 }
-    val realizedNet = if (entryCash != null && exitCash != null) {
-        exitCash - entryCash
-    } else {
-        null
-    }
-
     val fromMillis = execution.executedAtMillis - 60_000L
     val closeWall = maxOf(exitExecutedAtMillis, execution.executedAtMillis + 1L)
-    val toMillis = closeWall + 5 * 60_000L
-    var opCapture = fetchSpreadRealizedLegPnlFromOperations(
-        token = token,
-        accountId = accountId,
-        fromMillis = fromMillis,
-        toMillis = toMillis,
-        signalType = execution.signalType,
-    )
-    if (opCapture == null) {
-        delay(1_500L)
-        opCapture = fetchSpreadRealizedLegPnlFromOperations(
-            token = token,
-            accountId = accountId,
-            fromMillis = fromMillis,
-            toMillis = toMillis + 60_000L,
-            signalType = execution.signalType,
+    val baseToMillis = closeWall + 5 * 60_000L
+
+    var exitCash = exitLegs.lastOrNull()?.portfolioCashRub?.let { parseFormattedRubString(it) }
+    val entryCash = execution.entryPortfolioCashRub.takeIf { it > 0.0 }
+    var opCapture: OperationsLegCapture? = null
+    var accountSummary: ProdSpreadWindowPnlSummary? = null
+
+    for ((index, delayMs) in PROD_CLOSE_OPERATIONS_POLL_DELAYS_MS.withIndex()) {
+        if (delayMs > 0L) delay(delayMs)
+        val toMillis = baseToMillis + delayMs
+        if (exitCash == null) {
+            exitCash = runCatching {
+                parsePortfolioCashRubDouble(tinkoffGetPortfolio(mode, token, accountId))
+            }.getOrNull()
+        }
+        val fetched = fetchProdSpreadOperationsByCursor(token, accountId, fromMillis, toMillis)
+        if (!fetched.isNullOrEmpty()) {
+            opCapture = realizedLegPnlFromOperations(
+                operations = fetched,
+                fromMillis = fromMillis,
+                toMillis = toMillis,
+                signalType = execution.signalType,
+            ) ?: opCapture
+            accountSummary = summarizeProdSpreadOperations(fetched, fromMillis, toMillis)
+        }
+        val realizedNet = resolveProdCloseRealizedNetRub(
+            entryCash = entryCash,
+            exitCash = exitCash,
+            accountSummary = accountSummary,
+            opCapture = opCapture,
         )
+        if (realizedNet != null && (opCapture != null || accountSummary != null)) break
+        if (index == PROD_CLOSE_OPERATIONS_POLL_DELAYS_MS.lastIndex) break
     }
 
+    val realizedNet = resolveProdCloseRealizedNetRub(
+        entryCash = entryCash,
+        exitCash = exitCash,
+        accountSummary = accountSummary,
+        opCapture = opCapture,
+    )
     val legPnl = opCapture?.legPnl
         ?: scaleMtmLegsToRealizedNet(mtmBeforeClose, realizedNet)
         ?: mtmBeforeClose
         ?: SpreadLegBrokerPnl(0.0, 0.0)
-
     val netRub = realizedNet
         ?: (legPnl.longLegYieldRub + legPnl.shortLegYieldRub - (opCapture?.commissionRub ?: 0.0))
+    val commissionRub = when {
+        accountSummary != null && accountSummary.commissionRub > 0.0 -> accountSummary.commissionRub
+        opCapture != null -> opCapture.commissionRub
+        else -> 0.0
+    }
 
     return ProdCloseRealizedCapture(
         legPnl = legPnl,
         realizedNetRub = netRub,
         entryPortfolioCashRub = entryCash ?: 0.0,
         exitPortfolioCashRub = exitCash ?: 0.0,
-        operationsCommissionRub = opCapture?.commissionRub ?: 0.0,
+        operationsCommissionRub = commissionRub,
     )
+}
+
+/**
+ * Приоритет чистого PnL на Prod: Δ cash → Σ payment Tinkoff → yield−комиссия.
+ */
+internal fun resolveProdCloseRealizedNetRub(
+    entryCash: Double?,
+    exitCash: Double?,
+    accountSummary: ProdSpreadWindowPnlSummary?,
+    opCapture: OperationsLegCapture?,
+): Double? {
+    if (entryCash != null && exitCash != null) return exitCash - entryCash
+    accountSummary?.let { summary ->
+        if (summary.source == ProdSpreadWindowPnlSource.AccountPayments) return summary.netRub
+        if (summary.roundTripCount > 0) return summary.netRub
+    }
+    opCapture?.let { capture ->
+        val gross = capture.legPnl.longLegYieldRub + capture.legPnl.shortLegYieldRub
+        if (abs(gross) > 0.01 || capture.commissionRub > 0.0) {
+            return gross - capture.commissionRub
+        }
+    }
+    return null
 }
 
 internal data class OperationsLegCapture(
@@ -624,7 +665,15 @@ internal suspend fun fetchSpreadRealizedLegPnlFromOperations(
             flattenSpreadOperationsFromApi(collectOperationsArray(root))
         }.getOrNull()
     if (operations.isNullOrEmpty()) return null
+    return realizedLegPnlFromOperations(operations, fromMillis, toMillis, signalType)
+}
 
+internal fun realizedLegPnlFromOperations(
+    operations: List<JSONObject>,
+    fromMillis: Long,
+    toMillis: Long,
+    signalType: StrategySignalType,
+): OperationsLegCapture? {
     var tatnYield = 0.0
     var tatnpYield = 0.0
     var commissionRub = 0.0

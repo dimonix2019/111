@@ -13,6 +13,30 @@ class TinkoffProdRealizedPnlTest {
     }
 
     @Test
+    fun resolveProdCloseRealizedNetRub_prefersCashDeltaThenAccountPayments() {
+        val summary = ProdSpreadWindowPnlSummary(
+            netRub = -82.0,
+            grossYieldRub = -82.0,
+            commissionRub = 27.5,
+            roundTripCount = 4,
+            fromMillis = 1_000L,
+            toMillis = 9_000L,
+            source = ProdSpreadWindowPnlSource.AccountPayments,
+        )
+        assertEquals(-18.0, resolveProdCloseRealizedNetRub(10_000.0, 9_982.0, summary, null)!!, 0.01)
+        assertEquals(-82.0, resolveProdCloseRealizedNetRub(null, null, summary, null)!!, 0.01)
+    }
+
+    @Test
+    fun resolveProdCloseRealizedNetRub_fallsBackToOperationLegs() {
+        val opCapture = OperationsLegCapture(
+            legPnl = SpreadLegBrokerPnl(longLegYieldRub = 100.0, shortLegYieldRub = -50.0),
+            commissionRub = 10.0,
+        )
+        assertEquals(40.0, resolveProdCloseRealizedNetRub(null, null, null, opCapture)!!, 0.01)
+    }
+
+    @Test
     fun computeProdClosedTradePnl_prefersRealizedCashDeltaOverMtmLegs() {
         val record = ProdClosedSpreadExecRecord(
             tradeId = "D-003",
