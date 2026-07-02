@@ -26,14 +26,44 @@ internal fun buildZStrategyPortfolioMetrics(
     initialCarryOpen: PortfolioOpenPosition? = null,
     todaySliceOnly: Boolean = false,
     prodLikeSizing: ZStrategyProdLikeSizing? = null,
+    fourThresholds: ZStrategyFourThresholds? = null,
+    fourThresholdsSeries: List<ZStrategyFourThresholds>? = null,
 ): PortfolioMetrics? {
     if (points.size < 2) return null
+    if (fourThresholds != null && !fourThresholds.isValid()) return null
+    if (fourThresholdsSeries != null && fourThresholdsSeries.size != points.size) return null
     val loopStart = simLoopStartIndex.coerceIn(1, points.lastIndex)
     if (loopStart > points.lastIndex) return null
 
-    val entry = thresholds.entry
-    val exit = thresholds.exit
+    val symmetricThresholds = fourThresholds?.toSymmetricFallback()
+        ?: fourThresholdsSeries?.lastOrNull()?.toSymmetricFallback()
+        ?: thresholds
+    val entry = symmetricThresholds.entry
+    val exit = symmetricThresholds.exit
     val slip = max(0.0, simOptions.slippageSpreadPts)
+
+    fun fourAt(index: Int): ZStrategyFourThresholds? =
+        fourThresholdsSeries?.getOrNull(index) ?: fourThresholds
+
+    fun entryAt(index: Int): Double =
+        fourAt(index)?.let { max(it.entryLong, it.entryShort) } ?: entry
+
+    fun exitAt(index: Int): Double =
+        fourAt(index)?.let { max(it.exitLong, it.exitShort) } ?: exit
+
+    fun signalBetweenBars(
+        prev: DataPoint,
+        current: DataPoint,
+        pos: ZStrategyPosition,
+        index: Int,
+    ): ZStrategySignal {
+        val four = fourAt(index)
+        return if (four != null) {
+            determineZStrategySignalBetweenBars(prev, current, pos, four)
+        } else {
+            determineZStrategySignalBetweenBars(prev, current, pos, thresholds)
+        }
+    }
 
     var position = ZStrategyPosition.Flat
     var entrySpread = 0.0
@@ -210,8 +240,8 @@ internal fun buildZStrategyPortfolioMetrics(
     fun spreadOk(sp: Double): Boolean =
         zSimSpreadOk(sp, simOptions.minSpreadPct, simOptions.maxSpreadPct)
 
-    fun entryZOk(z: Double, direction: ZStrategyPosition): Boolean =
-        zSimEntryZOk(z, direction, entry, simOptions.entryZBuffer)
+    fun entryZOk(z: Double, direction: ZStrategyPosition, index: Int): Boolean =
+        zSimEntryZOk(z, direction, entryAt(index), simOptions.entryZBuffer)
 
     fun stopLossHit(bar: DataPoint): Boolean =
         zSimStopLossHit(
@@ -371,14 +401,10 @@ internal fun buildZStrategyPortfolioMetrics(
                     else -> {
                         val ruleExit = when (exitMode) {
                             ZStrategyExitMode.FixedThreshold ->
-                                determineZStrategySignalBetweenBars(
-                                    prev,
-                                    current,
-                                    ZStrategyPosition.Long,
-                                    thresholds,
-                                ) == ZStrategySignal.ExitLong
+                                signalBetweenBars(prev, current, ZStrategyPosition.Long, index) ==
+                                    ZStrategySignal.ExitLong
                             ZStrategyExitMode.ZPeakTrailing ->
-                                zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
+                                zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entryAt(index), zPeakTrailZ)
                             ZStrategyExitMode.OppositeExtreme ->
                                 oppositeExtremeExitLongBetweenBars(prev, current, exit)
                             ZStrategyExitMode.LocalExtrema ->
@@ -423,14 +449,10 @@ internal fun buildZStrategyPortfolioMetrics(
                     else -> {
                         val ruleExit = when (exitMode) {
                             ZStrategyExitMode.FixedThreshold ->
-                                determineZStrategySignalBetweenBars(
-                                    prev,
-                                    current,
-                                    ZStrategyPosition.Short,
-                                    thresholds,
-                                ) == ZStrategySignal.ExitShort
+                                signalBetweenBars(prev, current, ZStrategyPosition.Short, index) ==
+                                    ZStrategySignal.ExitShort
                             ZStrategyExitMode.ZPeakTrailing ->
-                                zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entry, zPeakTrailZ)
+                                zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entryAt(index), zPeakTrailZ)
                             ZStrategyExitMode.OppositeExtreme ->
                                 oppositeExtremeExitShortBetweenBars(prev, current, exit)
                             ZStrategyExitMode.LocalExtrema ->
@@ -460,28 +482,25 @@ internal fun buildZStrategyPortfolioMetrics(
                 when {
                     localExtremaLongEntryBetweenBars(prevPrev, prev, current, entry) &&
                         spreadOk(current.spreadPercent) &&
-                        entryZOk(current.zScore, ZStrategyPosition.Long) ->
+                        entryZOk(current.zScore, ZStrategyPosition.Long, index) ->
                         enterLongAtBar(current)
                     localExtremaShortEntryBetweenBars(prevPrev, prev, current, entry) &&
                         spreadOk(current.spreadPercent) &&
-                        entryZOk(current.zScore, ZStrategyPosition.Short) ->
+                        entryZOk(current.zScore, ZStrategyPosition.Short, index) ->
                         enterShortAtBar(current)
                 }
             } else if (entryPullbackZ <= 0.0) {
-                when (
-                    determineZStrategySignalBetweenBars(
-                        prev,
-                        current,
-                        ZStrategyPosition.Flat,
-                        thresholds,
-                    )
-                ) {
+                when (signalBetweenBars(prev, current, ZStrategyPosition.Flat, index)) {
                     ZStrategySignal.EnterLong ->
-                        if (spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Long)) {
+                        if (spreadOk(current.spreadPercent) &&
+                            entryZOk(current.zScore, ZStrategyPosition.Long, index)
+                        ) {
                             enterLongAtBar(current)
                         }
                     ZStrategySignal.EnterShort ->
-                        if (spreadOk(current.spreadPercent) && entryZOk(current.zScore, ZStrategyPosition.Short)) {
+                        if (spreadOk(current.spreadPercent) &&
+                            entryZOk(current.zScore, ZStrategyPosition.Short, index)
+                        ) {
                             enterShortAtBar(current)
                         }
                     else -> Unit
@@ -493,9 +512,9 @@ internal fun buildZStrategyPortfolioMetrics(
                         when {
                             zPullbackLongEntryTriggered(current.zScore, zExtremeWhilePending, entryPullbackZ) &&
                                 spreadOk(current.spreadPercent) &&
-                                entryZOk(current.zScore, ZStrategyPosition.Long) ->
+                                entryZOk(current.zScore, ZStrategyPosition.Long, index) ->
                                 enterLongAtBar(current)
-                            zPullbackEntryCancelLong(current.zScore, exit) ->
+                            zPullbackEntryCancelLong(current.zScore, exitAt(index)) ->
                                 entryPendingArm = ZEntryPendingArm.None
                         }
                     }
@@ -504,19 +523,19 @@ internal fun buildZStrategyPortfolioMetrics(
                         when {
                             zPullbackShortEntryTriggered(current.zScore, zExtremeWhilePending, entryPullbackZ) &&
                                 spreadOk(current.spreadPercent) &&
-                                entryZOk(current.zScore, ZStrategyPosition.Short) ->
+                                entryZOk(current.zScore, ZStrategyPosition.Short, index) ->
                                 enterShortAtBar(current)
-                            zPullbackEntryCancelShort(current.zScore, exit) ->
+                            zPullbackEntryCancelShort(current.zScore, exitAt(index)) ->
                                 entryPendingArm = ZEntryPendingArm.None
                         }
                     }
                     ZEntryPendingArm.None -> {
                         when {
-                            zPullbackArmLongCross(prev.zScore, current.zScore, entry) -> {
+                            zPullbackArmLongCross(prev.zScore, current.zScore, entryAt(index)) -> {
                                 entryPendingArm = ZEntryPendingArm.Long
                                 zExtremeWhilePending = current.zScore
                             }
-                            zPullbackArmShortCross(prev.zScore, current.zScore, entry) -> {
+                            zPullbackArmShortCross(prev.zScore, current.zScore, entryAt(index)) -> {
                                 entryPendingArm = ZEntryPendingArm.Short
                                 zExtremeWhilePending = current.zScore
                             }

@@ -69,6 +69,8 @@ internal fun MoexScreenTabMarkets(
     marketsChartThresholds: DynamicThresholds,
     marketsZStrategyTapMetrics: PortfolioMetrics?,
     dataSourceLabel: MarketsDataSource,
+    marketsFormingBarHint: MarketsFormingBarHint? = null,
+    marketsFormingBarHintText: String? = null,
 ) {
     val landscapeMarketsChartFullscreen = landscapeZChartFullscreen || landscapeSpreadDeltaFullscreen
     val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.marketsZChartPeriod) {
@@ -295,6 +297,8 @@ internal fun MoexScreenTabMarkets(
                                         marketsZStrategyTapMetrics
                                     )
                                 },
+                                formingBarHint = marketsFormingBarHint,
+                                formingBarHintText = marketsFormingBarHintText,
                                 emptyContent = {
                                     when {
                                         marketsZScoreCandles.isNotEmpty() -> Unit
@@ -487,6 +491,8 @@ internal fun MoexScreenTabMarkets(
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
                                     onFullscreenClick = enterZChartFullscreen,
+                                    formingBarHint = marketsFormingBarHint,
+                                    formingBarHintText = marketsFormingBarHintText,
                                 )
                             }
                             spreadDelta15mContext?.let { spreadDelta15m ->

@@ -12,6 +12,8 @@ import java.time.LocalDate
 @Stable
 internal class MoexScreenState(val context: Context) {
     val refreshMutex = Mutex()
+    /** Resim «Тест страт.» без блокировки portfolio/markets refresh. */
+    val strategyTestSimMutex = Mutex()
 
     var pendingAppUpdate by mutableStateOf<AppRemoteUpdate?>(null)
     var selectedTab by mutableStateOf(
@@ -87,8 +89,9 @@ internal class MoexScreenState(val context: Context) {
     var marketsIntraday1mEpoch by mutableStateOf(0)
     var marketsM15SessionCache: List<DataPoint> = emptyList()
     var marketsM15DataEpoch by mutableStateOf(0)
-    /** Single-flight: отложенная MOEX 15м догрузка с «Рынок» (не блокирует UI). */
-    var marketsM15CatchupJob: Job? = null
+    /** Single-flight MOEX 15м refresh (catchup / tail / force). */
+    var marketsM15RefreshJob: Job? = null
+    var marketsM15RefreshPending: MarketsM15RefreshRequest? = null
     var portfolioM15Points by mutableStateOf<List<DataPoint>>(emptyList())
     /** Полный 15м ряд (~255д) для симуляции — не в Compose state (OOM). */
     var strategyTestM15SessionCache: List<DataPoint> = emptyList()
@@ -129,6 +132,9 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestDurationSummary by mutableStateOf<StrategyTestDurationSummary?>(null)
     var strategyTestMonthlyReturnSummary by mutableStateOf<StrategyTestMonthlyReturnSummary?>(null)
     var strategyTestSpreadHourlyVolatility by mutableStateOf<SpreadHourlyVolatilityReport?>(null)
+    /** Кэш hourly vol по fingerprint 15м ряда (не зависит от порогов sim). */
+    var strategyTestHourlyVolCacheKey: Long = 0L
+    var strategyTestHourlyVolCache: SpreadHourlyVolatilityReport? = null
     var strategyTestLastSimKey: Long = 0L
     var strategyTestVisibleSessionCache: StrategyTestVisibleSnapshot? = null
     /** Отмена устаревших загрузок/симуляций при смене вкладки или новом запросе. */

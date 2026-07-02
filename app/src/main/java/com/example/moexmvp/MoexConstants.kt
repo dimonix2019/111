@@ -55,7 +55,7 @@ internal const val DAILY_SIGNAL_MAX_PER_DAY = 20
 internal const val STRATEGY_SIGNAL_JOURNAL_DEDUP_WALL_MS = 25_000L
 internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 /** Debounce rapid threshold/leverage tweaks on «Тест страт.» before rerunning simulation. */
-internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 750L
+internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 400L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
 /** «Портфель»: целевая сумма в одной сделке (лимит для лот-сайзинга и fallback PnL). */
 internal const val DEFAULT_PORTFOLIO_TRADE_AMOUNT_RUB = 10_000.0
@@ -114,6 +114,10 @@ internal const val CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX = 10f
 internal const val CHART_X_LABEL_ROTATION_DEG = -42f
 /** Макс. длина фитиля Z-свечи за пределами тела (в единицах Z). Без cap σ→0 раздувает тени. */
 internal const val CHART_Z_INTRABAR_WICK_MAX = 0.22
+/** Z-свеча «формируется» на «Рынок» (live Z из 1м). */
+internal const val CHART_FORMING_BAR_BORDER_HEX = "#FBBF24"
+internal const val CHART_FORMING_BAR_BODY_UP_HEX = "#B45309"
+internal const val CHART_FORMING_BAR_BODY_DOWN_HEX = "#92400E"
 /** Начальное окно Z-графика «Тест страт.» (календарных дней). */
 internal const val STRATEGY_TEST_Z_CHART_VISIBLE_DAYS = 30L
 
@@ -185,6 +189,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.281 — Merge main: forming-bar hint, M15 pipeline, OTA install fix + Δ спред/PnL шторки.
 1.7.280 — Fix Δ спред 15м: правая ось ₽ = PnL шторки; live MOEX Δ; обновление Tinkoff на вкладке «Рынок».
 1.7.279 — Prod: PnL при закрытии сделки — данные со счёта Tinkoff (операции + Δ cash), без MOEX-симуляции.
 1.7.278 — «Тест страт.»: убран «Пороги = Портфель»; пороги симуляции не меняют боевые.

@@ -207,26 +207,55 @@ internal fun liveZScoreFromIntraday1m(
     snap: MarketsIntraday1mSnapshot,
 ): Double? = resolveUnifiedLiveZSnapshot(m15Points, snap).zScore
 
+internal data class MarketsLiveZPublishResult(
+    val zScore: Double,
+    val barAt: String,
+    /** Ненулевой, если Z пересчитан из 1м (parity с шторкой). */
+    val patchedPoints: List<DataPoint>?,
+)
+
+/**
+ * Единый расчёт live Z: при наличии 1м — patch формирующего 15м бара (как в шторке/мониторе).
+ */
+internal fun resolveMarketsLiveZFromPoints(
+    points: List<DataPoint>,
+    snap: MarketsIntraday1mSnapshot?,
+): MarketsLiveZPublishResult? {
+    if (points.isEmpty()) return null
+    if (snap == null) {
+        val last = points.last()
+        return MarketsLiveZPublishResult(
+            zScore = last.zScore,
+            barAt = last.tradeDate,
+            patchedPoints = null,
+        )
+    }
+    val unified = resolveUnifiedLiveZSnapshot(points, snap)
+    val last = unified.monitorPoints.lastOrNull() ?: return null
+    return MarketsLiveZPublishResult(
+        zScore = unified.zScore ?: last.zScore,
+        barAt = unified.barAt ?: last.tradeDate,
+        patchedPoints = unified.monitorPoints.takeIf { unified.liveFrom1m },
+    )
+}
+
+internal suspend fun MoexScreenState.publishMarketsLiveZFromPoints(
+    points: List<DataPoint>,
+    snap: MarketsIntraday1mSnapshot? = cachedMarketsIntraday1mSnapshot(),
+) {
+    val zBase = resolveMarketsM15PointsForLiveZ(points)
+    val unified = resolveUnifiedLiveZSnapshot(zBase, snap)
+    marketsLiveZScore = unified.zScore
+    marketsLiveZBarAt = unified.barAt
+    marketsLiveSpreadPercent = unified.spreadPercent
+}
+
 internal fun m15PointsWithLiveFormingFromIntraday1m(
     m15Points: List<DataPoint>,
     snap: MarketsIntraday1mSnapshot,
 ): List<DataPoint> = resolveUnifiedLiveZSnapshot(m15Points, snap).monitorPoints
 
-internal fun MoexScreenState.applyMarketsLiveZFromIntraday1mSnap(snap: MarketsIntraday1mSnapshot) {
-    val src = marketsM15Source()
-    val unified = resolveUnifiedLiveZSnapshot(src, snap)
-    marketsLiveZScore = unified.zScore
-    marketsLiveZBarAt = unified.barAt
-    marketsLiveSpreadPercent = unified.spreadPercent
-    if (!unified.liveFrom1m) return
-    val last = unified.monitorPoints.lastOrNull() ?: return
-    val prev = src.lastOrNull()
-    val structureChanged = prev == null ||
-        prev.timestampMillis != last.timestampMillis ||
-        kotlin.math.abs(prev.spreadPercent - last.spreadPercent) > 0.005
-    if (structureChanged) {
-        marketsM15SessionCache = unified.monitorPoints
-        marketsM15DataEpoch++
-        bumpMarketsLoadedAtFromM15(unified.monitorPoints)
-    }
+/** Применить live Z из 1м котировок к in-memory 15м (сводка + Z-график). */
+internal suspend fun MoexScreenState.applyMarketsLiveZFromIntraday1mSnap(snap: MarketsIntraday1mSnapshot) {
+    publishMarketsLiveZFromPoints(marketsM15Source(), snap = snap)
 }

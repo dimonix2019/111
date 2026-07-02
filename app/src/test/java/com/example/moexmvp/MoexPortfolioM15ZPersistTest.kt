@@ -189,4 +189,69 @@ class MoexPortfolioM15ZPersistTest {
         )
         assertEquals(ZStrategySignal.EnterShort, sig)
     }
+
+    @Test
+    fun prepareM15PointsForZStrategySignalDetection_matchesSpreadGuardRollingZ_notStaleSnapshots() {
+        val step = 15 * 60_000L
+        val bucket = currentM15BucketStartMillis()
+        val ts0 = bucket - 85 * step
+        val spreads = (0 until 86).map { i ->
+            when {
+                i < 84 -> 7.0 + (i % 7) * 0.02
+                i == 84 -> 7.12
+                else -> 9.8
+            }
+        }
+        val staleSnap = spreads.mapIndexed { i, spread ->
+            DataPoint(ts0 + i * step, "x", 650.0, 600.0, spread, 50.0, zScore = 0.4)
+        }
+        val expected = spreads.mapIndexed { i, spread ->
+            DataPoint(ts0 + i * step, "x", 650.0, 600.0, spread, 50.0, zScore = 0.0)
+        }.toMutableList()
+        applySpreadGuardZScoresInPlace(expected)
+
+        val fresh = prepareM15PointsForZStrategySignalDetection(staleSnap)
+        assertEquals(expected.size, fresh.size)
+        for (i in expected.indices) {
+            assertEquals("bar $i Z", expected[i].zScore, fresh[i].zScore, 1e-9)
+        }
+        assertNotEquals(staleSnap.last().zScore, fresh.last().zScore, 1e-9)
+    }
+
+    @Test
+    fun prepareM15PointsForZStrategySim_recalcsRollingZWhenLiveWithoutJournal() {
+        val raw = listOf(
+            DataPoint(1L, "2026-01-01 10:00", 650.0, 600.0, 8.0, 50.0, 0.72),
+            DataPoint(2L, "2026-01-01 10:15", 651.0, 600.5, 8.1, 50.5, 0.81),
+        )
+        val result = prepareM15PointsForZStrategySim(
+            points = raw,
+            applyJournalOverlay = false,
+        )
+        assertTrue(result !== raw)
+        assertEquals(2, result.size)
+    }
+
+    @Test
+    fun prepareM15PointsForZStrategySim_recalcsRollingZWhenLiveEvenWithJournalEvents() {
+        val raw = listOf(
+            DataPoint(1L, "2026-01-01 10:00", 650.0, 600.0, 8.0, 50.0, 0.72),
+            DataPoint(2L, "2026-01-01 10:15", 651.0, 600.5, 8.1, 50.5, 0.81),
+        )
+        val events = listOf(
+            StrategySignalEvent(
+                timestampMillis = 1L,
+                signalType = StrategySignalType.EnterShort,
+                zScore = 0.9,
+            ),
+        )
+        val result = prepareM15PointsForZStrategySim(
+            points = raw,
+            journalEvents = events,
+            journalThresholds = DynamicThresholds(0.8, 0.7, null),
+            applyJournalOverlay = false,
+        )
+        assertTrue(result !== raw)
+        assertNotEquals(0.72, result[0].zScore, 1e-9)
+    }
 }

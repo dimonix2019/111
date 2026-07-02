@@ -286,20 +286,26 @@ internal fun buildTradingViewChartPayloadJson(
     chartBackgroundHex: String? = null,
     pnlRubPerSpreadPoint: Double? = null,
     pnlNetOffsetRub: Double = 0.0,
+    formingBar: MarketsFormingBarHint? = null,
 ): String {
     val candleArr = JSONArray()
     val seenTimes = linkedSetOf<Long>()
     for (c in candles) {
         val timeSec = m15CandleLabelToUnixSec(c.label)
         if (!seenTimes.add(timeSec)) continue
-        candleArr.put(
-            JSONObject()
-                .put("time", timeSec)
-                .put("open", c.open)
-                .put("high", c.high)
-                .put("low", c.low)
-                .put("close", c.close)
-        )
+        val obj = JSONObject()
+            .put("time", timeSec)
+            .put("open", c.open)
+            .put("high", c.high)
+            .put("low", c.low)
+            .put("close", c.close)
+        if (formingBar != null && timeSec == formingBar.barTimeSec) {
+            val up = c.close >= c.open
+            obj.put("color", if (up) CHART_FORMING_BAR_BODY_UP_HEX else CHART_FORMING_BAR_BODY_DOWN_HEX)
+            obj.put("borderColor", CHART_FORMING_BAR_BORDER_HEX)
+            obj.put("wickColor", CHART_FORMING_BAR_BORDER_HEX)
+        }
+        candleArr.put(obj)
     }
     val hlines = JSONArray()
     for (hl in referenceLines) {
@@ -427,6 +433,15 @@ internal fun buildTradingViewChartPayloadJson(
             JSONObject()
                 .put("rubPerPoint", pnlRubPerSpreadPoint)
                 .put("netOffset", pnlNetOffsetRub),
+        )
+    }
+    formingBar?.let { hint ->
+        root.put(
+            "formingBar",
+            JSONObject()
+                .put("time", hint.barTimeSec)
+                .put("liveZ", hint.liveZ)
+                .put("baseCloseZ", hint.baseCloseZ ?: JSONObject.NULL),
         )
     }
     return root.toString()
@@ -626,6 +641,8 @@ internal fun TradingViewZScoreChartCard(
     pnlNetOffsetRub: Double = 0.0,
     onFullscreenClick: (() -> Unit)? = null,
     onExitFullscreenClick: (() -> Unit)? = null,
+    formingBarHint: MarketsFormingBarHint? = null,
+    formingBarHintText: String? = null,
 ) {
     if (candles.isEmpty()) return
     val payload = remember(
@@ -642,6 +659,7 @@ internal fun TradingViewZScoreChartCard(
         chartBackgroundHex,
         pnlRubPerSpreadPoint,
         pnlNetOffsetRub,
+        formingBarHint,
     ) {
         buildTradingViewChartPayloadJson(
             candles = candles,
@@ -657,6 +675,7 @@ internal fun TradingViewZScoreChartCard(
             chartBackgroundHex = chartBackgroundHex,
             pnlRubPerSpreadPoint = pnlRubPerSpreadPoint,
             pnlNetOffsetRub = pnlNetOffsetRub,
+            formingBar = formingBarHint,
         )
     }
     val cardBg = chartBackgroundHex?.let { hex ->
@@ -669,7 +688,10 @@ internal fun TradingViewZScoreChartCard(
             .then(if (landscapeMinimal) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
             .background(cardBg, RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp)),
     ) {
-        if (!landscapeMinimal && (title.isNotBlank() || !subtitle.isNullOrBlank() || onFullscreenClick != null || onExitFullscreenClick != null)) {
+        if (!landscapeMinimal &&
+            (title.isNotBlank() || !subtitle.isNullOrBlank() || !formingBarHintText.isNullOrBlank() ||
+                onFullscreenClick != null || onExitFullscreenClick != null)
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -684,8 +706,7 @@ internal fun TradingViewZScoreChartCard(
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFE5E7EB),
                             fontSize = 14.sp,
-                            modifier = Modifier
-                                .padding(start = 4.dp),
+                            modifier = Modifier.padding(start = 4.dp),
                         )
                     }
                     subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
@@ -694,6 +715,14 @@ internal fun TradingViewZScoreChartCard(
                             color = Color(0xFF80CBC4),
                             fontSize = 10.sp,
                             lineHeight = 12.sp,
+                            modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                        )
+                    }
+                    if (!formingBarHintText.isNullOrBlank()) {
+                        Text(
+                            text = formingBarHintText,
+                            color = Color(0xFFFBBF24),
+                            fontSize = 11.sp,
                             modifier = Modifier.padding(start = 4.dp, top = 2.dp),
                         )
                     }

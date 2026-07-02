@@ -134,6 +134,48 @@ internal fun determineZStrategySignal(
     previousZ: Double?,
     currentZ: Double,
     position: ZStrategyPosition,
+    thresholds: ZStrategyFourThresholds,
+): ZStrategySignal {
+    val prev = previousZ ?: return ZStrategySignal.None
+    return when (position) {
+        ZStrategyPosition.Flat -> {
+            when {
+                prev > -thresholds.entryLong && currentZ <= -thresholds.entryLong -> ZStrategySignal.EnterLong
+                prev < thresholds.entryShort && currentZ >= thresholds.entryShort -> ZStrategySignal.EnterShort
+                else -> ZStrategySignal.None
+            }
+        }
+        ZStrategyPosition.Long -> {
+            if (prev < -thresholds.exitLong && currentZ >= -thresholds.exitLong) {
+                ZStrategySignal.ExitLong
+            } else {
+                ZStrategySignal.None
+            }
+        }
+        ZStrategyPosition.Short -> {
+            if (prev > thresholds.exitShort && currentZ <= thresholds.exitShort) {
+                ZStrategySignal.ExitShort
+            } else {
+                ZStrategySignal.None
+            }
+        }
+    }
+}
+
+internal fun determineZStrategySignalBetweenBars(
+    previous: DataPoint,
+    current: DataPoint,
+    position: ZStrategyPosition,
+    thresholds: ZStrategyFourThresholds,
+): ZStrategySignal {
+    if (!isConsecutiveM15Bar(previous, current)) return ZStrategySignal.None
+    return determineZStrategySignal(previous.zScore, current.zScore, position, thresholds)
+}
+
+internal fun determineZStrategySignal(
+    previousZ: Double?,
+    currentZ: Double,
+    position: ZStrategyPosition,
     thresholds: DynamicThresholds
 ): ZStrategySignal {
     val prev = previousZ ?: return ZStrategySignal.None

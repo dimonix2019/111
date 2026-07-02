@@ -426,10 +426,11 @@ internal fun DrawScope.drawReferenceLineLabels(
     topPadding: Float,
     chartWidth: Float,
     chartHeight: Float,
-    yForValue: (Double) -> Float
+    yForValue: (Double) -> Float,
+    labelTextSizeSp: androidx.compose.ui.unit.TextUnit = 9.sp,
 ) {
     if (referenceLines.isEmpty()) return
-    val textSizePx = 9.sp.toPx()
+    val textSizePx = labelTextSizeSp.toPx()
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = textSizePx
         textAlign = Paint.Align.RIGHT

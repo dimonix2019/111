@@ -350,6 +350,34 @@ internal fun openUnknownAppSourcesSettings(context: Context) {
     context.startActivity(intent)
 }
 
+/** Настройки приложения → удаление (если подпись APK не совпадает с установленной). */
+internal fun openAppDetailsSettings(context: Context) {
+    val intent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.parse("package:${context.packageName}")
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    context.startActivity(intent)
+}
+
+internal fun installedAppVersionCode(context: Context): Long =
+    runCatching {
+        val pm = context.packageManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            pm.getPackageInfo(context.packageName, 0).longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getPackageInfo(context.packageName, 0).versionCode.toLong()
+        }
+    }.getOrDefault(0L)
+
+private fun archiveApkVersionCode(archiveInfo: android.content.pm.PackageInfo): Long =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        archiveInfo.longVersionCode
+    } else {
+        @Suppress("DEPRECATION")
+        archiveInfo.versionCode.toLong()
+    }
+
 internal fun openAppUpdateInBrowser(context: Context) {
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(APK_GITHUB_RELEASES_PAGE_URL))
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -488,6 +516,15 @@ internal fun validateDownloadedAppUpdateApk(context: Context, apkFile: File): Ap
     if (archiveInfo.packageName != context.packageName) {
         return AppUpdateApkValidation.Failed("APK предназначен для другого приложения.")
     }
+    val apkVersionCode = archiveApkVersionCode(archiveInfo)
+    val installedCode = installedAppVersionCode(context)
+    if (installedCode > 0L && apkVersionCode <= installedCode) {
+        return AppUpdateApkValidation.Failed(
+            "На GitHub сборка ${archiveInfo.versionName ?: "?"} (versionCode $apkVersionCode) — " +
+                "не новее установленной ${BuildConfig.VERSION_NAME} ($installedCode). " +
+                "Android не даёт «откатить» версию. Дождитесь публикации новой сборки или установите через браузер.",
+        )
+    }
     val apkCerts = packageSigningSha256Digests(archiveInfo)
     if (apkCerts.isEmpty()) {
         return AppUpdateApkValidation.Failed("В APK не найдена подпись.")
@@ -495,8 +532,9 @@ internal fun validateDownloadedAppUpdateApk(context: Context, apkFile: File): Ap
     val installedCerts = installedPackageSigningSha256Digests(context)
     if (installedCerts.isNotEmpty() && apkCerts.none { it in installedCerts }) {
         return AppUpdateApkValidation.Failed(
-            "Подпись новой сборки не совпадает с установленной. " +
-                "Удалите MOEX MVP и установите APK заново (или скачайте через браузер после входа в GitHub).",
+            "Подпись APK не совпадает с установленной (часто после локальной сборки в Android Studio). " +
+                "Удалите MOEX MVP: Настройки → Приложения → MOEX MVP → Удалить, " +
+                "затем установите APK с GitHub заново.",
             signatureMismatch = true,
         )
     }
@@ -586,6 +624,12 @@ internal fun installDownloadedAppUpdate(context: Context, apkFile: File) {
         intent,
         PackageManager.MATCH_DEFAULT_ONLY,
     )
+    if (installers.isEmpty()) {
+        throw IOException(
+            "На устройстве нет установщика APK. Включите «Установку из неизвестных источников» " +
+                "для MOEX MVP или скачайте через браузер."
+        )
+    }
     for (resolveInfo in installers) {
         context.grantUriPermission(
             resolveInfo.activityInfo.packageName,
@@ -593,7 +637,10 @@ internal fun installDownloadedAppUpdate(context: Context, apkFile: File) {
             Intent.FLAG_GRANT_READ_URI_PERMISSION,
         )
     }
-    context.startActivity(intent)
+    val chooser = Intent.createChooser(intent, "Установить MOEX MVP").apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(chooser)
 }
 
 internal fun formatDownloadProgress(progress: Float?): String =

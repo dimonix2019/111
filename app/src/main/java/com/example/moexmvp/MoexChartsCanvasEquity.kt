@@ -3,55 +3,24 @@ package com.example.moexmvp
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -61,7 +30,8 @@ internal fun EquityDrawdownComboChart(
     equityRub: List<Double>,
     drawdownRub: List<Double>,
     modifier: Modifier = Modifier,
-    chartHeightDp: Int = 280
+    chartHeightDp: Int = 280,
+    syncTimeAxis: StrategyTestChartTimeAxis? = null,
 ) {
     val n = min(equityRub.size, drawdownRub.size)
     if (n == 0 || labels.isEmpty()) {
@@ -73,16 +43,16 @@ internal fun EquityDrawdownComboChart(
     val equity = equityRub.take(n)
     val drawdownNeg = drawdownRub.take(n).map { v -> if (v > 0) -v else v }
     val xLabels = labels.take(n)
-    val monthTicks = buildXMonthTicks(xLabels)
+    val monthTicks = syncTimeAxis?.monthTicks ?: buildXMonthTicks(xLabels)
     val equityMax = (equity.maxOrNull() ?: 1.0).coerceAtLeast(1.0)
     val ddMax = drawdownNeg.minOrNull()?.let { abs(it) }?.coerceAtLeast(1.0) ?: 1.0
     val equityYTicks = buildYTicks(0.0, equityMax, count = 4)
     val drawdownYTicks = buildYTicks(-ddMax, 0.0, count = 4)
 
-    val leftPadding = 62f
-    val rightPadding = 12f
-    val topPadding = 10f
-    val bottomPadding = 72f
+    val leftPadding = if (syncTimeAxis != null) STRATEGY_TEST_CHART_LEFT_PADDING else 62f
+    val rightPadding = if (syncTimeAxis != null) STRATEGY_TEST_CHART_RIGHT_PADDING else 12f
+    val topPadding = if (syncTimeAxis != null) STRATEGY_TEST_CHART_TOP_PADDING else 10f
+    val bottomPadding = if (syncTimeAxis != null) STRATEGY_TEST_CHART_BOTTOM_PADDING else 72f
 
     Canvas(
         modifier = modifier
@@ -96,10 +66,18 @@ internal fun EquityDrawdownComboChart(
         val topHalfH = h / 2f
         val bottomHalfH = h / 2f
         val maxIndex = (n - 1).coerceAtLeast(0)
+        val plotWidth = w
+        val xMapper = syncTimeAxis?.let {
+            StrategyTestChartXMapper(it.timeRange, leftPadding, plotWidth)
+        }
 
-        fun xForIndex(index: Int): Float =
-            if (maxIndex == 0) leftPadding + w / 2f
+        fun xForIndex(index: Int): Float {
+            if (xMapper != null && syncTimeAxis != null) {
+                return xMapper.xForDayIndex(syncTimeAxis.dailyLabels, index)
+            }
+            return if (maxIndex == 0) leftPadding + w / 2f
             else leftPadding + (index.toFloat() / maxIndex) * w
+        }
 
         fun yEquity(v: Double): Float {
             val rel = (v / equityMax).toFloat().coerceIn(0f, 1f)
@@ -130,13 +108,13 @@ internal fun EquityDrawdownComboChart(
                 color = Color(0xFF30455A),
                 start = Offset(leftPadding, y),
                 end = Offset(leftPadding + w, y),
-                strokeWidth = 1f
+                strokeWidth = 1f,
             )
             drawContext.canvas.nativeCanvas.drawText(
                 formatRubAxisValue(tick),
                 leftPadding - 6f,
                 y + 4f,
-                labelPaint
+                labelPaint,
             )
         }
         drawdownYTicks.forEach { tick ->
@@ -145,13 +123,13 @@ internal fun EquityDrawdownComboChart(
                 color = Color(0xFF30455A),
                 start = Offset(leftPadding, y),
                 end = Offset(leftPadding + w, y),
-                strokeWidth = 1f
+                strokeWidth = 1f,
             )
             drawContext.canvas.nativeCanvas.drawText(
                 formatRubAxisValue(tick),
                 leftPadding - 6f,
                 y + 4f,
-                labelPaint
+                labelPaint,
             )
         }
 
@@ -159,19 +137,19 @@ internal fun EquityDrawdownComboChart(
             color = Color(0xFF8AA6C1),
             start = Offset(leftPadding, midY),
             end = Offset(leftPadding + w, midY),
-            strokeWidth = 2f
+            strokeWidth = 2f,
         )
         drawLine(
             color = Color(0xFF8AA6C1),
             start = Offset(leftPadding, topPadding),
             end = Offset(leftPadding, topPadding + h),
-            strokeWidth = 1.5f
+            strokeWidth = 1.5f,
         )
         drawLine(
             color = Color(0xFF8AA6C1),
             start = Offset(leftPadding, topPadding + h),
             end = Offset(leftPadding + w, topPadding + h),
-            strokeWidth = 1.5f
+            strokeWidth = 1.5f,
         )
 
         val barW = (w / n.coerceAtLeast(1)) * 0.55f
@@ -182,7 +160,7 @@ internal fun EquityDrawdownComboChart(
             drawRect(
                 color = barColor.copy(alpha = 0.85f),
                 topLeft = Offset(cx - barW / 2f, yTop),
-                size = Size(barW, (midY - yTop).coerceAtLeast(2f))
+                size = Size(barW, (midY - yTop).coerceAtLeast(2f)),
             )
         }
 
@@ -195,30 +173,43 @@ internal fun EquityDrawdownComboChart(
             drawPath(
                 path = path,
                 color = Color(0xFFFFAB40),
-                style = Stroke(width = 2.5f, cap = StrokeCap.Round)
+                style = Stroke(width = 2.5f, cap = StrokeCap.Round),
             )
         }
 
-        monthTicks.forEach { tick ->
-            val x = xForIndex(tick.index)
-            drawLine(
-                color = Color(0xFF2A3D50),
-                start = Offset(x, topPadding),
-                end = Offset(x, topPadding + h),
-                strokeWidth = 1f
+        if (syncTimeAxis != null && xMapper != null) {
+            drawStrategyTestMonthTicks(
+                drawScope = this,
+                axis = syncTimeAxis,
+                xMapper = xMapper,
+                leftPadding = leftPadding,
+                plotWidth = plotWidth,
+                topPadding = topPadding,
+                plotHeight = h,
+                labelTextSizePx = 10.sp.toPx(),
             )
-            val y = topPadding + h + 34f
-            drawContext.canvas.nativeCanvas.save()
-            drawContext.canvas.nativeCanvas.rotate(-55f, x, y)
-            drawContext.canvas.nativeCanvas.drawText(tick.label, x, y, monthPaint)
-            drawContext.canvas.nativeCanvas.restore()
+        } else {
+            monthTicks.forEach { tick ->
+                val x = xForIndex(tick.index)
+                drawLine(
+                    color = Color(0xFF2A3D50),
+                    start = Offset(x, topPadding),
+                    end = Offset(x, topPadding + h),
+                    strokeWidth = 1f,
+                )
+                val y = topPadding + h + 34f
+                drawContext.canvas.nativeCanvas.save()
+                drawContext.canvas.nativeCanvas.rotate(-55f, x, y)
+                drawContext.canvas.nativeCanvas.drawText(tick.label, x, y, monthPaint)
+                drawContext.canvas.nativeCanvas.restore()
+            }
         }
 
         drawContext.canvas.nativeCanvas.drawText(
             formatRubAxisValue(0.0),
             leftPadding - 6f,
             midY + 4f,
-            labelPaint
+            labelPaint,
         )
     }
 }
@@ -228,7 +219,7 @@ internal fun resolveSelectedIndex(
     canvasWidth: Float,
     leftPadding: Float,
     rightPadding: Float,
-    maxIndex: Int
+    maxIndex: Int,
 ): Int {
     if (maxIndex <= 0) return 0
     val chartWidth = (canvasWidth - leftPadding - rightPadding).coerceAtLeast(1f)

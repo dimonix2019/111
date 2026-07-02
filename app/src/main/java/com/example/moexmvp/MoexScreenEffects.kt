@@ -286,7 +286,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         selectedTab,
         signalJournalFingerprint,
         confirmedPortfolioMetrics,
-        strategyTestPortfolioMetrics,
         portfolioLookbackDays,
         strategyTestM15SessionCache.size,
         strategyTestEntryThreshold,
@@ -303,6 +302,10 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
         delay(350)
         if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
+        while (selectedTab == MainTab.StrategyTest && strategyTestSimComputing) {
+            delay(50)
+            if (selectedTab != MainTab.StrategyTest && selectedTab != MainTab.Portfolio) return@LaunchedEffect
+        }
         dailyReconciliation = withContext(Dispatchers.Default) {
             val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
             val points = m15SeriesForZSimulation()
@@ -592,7 +595,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             if (selectedTab != MainTab.Markets) continue
             if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) continue
             runCatching {
-                refreshMarketsM15ZForceIncremental(reason = "auto_force_5m")
+                refreshMarketsM15ZForceIncremental(scope = scope, reason = "auto_force_5m")
             }.onFailure { t ->
                 MoexDiagnostics.logError(context, "m15_z", t, "auto_force_5m loop")
             }
@@ -612,7 +615,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                 continue
             }
             runCatching {
-                refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}")
+                refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}", scope = scope)
             }.onFailure { t ->
                 MoexDiagnostics.logError(context, "m15_tail", t, "auto_poll loop tab=${selectedTab.name}")
             }

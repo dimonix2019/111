@@ -48,6 +48,7 @@ internal fun MoexScreenState.clearStrategyTestSession() {
     strategyTestM15SessionCache = emptyList()
     strategyTestVisibleSessionCache = null
     strategyTestLastSimKey = 0L
+    clearStrategyTestHourlyVolCache()
     clearStrategyTestVisibleState()
 }
 
@@ -61,22 +62,18 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
     points: List<DataPoint>,
     workId: Int,
     reason: String,
+    persistExport: Boolean = true,
 ) {
     if (!isStrategyTestWorkCurrent(workId)) return
     strategyTestSimComputing = true
     MoexDiagnostics.log(context, "st_sim", "start id=$workId reason=$reason points=${points.size}")
     MoexDiagnostics.logMemory(context, "st_sim")
     try {
-        val chartTail = withContext(Dispatchers.Default) {
-            strategyTestM15PointsForChart(points)
-        }
-        if (!isStrategyTestWorkCurrent(workId)) return
-        strategyTestM15ChartTail = chartTail
         val simThresholds = resolveStrategyTestSimThresholds()
         val entry = simThresholds.entry
         val exit = simThresholds.exit
         val commissionPct = buildStrategyTestCommissionPercentPerSide(context, portfolioCommissionPercent)
-        val metrics = withContext(Dispatchers.Default) {
+        val simResult = withContext(Dispatchers.Default) {
             if (!points.sufficientForStrategyTestSimulation()) return@withContext null
             val simPoints = prepareM15PointsForZStrategySim(
                 points = points,
@@ -84,7 +81,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 journalThresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
                 applyJournalOverlay = !strategyTestUseLiveZSignals,
             )
-            buildZStrategyPortfolioMetrics(
+            val metrics = buildZStrategyPortfolioMetrics(
                 points = simPoints,
                 thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
                 notionalRub = strategyTestAccountSizeRub,
@@ -104,15 +101,27 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                     leverageForLots = portfolioLeverage,
                 ),
             )
+            simPoints to metrics
         }
         if (!isStrategyTestWorkCurrent(workId)) return
+        val simPoints = simResult?.first
+        val metrics = simResult?.second
+        val chartTail = withContext(Dispatchers.Default) {
+            strategyTestM15PointsForChart(simPoints ?: points)
+        }
+        if (!isStrategyTestWorkCurrent(workId)) return
+        strategyTestM15ChartTail = chartTail
+        val hourlyVol = withContext(Dispatchers.Default) {
+            resolveStrategyTestSpreadHourlyVolatility(chartTail)
+        }
         val analytics = if (metrics != null && points.size >= 2) {
             withContext(Dispatchers.Default) {
                 buildStrategyTestVisibleAnalytics(
                     metrics = metrics,
-                    chartPoints = points,
+                    chartPoints = chartTail,
                     m15PointsForRisk = points,
                     entryThreshold = entry,
+                    spreadHourlyVolatility = hourlyVol,
                 )
             }
         } else {
@@ -141,7 +150,7 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
             )
         }
-        if (metrics != null) {
+        if (metrics != null && persistExport) {
             withContext(Dispatchers.IO) {
                 val tradeItems = buildStrategyTestTradeListFromSimulation(metrics.closedTrades)
                 val exportConfig = buildStrategyTestExportConfig(
@@ -237,9 +246,14 @@ internal suspend fun MoexScreenState.scheduleStrategyTestResimOnly(reason: Strin
     }
     val workId = ++strategyTestWorkGeneration
     MoexDiagnostics.log(context, "strategy_test", "resim id=$workId reason=$reason")
-    refreshMutex.withLock {
+    strategyTestSimMutex.withLock {
         if (!isStrategyTestWorkCurrent(workId)) return@withLock
-        runStrategyTestSimulation(strategyTestM15SessionCache, workId, reason)
+        runStrategyTestSimulation(
+            points = strategyTestM15SessionCache,
+            workId = workId,
+            reason = reason,
+            persistExport = false,
+        )
     }
 }
 

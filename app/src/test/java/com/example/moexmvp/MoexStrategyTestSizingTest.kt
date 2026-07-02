@@ -71,10 +71,18 @@ class MoexStrategyTestSizingTest {
     }
 
     @Test
+    fun strategyTestLiveChartHeightsDp_splitsScreenForZAndEquity() {
+        val (z, equity) = strategyTestLiveChartHeightsDp(873)
+        assertTrue(z in 160..220)
+        assertTrue(equity in 200..300)
+        assertTrue(z + equity <= 520)
+    }
+
+    @Test
     fun strategyTestLiveEquityChartHeightDp_redmi12ProClassScreen() {
-        // Redmi 12 Pro / Note 12 Pro class: ~873dp portrait
-        assertEquals(400, strategyTestLiveEquityChartHeightDp(873))
-        assertTrue(strategyTestLiveEquityChartHeightDp(780) in 280..400)
+        val (_, equity) = strategyTestLiveChartHeightsDp(873)
+        assertTrue(equity in 200..300)
+        assertTrue(strategyTestLiveEquityChartHeightDp(780) in 200..300)
     }
 
     @Test

@@ -87,6 +87,8 @@ internal fun LandscapeZScoreFullscreenPane(
     strategyTestTradeItems: List<StrategyTestTradeItem> = emptyList(),
     openPosition: PortfolioOpenPosition? = null,
     onExitFullscreenClick: (() -> Unit)? = null,
+    formingBarHint: MarketsFormingBarHint? = null,
+    formingBarHintText: String? = null,
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
@@ -147,6 +149,8 @@ internal fun LandscapeZScoreFullscreenPane(
                     areaFillColor = areaFillColor,
                     strategyTestTradeItems = strategyTestTradeItems,
                     openPosition = openPosition,
+                    formingBarHint = formingBarHint,
+                    formingBarHintText = formingBarHintText,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -292,6 +296,7 @@ internal fun StrategyTestEquityDrawdownChartCard(
     totalPnlRub: Double? = null,
     maxDrawdownRub: Double? = null,
     recomputing: Boolean = false,
+    syncTimeAxis: StrategyTestChartTimeAxis? = null,
 ) {
     Column(
         modifier = modifier
@@ -357,7 +362,8 @@ internal fun StrategyTestEquityDrawdownChartCard(
             labels = labels,
             equityRub = equityRub,
             drawdownRub = drawdownRub,
-            chartHeightDp = chartHeightDp
+            chartHeightDp = chartHeightDp,
+            syncTimeAxis = syncTimeAxis,
         )
     }
 }

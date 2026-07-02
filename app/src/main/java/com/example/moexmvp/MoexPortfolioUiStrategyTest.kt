@@ -115,8 +115,18 @@ internal fun StrategyTestTabContent(
         }
     }
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
-    val liveChartHeightDp = remember(screenHeightDp) {
-        strategyTestLiveEquityChartHeightDp(screenHeightDp)
+    val (zChartHeightDp, equityChartHeightDp) = remember(screenHeightDp) {
+        strategyTestLiveChartHeightsDp(screenHeightDp)
+    }
+    val zReferenceLines = remember(entryThreshold, exitThreshold, chartThresholds?.calculatedDate) {
+        buildZScoreReferenceLines(
+            DynamicThresholds(
+                entry = entryThreshold,
+                exit = exitThreshold,
+                calculatedDate = chartThresholds?.calculatedDate,
+            ),
+            desktopStyle = true,
+        )
     }
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -157,6 +167,28 @@ internal fun StrategyTestTabContent(
                 onExcludeRedZoneChange = onExcludeRedZoneChange,
             )
             val chartMetrics = displayMetrics
+            val equityLabels = chartMetrics?.equityCurveLabels.orEmpty()
+            val syncTimeAxis = remember(equityLabels) { buildStrategyTestChartTimeAxis(equityLabels) }
+            val zChartReady = syncTimeAxis != null && m15ChartPoints.size >= 2
+            if (zChartReady) {
+                StrategyTestZScoreLineChartCard(
+                    dailyLabels = equityLabels,
+                    m15Points = m15ChartPoints,
+                    referenceLines = zReferenceLines,
+                    chartHeightDp = zChartHeightDp,
+                    pointMarkers = chartPointMarkers,
+                )
+            } else if (!m15Loading && !simulationComputing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(zChartHeightDp.dp)
+                        .background(Color(0xFF171717), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Нет данных для Z-score", color = Color(0xFF757575), fontSize = 10.sp)
+                }
+            }
             if (chartMetrics != null &&
                 chartMetrics.equityCurveRub.isNotEmpty() &&
                 chartMetrics.drawdownCurveRub.isNotEmpty()
@@ -165,17 +197,18 @@ internal fun StrategyTestTabContent(
                     labels = chartMetrics.equityCurveLabels,
                     equityRub = chartMetrics.equityCurveRub,
                     drawdownRub = chartMetrics.drawdownCurveRub,
-                    chartHeightDp = liveChartHeightDp,
+                    chartHeightDp = equityChartHeightDp,
                     compact = true,
                     totalPnlRub = chartMetrics.totalPnlRubApprox,
                     maxDrawdownRub = chartMetrics.maxDrawdownRubApprox,
                     recomputing = simulationComputing,
+                    syncTimeAxis = syncTimeAxis,
                 )
             } else if (!m15Loading && !simulationComputing) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(liveChartHeightDp.dp)
+                        .height(equityChartHeightDp.dp)
                         .background(Color(0xFF171717), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -920,11 +953,17 @@ internal fun StrategyTestZScoreTradingViewChart(
     initialWindow: Pair<Float, Float>,
     chartHeightDp: Int = 320,
     landscapeMinimal: Boolean = false,
+    compactPortrait: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     if (candles.isEmpty()) return
+    val title = when {
+        landscapeMinimal -> ""
+        compactPortrait -> "Z-score · 15м"
+        else -> "Z-score · 15м (TradingView · все сделки симуляции)"
+    }
     TradingViewZScoreChartCard(
-        title = if (landscapeMinimal) "" else "Z-score · 15м (TradingView · все сделки симуляции)",
+        title = title,
         candles = candles,
         displayPoints = chartPoints,
         chartHeightDp = chartHeightDp,

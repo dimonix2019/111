@@ -3,6 +3,7 @@ package com.example.moexmvp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -159,6 +160,30 @@ class MoexMarketsLiveZTest {
     }
 
     @Test
+    fun resolveMarketsLiveZFromPoints_prefers1mOverlayOverMoex15mZ() {
+        val step = 15 * 60_000L
+        val bucket = currentM15BucketStartMillis()
+        val ts0 = bucket - 80 * step
+        val history = (0 until 80).map { i ->
+            point(ts0 + i * step, 7.0 + i * 0.01, z = 0.1)
+        }
+        val moexZ = history.last().zScore
+        val snap = MarketsIntraday1mSnapshot(
+            tatn = listOf(CandlePoint("10:00", 680.0, 681.0, 679.0, 680.0)),
+            tatnp = listOf(CandlePoint("10:00", 600.0, 601.0, 599.0, 600.0)),
+            tatnLastBarMillis = bucket,
+            tatnpLastBarMillis = bucket,
+        )
+        val withoutSnap = resolveMarketsLiveZFromPoints(history, snap = null)!!
+        assertEquals(moexZ, withoutSnap.zScore, 1e-9)
+        assertEquals(null, withoutSnap.patchedPoints)
+
+        val withSnap = resolveMarketsLiveZFromPoints(history, snap = snap)!!
+        assertNotNull(withSnap.patchedPoints)
+        assertNotEquals(moexZ, withSnap.zScore, 1e-9)
+    }
+
+    @Test
     fun applyLiveZToM15ChartSeries_patchesLastCandleClose() {
         val pts = listOf(
             point(0L, 7.0, z = 0.2),
@@ -168,7 +193,7 @@ class MoexMarketsLiveZTest {
             CandlePoint("a", 0.0, 0.2, 0.0, 0.2),
             CandlePoint("b", 0.2, 0.5, 0.2, 0.5),
         )
-        val (outPts, outCandles) = applyLiveZToM15ChartSeries(pts, candles, liveZ = 0.91)
+        val (outPts, outCandles) = applyLiveZToM15ChartSeries(pts, candles, liveZ = 0.91, liveBarAt = "x")
         assertEquals(0.91, outPts.last().zScore, 1e-9)
         assertEquals(0.91, outCandles.last().close, 1e-9)
     }

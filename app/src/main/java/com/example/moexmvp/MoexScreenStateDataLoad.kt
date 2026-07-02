@@ -50,7 +50,7 @@ internal suspend fun MoexScreenState.loadM15ForMarkets(
 ): List<DataPoint> {
     val useSession = wrapInSession ?: trackProgress
     val loader: suspend () -> List<DataPoint> = {
-        val lookback = marketsM15LookbackDays(chartPeriod)
+        val lookback = PORTFOLIO_M15_LOOKBACK_DAYS
         val till = LocalDate.now(moexZoneId)
         val from = till.minusDays(lookback)
         withContext(Dispatchers.IO) {
@@ -160,8 +160,7 @@ internal suspend fun MoexScreenState.ensureMarketsM15ForPeriod(
         }
         val loaded = loadM15ForMarkets(mode, uiPeriod, trackProgress = trackProgress)
         if (loaded.size >= 2) {
-            storeMarketsM15(loaded)
-            if (portfolioM15Points.isEmpty()) portfolioM15Points = loaded
+            commitMarketsM15ToUi(loaded, reason = "ensure_period_${uiPeriod.label}")
             marketsM15LoadedPeriod = uiPeriod
         }
     }
