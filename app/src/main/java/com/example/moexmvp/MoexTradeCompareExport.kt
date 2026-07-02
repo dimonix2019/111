@@ -40,9 +40,8 @@ internal data class StrategyTestExportConfig(
     val slippageSpreadPts: Double,
     val compoundReturns: Boolean,
     val maxLossDdPercent: Double = 0.0,
-    val usePortfolioThresholds: Boolean = true,
     val useLiveZSignals: Boolean = true,
-    val thresholdSource: String = "portfolio",
+    val thresholdSource: String = "strategy_test",
 )
 
 private val TRADE_COMPARE_HEADER = listOf(
@@ -171,7 +170,6 @@ internal fun exportStrategyTestCompareCsv(
             "compound=${config.compoundReturns}",
             "max_loss_dd_pct=${"%.2f".format(Locale.US, config.maxLossDdPercent)}",
             "max_loss_rub=${fmtRub(resolveStrategyTestMaxLossRub(config.accountSizeRub, config.maxLossDdPercent))}",
-            "portfolio_thresholds=${config.usePortfolioThresholds}",
             "live_z=${config.useLiveZSignals}",
             "threshold_source=${config.thresholdSource}",
             "trades=${trades.size}",
@@ -216,9 +214,8 @@ internal fun buildStrategyTestExportConfig(
     exitThreshold: Double,
     compoundReturns: Boolean,
     maxLossDdPercent: Double = 0.0,
-    usePortfolioThresholds: Boolean = true,
     useLiveZSignals: Boolean = true,
-    thresholdSource: String = "portfolio",
+    thresholdSource: String = "strategy_test",
 ): StrategyTestExportConfig {
     val slip = TradeExecutionLog.medianSlippageSpreadPts(context)
         ?: DEFAULT_STRATEGY_TEST_SLIPPAGE_SPREAD_PTS
@@ -232,7 +229,6 @@ internal fun buildStrategyTestExportConfig(
         slippageSpreadPts = slip,
         compoundReturns = compoundReturns,
         maxLossDdPercent = maxLossDdPercent,
-        usePortfolioThresholds = usePortfolioThresholds,
         useLiveZSignals = useLiveZSignals,
         thresholdSource = thresholdSource,
     )
@@ -276,9 +272,8 @@ internal fun buildStrategyTestCompareCsvFromState(
     exitThreshold: Double,
     compoundReturns: Boolean,
     maxLossDdPercent: Double = 0.0,
-    usePortfolioThresholds: Boolean = true,
     useLiveZSignals: Boolean = true,
-    thresholdSource: String = "portfolio",
+    thresholdSource: String = "strategy_test",
 ): String? {
     val m = metrics ?: return null
     if (tradeItems.isEmpty()) return null
@@ -292,7 +287,6 @@ internal fun buildStrategyTestCompareCsvFromState(
         exitThreshold = exitThreshold,
         compoundReturns = compoundReturns,
         maxLossDdPercent = maxLossDdPercent,
-        usePortfolioThresholds = usePortfolioThresholds,
         useLiveZSignals = useLiveZSignals,
         thresholdSource = thresholdSource,
     )

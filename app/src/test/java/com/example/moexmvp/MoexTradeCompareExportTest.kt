@@ -61,14 +61,13 @@ class MoexTradeCompareExportTest {
                 exitThreshold = 0.5,
                 slippageSpreadPts = 0.02,
                 compoundReturns = false,
-                usePortfolioThresholds = true,
                 useLiveZSignals = true,
-                thresholdSource = "PortfolioProd",
+                thresholdSource = "StrategyTestCustom",
             ),
         )
         assertTrue(csv.lines().any { it.contains("capital_usage_pct=75") })
         assertTrue(csv.lines().any { it.contains("live_z=true") })
-        assertTrue(csv.lines().any { it.contains("threshold_source=PortfolioProd") })
+        assertTrue(csv.lines().any { it.contains("threshold_source=StrategyTestCustom") })
     }
 
     @Test

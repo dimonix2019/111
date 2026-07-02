@@ -159,7 +159,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         strategyTestAccountSizeRub,
         strategyTestCapitalUsagePercent,
         strategyTestMaxLossDdPercent,
-        strategyTestUsePortfolioThresholds,
         strategyTestUseLiveZSignals,
     ) {
         if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect

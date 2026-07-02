@@ -62,8 +62,6 @@ internal fun StrategyTestTabContent(
     accountSizeRub: Double,
     capitalUsagePercent: Double,
     maxLossDdPercent: Double,
-    usePortfolioThresholds: Boolean = true,
-    onUsePortfolioThresholdsChange: (Boolean) -> Unit = {},
     useLiveZSignals: Boolean = true,
     onUseLiveZSignalsChange: (Boolean) -> Unit = {},
     parityItems: List<StrategyTestProdParityItem> = emptyList(),
@@ -193,8 +191,6 @@ internal fun StrategyTestTabContent(
         ) {
             StrategyTestProdParityPanel(
                 items = parityItems,
-                usePortfolioThresholds = usePortfolioThresholds,
-                onUsePortfolioThresholdsChange = onUsePortfolioThresholdsChange,
                 useLiveZSignals = useLiveZSignals,
                 onUseLiveZSignalsChange = onUseLiveZSignalsChange,
                 onApplyProdAccountCash = onApplyProdAccountCash,
@@ -858,8 +854,6 @@ internal fun StrategyTestLiveTuningPanel(
 @Composable
 internal fun StrategyTestProdParityPanel(
     items: List<StrategyTestProdParityItem>,
-    usePortfolioThresholds: Boolean,
-    onUsePortfolioThresholdsChange: (Boolean) -> Unit,
     useLiveZSignals: Boolean,
     onUseLiveZSignalsChange: (Boolean) -> Unit,
     onApplyProdAccountCash: (() -> Unit)?,
@@ -879,14 +873,6 @@ internal fun StrategyTestProdParityPanel(
                 fontSize = 9.sp,
                 maxLines = 2,
             )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Пороги = Портфель", color = Color(0xFFE0E0E0), fontSize = 10.sp)
-            Switch(checked = usePortfolioThresholds, onCheckedChange = onUsePortfolioThresholdsChange)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
