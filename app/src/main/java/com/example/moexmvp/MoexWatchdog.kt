@@ -162,7 +162,14 @@ internal data class SignalMonitorOpenTradeSnapshot(
     val openedAt: String,
     val entryZ: Double,
     val pnlRub: Double,
+    val pnlPercent: Double = Double.NaN,
 )
+
+/** Доходность открытой сделки от номинала пары (%). */
+internal fun openTradeReturnPercent(pnlRub: Double, notionalRub: Double): Double {
+    if (pnlRub.isNaN() || notionalRub <= 0.0) return Double.NaN
+    return pnlRub / notionalRub * 100.0
+}
 
 /** «2026-06-15 18:45» → «15.06 18:45». */
 internal fun compactMonitorDateTimeMsk(text: String): String {
@@ -176,6 +183,18 @@ internal fun formatCompactSignedPnlRub(rub: Double): String {
     if (rub.isNaN()) return "—"
     val rounded = kotlin.math.round(rub).toInt()
     return if (rounded >= 0) "+${rounded}₽" else "${rounded}₽"
+}
+
+internal fun formatCompactSignedPnlPercent(percent: Double): String {
+    if (percent.isNaN()) return ""
+    return String.format(Locale.US, "%+.1f%%", percent)
+}
+
+internal fun formatCompactSignedPnlRubAndPercent(rub: Double, percent: Double): String {
+    val rubPart = formatCompactSignedPnlRub(rub)
+    if (rubPart == "—") return rubPart
+    val pctPart = formatCompactSignedPnlPercent(percent)
+    return if (pctPart.isEmpty()) rubPart else "$rubPart $pctPart"
 }
 
 /** Короткая метка сделки для шторки: «1S» = первая Short, «1L» = первая Long. */
@@ -200,17 +219,19 @@ internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMo
     }
     val openedRaw = exec.entrySignalBarTimeMsk.takeIf { it.isNotBlank() && it != "—" }
         ?: exec.entryTimeMsk
+    val notionalRub = resolveTradeNotionalRubForPnl(exec, emptyList())
     return SignalMonitorOpenTradeSnapshot(
         badge = signalMonitorTradeDirectionBadge(exec.tradeDisplayId, exec.signalType),
         openedAt = compactMonitorDateTimeMsk(openedRaw),
         entryZ = exec.zScore,
         pnlRub = exec.netPnlRubApprox,
+        pnlPercent = openTradeReturnPercent(exec.netPnlRubApprox, notionalRub),
     )
 }
 
 internal fun formatSignalMonitorOpenTradeLine(trade: SignalMonitorOpenTradeSnapshot): String =
     "${trade.badge} ${trade.openedAt} Z₀${"%.2f".format(Locale.US, trade.entryZ)} " +
-        formatCompactSignedPnlRub(trade.pnlRub)
+        formatCompactSignedPnlRubAndPercent(trade.pnlRub, trade.pnlPercent)
 
 /** Последняя открытая сделка с PnL счёта Tinkoff для шторки. */
 internal suspend fun resolveSignalMonitorOpenTrade(

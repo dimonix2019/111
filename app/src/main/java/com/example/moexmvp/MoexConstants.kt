@@ -189,6 +189,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.284 — Шторка монитора: PnL открытой сделки также в % от номинала (+₽ +%).
 1.7.283 — Fix вылет при запуске: ForegroundServiceStartNotAllowed (Android 12+ / MIUI); старт монитора только из Activity.
 1.7.282 — Fix «Портфель»: открытая сделка из exec log; выход в журнале не скрывает позицию на счёте.
 1.7.281 — Merge main: forming-bar hint, M15 pipeline, OTA install fix + Δ спред/PnL шторки.

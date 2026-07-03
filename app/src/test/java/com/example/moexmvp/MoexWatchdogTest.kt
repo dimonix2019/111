@@ -119,12 +119,26 @@ class MoexWatchdogTest {
     }
 
     @Test
+    fun openTradeReturnPercent_dividesByNotional() {
+        assertEquals(0.134, openTradeReturnPercent(120.0, 89_440.0), 0.001)
+        assertTrue(openTradeReturnPercent(Double.NaN, 10_000.0).isNaN())
+        assertTrue(openTradeReturnPercent(100.0, 0.0).isNaN())
+    }
+
+    @Test
+    fun formatCompactSignedPnlRubAndPercent_showsRubAndPercent() {
+        assertEquals("+120₽ +0.1%", formatCompactSignedPnlRubAndPercent(120.0, 0.134))
+        assertEquals("-50₽ -0.6%", formatCompactSignedPnlRubAndPercent(-50.0, -0.56))
+    }
+
+    @Test
     fun formatSignalMonitorForegroundText_includesOpenTradeCompact() {
         val trade = SignalMonitorOpenTradeSnapshot(
             badge = "2S",
             openedAt = "15.06 18:45",
             entryZ = 0.84,
             pnlRub = 120.0,
+            pnlPercent = 0.134,
         )
         val text = formatSignalMonitorForegroundText(
             monitorEnabled = true,
@@ -137,14 +151,16 @@ class MoexWatchdogTest {
         assertTrue(text.contains("2S 15.06 18:45"))
         assertTrue(text.contains("Z₀0.84"))
         assertTrue(text.contains("+120₽"))
+        assertTrue(text.contains("+0.1%"))
     }
 
     @Test
     fun formatSignalMonitorForegroundBigText_splitsZAndTrade() {
-        val trade = SignalMonitorOpenTradeSnapshot("3L", "15.06 18:45", 0.84, -50.0)
+        val trade = SignalMonitorOpenTradeSnapshot("3L", "15.06 18:45", 0.84, -50.0, -0.56)
         val text = formatSignalMonitorForegroundBigText(true, 1L, 12L, 0.52, trade)
         assertTrue(text.contains('\n'))
         assertTrue(text.contains("3L"))
         assertTrue(text.contains("-50₽"))
+        assertTrue(text.contains("-0.6%"))
     }
 }
