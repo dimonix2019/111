@@ -1,7 +1,10 @@
 package com.example.moexmvp
 
+import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
+import android.content.ContextWrapper
+import android.os.Build
 import java.util.Locale
 
 /** Интервал проверки watchdog из UI (приложение на экране). */
@@ -134,9 +137,7 @@ internal object MoexWatchdog {
             "watchdog",
             "restart_service reason=$reason count=$count stale=${status.serviceStale} running=${status.serviceRunning}",
         )
-        SignalForegroundService.start(app)
-        scheduleMonitorWatchdog(app)
-        return true
+        return startSignalMonitorInForeground(context, reason)
     }
 
     fun performMonitorWatchdogCheck(context: Context, reason: String) {
@@ -149,6 +150,40 @@ internal object MoexWatchdog {
 
 internal fun scheduleMonitorWatchdog(context: Context) {
     MonitorWatchdogReceiver.scheduleNext(context.applicationContext)
+}
+
+internal fun Context.findHostActivity(): Activity? {
+    var ctx: Context? = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return ctx as? Activity
+}
+
+/**
+ * Старт foreground-монитора из видимого UI.
+ * Android 12+ / MIUI: при отказе в onCreate — повтор после отрисовки окна Activity.
+ */
+internal fun startSignalMonitorInForeground(context: Context, reason: String): Boolean {
+    if (!SignalForegroundService.isBackgroundMonitorEnabled(context)) return false
+    if (SignalForegroundService.start(context)) {
+        MoexDiagnostics.log(context.applicationContext, "monitor", "start_ok reason=$reason")
+        return true
+    }
+    val activity = context.findHostActivity() ?: return false
+    if (activity.isFinishing) return false
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && activity.isDestroyed) return false
+    activity.window?.decorView?.post {
+        if (!SignalForegroundService.isBackgroundMonitorEnabled(context)) return@post
+        val ok = SignalForegroundService.start(context)
+        MoexDiagnostics.log(
+            context.applicationContext,
+            "monitor",
+            "start_retry reason=$reason ok=$ok",
+        )
+    }
+    return false
 }
 
 internal fun formatWatchdogAgeSec(ageSec: Long): String = when {
@@ -164,6 +199,7 @@ internal data class SignalMonitorOpenTradeSnapshot(
     val openedAt: String,
     val entryZ: Double,
     val pnlRub: Double,
+    val pnlPercent: Double = Double.NaN,
 )
 
 /** «2026-06-15 18:45» → «15.06 18:45». */
@@ -180,6 +216,18 @@ internal fun formatCompactSignedPnlRub(rub: Double): String {
     return if (rounded >= 0) "+${rounded}₽" else "${rounded}₽"
 }
 
+internal fun formatCompactSignedPnlPercent(percent: Double): String {
+    if (percent.isNaN()) return ""
+    return String.format(Locale.US, "%+.1f%%", percent)
+}
+
+internal fun formatCompactSignedPnlRubAndPercent(rub: Double, percent: Double): String {
+    val rubPart = formatCompactSignedPnlRub(rub)
+    if (rubPart == "—") return rubPart
+    val pctPart = formatCompactSignedPnlPercent(percent)
+    return if (pctPart.isEmpty()) rubPart else "$rubPart $pctPart"
+}
+
 /** Короткая метка сделки для шторки: «1S» = первая Short, «1L» = первая Long. */
 internal fun signalMonitorTradeDirectionBadge(
     tradeDisplayId: String,
@@ -194,7 +242,10 @@ internal fun signalMonitorTradeDirectionBadge(
     return "$num$suffix"
 }
 
-internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMonitorOpenTradeSnapshot? {
+internal fun signalMonitorOpenTradeSnapshot(
+    exec: SandboxSpreadExecUi,
+    investedRub: Double,
+): SignalMonitorOpenTradeSnapshot? {
     if (exec.signalType != StrategySignalType.EnterLong &&
         exec.signalType != StrategySignalType.EnterShort
     ) {
@@ -207,19 +258,19 @@ internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMo
         openedAt = compactMonitorDateTimeMsk(openedRaw),
         entryZ = exec.zScore,
         pnlRub = exec.netPnlRubApprox,
+        pnlPercent = openTradeReturnPercent(exec.netPnlRubApprox, investedRub),
     )
 }
 
 internal fun formatSignalMonitorOpenTradeLine(trade: SignalMonitorOpenTradeSnapshot): String =
     "${trade.badge} ${trade.openedAt} Z₀${"%.2f".format(Locale.US, trade.entryZ)} " +
-        formatCompactSignedPnlRub(trade.pnlRub)
+        formatCompactSignedPnlRubAndPercent(trade.pnlRub, trade.pnlPercent)
 
-/** Последняя открытая сделка с актуальным MTM для шторки. */
+/** Последняя открытая сделка с PnL счёта Tinkoff для шторки. */
 internal suspend fun resolveSignalMonitorOpenTrade(
     context: Context,
     points: List<DataPoint>,
 ): SignalMonitorOpenTradeSnapshot? {
-    if (points.isEmpty()) return null
     val app = context.applicationContext
     val opens = TinkoffSandboxSpreadExecLog.loadRecent(app)
         .filter {
@@ -227,12 +278,14 @@ internal suspend fun resolveSignalMonitorOpenTrade(
                 it.signalType == StrategySignalType.EnterShort
         }
     val latest = opens.maxByOrNull { it.barTimestampMillis } ?: return null
+    if (points.isEmpty() && currentExecutionMode(app) != TinkoffExecutionMode.Prod) return null
     val enriched = enrichOpenExecutionsForBackgroundMonitor(
         context = app,
         executions = listOf(latest),
         points = points,
     ).firstOrNull() ?: return null
-    return signalMonitorOpenTradeSnapshot(enriched)
+    val investedRub = resolveOpenTradeInvestedRub(app)
+    return signalMonitorOpenTradeSnapshot(enriched, investedRub)
 }
 
 /** Текст ongoing-уведомления фонового монитора в шторке. */

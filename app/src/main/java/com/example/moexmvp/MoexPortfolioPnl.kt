@@ -1,5 +1,6 @@
 package com.example.moexmvp
 
+import android.content.Context
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -37,6 +38,17 @@ internal fun resolveTradeNotionalRubForPnl(
         }
     }
     return fallbackRub
+}
+
+/** Вложенные средства в сделку («Сумма в сделке» на «Портфеле» / «Рынке»). */
+internal fun resolveOpenTradeInvestedRub(context: Context): Double =
+    TinkoffSandboxStorage.getPortfolioTradeAmountRub(context.applicationContext)
+        .coerceAtLeast(1.0)
+
+/** Доходность открытой сделки от вложенных средств (%). */
+internal fun openTradeReturnPercent(pnlRub: Double, investedRub: Double): Double {
+    if (pnlRub.isNaN() || investedRub <= 0.0) return Double.NaN
+    return pnlRub / investedRub * 100.0
 }
 
 internal fun overnightDays(entryDate: String, endDate: String): Long {
