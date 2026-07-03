@@ -484,16 +484,43 @@ class SignalForegroundService : Service() {
         const val ACTION_START_SIGNAL_MONITOR = "com.example.moexmvp.action.START_SIGNAL_MONITOR"
         const val ACTION_STOP_SIGNAL_MONITOR = "com.example.moexmvp.action.STOP_SIGNAL_MONITOR"
 
-        fun start(context: Context) {
-            val intent = Intent(context, SignalForegroundService::class.java).apply {
+        fun start(context: Context): Boolean {
+            val app = context.applicationContext
+            if (!isBackgroundMonitorEnabled(app)) return false
+            val intent = Intent(app, SignalForegroundService::class.java).apply {
                 action = ACTION_START_SIGNAL_MONITOR
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    app.startForegroundService(intent)
+                } else {
+                    app.startService(intent)
+                }
+                scheduleMonitorWatchdog(app)
+                true
+            } catch (e: Exception) {
+                if (isForegroundServiceStartBlocked(e)) {
+                    MoexDiagnostics.log(
+                        app,
+                        "monitor",
+                        "start_deferred ${e.javaClass.simpleName}: ${e.message?.take(160)}",
+                    )
+                    scheduleMonitorWatchdog(app)
+                    false
+                } else {
+                    throw e
+                }
             }
-            scheduleMonitorWatchdog(context.applicationContext)
+        }
+
+        /** Android 12+ / MIUI: нельзя startForegroundService из фона (Application, alarm, boot). */
+        private fun isForegroundServiceStartBlocked(e: Exception): Boolean {
+            if (e is SecurityException) return true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val cls = "android.app.ForegroundServiceStartNotAllowedException"
+                if (e.javaClass.name == cls) return true
+            }
+            return false
         }
 
         fun stop(context: Context) {

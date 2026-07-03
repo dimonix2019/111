@@ -134,9 +134,7 @@ internal object MoexWatchdog {
             "watchdog",
             "restart_service reason=$reason count=$count stale=${status.serviceStale} running=${status.serviceRunning}",
         )
-        SignalForegroundService.start(app)
-        scheduleMonitorWatchdog(app)
-        return true
+        return SignalForegroundService.start(app)
     }
 
     fun performMonitorWatchdogCheck(context: Context, reason: String) {
