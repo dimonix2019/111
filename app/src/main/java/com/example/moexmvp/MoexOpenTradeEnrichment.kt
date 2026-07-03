@@ -367,23 +367,7 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
         )
         return
     }
-    val ledger = withContext(Dispatchers.IO) { loadPortfolioExecutionLedger(context) }
-    val opensAfterJournalClose = withContext(Dispatchers.Default) {
-        buildClosedRowsFromSandboxOpensAndJournalExits(
-            openExecutions = raw,
-            allJournalEvents = journalEvents,
-            points = points,
-            ledger = ledger,
-            pushLog = emptyList(),
-            notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-            leverage = portfolioLeverage,
-            commissionPercentPerSide = portfolioCommissionPercent,
-            portfolioLedgerIncludeAuto = ledgerIncludeAuto,
-            pnlLeverage = portfolioPnlLeverageMultiplier(mode, portfolioLeverage),
-            executionMode = mode,
-        ).second
-    }
-    val modeFiltered = filterSandboxExecutionsByPortfolioMode(opensAfterJournalClose, ledgerIncludeAuto)
+    val modeFiltered = filterSandboxExecutionsByPortfolioMode(raw, ledgerIncludeAuto)
     sandboxSpreadExecutions = applyBrokerEnrichmentToOpenExecutions(
         openExecutions = modeFiltered,
         journalEvents = journalEvents,
@@ -446,7 +430,7 @@ internal suspend fun loadPortfolioTradesForZChart(
             )
         }
         val sandboxRaw = TinkoffSandboxSpreadExecLog.loadRecent(context)
-        val (closedFromOpens, opensAfterJournalClose) = withContext(Dispatchers.Default) {
+        val closedFromOpens = withContext(Dispatchers.Default) {
             buildClosedRowsFromSandboxOpensAndJournalExits(
                 openExecutions = sandboxRaw,
                 allJournalEvents = eventsAll,
@@ -460,7 +444,7 @@ internal suspend fun loadPortfolioTradesForZChart(
                 includeAllLedgerEntries = true,
                 pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), leverage),
                 executionMode = currentExecutionMode(context),
-            )
+            ).first
         }
         val prodBrokerClosed = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
             buildClosedRowsFromProdBrokerLog(
@@ -472,19 +456,23 @@ internal suspend fun loadPortfolioTradesForZChart(
         } else {
             emptyList()
         }
-        val closed = mergePortfolioClosedTableRowsForMode(
-            mode = currentExecutionMode(context),
-            fromReplay = executed.tableRows,
-            fromOpens = closedFromOpens,
-            fromProdBroker = prodBrokerClosed,
+        val modeFilteredOpens = filterSandboxExecutionsByPortfolioMode(sandboxRaw, true)
+        val closed = filterClosedSynthWhenStillOpen(
+            mergePortfolioClosedTableRowsForMode(
+                mode = currentExecutionMode(context),
+                fromReplay = executed.tableRows,
+                fromOpens = closedFromOpens,
+                fromProdBroker = prodBrokerClosed,
+            ),
+            modeFilteredOpens,
         )
-        val brokerLegPnl = opensAfterJournalClose.firstOrNull()?.signalType?.let { signal ->
+        val brokerLegPnl = modeFilteredOpens.firstOrNull()?.signalType?.let { signal ->
             loadSpreadLegBrokerPnl(context, signal, currentExecutionMode(context))
         }
         val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), leverage)
         val opens = TinkoffSandboxSpreadExecLog.enrichForDisplay(
             context = context,
-            executions = opensAfterJournalClose,
+            executions = modeFilteredOpens,
             points = points,
             notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
             leverage = leverage,

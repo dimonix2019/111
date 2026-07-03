@@ -112,28 +112,10 @@ internal suspend fun loadOpenPortfolioTradeGroupsForRiskMonitor(
     points: List<DataPoint>,
 ): List<PortfolioTradeGroupRow> = withContext(Dispatchers.IO) {
     if (points.size < 2) return@withContext emptyList()
-    val eventsAll = loadStrategySignalEvents(
-        context = context,
-        fromTimestampMillis = points.first().timestampMillis,
-    )
-    val ledger = loadPortfolioExecutionLedger(context)
     val ledgerIncludeAuto = TinkoffSandboxStorage.isPortfolioLedgerIncludeAuto(context)
-    val pushLog = loadPushNotificationLog(context)
     val sandboxRaw = TinkoffSandboxSpreadExecLog.loadRecent(context)
-    val (_, opensAfterJournalClose) = buildClosedRowsFromSandboxOpensAndJournalExits(
-        openExecutions = sandboxRaw,
-        allJournalEvents = eventsAll,
-        points = points,
-        ledger = ledger,
-        pushLog = pushLog,
-        notionalRub = DEFAULT_PORTFOLIO_NOTIONAL_RUB,
-        leverage = 7.0,
-        commissionPercentPerSide = 0.04,
-        portfolioLedgerIncludeAuto = ledgerIncludeAuto,
-        executionMode = currentExecutionMode(context),
-    )
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(
-        opensAfterJournalClose,
+        sandboxRaw,
         ledgerIncludeAuto,
     )
     val enriched = enrichOpenExecutionsForBackgroundMonitor(

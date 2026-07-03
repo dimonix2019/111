@@ -189,6 +189,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.282 — Fix «Портфель»: открытая сделка из exec log; выход в журнале не скрывает позицию на счёте.
 1.7.281 — Merge main: forming-bar hint, M15 pipeline, OTA install fix + Δ спред/PnL шторки.
 1.7.280 — Fix Δ спред 15м: правая ось ₽ = PnL шторки; live MOEX Δ; обновление Tinkoff на вкладке «Рынок».
 1.7.279 — Prod: PnL при закрытии сделки — данные со счёта Tinkoff (операции + Δ cash), без MOEX-симуляции.

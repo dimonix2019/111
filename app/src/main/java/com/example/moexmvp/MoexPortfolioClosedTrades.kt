@@ -172,6 +172,38 @@ internal fun buildClosedRowsFromSandboxOpensAndJournalExits(
     return closedRows to stillOpen
 }
 
+/** Синтетическая T-O закрытая строка совпадает с ещё открытой на счёте (exec log). */
+internal fun closedSynthRowMatchesStillOpenExecution(
+    closed: PortfolioConfirmedTradeTableRow,
+    open: SandboxSpreadExecUi,
+): Boolean {
+    if (!closed.tradeId.startsWith("T-O")) return false
+    val openDir = when (open.signalType) {
+        StrategySignalType.EnterShort -> "short"
+        StrategySignalType.EnterLong -> "long"
+        else -> return false
+    }
+    if (closed.directionLabel != openDir) return false
+    val entryFromExecutedAt = formatPortfolioExecutionTableMsk(open.executedAtMillis)
+    return closed.entryTimeMsk == entryFromExecutedAt ||
+        (open.entryTimeMsk.isNotBlank() && closed.entryTimeMsk == open.entryTimeMsk)
+}
+
+/**
+ * Убрать синтетические T-O закрытые, пока та же сделка ещё в exec log (открыта на счёте).
+ * Exec log — источник истины для «Открытая»; журнал выхода может опережать фактическое закрытие.
+ */
+internal fun filterClosedSynthWhenStillOpen(
+    closedRows: List<PortfolioConfirmedTradeTableRow>,
+    stillOpenExecutions: List<SandboxSpreadExecUi>,
+): List<PortfolioConfirmedTradeTableRow> {
+    if (closedRows.isEmpty() || stillOpenExecutions.isEmpty()) return closedRows
+    return closedRows.filter { closed ->
+        !closed.tradeId.startsWith("T-O") ||
+            stillOpenExecutions.none { closedSynthRowMatchesStillOpenExecution(closed, it) }
+    }
+}
+
 /** Время выхода для таблицы: wall-clock журнала, не раньше входа на счёте. */
 internal fun resolveClosedTradeExitWallMillis(
     openExecutedAtMillis: Long,

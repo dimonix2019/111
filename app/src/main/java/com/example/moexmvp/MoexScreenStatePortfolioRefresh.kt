@@ -65,7 +65,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
         TinkoffSandboxSpreadExecLog.loadRecent(context)
     }
     val execMode = currentExecutionMode(context)
-    val (closedFromOpens, opensAfterJournalClose) = withContext(Dispatchers.Default) {
+    val closedFromOpens = withContext(Dispatchers.Default) {
         buildClosedRowsFromSandboxOpensAndJournalExits(
             openExecutions = sandboxRaw,
             allJournalEvents = eventsAll,
@@ -78,7 +78,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
             portfolioLedgerIncludeAuto = ledgerIncludeAuto,
             pnlLeverage = portfolioPnlLeverageMultiplier(execMode, portfolioLeverage),
             executionMode = execMode,
-        )
+        ).first
     }
     val prodBrokerClosed = if (execMode == TinkoffExecutionMode.Prod) {
         withContext(Dispatchers.IO) {
@@ -119,6 +119,10 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
         portfolioBrokerWindowPnlSummary = null
         emptyList()
     }
+    val modeFilteredOpens = filterSandboxExecutionsByPortfolioMode(
+        sandboxRaw,
+        ledgerIncludeAuto,
+    )
     val mergedClosed = mergePortfolioClosedTableRowsForMode(
         mode = execMode,
         fromReplay = executed.tableRows,
@@ -126,15 +130,13 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
         fromProdBroker = prodBrokerClosed,
         fromProdOperations = prodOpsClosed,
     )
+    val mergedClosedWithoutStillOpen = filterClosedSynthWhenStillOpen(mergedClosed, modeFilteredOpens)
     confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
-        mergedClosed,
+        mergedClosedWithoutStillOpen,
         ledgerIncludeAuto,
         executionMode = execMode,
     )
-    val modeFiltered = filterSandboxExecutionsByPortfolioMode(
-        opensAfterJournalClose,
-        ledgerIncludeAuto,
-    )
+    val modeFiltered = modeFilteredOpens
     val brokerLegPnl = modeFiltered.firstOrNull()?.signalType?.let { signal ->
         withContext(Dispatchers.IO) { loadSpreadLegBrokerPnl(context, signal, execMode) }
     }
@@ -170,6 +172,7 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     }
     val uiKey = portfolioTabUiSessionKey()
     if (portfolioTabUiBuiltKey == uiKey && portfolioM15Points.size >= 2) {
+        syncSandboxExecutionsEnrichment()
         if (portfolio15mSeriesIntradayStale(portfolioM15Points)) {
             refreshPortfolioM15TailSilent()
         } else {
