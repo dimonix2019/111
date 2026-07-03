@@ -107,6 +107,9 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                     activityResumed = true
                     memoryPressureLevel = 0
                     MoexWatchdog.recordUiPing(context)
+                    if (SignalForegroundService.isBackgroundMonitorEnabled(context)) {
+                        startSignalMonitorInForeground(context, "on_resume")
+                    }
                     MoexWatchdog.performMonitorWatchdogCheck(context, "on_resume")
                     watchdogStatus = MoexWatchdog.readStatus(context)
                     hydrateVirtualTradeAndSandboxUi()

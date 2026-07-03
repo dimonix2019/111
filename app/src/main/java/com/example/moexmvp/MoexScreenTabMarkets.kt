@@ -417,7 +417,7 @@ internal fun MoexScreenTabMarkets(
                                         if (monitorEnabled) {
                                             SignalForegroundService.stop(context)
                                         } else {
-                                            SignalForegroundService.start(context)
+                                            startSignalMonitorInForeground(context, "markets_bg_toggle")
                                             scheduleMonitorWatchdog(context)
                                         }
                                         bgMonitorToggleEpoch++

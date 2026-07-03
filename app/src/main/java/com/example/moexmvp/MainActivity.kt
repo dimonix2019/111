@@ -49,9 +49,6 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             runCatching { checkRemoteAppUpdateAndNotify(this@MainActivity) }
         }
-        if (SignalForegroundService.isBackgroundMonitorEnabled(this)) {
-            MoexWatchdog.performMonitorWatchdogCheck(this, "activity_onCreate")
-        }
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
@@ -71,7 +68,10 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         MoexDiagnostics.log(applicationContext, "lifecycle", "activity_onStart")
         MoexWatchdog.recordUiPing(applicationContext)
-        MoexWatchdog.performMonitorWatchdogCheck(applicationContext, "activity_onStart")
+        if (SignalForegroundService.isBackgroundMonitorEnabled(this)) {
+            startSignalMonitorInForeground(this, "activity_onStart")
+            MoexWatchdog.performMonitorWatchdogCheck(this, "activity_onStart")
+        }
     }
 
     override fun onStop() {

@@ -1,7 +1,10 @@
 package com.example.moexmvp
 
+import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
+import android.content.ContextWrapper
+import android.os.Build
 import java.util.Locale
 
 /** Интервал проверки watchdog из UI (приложение на экране). */
@@ -134,7 +137,7 @@ internal object MoexWatchdog {
             "watchdog",
             "restart_service reason=$reason count=$count stale=${status.serviceStale} running=${status.serviceRunning}",
         )
-        return SignalForegroundService.start(app)
+        return startSignalMonitorInForeground(context, reason)
     }
 
     fun performMonitorWatchdogCheck(context: Context, reason: String) {
@@ -147,6 +150,40 @@ internal object MoexWatchdog {
 
 internal fun scheduleMonitorWatchdog(context: Context) {
     MonitorWatchdogReceiver.scheduleNext(context.applicationContext)
+}
+
+internal fun Context.findHostActivity(): Activity? {
+    var ctx: Context? = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return ctx as? Activity
+}
+
+/**
+ * Старт foreground-монитора из видимого UI.
+ * Android 12+ / MIUI: при отказе в onCreate — повтор после отрисовки окна Activity.
+ */
+internal fun startSignalMonitorInForeground(context: Context, reason: String): Boolean {
+    if (!SignalForegroundService.isBackgroundMonitorEnabled(context)) return false
+    if (SignalForegroundService.start(context)) {
+        MoexDiagnostics.log(context.applicationContext, "monitor", "start_ok reason=$reason")
+        return true
+    }
+    val activity = context.findHostActivity() ?: return false
+    if (activity.isFinishing) return false
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && activity.isDestroyed) return false
+    activity.window?.decorView?.post {
+        if (!SignalForegroundService.isBackgroundMonitorEnabled(context)) return@post
+        val ok = SignalForegroundService.start(context)
+        MoexDiagnostics.log(
+            context.applicationContext,
+            "monitor",
+            "start_retry reason=$reason ok=$ok",
+        )
+    }
+    return false
 }
 
 internal fun formatWatchdogAgeSec(ageSec: Long): String = when {

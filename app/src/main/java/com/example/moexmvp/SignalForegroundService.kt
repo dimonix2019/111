@@ -100,7 +100,6 @@ class SignalForegroundService : Service() {
         MoexDiagnostics.log(applicationContext, "monitor", "onTaskRemoved")
         if (isBackgroundMonitorEnabled(applicationContext)) {
             scheduleMonitorWatchdog(applicationContext)
-            start(applicationContext)
         }
         super.onTaskRemoved(rootIntent)
     }
@@ -514,11 +513,16 @@ class SignalForegroundService : Service() {
         }
 
         /** Android 12+ / MIUI: нельзя startForegroundService из фона (Application, alarm, boot). */
-        private fun isForegroundServiceStartBlocked(e: Exception): Boolean {
-            if (e is SecurityException) return true
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val cls = "android.app.ForegroundServiceStartNotAllowedException"
-                if (e.javaClass.name == cls) return true
+        private fun isForegroundServiceStartBlocked(e: Throwable): Boolean {
+            var t: Throwable? = e
+            while (t != null) {
+                if (t is SecurityException) return true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (t.javaClass.name == "android.app.ForegroundServiceStartNotAllowedException") {
+                        return true
+                    }
+                }
+                t = t.cause
             }
             return false
         }
