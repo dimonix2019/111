@@ -326,7 +326,7 @@ class MoexMarketsSpreadDeltaTest {
             SpreadDeltaChartRubAxis(ctx.rubPerSpreadPoint, ctx.netOffsetRub, SpreadDeltaChartPnlAxisMode.NetBrokerCalibrated),
         )
         assertEquals(net, tailNet, 2.0)
-        assertEquals(net, signalMonitorOpenTradeSnapshot(exec)!!.pnlRub, 0.01)
+        assertEquals(net, signalMonitorOpenTradeSnapshot(exec, 10_000.0)!!.pnlRub, 0.01)
     }
 
     @Test

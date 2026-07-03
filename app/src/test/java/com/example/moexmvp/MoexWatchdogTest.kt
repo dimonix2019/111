@@ -107,7 +107,7 @@ class MoexWatchdogTest {
             legs = emptyList(),
             netPnlRubApprox = 120.0,
         )
-        val snap = signalMonitorOpenTradeSnapshot(exec)!!
+        val snap = signalMonitorOpenTradeSnapshot(exec, 10_000.0)!!
         assertEquals("2S", snap.badge)
         assertFalse(snap.badge.contains("D-"))
     }
@@ -119,16 +119,16 @@ class MoexWatchdogTest {
     }
 
     @Test
-    fun openTradeReturnPercent_dividesByNotional() {
-        assertEquals(0.134, openTradeReturnPercent(120.0, 89_440.0), 0.001)
+    fun openTradeReturnPercent_dividesByInvestedCapital() {
+        assertEquals(3.0, openTradeReturnPercent(300.0, 10_000.0), 0.001)
         assertTrue(openTradeReturnPercent(Double.NaN, 10_000.0).isNaN())
         assertTrue(openTradeReturnPercent(100.0, 0.0).isNaN())
     }
 
     @Test
     fun formatCompactSignedPnlRubAndPercent_showsRubAndPercent() {
-        assertEquals("+120₽ +0.1%", formatCompactSignedPnlRubAndPercent(120.0, 0.134))
-        assertEquals("-50₽ -0.6%", formatCompactSignedPnlRubAndPercent(-50.0, -0.56))
+        assertEquals("+300₽ +3.0%", formatCompactSignedPnlRubAndPercent(300.0, 3.0))
+        assertEquals("-50₽ -0.5%", formatCompactSignedPnlRubAndPercent(-50.0, -0.5))
     }
 
     @Test
@@ -137,8 +137,8 @@ class MoexWatchdogTest {
             badge = "2S",
             openedAt = "15.06 18:45",
             entryZ = 0.84,
-            pnlRub = 120.0,
-            pnlPercent = 0.134,
+            pnlRub = 300.0,
+            pnlPercent = 3.0,
         )
         val text = formatSignalMonitorForegroundText(
             monitorEnabled = true,
@@ -150,17 +150,17 @@ class MoexWatchdogTest {
         assertTrue(text.contains("Z=0.52"))
         assertTrue(text.contains("2S 15.06 18:45"))
         assertTrue(text.contains("Z₀0.84"))
-        assertTrue(text.contains("+120₽"))
-        assertTrue(text.contains("+0.1%"))
+        assertTrue(text.contains("+300₽"))
+        assertTrue(text.contains("+3.0%"))
     }
 
     @Test
     fun formatSignalMonitorForegroundBigText_splitsZAndTrade() {
-        val trade = SignalMonitorOpenTradeSnapshot("3L", "15.06 18:45", 0.84, -50.0, -0.56)
+        val trade = SignalMonitorOpenTradeSnapshot("3L", "15.06 18:45", 0.84, -500.0, -5.0)
         val text = formatSignalMonitorForegroundBigText(true, 1L, 12L, 0.52, trade)
         assertTrue(text.contains('\n'))
         assertTrue(text.contains("3L"))
-        assertTrue(text.contains("-50₽"))
-        assertTrue(text.contains("-0.6%"))
+        assertTrue(text.contains("-500₽"))
+        assertTrue(text.contains("-5.0%"))
     }
 }

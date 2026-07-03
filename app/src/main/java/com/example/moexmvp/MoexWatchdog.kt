@@ -165,12 +165,6 @@ internal data class SignalMonitorOpenTradeSnapshot(
     val pnlPercent: Double = Double.NaN,
 )
 
-/** Доходность открытой сделки от номинала пары (%). */
-internal fun openTradeReturnPercent(pnlRub: Double, notionalRub: Double): Double {
-    if (pnlRub.isNaN() || notionalRub <= 0.0) return Double.NaN
-    return pnlRub / notionalRub * 100.0
-}
-
 /** «2026-06-15 18:45» → «15.06 18:45». */
 internal fun compactMonitorDateTimeMsk(text: String): String {
     if (text.isBlank() || text == "—") return "—"
@@ -211,7 +205,10 @@ internal fun signalMonitorTradeDirectionBadge(
     return "$num$suffix"
 }
 
-internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMonitorOpenTradeSnapshot? {
+internal fun signalMonitorOpenTradeSnapshot(
+    exec: SandboxSpreadExecUi,
+    investedRub: Double,
+): SignalMonitorOpenTradeSnapshot? {
     if (exec.signalType != StrategySignalType.EnterLong &&
         exec.signalType != StrategySignalType.EnterShort
     ) {
@@ -219,13 +216,12 @@ internal fun signalMonitorOpenTradeSnapshot(exec: SandboxSpreadExecUi): SignalMo
     }
     val openedRaw = exec.entrySignalBarTimeMsk.takeIf { it.isNotBlank() && it != "—" }
         ?: exec.entryTimeMsk
-    val notionalRub = resolveTradeNotionalRubForPnl(exec, emptyList())
     return SignalMonitorOpenTradeSnapshot(
         badge = signalMonitorTradeDirectionBadge(exec.tradeDisplayId, exec.signalType),
         openedAt = compactMonitorDateTimeMsk(openedRaw),
         entryZ = exec.zScore,
         pnlRub = exec.netPnlRubApprox,
-        pnlPercent = openTradeReturnPercent(exec.netPnlRubApprox, notionalRub),
+        pnlPercent = openTradeReturnPercent(exec.netPnlRubApprox, investedRub),
     )
 }
 
@@ -251,7 +247,8 @@ internal suspend fun resolveSignalMonitorOpenTrade(
         executions = listOf(latest),
         points = points,
     ).firstOrNull() ?: return null
-    return signalMonitorOpenTradeSnapshot(enriched)
+    val investedRub = resolveOpenTradeInvestedRub(app)
+    return signalMonitorOpenTradeSnapshot(enriched, investedRub)
 }
 
 /** Текст ongoing-уведомления фонового монитора в шторке. */
