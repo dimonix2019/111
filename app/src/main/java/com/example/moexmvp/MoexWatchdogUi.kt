@@ -110,6 +110,9 @@ internal fun MoexWatchdogStatusCard(
 
 internal fun refreshWatchdogStatus(screen: MoexScreenState) {
     MoexWatchdog.recordUiPing(screen.context)
+    if (SignalForegroundService.isBackgroundMonitorEnabled(screen.context)) {
+        startSignalMonitorInForeground(screen.context, "ui_manual")
+    }
     MoexWatchdog.performMonitorWatchdogCheck(screen.context, "ui_manual")
     screen.watchdogStatus = MoexWatchdog.readStatus(screen.context)
 }

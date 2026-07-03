@@ -189,6 +189,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.287 — Fix «Вкл BG»: перед стартом монитора снова включается prefs (после «Выкл BG» старт не блокировался).
 1.7.286 — Fix шторка монитора: старт из foreground Activity + retry после отрисовки (MIUI/Android 12+).
 1.7.285 — Fix % PnL в шторке: от «Суммы в сделке» (вложенные ₽), не от номинала пары.
 1.7.284 — Шторка монитора: PnL открытой сделки также в % от номинала (+₽ +%).

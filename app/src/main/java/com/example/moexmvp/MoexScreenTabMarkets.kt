@@ -417,6 +417,7 @@ internal fun MoexScreenTabMarkets(
                                         if (monitorEnabled) {
                                             SignalForegroundService.stop(context)
                                         } else {
+                                            SignalForegroundService.setBackgroundMonitorEnabled(context, true)
                                             startSignalMonitorInForeground(context, "markets_bg_toggle")
                                             scheduleMonitorWatchdog(context)
                                         }
@@ -440,7 +441,7 @@ internal fun MoexScreenTabMarkets(
                                             modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(Modifier.width(4.dp))
-                                        Text(if (monitorEnabled) "BG вкл" else "BG выкл", fontSize = 12.sp)
+                                        Text(if (monitorEnabled) "Выкл BG" else "Вкл BG", fontSize = 12.sp)
                                     }
                                 }
                             }

@@ -539,6 +539,11 @@ class SignalForegroundService : Service() {
                 .getBoolean(PREF_BACKGROUND_SIGNAL_ENABLED, true)
         }
 
+        /** Включить/выключить фоновый монитор (prefs). Перед start() после «BG выкл» нужно set true. */
+        fun setBackgroundMonitorEnabled(context: Context, enabled: Boolean) {
+            saveSignalMonitorEnabled(context.applicationContext, enabled)
+        }
+
         private fun saveSignalMonitorEnabled(context: Context, enabled: Boolean) {
             context.getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
