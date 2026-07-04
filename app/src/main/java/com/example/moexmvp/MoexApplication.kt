@@ -9,9 +9,7 @@ class MoexApplication : Application() {
         MoexDiagnostics.log(applicationContext, "lifecycle", "application_onCreate")
         scheduleAppUpdateChecks(applicationContext)
         scheduleMonitorWatchdog(applicationContext)
-        if (SignalForegroundService.isBackgroundMonitorEnabled(applicationContext)) {
-            MoexWatchdog.performMonitorWatchdogCheck(applicationContext, "application_onCreate")
-        }
+        // FGS нельзя стартовать из Application.onCreate (Android 12+ / MIUI) — только из Activity.
     }
 
     override fun onTrimMemory(level: Int) {
