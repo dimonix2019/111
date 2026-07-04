@@ -12,6 +12,38 @@ import kotlin.math.min
 class MoexMarketsM15ZChartTest {
 
     @Test
+    fun buildSpreadCandlesFromM15Points_usesSpreadPercentAsClose() {
+        val points = listOf(
+            point("2026-05-19 10:00", spread = 5.00, z = 0.0),
+            point("2026-05-19 10:15", spread = 5.20, z = 0.1),
+        )
+        val candles = buildSpreadCandlesFromM15Points(points)
+        assertEquals(5.00, candles[0].open, 1e-9)
+        assertEquals(5.00, candles[0].close, 1e-9)
+        assertEquals(5.00, candles[1].open, 1e-9)
+        assertEquals(5.20, candles[1].close, 1e-9)
+    }
+
+    @Test
+    fun buildSpreadChartReferenceLines_entryAndCurrent() {
+        val lines = buildSpreadChartReferenceLines(currentSpreadPercent = 5.25, entrySpreadPercent = 5.00)
+        assertEquals(2, lines.size)
+        assertEquals(5.00, lines[0].value, 1e-9)
+        assertEquals(5.25, lines[1].value, 1e-9)
+        assertTrue(lines[0].label.contains("вход"))
+        assertTrue(lines[1].label.contains("сейчас"))
+    }
+
+    @Test
+    fun applyLiveSpreadToM15SpreadChart_patchesCandleTail() {
+        val points = listOf(point("2026-05-19 10:15", spread = 5.10, z = 0.0))
+        val candles = buildSpreadCandlesFromM15Points(points)
+        val (pts, cs) = applyLiveSpreadToM15SpreadChart(points, candles, 5.30)
+        assertEquals(5.30, pts.last().spreadPercent, 1e-9)
+        assertEquals(5.30, cs.last().close, 1e-9)
+    }
+
+    @Test
     fun downsampleM15ChartSeries_mergesOhlcWithoutGiantBodies() {
         val points = (0 until 100).map { i ->
             val dt = LocalDateTime.of(2026, 5, 1, 10, 0).plusMinutes(i * 15L)

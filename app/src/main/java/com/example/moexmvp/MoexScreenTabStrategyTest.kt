@@ -8,7 +8,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -30,6 +37,7 @@ internal fun MoexScreenTabStrategyTest(
     scope: CoroutineScope,
     modifier: Modifier,
     landscapeZChartFullscreen: Boolean,
+    landscapeSpreadDeltaFullscreen: Boolean,
     strategyTestTradeItems: List<StrategyTestTradeItem>,
     strategyTestM15ChartPoints: List<DataPoint>,
     strategyTestZScoreCandles: List<CandlePoint>,
@@ -41,6 +49,65 @@ internal fun MoexScreenTabStrategyTest(
 ) {
     val zReferenceLines = remember(strategyTestChartThresholds) {
         buildZScoreReferenceLines(strategyTestChartThresholds, desktopStyle = true)
+    }
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val activity = context as? ComponentActivity
+    val enterSpreadDeltaFullscreen: () -> Unit = {
+        screen.strategyTestSpreadDeltaChartFullscreen = true
+        activity?.lockLandscapeOrientation()
+    }
+    val exitSpreadDeltaFullscreen: () -> Unit = {
+        screen.strategyTestSpreadDeltaChartFullscreen = false
+        activity?.unlockScreenOrientation()
+    }
+    var spreadDeltaFullscreenWasLandscape by remember { mutableStateOf(false) }
+    LaunchedEffect(configuration.orientation, screen.strategyTestSpreadDeltaChartFullscreen) {
+        val landscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        if (screen.strategyTestSpreadDeltaChartFullscreen) {
+            if (spreadDeltaFullscreenWasLandscape && !landscape) {
+                exitSpreadDeltaFullscreen()
+            }
+            spreadDeltaFullscreenWasLandscape = landscape
+        } else {
+            spreadDeltaFullscreenWasLandscape = false
+        }
+    }
+    DisposableEffect(screen.strategyTestSpreadDeltaChartFullscreen) {
+        onDispose {
+            if (screen.strategyTestSpreadDeltaChartFullscreen) {
+                activity?.unlockScreenOrientation()
+            }
+        }
+    }
+    if (landscapeSpreadDeltaFullscreen) {
+        with(screen) {
+            val displayTradeItems = if (strategyTestExcludeRedZone) {
+                filterStrategyTestTradeItemsExcludingRedZone(
+                    strategyTestTradeItems,
+                    strategyTestTradeRiskAssessments,
+                )
+            } else {
+                strategyTestTradeItems
+            }
+            val chartMetrics = strategyTestMetricsForDisplay(
+                strategyTestPortfolioMetrics,
+                displayTradeItems,
+                strategyTestExcludeRedZone,
+            )
+            val equityLabels = chartMetrics?.equityCurveLabels.orEmpty()
+            LandscapeStrategyTestSpreadDeltaFullscreenPane(
+                dailyLabels = equityLabels,
+                m15Points = strategyTestM15ChartPoints,
+                openPosition = chartMetrics?.openPosition,
+                tradeItems = displayTradeItems,
+                leverage = screen.portfolioLeverage,
+                accountSizeRub = screen.strategyTestAccountSizeRub,
+                onExit = exitSpreadDeltaFullscreen,
+                modifier = modifier.fillMaxSize(),
+            )
+        }
+        return
     }
     if (landscapeZChartFullscreen) {
         with(screen) {
@@ -92,7 +159,6 @@ internal fun MoexScreenTabStrategyTest(
         }
         return
     }
-    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     Column(modifier.fillMaxSize()) {
         with(screen) {
@@ -101,22 +167,15 @@ internal fun MoexScreenTabStrategyTest(
             val parityItems = remember(
                 strategyTestAccountSizeRub,
                 strategyTestCapitalUsagePercent,
-                strategyTestUsePortfolioThresholds,
                 strategyTestUseLiveZSignals,
                 portfolioCommissionPercent,
-                realTradeEntryThreshold,
-                realTradeExitThreshold,
-                strategyTestEntryThreshold,
-                strategyTestExitThreshold,
             ) {
                 buildStrategyTestProdParityChecklist(
                     context = context,
                     accountSizeRub = strategyTestAccountSizeRub,
                     capitalUsagePercent = strategyTestCapitalUsagePercent,
-                    usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                     useLiveZSignals = strategyTestUseLiveZSignals,
                     commissionPercentPerSide = simCommission,
-                    thresholdsMatchPortfolio = strategyTestThresholdsMatchPortfolio(),
                 )
             }
             LazyColumn(
@@ -161,11 +220,6 @@ internal fun MoexScreenTabStrategyTest(
                         accountSizeRub = strategyTestAccountSizeRub,
                         capitalUsagePercent = strategyTestCapitalUsagePercent,
                         maxLossDdPercent = strategyTestMaxLossDdPercent,
-                        usePortfolioThresholds = strategyTestUsePortfolioThresholds,
-                        onUsePortfolioThresholdsChange = { enabled ->
-                            strategyTestUsePortfolioThresholds = enabled
-                            markStrategyTestSimParamsStale()
-                        },
                         useLiveZSignals = strategyTestUseLiveZSignals,
                         onUseLiveZSignalsChange = { enabled ->
                             strategyTestUseLiveZSignals = enabled
@@ -223,27 +277,17 @@ internal fun MoexScreenTabStrategyTest(
                             }
                         },
                         onEntryThresholdChange = { newEntry ->
-                            val v = newEntry.coerceIn(
+                            strategyTestEntryThreshold = newEntry.coerceIn(
                                 PORTFOLIO_Z_THRESHOLD_MIN,
                                 PORTFOLIO_Z_THRESHOLD_MAX,
                             )
-                            if (strategyTestUsePortfolioThresholds) {
-                                realTradeEntryThreshold = v
-                            } else {
-                                strategyTestEntryThreshold = v
-                            }
                             markStrategyTestSimParamsStale()
                         },
                         onExitThresholdChange = { newExit ->
-                            val v = newExit.coerceIn(
+                            strategyTestExitThreshold = newExit.coerceIn(
                                 PORTFOLIO_Z_THRESHOLD_MIN,
                                 PORTFOLIO_Z_THRESHOLD_MAX,
                             )
-                            if (strategyTestUsePortfolioThresholds) {
-                                realTradeExitThreshold = v
-                            } else {
-                                strategyTestExitThreshold = v
-                            }
                             markStrategyTestSimParamsStale()
                         },
                         onExportCompareCsv = {
@@ -266,7 +310,6 @@ internal fun MoexScreenTabStrategyTest(
                                         exitThreshold = thresholds.exit,
                                         compoundReturns = strategyTestCompoundReturns,
                                         maxLossDdPercent = strategyTestMaxLossDdPercent,
-                                        usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                                         useLiveZSignals = strategyTestUseLiveZSignals,
                                         thresholdSource = thresholds.source.name,
                                     )?.also { persist ->
@@ -289,6 +332,7 @@ internal fun MoexScreenTabStrategyTest(
                             }
                         },
                         dailyReconciliation = dailyReconciliation,
+                        onSpreadDeltaFullscreenClick = enterSpreadDeltaFullscreen,
                     )
                 }
             }

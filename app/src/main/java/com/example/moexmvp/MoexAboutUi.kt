@@ -51,6 +51,16 @@ internal fun AboutTabContent(
     var showBrowserFallback by remember { mutableStateOf(false) }
     val entries = parseAppChangelog()
     val currentNotes = changelogSummaryForBuild()
+
+    LaunchedEffect(Unit) {
+        val remote = withContext(Dispatchers.IO) { resolveNewerRemoteAppUpdate() } ?: return@LaunchedEffect
+        if (shouldOfferAppUpdateUi(remote, context)) {
+            onUpdateFound?.invoke(remote)
+        } else {
+            updateCheckText = formatDeferredAppUpdateHint(remote, context)
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()

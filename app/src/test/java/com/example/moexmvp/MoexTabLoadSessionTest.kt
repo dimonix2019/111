@@ -13,7 +13,7 @@ class MoexTabLoadSessionTest {
 
     @Test
     fun m15PointsCoverPortfolioLookback_whenSpanSufficient() {
-        val today = LocalDate.of(2026, 6, 10)
+        val today = LocalDate.now(zone)
         val points = listOf(
             dp(today.minusDays(40), 0.0),
             dp(today, 0.1),
@@ -23,7 +23,7 @@ class MoexTabLoadSessionTest {
 
     @Test
     fun m15PointsCoverPortfolioLookback_falseWhenTooShort() {
-        val today = LocalDate.of(2026, 6, 10)
+        val today = LocalDate.now(zone)
         val points = listOf(
             dp(today.minusDays(5), 0.0),
             dp(today, 0.1),
