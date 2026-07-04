@@ -189,6 +189,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.289 — Fix OTA: CI-тест по выходным; канал уведомлений HIGH; подсказка на «О приложении» при «Позже».
 1.7.288 — «Тест страт.»: график Δ спреда 15м под Z-score (те же метки сделок).
 1.7.287 — Fix «Вкл BG»: перед стартом монитора снова включается prefs (после «Выкл BG» старт не блокировался).
 1.7.286 — Fix шторка монитора: старт из foreground Activity + retry после отрисовки (MIUI/Android 12+).

@@ -7,7 +7,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class MoexMarketsLiveZTest {
 
@@ -178,7 +180,15 @@ class MoexMarketsLiveZTest {
         assertEquals(moexZ, withoutSnap.zScore, 1e-9)
         assertEquals(null, withoutSnap.patchedPoints)
 
-        val withSnap = resolveMarketsLiveZFromPoints(history, snap = snap)!!
+        val tradingWednesday = ZonedDateTime.of(
+            LocalDateTime.of(2026, 6, 18, 10, 5),
+            zone,
+        )
+        val withSnap = resolveMarketsLiveZFromPoints(
+            history,
+            snap = snap,
+            now = tradingWednesday,
+        )!!
         assertNotNull(withSnap.patchedPoints)
         assertNotEquals(moexZ, withSnap.zScore, 1e-9)
     }

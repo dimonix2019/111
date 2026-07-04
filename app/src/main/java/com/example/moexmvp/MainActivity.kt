@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
         )
         MoexDiagnostics.logMemory(applicationContext, "activity_onCreate")
         createPushNotificationChannel(this)
+        createAppUpdateNotificationChannel(this)
         requestPushPermissionIfNeeded()
         initPushMessaging()
         scheduleAppUpdateChecks(this)

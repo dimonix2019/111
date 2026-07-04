@@ -109,13 +109,32 @@ internal fun shouldOfferAppUpdateUi(
 internal fun checkRemoteAppUpdateAndNotify(context: Context): AppRemoteUpdate? {
     val app = context.applicationContext
     val remote = fetchRemoteAppUpdate() ?: return null
-    if (!shouldOfferAppUpdateUi(remote, app)) return null
+    if (!shouldOfferAppUpdateUi(remote, app)) {
+        MoexDiagnostics.log(
+            app,
+            "app_update",
+            "skip offer remote=${remote.versionCode} local=${BuildConfig.VERSION_CODE} " +
+                "dismissed=${loadDismissedAppUpdateVersionCode(app)}",
+        )
+        return null
+    }
     val notified = loadNotifiedAppUpdateVersionCode(app)
     if (remote.versionCode > notified) {
         if (showAppUpdatePushNotification(app, remote)) {
             saveNotifiedAppUpdateVersionCode(app, remote.versionCode)
+        } else {
+            MoexDiagnostics.log(
+                app,
+                "app_update",
+                "push skipped remote=${remote.versionCode} (permission or channel)",
+            )
         }
     }
+    MoexDiagnostics.log(
+        app,
+        "app_update",
+        "offer remote=${remote.versionName}(${remote.versionCode}) local=${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})",
+    )
     return remote
 }
 
@@ -336,6 +355,21 @@ internal fun isNewerAppUpdateAvailable(
     remote: AppRemoteUpdate,
     localVersionCode: Int = BuildConfig.VERSION_CODE
 ): Boolean = remote.versionCode > localVersionCode
+
+/** Есть ли на GitHub сборка новее установленной (без учёта «Позже»). */
+internal fun resolveNewerRemoteAppUpdate(): AppRemoteUpdate? =
+    fetchRemoteAppUpdate()?.takeIf { isNewerAppUpdateAvailable(it) }
+
+/** Текст для вкладки «О приложении», если обновление отложено кнопкой «Позже». */
+internal fun formatDeferredAppUpdateHint(remote: AppRemoteUpdate, context: Context): String {
+    val dismissed = loadDismissedAppUpdateVersionCode(context)
+    return if (dismissed >= remote.versionCode) {
+        "Доступна ${remote.versionName} (${remote.versionCode}). Вы нажали «Позже» — " +
+            "нажмите «Обновить приложение» ниже."
+    } else {
+        formatAppUpdateCheckStatus(AppUpdateCheckStatus.UpdateAvailable(remote))
+    }
+}
 
 internal fun canInstallPackages(context: Context): Boolean =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||

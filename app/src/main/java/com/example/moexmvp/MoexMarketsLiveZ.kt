@@ -220,6 +220,7 @@ internal data class MarketsLiveZPublishResult(
 internal fun resolveMarketsLiveZFromPoints(
     points: List<DataPoint>,
     snap: MarketsIntraday1mSnapshot?,
+    now: ZonedDateTime = ZonedDateTime.now(moexZoneId),
 ): MarketsLiveZPublishResult? {
     if (points.isEmpty()) return null
     if (snap == null) {
@@ -230,7 +231,7 @@ internal fun resolveMarketsLiveZFromPoints(
             patchedPoints = null,
         )
     }
-    val unified = resolveUnifiedLiveZSnapshot(points, snap)
+    val unified = resolveUnifiedLiveZSnapshot(points, snap, now = now)
     val last = unified.monitorPoints.lastOrNull() ?: return null
     return MarketsLiveZPublishResult(
         zScore = unified.zScore ?: last.zScore,
