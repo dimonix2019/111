@@ -5,12 +5,21 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -28,8 +37,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /** Общая геометрия Z + Equity на «Тест страт.» — одинаковая ширина plot и даты. */
 internal const val STRATEGY_TEST_CHART_LEFT_PADDING = 62f
@@ -112,22 +123,33 @@ internal fun buildStrategyTestZAxisRange(
     return (zMin - pad) to (zMax + pad)
 }
 
+/**
+ * Y-шкала Δ спреда: по последним барам (не по всему equity-окну), чтобы intraday-движение было видно.
+ */
 internal fun buildStrategyTestSpreadDeltaAxisRange(
     deltasPp: List<Double>,
     referenceLines: List<ChartReferenceLine>,
+    pointMarkers: List<ChartPointMarker> = emptyList(),
+    focusRecentFraction: Double = 0.25,
 ): Pair<Double, Double> {
-    var dMin = deltasPp.minOrNull() ?: -0.1
-    var dMax = deltasPp.maxOrNull() ?: 0.1
-    referenceLines.forEach { line ->
-        dMin = min(dMin, line.value)
-        dMax = max(dMax, line.value)
+    if (deltasPp.isEmpty()) return -0.05 to 0.05
+    val baseline = referenceLines.firstOrNull()?.value ?: 0.0
+    val recentCount = max(32, (deltasPp.size * focusRecentFraction).roundToInt())
+        .coerceAtMost(deltasPp.size)
+    val recentValues = buildList {
+        addAll(deltasPp.takeLast(recentCount))
+        addAll(pointMarkers.map { it.value })
     }
+    var dMin = recentValues.minOrNull() ?: baseline
+    var dMax = recentValues.maxOrNull() ?: baseline
+    dMin = min(dMin, baseline)
+    dMax = max(dMax, baseline)
     if (dMin == dMax) {
-        dMin -= 0.1
-        dMax += 0.1
+        val pad = max(0.04, abs(dMin) * 0.15 + 0.02)
+        return (dMin - pad) to (dMax + pad)
     }
-    val span = (dMax - dMin).coerceAtLeast(0.2)
-    val pad = span * 0.12
+    val span = (dMax - dMin).coerceAtLeast(0.04)
+    val pad = span * 0.15
     return (dMin - pad) to (dMax + pad)
 }
 
@@ -388,6 +410,9 @@ internal fun StrategyTestSpreadDeltaLineChartCard(
     accountSizeRub: Double,
     chartHeightDp: Int,
     modifier: Modifier = Modifier,
+    onFullscreenClick: (() -> Unit)? = null,
+    onExitFullscreenClick: (() -> Unit)? = null,
+    landscapeMinimal: Boolean = false,
 ) {
     val linePoints = remember(m15Points, dailyLabels) {
         val inRange = m15PointsInEquityChartRange(m15Points, dailyLabels)
@@ -418,17 +443,57 @@ internal fun StrategyTestSpreadDeltaLineChartCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color(0xFF171717), RoundedCornerShape(8.dp))
-            .padding(6.dp),
+            .then(if (landscapeMinimal) Modifier.fillMaxSize() else Modifier)
+            .background(Color(0xFF171717), RoundedCornerShape(if (landscapeMinimal) 0.dp else 8.dp))
+            .padding(if (landscapeMinimal) 4.dp else 6.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        val markerHint = if (pointMarkers.isNotEmpty()) " · ${pointMarkers.size} меток" else ""
-        Text(
-            "${chartData?.title ?: "Δ спред 15м"}$markerHint",
-            color = SPREAD_DELTA_LINE_COLOR,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Medium,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val markerHint = if (pointMarkers.isNotEmpty()) " · ${pointMarkers.size} меток" else ""
+            Text(
+                "${chartData?.title ?: "Δ спред 15м"}$markerHint",
+                color = SPREAD_DELTA_LINE_COLOR,
+                fontSize = if (landscapeMinimal) 11.sp else 9.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            when {
+                onExitFullscreenClick != null -> {
+                    IconButton(
+                        onClick = onExitFullscreenClick,
+                        modifier = Modifier.size(36.dp),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            contentColor = Color(0xFF90CAF9),
+                        ),
+                    ) {
+                        Icon(
+                            Icons.Filled.CloseFullscreen,
+                            contentDescription = "Свернуть",
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+                onFullscreenClick != null -> {
+                    IconButton(
+                        onClick = onFullscreenClick,
+                        modifier = Modifier.size(36.dp),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            contentColor = Color(0xFF90CAF9),
+                        ),
+                    ) {
+                        Icon(
+                            Icons.Filled.OpenInFull,
+                            contentDescription = "На весь экран",
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+            }
+        }
         StrategyTestSpreadDeltaLineChart(
             dailyLabels = dailyLabels,
             linePoints = linePoints,
@@ -436,6 +501,39 @@ internal fun StrategyTestSpreadDeltaLineChartCard(
             referenceLines = chartData?.referenceLines.orEmpty(),
             pointMarkers = pointMarkers,
             chartHeightDp = chartHeightDp,
+            landscapeMinimal = landscapeMinimal,
+        )
+    }
+}
+
+@Composable
+internal fun LandscapeStrategyTestSpreadDeltaFullscreenPane(
+    dailyLabels: List<String>,
+    m15Points: List<DataPoint>,
+    openPosition: PortfolioOpenPosition?,
+    tradeItems: List<StrategyTestTradeItem>,
+    leverage: Double,
+    accountSizeRub: Double,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val chartH = maxHeight.value
+            .takeIf { it.isFinite() && it > 0f }
+            ?.roundToInt()
+            ?.coerceIn(140, 900)
+            ?: 320
+        StrategyTestSpreadDeltaLineChartCard(
+            dailyLabels = dailyLabels,
+            m15Points = m15Points,
+            openPosition = openPosition,
+            tradeItems = tradeItems,
+            leverage = leverage,
+            accountSizeRub = accountSizeRub,
+            chartHeightDp = chartH,
+            onExitFullscreenClick = onExit,
+            landscapeMinimal = true,
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }
@@ -449,6 +547,7 @@ internal fun StrategyTestSpreadDeltaLineChart(
     modifier: Modifier = Modifier,
     chartHeightDp: Int = 160,
     pointMarkers: List<ChartPointMarker> = emptyList(),
+    landscapeMinimal: Boolean = false,
 ) {
     val axis = remember(dailyLabels) { buildStrategyTestChartTimeAxis(dailyLabels) }
     if (axis == null || linePoints.size < 2 || deltasPp.size != linePoints.size) {
@@ -463,14 +562,20 @@ internal fun StrategyTestSpreadDeltaLineChart(
         }
         return
     }
-    val (dMin, dMax) = buildStrategyTestSpreadDeltaAxisRange(deltasPp, referenceLines)
+    val (dMin, dMax) = buildStrategyTestSpreadDeltaAxisRange(deltasPp, referenceLines, pointMarkers)
     val yTicks = buildYTicks(dMin, dMax, count = 4)
 
     Canvas(
         modifier = modifier
-            .height(chartHeightDp.dp)
+            .then(
+                if (landscapeMinimal) {
+                    Modifier.fillMaxSize()
+                } else {
+                    Modifier.height(chartHeightDp.dp)
+                }
+            )
             .fillMaxWidth()
-            .background(Color(0xFF0F1722), RoundedCornerShape(8.dp)),
+            .background(Color(0xFF0F1722), RoundedCornerShape(if (landscapeMinimal) 0.dp else 8.dp)),
     ) {
         val plotWidth = size.width - STRATEGY_TEST_CHART_LEFT_PADDING - STRATEGY_TEST_CHART_RIGHT_PADDING
         val plotHeight = size.height - STRATEGY_TEST_CHART_TOP_PADDING - STRATEGY_TEST_CHART_BOTTOM_PADDING

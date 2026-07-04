@@ -552,10 +552,13 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             if (coerced != selectedPeriod) selectedPeriod = coerced
         }
         if (portrait &&
-            (marketsSpreadDeltaChartFullscreen || marketsZChartFullscreen)
+            (marketsSpreadDeltaChartFullscreen ||
+                marketsZChartFullscreen ||
+                strategyTestSpreadDeltaChartFullscreen)
         ) {
             marketsSpreadDeltaChartFullscreen = false
             marketsZChartFullscreen = false
+            strategyTestSpreadDeltaChartFullscreen = false
             selectedTab = MainTab.Markets
             (context as? ComponentActivity)?.unlockScreenOrientation()
         } else if (selectedTab != MainTab.Markets &&
@@ -563,6 +566,14 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         ) {
             marketsSpreadDeltaChartFullscreen = false
             marketsZChartFullscreen = false
+            (context as? ComponentActivity)?.unlockScreenOrientation()
+        } else if (selectedTab != MainTab.StrategyTest &&
+            strategyTestSpreadDeltaChartFullscreen
+        ) {
+            strategyTestSpreadDeltaChartFullscreen = false
+            (context as? ComponentActivity)?.unlockScreenOrientation()
+        } else if (portrait && strategyTestSpreadDeltaChartFullscreen) {
+            strategyTestSpreadDeltaChartFullscreen = false
             (context as? ComponentActivity)?.unlockScreenOrientation()
         }
     }

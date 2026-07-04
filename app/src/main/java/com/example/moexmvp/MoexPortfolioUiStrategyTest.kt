@@ -84,6 +84,7 @@ internal fun StrategyTestTabContent(
     onExitThresholdChange: (Double) -> Unit,
     onExportCompareCsv: () -> Unit = {},
     dailyReconciliation: DailyPortfolioReconciliation? = null,
+    onSpreadDeltaFullscreenClick: (() -> Unit)? = null,
 ) {
     val (displayTradeItems, displayRiskAssessments) = remember(
         tradeItems,
@@ -186,6 +187,7 @@ internal fun StrategyTestTabContent(
                     leverage = leverage,
                     accountSizeRub = accountSizeRub,
                     chartHeightDp = spreadDeltaChartHeightDp,
+                    onFullscreenClick = onSpreadDeltaFullscreenClick,
                 )
             } else if (!m15Loading && !simulationComputing) {
                 Box(

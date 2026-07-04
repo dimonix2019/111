@@ -45,6 +45,10 @@ internal fun MoexScreen() {
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
             screen.selectedTab == MainTab.Markets &&
             screen.marketsSpreadDeltaChartFullscreen
+    val landscapeStrategyTestSpreadDeltaFullscreen =
+        configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            screen.selectedTab == MainTab.StrategyTest &&
+            screen.strategyTestSpreadDeltaChartFullscreen
     val landscapeMarketsZFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
             screen.selectedTab == MainTab.Markets &&
@@ -53,7 +57,7 @@ internal fun MoexScreen() {
         landscapeMarketsZFullscreen ||
             (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
                 screen.selectedTab == MainTab.StrategyTest &&
-                !landscapeSpreadDeltaFullscreen)
+                !landscapeStrategyTestSpreadDeltaFullscreen)
     val chartSuccess = (screen.state as? UiState.Success) ?: screen.lastGoodMarkets
     val staleMarkets = screen.marketsStale || (screen.realtimeError != null && chartSuccess != null)
     val onMarketsTab = screen.selectedTab == MainTab.Markets
@@ -297,10 +301,22 @@ internal fun MoexScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(if (landscapeZChartFullscreen || landscapeSpreadDeltaFullscreen) 0.dp else 12.dp)
+            .padding(
+                if (landscapeZChartFullscreen ||
+                    landscapeSpreadDeltaFullscreen ||
+                    landscapeStrategyTestSpreadDeltaFullscreen
+                ) {
+                    0.dp
+                } else {
+                    12.dp
+                }
+            )
     ) {
         Column(Modifier.fillMaxSize()) {
-            if (!landscapeZChartFullscreen && !landscapeSpreadDeltaFullscreen) {
+            if (!landscapeZChartFullscreen &&
+                !landscapeSpreadDeltaFullscreen &&
+                !landscapeStrategyTestSpreadDeltaFullscreen
+            ) {
                 MainTabSelector(
                     selected = screen.selectedTab,
                     onSelect = { screen.selectedTab = it }
@@ -323,6 +339,7 @@ internal fun MoexScreen() {
                 scope = scope,
                 modifier = Modifier.weight(1f).fillMaxSize(),
                 landscapeZChartFullscreen = landscapeZChartFullscreen,
+                landscapeSpreadDeltaFullscreen = landscapeStrategyTestSpreadDeltaFullscreen,
                 strategyTestTradeItems = strategyTestTradeItems,
                 strategyTestM15ChartPoints = strategyTestM15ChartPoints,
                 strategyTestZScoreCandles = strategyTestZScoreCandles,

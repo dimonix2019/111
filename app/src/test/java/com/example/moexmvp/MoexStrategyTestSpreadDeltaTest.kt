@@ -93,6 +93,17 @@ class MoexStrategyTestSpreadDeltaTest {
         assertTrue(z + delta + equity <= 540)
     }
 
+    @Test
+    fun buildStrategyTestSpreadDeltaAxisRange_focusesRecentTail_notFullHistory() {
+        val flatHistory = List(200) { 0.0 }
+        val recentTail = listOf(0.01, 0.02, 0.03, 0.04)
+        val deltas = flatHistory + recentTail
+        val (min, max) = buildStrategyTestSpreadDeltaAxisRange(deltas, emptyList())
+        assertTrue(max - min < 0.12)
+        assertTrue(min <= 0.0)
+        assertTrue(max >= 0.04)
+    }
+
     private fun point(
         label: String,
         spread: Double,
