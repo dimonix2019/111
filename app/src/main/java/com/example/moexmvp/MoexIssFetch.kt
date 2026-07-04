@@ -172,8 +172,12 @@ internal fun loadCandleBars(
                 }
                 lastError = null
                 break
-            } catch (e: IOException) {
-                lastError = e
+            } catch (e: Exception) {
+                lastError = if (e is IOException) {
+                    e
+                } else {
+                    IOException("MOEX candles $secId: ${e.message}", e)
+                }
                 if (attempt < 2) Thread.sleep(400L * (attempt + 1))
             }
         }
