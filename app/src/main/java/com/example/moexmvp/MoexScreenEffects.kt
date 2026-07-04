@@ -114,18 +114,26 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                     watchdogStatus = MoexWatchdog.readStatus(context)
                     hydrateVirtualTradeAndSandboxUi()
                     scope.launch {
-                        syncSignalJournalFromDisk()
-                        refreshAfterConnectivityRestore(reason = "on_resume", launchScope = scope)
-                        refreshPortfolioAfterJournalChange(refreshTailIfStale = true)
-                        val (t, a) = withContext(Dispatchers.IO) {
-                            val mode = TinkoffSandboxStorage.getExecutionMode(context)
-                            Pair(
-                                TinkoffSandboxStorage.getActiveToken(context, mode).orEmpty(),
-                                TinkoffSandboxStorage.getActiveAccountId(context, mode).orEmpty()
+                        runCatching {
+                            syncSignalJournalFromDisk()
+                            if (isMoexNetworkAvailable(context)) {
+                                refreshAfterConnectivityRestore(reason = "on_resume", launchScope = scope)
+                            }
+                            refreshPortfolioAfterJournalChange(
+                                refreshTailIfStale = isMoexNetworkAvailable(context),
                             )
+                            val (t, a) = withContext(Dispatchers.IO) {
+                                val mode = TinkoffSandboxStorage.getExecutionMode(context)
+                                Pair(
+                                    TinkoffSandboxStorage.getActiveToken(context, mode).orEmpty(),
+                                    TinkoffSandboxStorage.getActiveAccountId(context, mode).orEmpty()
+                                )
+                            }
+                            sandboxTokenInput = t
+                            sandboxAccountInput = a
+                        }.onFailure { t ->
+                            MoexDiagnostics.logError(context, "ui", t, "on_resume_refresh")
                         }
-                        sandboxTokenInput = t
-                        sandboxAccountInput = a
                     }
                 }
                 Lifecycle.Event.ON_PAUSE -> activityResumed = false
@@ -511,7 +519,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         if (marketsM15CoversPeriod(period) && marketsM15LoadedPeriod == period) {
             if (portfolio15mSeriesNeedsMoexRefresh(marketsM15Source())) {
                 scope.launch {
-                    ensureMarketsM15ForPeriod(period, trackProgress = false)
+                    runCatching {
+                        ensureMarketsM15ForPeriod(period, trackProgress = false)
+                    }.onFailure { t ->
+                        MoexDiagnostics.logError(context, "markets", t, "ensureM15_stale period=$period")
+                    }
                 }
             }
             return@LaunchedEffect
@@ -523,7 +535,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         )
         if (portfolio15mSeriesNeedsMoexRefresh(marketsM15Source())) {
             scope.launch {
-                ensureMarketsM15ForPeriod(period, trackProgress = false)
+                runCatching {
+                    ensureMarketsM15ForPeriod(period, trackProgress = false)
+                }.onFailure { t ->
+                    MoexDiagnostics.logError(context, "markets", t, "ensureM15_refresh period=$period")
+                }
             }
         }
     }
@@ -622,8 +638,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             }.onFailure { t ->
                 MoexDiagnostics.logError(context, "m15_tail", t, "auto_poll loop tab=${selectedTab.name}")
             }
-            if (selectedTab == MainTab.Portfolio && portfolioTabUiBuiltKey != 0L) {
-                refreshPortfolioAfterJournalChange(refreshTailIfStale = false)
+            runCatching {
+                if (selectedTab == MainTab.Portfolio && portfolioTabUiBuiltKey != 0L) {
+                    refreshPortfolioAfterJournalChange(refreshTailIfStale = false)
+                }
+            }.onFailure { t ->
+                MoexDiagnostics.logError(context, "portfolio", t, "auto_poll journal tab=${selectedTab.name}")
             }
             if ((selectedTab == MainTab.Portfolio || selectedTab == MainTab.Markets) &&
                 executionMode == TinkoffExecutionMode.Prod &&

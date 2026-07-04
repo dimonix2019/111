@@ -190,6 +190,10 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     }
 
     if (memoryOk) {
+        if (!isMoexNetworkAvailable(context)) {
+            rebuildPortfolioUiFromPoints(portfolioM15Points)
+            return
+        }
         refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL, trackProgress = false)
         return
     }
@@ -246,6 +250,7 @@ internal suspend fun MoexScreenState.refreshM15LiveFormingTail(reason: String) {
 internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
     refreshMutex.withLock {
         if (portfolioM15Points.size < 2 || !portfolio15mSeriesIntradayStale(portfolioM15Points)) return@withLock
+        if (!isMoexNetworkAvailable(context)) return@withLock
         portfolioLoading = true
         try {
             val loaded = loadM15SeriesForPortfolio(
@@ -257,6 +262,8 @@ internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
                 if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
                 rebuildPortfolioUiFromPoints(loaded)
             }
+        } catch (t: Throwable) {
+            MoexDiagnostics.logError(context, "m15_tail", t, "portfolio_tail_silent")
         } finally {
             portfolioLoading = false
         }
@@ -300,6 +307,10 @@ internal suspend fun MoexScreenState.refreshAfterConnectivityRestore(
     reason: String,
     launchScope: CoroutineScope,
 ) {
+    if (!isMoexNetworkAvailable(context)) {
+        MoexDiagnostics.log(context, "network", "refresh_skip_offline reason=$reason tab=${selectedTab.label}")
+        return
+    }
     MoexDiagnostics.log(context, "network", "refresh_after_connectivity reason=$reason tab=${selectedTab.label}")
     refreshM15TailIfIntradayStale(reason = reason, scope = launchScope)
     if (selectedTab == MainTab.Markets && activityResumed) {
@@ -468,11 +479,15 @@ internal suspend fun MoexScreenState.refreshData(
                     val deferM15Network = preferBackground && m15CachedReady
                     if (deferM15Network) {
                         launchScope.launch {
-                            val loaded = loadM15ForMarkets(wrapInSession = false)
-                            if (loaded.size >= 2) {
-                                loadedM15ForMarkets = loaded
-                                storeMarketsM15(loaded)
-                                portfolioM15Points = loaded
+                            runCatching {
+                                val loaded = loadM15ForMarkets(wrapInSession = false)
+                                if (loaded.size >= 2) {
+                                    loadedM15ForMarkets = loaded
+                                    storeMarketsM15(loaded)
+                                    portfolioM15Points = loaded
+                                }
+                            }.onFailure { t ->
+                                MoexDiagnostics.logError(context, "m15_load", t, "deferM15Network")
                             }
                         }
                     } else if (!fromDiskCache || marketsM15Source().isEmpty()) {

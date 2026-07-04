@@ -298,6 +298,41 @@ internal suspend fun loadPortfolio15mDataPoints(
     retentionDays: Long = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
     /** true для «Тест страт.» при открытии вкладки — только SQLite, без догрузки хвоста с MOEX. */
     skipMoexTailMerge: Boolean = false,
+): List<DataPoint> {
+    if (mode != PortfolioM15LoadMode.CACHE_ONLY && !isMoexNetworkAvailable(context)) {
+        return loadPortfolio15mDataPoints(
+            context, from, till, PortfolioM15LoadMode.CACHE_ONLY, onProgress,
+            wipeAllOnFullRefresh, retentionDays, skipMoexTailMerge,
+        )
+    }
+    return runCatching {
+        loadPortfolio15mDataPointsLocked(
+            context, from, till, mode, onProgress, wipeAllOnFullRefresh, retentionDays, skipMoexTailMerge,
+        )
+    }.recoverCatching { e ->
+        if (mode == PortfolioM15LoadMode.CACHE_ONLY || !MoexDiagnostics.isTransientNetworkError(e)) throw e
+        MoexDiagnostics.logNetworkErrorThrottled(
+            context.applicationContext,
+            "m15_load",
+            e,
+            "offline_fallback mode=$mode",
+        )
+        loadPortfolio15mDataPoints(
+            context, from, till, PortfolioM15LoadMode.CACHE_ONLY, onProgress,
+            wipeAllOnFullRefresh, retentionDays, skipMoexTailMerge,
+        )
+    }.getOrThrow()
+}
+
+private suspend fun loadPortfolio15mDataPointsLocked(
+    context: Context,
+    from: LocalDate,
+    till: LocalDate,
+    mode: PortfolioM15LoadMode,
+    onProgress: DataLoadProgressCallback = null,
+    wipeAllOnFullRefresh: Boolean = true,
+    retentionDays: Long = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
+    skipMoexTailMerge: Boolean = false,
 ): List<DataPoint> = withContext(Dispatchers.IO) {
     withPortfolioM15LoadLock {
         val dao = PortfolioM15Database.get(context).dao()
