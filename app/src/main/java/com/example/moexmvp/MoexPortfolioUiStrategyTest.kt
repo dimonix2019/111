@@ -115,7 +115,7 @@ internal fun StrategyTestTabContent(
         }
     }
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
-    val (zChartHeightDp, equityChartHeightDp) = remember(screenHeightDp) {
+    val (zChartHeightDp, spreadDeltaChartHeightDp, equityChartHeightDp) = remember(screenHeightDp) {
         strategyTestLiveChartHeightsDp(screenHeightDp)
     }
     val zReferenceLines = remember(entryThreshold, exitThreshold, chartThresholds?.calculatedDate) {
@@ -177,6 +177,15 @@ internal fun StrategyTestTabContent(
                     referenceLines = zReferenceLines,
                     chartHeightDp = zChartHeightDp,
                     pointMarkers = chartPointMarkers,
+                )
+                StrategyTestSpreadDeltaLineChartCard(
+                    dailyLabels = equityLabels,
+                    m15Points = m15ChartPoints,
+                    openPosition = chartMetrics?.openPosition,
+                    tradeItems = displayTradeItems,
+                    leverage = leverage,
+                    accountSizeRub = accountSizeRub,
+                    chartHeightDp = spreadDeltaChartHeightDp,
                 )
             } else if (!m15Loading && !simulationComputing) {
                 Box(

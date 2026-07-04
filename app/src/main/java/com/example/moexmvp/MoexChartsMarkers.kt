@@ -371,6 +371,22 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
     return markers
 }
 
+/** Маркеры входа/выхода на Δ спреда «Тест страт.» — те же сделки, что на Z-score. */
+internal fun buildSpreadDeltaMarkersFromStrategyTestTrades(
+    points: List<DataPoint>,
+    deltasPp: List<Double>,
+    tradeItems: List<StrategyTestTradeItem>,
+    openPosition: PortfolioOpenPosition? = null,
+): List<ChartPointMarker> {
+    if (points.isEmpty() || points.size != deltasPp.size) return emptyList()
+    val zMarkers = buildZScoreMarkersFromStrategyTestTrades(points, tradeItems, openPosition)
+    return zMarkers.mapNotNull { marker ->
+        val idx = marker.index
+        if (idx !in deltasPp.indices) return@mapNotNull null
+        marker.copy(value = deltasPp[idx])
+    }
+}
+
 private fun portfolioTradeEnterMarkerStyle(directionLabel: String): Pair<ChartMarkerShape, Color> =
     when (directionLabel.lowercase(Locale.US)) {
         "short" -> ChartMarkerShape.TriangleDown to Color(0xFFFF8A80)

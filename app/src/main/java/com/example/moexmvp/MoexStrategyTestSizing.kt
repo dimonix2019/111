@@ -179,19 +179,20 @@ internal const val STRATEGY_TEST_ACCOUNT_RUB_MAX = 10_000_000.0
 /** Высота микро-кнопки на live-панели «Тест страт.» (+25% к v1.7.215). */
 internal const val STRATEGY_TEST_MICRO_CONTROL_HEIGHT_DP = 44
 
-/** Высоты Z и Equity/DD на live-панели «Тест страт.» (под stepper, без скролла). */
-internal fun strategyTestLiveChartHeightsDp(screenHeightDp: Int): Pair<Int, Int> {
+/** Высоты Z, Δ спреда и Equity/DD на live-панели «Тест страт.» (под stepper, без скролла). */
+internal fun strategyTestLiveChartHeightsDp(screenHeightDp: Int): Triple<Int, Int, Int> {
     val tuningPanel = STRATEGY_TEST_MICRO_CONTROL_HEIGHT_DP * 4 + 4 * 3 + 8
     val chrome = 196
-    val total = (screenHeightDp - chrome - tuningPanel).coerceIn(360, 520)
-    val zHeight = (total * 0.42).toInt().coerceIn(160, 220)
-    val equityHeight = (total - zHeight - 4).coerceIn(200, 300)
-    return zHeight to equityHeight
+    val total = (screenHeightDp - chrome - tuningPanel).coerceIn(400, 540)
+    val zHeight = (total * 0.34).toInt().coerceIn(140, 190)
+    val deltaHeight = (total * 0.26).toInt().coerceIn(110, 160)
+    val equityHeight = (total - zHeight - deltaHeight - 8).coerceIn(170, 260)
+    return Triple(zHeight, deltaHeight, equityHeight)
 }
 
 /** @deprecated Используйте [strategyTestLiveChartHeightsDp]. */
 internal fun strategyTestLiveEquityChartHeightDp(screenHeightDp: Int): Int =
-    strategyTestLiveChartHeightsDp(screenHeightDp).second
+    strategyTestLiveChartHeightsDp(screenHeightDp).third
 
 /** Комиссия для узкой микро-кнопки. */
 internal fun formatStrategyTestCommissionMicro(percentPerSide: Double): String =

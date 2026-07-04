@@ -377,6 +377,83 @@ internal fun buildSpreadDelta15mChartContext(
     )
 }
 
+internal data class StrategyTestSpreadDeltaChartData(
+    val deltasPp: List<Double>,
+    val referenceLines: List<ChartReferenceLine>,
+    val title: String,
+)
+
+/**
+ * Δ спред 15м для «Тест страт.»: от входа при openPosition, иначе от открытия дня (07:30).
+ * [points] — тот же downsample-ряд, что на графике Z-score.
+ */
+internal fun buildStrategyTestSpreadDeltaChartData(
+    points: List<DataPoint>,
+    openPosition: PortfolioOpenPosition?,
+    leverage: Double,
+    accountSizeRub: Double,
+): StrategyTestSpreadDeltaChartData? {
+    if (points.size < 2) return null
+    val effNotional = accountSizeRub * leverage.coerceAtLeast(1.0)
+    val rubPerSpreadPoint = spreadPnlRubPerSpreadPoint(effNotional)
+
+    val openSignal = openPosition?.direction?.let { dir ->
+        when (dir) {
+            ZStrategyPosition.Long -> StrategySignalType.EnterLong
+            ZStrategyPosition.Short -> StrategySignalType.EnterShort
+            ZStrategyPosition.Flat -> null
+        }
+    }
+
+    if (openPosition != null && openSignal != null) {
+        val entrySpread = openPosition.entrySpreadPercent
+        if (entrySpread.isNaN()) return null
+        val entryMillis = parseSimTradeExitMillis(openPosition.entryDate)
+            ?: points.first().timestampMillis
+        val deltasPp = points.map { pt ->
+            if (pt.timestampMillis < entryMillis) {
+                0.0
+            } else {
+                openSpreadMtmPoints(openSignal, entrySpread, pt.spreadPercent)
+            }
+        }
+        val entryDeltaPp = resolveSpreadDeltaAtEntryBar(points, deltasPp, entryMillis)
+        val context = SpreadDelta15mChartContext(
+            title = "Δ спред 15м · от входа",
+            subtitle = "Симуляция · gross от ${String.format(Locale.US, "%.0f", effNotional)} ₽",
+            labels = points.map { it.tradeDate },
+            deltasPp = deltasPp,
+            rubPerSpreadPoint = rubPerSpreadPoint,
+            fromEntry = true,
+            entryDeltaPp = entryDeltaPp,
+        )
+        return StrategyTestSpreadDeltaChartData(
+            deltasPp = deltasPp,
+            referenceLines = buildSpreadDeltaTvReferenceLines(context),
+            title = context.title,
+        )
+    }
+
+    val daySeries = spreadDeltaFromDayOpenSeries(points) ?: return null
+    val context = SpreadDelta15mChartContext(
+        title = "Δ спред 15м · от открытия дня",
+        subtitle = buildString {
+            append("Симуляция · gross от 07:30 · ≈")
+            append(String.format(Locale.US, "%.0f", effNotional))
+            append(" ₽")
+        },
+        labels = daySeries.labels,
+        deltasPp = daySeries.deltasPp,
+        rubPerSpreadPoint = rubPerSpreadPoint,
+        fromEntry = false,
+    )
+    return StrategyTestSpreadDeltaChartData(
+        deltasPp = daySeries.deltasPp,
+        referenceLines = buildSpreadDeltaTvReferenceLines(context),
+        title = context.title,
+    )
+}
+
 /**
  * Δ спреда 15м: текущий spread% − spread на открытии календарного дня (≥07:30 МСК).
  * Сбрасывается каждый торговый день — прямой драйвер intraday PnL long-спреда.
