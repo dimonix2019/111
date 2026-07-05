@@ -147,6 +147,21 @@ internal fun buildZScoreCandlesFromM15Points(points: List<DataPoint>): List<Cand
     }
 }
 
+/** 15м свечи спреда %: close = spread%, open = spread% предыдущего бара. */
+internal fun buildSpreadCandlesFromM15Points(points: List<DataPoint>): List<CandlePoint> {
+    return points.mapIndexed { index, point ->
+        val close = point.spreadPercent
+        val open = points.getOrNull(index - 1)?.spreadPercent ?: close
+        CandlePoint(
+            label = point.tradeDate,
+            open = open,
+            high = max(open, close),
+            low = min(open, close),
+            close = close,
+        )
+    }
+}
+
 /** 10м spread-точки по пересечению TATN/TATNP (для Z OHLC внутри 15м). */
 internal fun buildSpreadDataPointsFrom10mBars(
     tatn10: List<CandleBar>,

@@ -57,6 +57,9 @@ internal const val FIXED_REALTIME_INTERVAL_MS = 5_000L
 /** Debounce rapid threshold/leverage tweaks on «Тест страт.» before rerunning simulation. */
 internal const val STRATEGY_TEST_RESIM_DEBOUNCE_MS = 400L
 internal const val DEFAULT_PORTFOLIO_NOTIONAL_RUB = 100_000.0
+/** «Портфель»: целевая сумма в одной сделке (лимит для лот-сайзинга и fallback PnL). */
+internal const val DEFAULT_PORTFOLIO_TRADE_AMOUNT_RUB = 10_000.0
+internal const val PREF_PORTFOLIO_TRADE_AMOUNT_RUB = "portfolio_trade_amount_rub"
 /** «Тест страт.»: размер счёта по умолчанию (как субсчёт «Арбитраж» ~10k). */
 internal const val DEFAULT_STRATEGY_TEST_ACCOUNT_RUB = 10_000.0
 /** «Тест страт.»: доля капитала в сделку (остальное — резерв), parity Prod ≈80%. */
@@ -79,9 +82,8 @@ internal const val SPREAD_LOT_MARGIN_RATE_PER_LEG = 0.30
 /** Буфер на комиссию/slippage от номинала пары. */
 internal const val SPREAD_LOT_COMMISSION_BUFFER_FRACTION = 0.002
 internal const val SPREAD_LOT_MIN_LOTS = 1
-internal const val SPREAD_LOT_MAX_LOTS = 80
-/** «Тест страт.» без Prod-cap: верхняя граница лотов для проекции крупного депозита. */
-internal const val STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED = 999
+/** Без искусственного cap — лимит только cash/маржа Tinkoff (GetMarginAttributes). */
+internal const val SPREAD_LOT_MAX_LOTS = Int.MAX_VALUE
 /** Prod: доля номинала пары на прирост скорректированной маржи (эмпирика ~10+10 → 5.4k). */
 internal const val SPREAD_LOT_MARGIN_PAIR_FRACTION = 0.50
 /** Prod: плечо для расчёта целевого номинала = liquid × leverage / pairNotional. */
@@ -124,6 +126,8 @@ internal const val MARKETS_INTRADAY_QUOTES_CHART_HEIGHT_DP = 110
 /** Z-score 1м — в 3 раза ниже котировок TATN/TATNP. */
 internal const val MARKETS_INTRADAY_Z1M_CHART_HEIGHT_DP = MARKETS_INTRADAY_QUOTES_CHART_HEIGHT_DP / 3
 internal const val MARKETS_SPREAD_CHART_HEIGHT_DP = 104
+/** Высота TradingView-графика Δ спреда 15м (как Z-score). */
+internal const val MARKETS_SPREAD_DELTA_TV_HEIGHT_DP = 320
 internal const val MARKETS_VOLATILITY_CHART_HEIGHT_DP = 66
 
 /** Мин. интервал между refresh после восстановления сети (защита от шторма callback). */
@@ -185,21 +189,58 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
-1.7.231 — Fix OTA: проверка подписи/отката перед установкой; кнопки «Удалить» и «Через браузер» при ошибке.
-1.7.230 — «Рынок»: single-flight MOEX 15м refresh; Z/live overlay на базе 255д (parity с монитором).
-1.7.229 — «Рынок»: commitMarketsM15ToUi (store+live Z атомарно); инварианты пайплайна m15_pipe в logcat.
-1.7.228 — Fix «Рынок»: live Z больше не «переезжает» на закрытые 15м бары; формирующаяся свеча только в своём слоте.
-1.7.227 — «Рынок»: формирующаяся 15м свеча (live Z) — жёлтая подсветка и подпись «Формируется»; сигнал только после закрытия бара.
-1.7.226 — Fix шторка монитора: быстрый pulse Z каждые 10 с; тяжёлые сигналы раз в 45 с (rolling Z 255д не блокирует UI).
-1.7.225 — Fix live-сигналы: rolling Z в мониторе (не stale SQLite); догон пропущенных за сегодня; fallback в UI при мёртвом мониторе.
-1.7.224 — Fix «Тест страт.»: Z график = Z симуляции (rolling); маркеры входов/выходов на Z-линии.
-1.7.223 — Fix «Тест страт.»: «Z как live» не пересчитывает Z при непустом журнале (parity с бэктестом).
-1.7.222 — «Тест страт.»: Z-score линией (Compose), без сделок/текущего Z; общая шкала дат с Equity.
-1.7.221 — «Тест страт.»: Z-score и Equity/DD — два отдельных графика (Z сверху, Equity ниже).
-1.7.220 — Fix «Тест страт.»: пороги Z на графике Equity следуют stepper (боевой режим / custom).
-1.7.219 — «Тест страт.»: Z-score + пороги поверх Equity/DD на одном графике; шкала Z справа.
-1.7.218 — Perf «Тест страт.»: быстрый resim (skip Z-recalc live, кэш σ, хвост для маркеров, без CSV на tweak).
-1.7.217 — Fix: Z на «Рынок» = Z в шторке — после MOEX 15m refresh снова 1м overlay.
+1.7.292 — Fix вылет «Рынок» offline: CACHE_ONLY без merge хвоста MOEX; catchup только online.
+1.7.291 — «Тест страт.» Δ спред: авто-масштаб по хвосту; кнопка fullscreen (landscape).
+1.7.290 — Fix вылет offline: fallback на SQLite при сетевых ошибках MOEX 15м; guard onResume без интернета.
+1.7.289 — Fix OTA: CI-тест по выходным; канал уведомлений HIGH; подсказка на «О приложении» при «Позже».
+1.7.288 — «Тест страт.»: график Δ спреда 15м под Z-score (те же метки сделок).
+1.7.287 — Fix «Вкл BG»: перед стартом монитора снова включается prefs (после «Выкл BG» старт не блокировался).
+1.7.286 — Fix шторка монитора: старт из foreground Activity + retry после отрисовки (MIUI/Android 12+).
+1.7.285 — Fix % PnL в шторке: от «Суммы в сделке» (вложенные ₽), не от номинала пары.
+1.7.284 — Шторка монитора: PnL открытой сделки также в % от номинала (+₽ +%).
+1.7.283 — Fix вылет при запуске: ForegroundServiceStartNotAllowed (Android 12+ / MIUI); старт монитора только из Activity.
+1.7.282 — Fix «Портфель»: открытая сделка из exec log; выход в журнале не скрывает позицию на счёте.
+1.7.281 — Merge main: forming-bar hint, M15 pipeline, OTA install fix + Δ спред/PnL шторки.
+1.7.280 — Fix Δ спред 15м: правая ось ₽ = PnL шторки; live MOEX Δ; обновление Tinkoff на вкладке «Рынок».
+1.7.279 — Prod: PnL при закрытии сделки — данные со счёта Tinkoff (операции + Δ cash), без MOEX-симуляции.
+1.7.278 — «Тест страт.»: убран «Пороги = Портфель»; пороги симуляции не меняют боевые.
+1.7.277 — «Рынок»: убран график Z-score 1м.
+1.7.276 — «Рынок»: убраны графики Δ спред 1м и Spread 15м (остался Δ спред 15м TradingView).
+1.7.275 — «Рынок»: выход из fullscreen графика при повороте в портрет; линия «вход» — фактическая Δ на баре входа.
+1.7.274 — «Рынок»: Δ спред 15м — TradingView как Z-score; оси Δ п.п. и PnL ₽ (те же данные).
+1.7.273 — «Рынок»: Spread 15м — TradingView как Z-score; зелёный фон; линии «сейчас» и «вход».
+1.7.272 — Fix CI: сборка 1.7.271 не публиковалась (ошибка компиляции); публикация APK.
+1.7.271 — Fix Δ спред: фикс. шкала ₽ (номинал/100); хвост линии — broker gross (двигается с Tinkoff).
+1.7.270 — Fix Δ спред fullscreen: правая ось ₽ = net шторки (калибровка net / live MOEX Δпп, не broker implied).
+1.7.269 — Δ спред: live-спред 1м на хвосте; ₽/п.п. от gross Tinkoff; Z-score — fullscreen только по кнопке.
+1.7.268 — «Рынок»: Δ спред 15м — кнопка полноэкранного режима (landscape + zoom).
+1.7.267 — Fix Δ спред 15м: правая ось = чистый PnL как в шторке (калибровка net Tinkoff / Δпп).
+1.7.266 — «Рынок»: Δ спред 15м — правая ось gross PnL; при открытой сделке Δ от входа (многосуточно).
+1.7.265 — «Рынок»: графики Δ спреда (1м и 15м) — п.п. от открытия торгового дня, нулевая линия.
+1.7.264 — «Портфель»: контрол «Сумма в сделке» (10k ₽); «Закрыть все сделки» под «Тестовая пара».
+1.7.263 — «Портфель»: открытая сделка — спрэд вход/сейчас, Δ спред (PnL), номинал (80+80 · ≈₽).
+1.7.262 — Fix прогноз PnL: «Сейчас» = факт Tinkoff; сценарии калибруются от вход→сейчас, не μ+Z×σ MOEX.
+1.7.261 — «Портфель»: прогноз PnL по уровням Z (выход, 0, противоп.) при фикс. μ/σ 15м.
+1.7.260 — Prod/Sandbox: снят cap 80 лот — размер пары только cash × плечо × маржа Tinkoff.
+1.7.259 — Fix FLAT в сводке «Рынок» при открытой 1L/1S: синхронизация prefs с исполнениями и монитором.
+1.7.258 — Fix пропуск сигнала Z: пересечение на формирующемся 15м баре; live Z из 1м в UI.
+1.7.257 — Fix «Почему нет сделки»: 15м «догрузка» снимается после Обновить (слот 15м, forming bar, MOEX заново).
+1.7.256 — «Почему нет сделки»: убран чек «Баров для Z ≥ 48» (прогрев Z остаётся в расчёте).
+1.7.255 — Fix Prod «Закрытые»: GetOperationsByCursor + yield из trades; без строк −15 ₽ (только комиссии).
+1.7.254 — «Закрытые» под спойлером; фильтры Всё/Брокер/только тест; PnL брокера = yield Tinkoff + сумма сделки.
+1.7.253 — «Портфель»: спойлеры свернуты; «Тестовая пара» внизу вкладки.
+1.7.252 — «Портфель»: открытая сделка — текстовые поля (одна позиция), не таблица; закрытые — таблица.
+1.7.251 — Prod «Открытые» и шторка: PnL gross из GetPortfolio (счёт Tinkoff); комиссия расчётная; без MOEX-перезаписи.
+1.7.250 — Prod «Портфель»: PnL закрытых = Σ payment по счёту Tinkoff (GetOperations), подпись «счёт Tinkoff».
+1.7.249 — Prod «Портфель»: сводный PnL и таблица закрытых из GetOperations (Tinkoff), метка «брокер».
+1.7.248 — Fix Prod: PnL закрытых сделок из GetOperations (окно по wall-clock); время выхода ≥ входа; без MOEX×leverage на Prod.
+1.7.247 — Fix CI: тест unified Z (float delta); публикация 1.7.246–247 на gh-pages.
+1.7.246 — Единый Z/спред для сводки «Рынок» и шторки монитора (resolveUnifiedLiveZSnapshot).
+1.7.245 — «Портфель»: чек-лист «Почему нет сделки» — монитор, сеть, 15м, Z-пересечение, авто/ручной.
+1.7.244 — «Тест страт.»: режим «Лок. Z» — вход на локальном дне Z, выход на локальной вершине.
+1.7.243 — «Тест страт.»: режим выхода «Прот. Z» — закрытие на противоположном экстремуме Z-score.
+1.7.242 — Fix «Рынок»: до 07:00 МСК Z = последний закрытый бар (вчера 23:30), без fake live 1м.
+1.7.241 — Fix «Рынок»: Z-score на экране — rolling по spread (не stale persistedZ −3.5+).
 1.7.216 — «Тест страт.»: микро-кнопки 44dp (текст выше), Equity до 400dp — под экран Redmi 12 Pro.
 1.7.215 — «Тест страт.»: единая микро-панель (Плечо…−КЗ) + Equity/DD на одном экране; chip-переключатели.
 1.7.214 — «Тест страт.»: компакт UI — Equity выше, Z-график убран; боевой режим/переключатели под спойлер; stepper в одну строку.
