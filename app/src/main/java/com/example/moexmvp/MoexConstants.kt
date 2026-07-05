@@ -189,6 +189,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.292 — Fix вылет «Рынок» offline: CACHE_ONLY без merge хвоста MOEX; catchup только online.
 1.7.291 — «Тест страт.» Δ спред: авто-масштаб по хвосту; кнопка fullscreen (landscape).
 1.7.290 — Fix вылет offline: fallback на SQLite при сетевых ошибках MOEX 15м; guard onResume без интернета.
 1.7.289 — Fix OTA: CI-тест по выходным; канал уведомлений HIGH; подсказка на «О приложении» при «Позже».

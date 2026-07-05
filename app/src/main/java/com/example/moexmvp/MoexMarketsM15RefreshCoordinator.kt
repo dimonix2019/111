@@ -34,6 +34,7 @@ internal fun MoexScreenState.requestMarketsM15Refresh(
     request: MarketsM15RefreshRequest,
 ) {
     if (!activityResumed || selectedTab != MainTab.Markets) return
+    if (!isMoexNetworkAvailable(context)) return
     if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) return
     scope.launch(Dispatchers.Main.immediate) {
         marketsM15CoordinatorMutex.withLock {

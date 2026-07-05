@@ -310,7 +310,7 @@ internal suspend fun loadPortfolio15mDataPoints(
             context, from, till, mode, onProgress, wipeAllOnFullRefresh, retentionDays, skipMoexTailMerge,
         )
     }.recoverCatching { e ->
-        if (mode == PortfolioM15LoadMode.CACHE_ONLY || !MoexDiagnostics.isTransientNetworkError(e)) throw e
+        if (!MoexDiagnostics.isTransientNetworkError(e)) throw e
         MoexDiagnostics.logNetworkErrorThrottled(
             context.applicationContext,
             "m15_load",
@@ -319,7 +319,7 @@ internal suspend fun loadPortfolio15mDataPoints(
         )
         loadPortfolio15mDataPoints(
             context, from, till, PortfolioM15LoadMode.CACHE_ONLY, onProgress,
-            wipeAllOnFullRefresh, retentionDays, skipMoexTailMerge,
+            wipeAllOnFullRefresh, retentionDays, skipMoexTailMerge = true,
         )
     }.getOrThrow()
 }
@@ -425,7 +425,12 @@ private suspend fun loadPortfolio15mDataPointsLocked(
         val tailAgeMs = System.currentTimeMillis() - lastTsAfterLoad
         val tailStillStale = tailAgeMs > PORTFOLIO_M15_TAIL_MAX_AGE_MS ||
             tailAgeMs > PORTFOLIO_M15_INTRADAY_STALE_MS
-        if (!skipMoexTailMerge && mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
+        if (!skipMoexTailMerge &&
+            mode != PortfolioM15LoadMode.FULL_REFRESH &&
+            mode != PortfolioM15LoadMode.CACHE_ONLY &&
+            isMoexNetworkAvailable(context) &&
+            tailStillStale
+        ) {
             mergePortfolio15mRecentTailFromMoex(dao, onProgress)
         }
 
@@ -480,7 +485,18 @@ internal suspend fun loadPortfolio15mLiveFormingTailLocked(
     lookbackDays: Long,
 ): List<DataPoint>? {
     val dao = PortfolioM15Database.get(context.applicationContext).dao()
-    mergePortfolio15mLiveFormingBarFromMoex(dao)
+    if (isMoexNetworkAvailable(context.applicationContext)) {
+        runCatching { mergePortfolio15mLiveFormingBarFromMoex(dao) }
+            .onFailure { t ->
+                if (!MoexDiagnostics.isTransientNetworkError(t)) throw t
+                MoexDiagnostics.logNetworkErrorThrottled(
+                    context.applicationContext,
+                    "m15_z",
+                    t,
+                    "live_forming_merge_skip",
+                )
+            }
+    }
     clearM15LiveTailPersistedZ(dao)
     val till = LocalDate.now(moexZoneId)
     val from = till.minusDays(lookbackDays)

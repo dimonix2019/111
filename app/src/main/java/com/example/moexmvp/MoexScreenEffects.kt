@@ -518,6 +518,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         }
         if (marketsM15CoversPeriod(period) && marketsM15LoadedPeriod == period) {
             if (portfolio15mSeriesNeedsMoexRefresh(marketsM15Source())) {
+                if (!isMoexNetworkAvailable(context)) return@LaunchedEffect
                 scope.launch {
                     runCatching {
                         ensureMarketsM15ForPeriod(period, trackProgress = false)
@@ -528,12 +529,17 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             }
             return@LaunchedEffect
         }
-        ensureMarketsM15ForPeriod(
-            period,
-            mode = PortfolioM15LoadMode.CACHE_ONLY,
-            trackProgress = false,
-        )
+        runCatching {
+            ensureMarketsM15ForPeriod(
+                period,
+                mode = PortfolioM15LoadMode.CACHE_ONLY,
+                trackProgress = false,
+            )
+        }.onFailure { t ->
+            MoexDiagnostics.logError(context, "markets", t, "ensureM15_cache period=$period")
+        }
         if (portfolio15mSeriesNeedsMoexRefresh(marketsM15Source())) {
+            if (!isMoexNetworkAvailable(context)) return@LaunchedEffect
             scope.launch {
                 runCatching {
                     ensureMarketsM15ForPeriod(period, trackProgress = false)
