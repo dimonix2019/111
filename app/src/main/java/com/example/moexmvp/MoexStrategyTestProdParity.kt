@@ -13,43 +13,24 @@ internal data class StrategyTestSimThresholds(
     val source: StrategyTestThresholdSource,
 )
 
-internal enum class StrategyTestThresholdSource { PortfolioProd, StrategyTestCustom }
+internal enum class StrategyTestThresholdSource { StrategyTestCustom }
 
 internal data class StrategyTestProdParityItem(
     val ok: Boolean,
     val label: String,
 )
 
-/** Пороги для симуляции: по умолчанию — боевые с «Портфеля». */
+/** Пороги для симуляции «Тест страт.» — только отдельные prefs теста, не «Портфель». */
 internal fun MoexScreenState.resolveStrategyTestSimThresholds(): StrategyTestSimThresholds {
     val fallbackEntry = dynamicThresholds.entry.coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
     val fallbackExit = dynamicThresholds.exit.coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-    return if (strategyTestUsePortfolioThresholds) {
-        StrategyTestSimThresholds(
-            entry = (realTradeEntryThreshold ?: fallbackEntry)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-            exit = (realTradeExitThreshold ?: fallbackExit)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-            source = StrategyTestThresholdSource.PortfolioProd,
-        )
-    } else {
-        StrategyTestSimThresholds(
-            entry = (strategyTestEntryThreshold ?: fallbackEntry)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-            exit = (strategyTestExitThreshold ?: fallbackExit)
-                .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
-            source = StrategyTestThresholdSource.StrategyTestCustom,
-        )
-    }
-}
-
-internal fun MoexScreenState.strategyTestThresholdsMatchPortfolio(): Boolean {
-    val sim = resolveStrategyTestSimThresholds()
-    val portfolioEntry = (realTradeEntryThreshold ?: dynamicThresholds.entry)
-        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-    val portfolioExit = (realTradeExitThreshold ?: dynamicThresholds.exit)
-        .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX)
-    return portfolioThresholdsMatchStrategyTest(portfolioEntry, portfolioExit, sim.entry, sim.exit)
+    return StrategyTestSimThresholds(
+        entry = (strategyTestEntryThreshold ?: fallbackEntry)
+            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+        exit = (strategyTestExitThreshold ?: fallbackExit)
+            .coerceIn(PORTFOLIO_Z_THRESHOLD_MIN, PORTFOLIO_Z_THRESHOLD_MAX),
+        source = StrategyTestThresholdSource.StrategyTestCustom,
+    )
 }
 
 internal fun buildStrategyTestCommissionPercentPerSide(context: Context, fallback: Double): Double {
@@ -68,12 +49,9 @@ internal fun buildStrategyTestProdParityChecklist(
     context: Context,
     accountSizeRub: Double,
     capitalUsagePercent: Double,
-    usePortfolioThresholds: Boolean,
     useLiveZSignals: Boolean,
     commissionPercentPerSide: Double,
-    thresholdsMatchPortfolio: Boolean,
 ): List<StrategyTestProdParityItem> = listOf(
-    StrategyTestProdParityItem(usePortfolioThresholds && thresholdsMatchPortfolio, "Пороги Z = боевые (Портфель)"),
     StrategyTestProdParityItem(useLiveZSignals, "Z как live (без overlay журнала)"),
     StrategyTestProdParityItem(
         kotlin.math.abs(capitalUsagePercent - PROD_EFFECTIVE_CAPITAL_USAGE_PERCENT) <= 1.0,

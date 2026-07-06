@@ -67,8 +67,10 @@ internal fun ConfirmedPortfolioTabContent(
     onLookbackDaysChange: (Long) -> Unit,
     leverage: Double,
     commissionPercentPerSide: Double,
+    tradeAmountRub: Double,
     onLeverageChange: (Double) -> Unit,
     onCommissionChange: (Double) -> Unit,
+    onTradeAmountChange: (Double) -> Unit,
     realTradeEntryThreshold: Double,
     realTradeExitThreshold: Double,
     onRealTradeEntryChange: (Double) -> Unit,
@@ -83,6 +85,8 @@ internal fun ConfirmedPortfolioTabContent(
     onCloseAllTradesClick: () -> Unit,
     onCloseOpenTrade: ((tradeId: String) -> Unit)? = null,
     closingTradeId: String? = null,
+    brokerClosedPnlSummary: ProdSpreadWindowPnlSummary? = null,
+    m15Points: List<DataPoint> = emptyList(),
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -106,24 +110,22 @@ internal fun ConfirmedPortfolioTabContent(
                 enabled = !portfolioLoading,
             )
         }
-        Row(
+        ParamRubInputStepper(
+            title = "Сумма в сделке",
+            valueRub = tradeAmountRub,
+            onValueChange = onTradeAmountChange,
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedButton(
-                onClick = onCloseAllTradesClick,
-                enabled = !closeAllPortfolioBusy,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFAB91))
-            ) {
-                Text(
-                    if (closeAllPortfolioBusy) "Закрытие…" else "Закрыть все сделки",
-                    fontSize = 12.sp
-                )
-            }
-        }
+            stepRub = 1_000.0,
+            containerColor = Color(0xFF1E1E1E),
+            titleColor = Color(0xFF9E9E9E),
+            compact = true,
+        )
+        Text(
+            text = "Лимит номинала при авто-входе: min(счёт, сумма) × плечо ${String.format(Locale.US, "%.0f", leverage)}",
+            color = Color(0xFF757575),
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -212,57 +214,20 @@ internal fun ConfirmedPortfolioTabContent(
                     valueTextColor = Color(0xFFFFF8F9)
                 )
             }
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = onTestSpreadPairLongClick,
-                        enabled = !portfolioTestBusy,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF69F0AE))
-                    ) {
-                        Text("Тестовая пара Long", fontSize = 11.sp)
-                    }
-                    OutlinedButton(
-                        onClick = onTestSpreadPairShortClick,
-                        enabled = !portfolioTestBusy,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF8A80))
-                    ) {
-                        Text("Тестовая пара Short", fontSize = 11.sp)
-                    }
-                }
-                if (portfolioTestBusy) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = Color(0xFFF48FB1),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Выполняется…", color = Color(0xFFCE93D8), fontSize = 10.sp)
-                    }
-                }
-            }
         }
         PortfolioTradesWindowSection(
             openExecutions = sandboxSpreadExecutions,
             closedRows = confirmedTradeTableRows,
             lookbackDays = lookbackDays,
             realTradeEntryThreshold = realTradeEntryThreshold,
+            realTradeExitThreshold = realTradeExitThreshold,
+            m15Points = m15Points,
+            leverage = leverage,
+            commissionPercentPerSide = commissionPercentPerSide,
+            executionMode = executionMode,
             onCloseOpenTrade = onCloseOpenTrade,
             closingTradeId = closingTradeId,
+            brokerClosedPnlSummary = brokerClosedPnlSummary,
         )
         PortfolioCollapsibleSection(
             title = "Плечо и комиссия",
@@ -279,6 +244,67 @@ internal fun ConfirmedPortfolioTabContent(
                 onEntryThresholdChange = {},
                 onExitThresholdChange = {}
             )
+        }
+        PortfolioCollapsibleSection(
+            title = "Тестовая пара",
+            subtitle = "Long / Short — проверка входа на ${executionAccountShortRu(executionMode)}",
+            defaultExpanded = false,
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onTestSpreadPairLongClick,
+                        enabled = !portfolioTestBusy,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF69F0AE)),
+                    ) {
+                        Text("Тестовая пара Long", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onTestSpreadPairShortClick,
+                        enabled = !portfolioTestBusy,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF8A80)),
+                    ) {
+                        Text("Тестовая пара Short", fontSize = 11.sp)
+                    }
+                }
+                if (portfolioTestBusy) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color(0xFFF48FB1),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Выполняется…", color = Color(0xFFCE93D8), fontSize = 10.sp)
+                    }
+                }
+                OutlinedButton(
+                    onClick = onCloseAllTradesClick,
+                    enabled = !closeAllPortfolioBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFAB91)),
+                ) {
+                    Text(
+                        if (closeAllPortfolioBusy) "Закрытие…" else "Закрыть все сделки",
+                        fontSize = 12.sp,
+                    )
+                }
+            }
         }
 
         if (portfolioError != null) {
