@@ -384,8 +384,8 @@ internal data class StrategyTestSpreadDeltaChartData(
 )
 
 /**
- * Δ спред 15м для «Тест страт.»: от входа при openPosition, иначе от открытия дня (07:30).
- * [points] — тот же downsample-ряд, что на графике Z-score.
+ * Δ спред 15м для «Тест страт.»: всегда от открытия дня (07:30) — intraday-движение видно на всём окне.
+ * При openPosition — референс «вход» на уровне Δ в баре входа (не обнуляем историю до входа).
  */
 internal fun buildStrategyTestSpreadDeltaChartData(
     points: List<DataPoint>,
@@ -394,6 +394,7 @@ internal fun buildStrategyTestSpreadDeltaChartData(
     accountSizeRub: Double,
 ): StrategyTestSpreadDeltaChartData? {
     if (points.size < 2) return null
+    val daySeries = spreadDeltaFromDayOpenSeries(points) ?: return null
     val effNotional = accountSizeRub * leverage.coerceAtLeast(1.0)
     val rubPerSpreadPoint = spreadPnlRubPerSpreadPoint(effNotional)
 
@@ -404,39 +405,20 @@ internal fun buildStrategyTestSpreadDeltaChartData(
             ZStrategyPosition.Flat -> null
         }
     }
-
-    if (openPosition != null && openSignal != null) {
-        val entrySpread = openPosition.entrySpreadPercent
-        if (entrySpread.isNaN()) return null
-        val entryMillis = parseSimTradeExitMillis(openPosition.entryDate)
-            ?: points.first().timestampMillis
-        val deltasPp = points.map { pt ->
-            if (pt.timestampMillis < entryMillis) {
-                0.0
-            } else {
-                openSpreadMtmPoints(openSignal, entrySpread, pt.spreadPercent)
-            }
-        }
-        val entryDeltaPp = resolveSpreadDeltaAtEntryBar(points, deltasPp, entryMillis)
-        val context = SpreadDelta15mChartContext(
-            title = "Δ спред 15м · от входа",
-            subtitle = "Симуляция · gross от ${String.format(Locale.US, "%.0f", effNotional)} ₽",
-            labels = points.map { it.tradeDate },
-            deltasPp = deltasPp,
-            rubPerSpreadPoint = rubPerSpreadPoint,
-            fromEntry = true,
-            entryDeltaPp = entryDeltaPp,
-        )
-        return StrategyTestSpreadDeltaChartData(
-            deltasPp = deltasPp,
-            referenceLines = buildSpreadDeltaTvReferenceLines(context),
-            title = context.title,
-        )
+    val entryMillis = openPosition?.entryDate?.let { parseSimTradeExitMillis(it) }
+    val entryDeltaPp = if (openPosition != null && openSignal != null && entryMillis != null) {
+        resolveSpreadDeltaAtEntryBar(points, daySeries.deltasPp, entryMillis)
+    } else {
+        null
     }
-
-    val daySeries = spreadDeltaFromDayOpenSeries(points) ?: return null
+    val fromEntry = entryDeltaPp != null
+    val title = if (fromEntry) {
+        "Δ спред 15м · от 07:30 · вход"
+    } else {
+        "Δ спред 15м · от открытия дня"
+    }
     val context = SpreadDelta15mChartContext(
-        title = "Δ спред 15м · от открытия дня",
+        title = title,
         subtitle = buildString {
             append("Симуляция · gross от 07:30 · ≈")
             append(String.format(Locale.US, "%.0f", effNotional))
@@ -445,7 +427,8 @@ internal fun buildStrategyTestSpreadDeltaChartData(
         labels = daySeries.labels,
         deltasPp = daySeries.deltasPp,
         rubPerSpreadPoint = rubPerSpreadPoint,
-        fromEntry = false,
+        fromEntry = fromEntry,
+        entryDeltaPp = entryDeltaPp,
     )
     return StrategyTestSpreadDeltaChartData(
         deltasPp = daySeries.deltasPp,

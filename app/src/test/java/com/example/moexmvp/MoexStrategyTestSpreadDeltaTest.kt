@@ -50,10 +50,11 @@ class MoexStrategyTestSpreadDeltaTest {
             leverage = 7.0,
             accountSizeRub = 10_000.0,
         )!!
-        assertTrue(data.title.contains("от входа"))
+        assertTrue(data.title.contains("вход"))
+        assertEquals(3, data.deltasPp.size)
         assertEquals(0.0, data.deltasPp[0], 0.001)
-        assertEquals(0.0, data.deltasPp[1], 0.001)
-        assertEquals(0.3, data.deltasPp[2], 0.001)
+        assertEquals(0.2, data.deltasPp[1], 0.001)
+        assertEquals(0.5, data.deltasPp[2], 0.001)
     }
 
     @Test
@@ -94,13 +95,22 @@ class MoexStrategyTestSpreadDeltaTest {
     }
 
     @Test
-    fun buildStrategyTestSpreadDeltaAxisRange_focusesRecentTail_notFullHistory() {
-        val flatHistory = List(200) { 0.0 }
-        val recentTail = listOf(0.01, 0.02, 0.03, 0.04)
-        val deltas = flatHistory + recentTail
-        val (min, max) = buildStrategyTestSpreadDeltaAxisRange(deltas, emptyList())
+    fun buildStrategyTestSpreadDeltaAxisRange_focusesRecentTradingDays_notFullHistory() {
+        val points = mutableListOf<DataPoint>()
+        var spread = 6.0
+        for (day in 1..20) {
+            for (hour in listOf(7, 10, 12)) {
+                points += point(
+                    label = "2026-06-${day.toString().padStart(2, '0')} ${hour.toString().padStart(2, '0')}:00",
+                    spread = spread,
+                    ts = mskMillis(2026, 6, day, hour, 0),
+                )
+            }
+            spread += 0.01
+        }
+        val deltas = List(points.size - 4) { 0.0 } + listOf(0.01, 0.02, 0.03, 0.04)
+        val (min, max) = buildStrategyTestSpreadDeltaAxisRange(points, deltas, emptyList())
         assertTrue(max - min < 0.12)
-        assertTrue(min <= 0.0)
         assertTrue(max >= 0.04)
     }
 

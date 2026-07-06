@@ -124,32 +124,49 @@ internal fun buildStrategyTestZAxisRange(
 }
 
 /**
- * Y-шкала Δ спреда: по последним барам (не по всему equity-окну), чтобы intraday-движение было видно.
+ * Y-шкала Δ спреда: по последним торговым дням (intraday-амплитуда), не по всему equity-окну.
  */
+internal fun spreadDeltaFocusDeltasForAxis(
+    points: List<DataPoint>,
+    deltasPp: List<Double>,
+    recentTradingDays: Int = 3,
+): List<Double> {
+    if (points.size != deltasPp.size || points.isEmpty()) {
+        return deltasPp.takeLast(64)
+    }
+    val lastDay = m15LabelCalendarDate(points.last().tradeDate)
+        ?: return deltasPp.takeLast(64)
+    val cutoff = lastDay.minusDays((recentTradingDays - 1).toLong())
+    val focused = points.indices.mapNotNull { i ->
+        val day = m15LabelCalendarDate(points[i].tradeDate) ?: return@mapNotNull null
+        if (!day.isBefore(cutoff)) deltasPp[i] else null
+    }
+    return focused.ifEmpty { deltasPp.takeLast(64) }
+}
+
 internal fun buildStrategyTestSpreadDeltaAxisRange(
+    points: List<DataPoint>,
     deltasPp: List<Double>,
     referenceLines: List<ChartReferenceLine>,
     pointMarkers: List<ChartPointMarker> = emptyList(),
-    focusRecentFraction: Double = 0.25,
+    recentTradingDays: Int = 3,
 ): Pair<Double, Double> {
     if (deltasPp.isEmpty()) return -0.05 to 0.05
     val baseline = referenceLines.firstOrNull()?.value ?: 0.0
-    val recentCount = max(32, (deltasPp.size * focusRecentFraction).roundToInt())
-        .coerceAtMost(deltasPp.size)
+    val focusValues = spreadDeltaFocusDeltasForAxis(points, deltasPp, recentTradingDays)
     val recentValues = buildList {
-        addAll(deltasPp.takeLast(recentCount))
+        addAll(focusValues)
         addAll(pointMarkers.map { it.value })
+        add(baseline)
     }
     var dMin = recentValues.minOrNull() ?: baseline
     var dMax = recentValues.maxOrNull() ?: baseline
-    dMin = min(dMin, baseline)
-    dMax = max(dMax, baseline)
     if (dMin == dMax) {
         val pad = max(0.04, abs(dMin) * 0.15 + 0.02)
         return (dMin - pad) to (dMax + pad)
     }
     val span = (dMax - dMin).coerceAtLeast(0.04)
-    val pad = span * 0.15
+    val pad = span * 0.12
     return (dMin - pad) to (dMax + pad)
 }
 
@@ -562,7 +579,12 @@ internal fun StrategyTestSpreadDeltaLineChart(
         }
         return
     }
-    val (dMin, dMax) = buildStrategyTestSpreadDeltaAxisRange(deltasPp, referenceLines, pointMarkers)
+    val (dMin, dMax) = buildStrategyTestSpreadDeltaAxisRange(
+        points = linePoints,
+        deltasPp = deltasPp,
+        referenceLines = referenceLines,
+        pointMarkers = pointMarkers,
+    )
     val yTicks = buildYTicks(dMin, dMax, count = 4)
 
     Canvas(
