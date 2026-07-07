@@ -100,7 +100,6 @@ class SignalForegroundService : Service() {
         MoexDiagnostics.log(applicationContext, "monitor", "onTaskRemoved")
         if (isBackgroundMonitorEnabled(applicationContext)) {
             scheduleMonitorWatchdog(applicationContext)
-            start(applicationContext)
         }
         super.onTaskRemoved(rootIntent)
     }
@@ -263,8 +262,16 @@ class SignalForegroundService : Service() {
         }.onFailure { e ->
             MoexDiagnostics.logError(applicationContext, "monitor", e, "open_trade_red_risk_notify")
         }
+        runCatching {
+            processOpenTradeProfitNotifications(
+                context = applicationContext,
+                points = signalPoints,
+            )
+        }.onFailure { e ->
+            MoexDiagnostics.logError(applicationContext, "monitor", e, "open_trade_profit_notify")
+        }
         var dayLimit = loadDailySignalLimit(applicationContext, LocalDate.now())
-        val initialPosition = loadSavedStrategyPosition(applicationContext)
+        val initialPosition = syncSavedZStrategyPositionFromOpenExecutions(applicationContext)
         val lastProcessedBarTs = resolveLastProcessed15mBarTimestampForReplay(applicationContext)
         val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
             points = signalPoints,
@@ -484,16 +491,48 @@ class SignalForegroundService : Service() {
         const val ACTION_START_SIGNAL_MONITOR = "com.example.moexmvp.action.START_SIGNAL_MONITOR"
         const val ACTION_STOP_SIGNAL_MONITOR = "com.example.moexmvp.action.STOP_SIGNAL_MONITOR"
 
-        fun start(context: Context) {
-            val intent = Intent(context, SignalForegroundService::class.java).apply {
+        fun start(context: Context): Boolean {
+            val app = context.applicationContext
+            if (!isBackgroundMonitorEnabled(app)) return false
+            val intent = Intent(app, SignalForegroundService::class.java).apply {
                 action = ACTION_START_SIGNAL_MONITOR
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    app.startForegroundService(intent)
+                } else {
+                    app.startService(intent)
+                }
+                scheduleMonitorWatchdog(app)
+                true
+            } catch (e: Exception) {
+                if (isForegroundServiceStartBlocked(e)) {
+                    MoexDiagnostics.log(
+                        app,
+                        "monitor",
+                        "start_deferred ${e.javaClass.simpleName}: ${e.message?.take(160)}",
+                    )
+                    scheduleMonitorWatchdog(app)
+                    false
+                } else {
+                    throw e
+                }
             }
-            scheduleMonitorWatchdog(context.applicationContext)
+        }
+
+        /** Android 12+ / MIUI: нельзя startForegroundService из фона (Application, alarm, boot). */
+        private fun isForegroundServiceStartBlocked(e: Throwable): Boolean {
+            var t: Throwable? = e
+            while (t != null) {
+                if (t is SecurityException) return true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (t.javaClass.name == "android.app.ForegroundServiceStartNotAllowedException") {
+                        return true
+                    }
+                }
+                t = t.cause
+            }
+            return false
         }
 
         fun stop(context: Context) {
@@ -506,6 +545,11 @@ class SignalForegroundService : Service() {
         internal fun isBackgroundMonitorEnabled(context: Context): Boolean {
             return context.getSharedPreferences(MONITOR_PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_BACKGROUND_SIGNAL_ENABLED, true)
+        }
+
+        /** Включить/выключить фоновый монитор (prefs). Перед start() после «BG выкл» нужно set true. */
+        fun setBackgroundMonitorEnabled(context: Context, enabled: Boolean) {
+            saveSignalMonitorEnabled(context.applicationContext, enabled)
         }
 
         private fun saveSignalMonitorEnabled(context: Context, enabled: Boolean) {
