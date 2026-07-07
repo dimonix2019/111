@@ -262,6 +262,14 @@ class SignalForegroundService : Service() {
         }.onFailure { e ->
             MoexDiagnostics.logError(applicationContext, "monitor", e, "open_trade_red_risk_notify")
         }
+        runCatching {
+            processOpenTradeProfitNotifications(
+                context = applicationContext,
+                points = signalPoints,
+            )
+        }.onFailure { e ->
+            MoexDiagnostics.logError(applicationContext, "monitor", e, "open_trade_profit_notify")
+        }
         var dayLimit = loadDailySignalLimit(applicationContext, LocalDate.now())
         val initialPosition = syncSavedZStrategyPositionFromOpenExecutions(applicationContext)
         val lastProcessedBarTs = resolveLastProcessed15mBarTimestampForReplay(applicationContext)

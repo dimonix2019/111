@@ -189,6 +189,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.294 — Push: прибыль открытой сделки +2% и +3% от «Суммы в сделке» (один раз на порог).
 1.7.293 — «Тест страт.» Δ спред: линия от 07:30 (не нули до входа); Y-масштаб по последним 3 торг. дням.
 1.7.292 — Fix вылет «Рынок» offline: CACHE_ONLY без merge хвоста MOEX; catchup только online.
 1.7.291 — «Тест страт.» Δ спред: авто-масштаб по хвосту; кнопка fullscreen (landscape).
