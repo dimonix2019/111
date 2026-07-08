@@ -189,6 +189,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.299 — «Рынок» Δ спред: досчёт из TATN/TATNP + SQLite-снимки при пробелах (как Z-score); rolling-base для 1D/1W.
 1.7.298 — «Рынок» Δ спред 15м: окно графика 1D/1W/1M как у Z-score (тот же период и initial window).
 1.7.297 — Push +2.2%: кнопка «Стоп-лосс 2%» — закрытие при PnL ниже 2% депозита (размер счёта).
 1.7.296 — «Тест страт.»: панель Z-режим (прогноз порогов) и сравнение закрытия +2%/+3%/+5%; push +5%.

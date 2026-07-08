@@ -462,7 +462,11 @@ private suspend fun loadPortfolio15mDataPointsLocked(
         for (entity in rows) {
             points.add(entity.toDataPoint())
         }
+        fillM15SpreadFromLegClosesInPlace(points, rows)
+        persistM15SpreadFromLegSnapshots(dao, rows, points)
         val recalculated = fillM15ZScoresInPlace(points, rows)
+        fillM15SpreadDeltaSnapshotsInPlace(points, rows)
+        persistM15SpreadDeltaSnapshots(dao, rows, points)
         persistM15ZScoreSnapshots(dao, rows, points)
         if (!recalculated) {
             MoexDiagnostics.log(
@@ -504,7 +508,11 @@ internal suspend fun loadPortfolio15mLiveFormingTailLocked(
     val rows = dao.getSince(queryCutoffMillis)
     if (rows.size < 2) return null
     val points = ArrayList(rows.map { it.toDataPoint() })
+    fillM15SpreadFromLegClosesInPlace(points, rows)
+    persistM15SpreadFromLegSnapshots(dao, rows, points)
     val recalculated = fillM15ZScoresInPlace(points, rows)
+    fillM15SpreadDeltaSnapshotsInPlace(points, rows)
+    persistM15SpreadDeltaSnapshots(dao, rows, points)
     persistM15ZScoreSnapshots(dao, rows, points)
     val last = points.last()
     MoexDiagnostics.log(

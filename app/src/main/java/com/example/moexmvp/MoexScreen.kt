@@ -63,6 +63,8 @@ internal fun MoexScreen() {
     val onMarketsTab = screen.selectedTab == MainTab.Markets
     val onStrategyTestTab = screen.selectedTab == MainTab.StrategyTest
 
+    val marketsM15RollingBase = if (onMarketsTab) screen.marketsM15Source() else emptyList()
+
     val marketsM15SimPoints by produceState(
         initialValue = emptyList<DataPoint>(),
         screen.marketsM15DataEpoch,
@@ -358,6 +360,7 @@ internal fun MoexScreen() {
                 chartSuccess = chartSuccess,
                 staleMarkets = staleMarkets,
                 marketsM15SourcePoints = marketsM15SimPoints,
+                marketsM15RollingBase = marketsM15RollingBase,
                 marketsM15ChartPoints = marketsM15ChartPoints,
                 marketsZScoreCandles = marketsZScoreCandles,
                 marketsChartThresholds = marketsChartThresholds,

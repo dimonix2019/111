@@ -64,6 +64,7 @@ internal fun MoexScreenTabMarkets(
     chartSuccess: UiState.Success?,
     staleMarkets: Boolean,
     marketsM15SourcePoints: List<DataPoint>,
+    marketsM15RollingBase: List<DataPoint>,
     marketsM15ChartPoints: List<DataPoint>,
     marketsZScoreCandles: List<CandlePoint>,
     marketsChartThresholds: DynamicThresholds,
@@ -188,6 +189,7 @@ internal fun MoexScreenTabMarkets(
     val spreadDelta15mContext = remember(
         spreadDeltaChartPoints,
         marketsM15SourcePoints,
+        marketsM15RollingBase,
         marketsLiveSpreadPercent,
         screen.marketsZChartPeriod,
         openExecForDelta?.tradeId,
@@ -202,12 +204,15 @@ internal fun MoexScreenTabMarkets(
     ) {
         buildSpreadDelta15mChartContext(
             chartPoints = spreadDeltaChartPoints,
-            sourcePoints = marketsM15SourcePoints.ifEmpty { spreadDeltaChartPoints },
+            sourcePoints = marketsM15RollingBase.ifEmpty {
+                marketsM15SourcePoints.ifEmpty { spreadDeltaChartPoints }
+            },
             openExec = openExecForDelta,
             executionMode = executionMode,
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
             tradeAmountRub = portfolioTradeAmountRub,
+            rollingBase = marketsM15RollingBase,
         )
     }
                 Column(Modifier.fillMaxSize()) {

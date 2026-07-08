@@ -299,6 +299,7 @@ internal fun buildSpreadDelta15mChartContext(
     leverage: Double,
     commissionPercentPerSide: Double,
     tradeAmountRub: Double,
+    rollingBase: List<DataPoint> = emptyList(),
 ): SpreadDelta15mChartContext? {
     if (chartPoints.isEmpty()) return null
     val history = sourcePoints.ifEmpty { chartPoints }
@@ -350,7 +351,10 @@ internal fun buildSpreadDelta15mChartContext(
         )
     }
 
-    val daySeries = spreadDeltaFromDayOpenSeries(chartPoints) ?: return null
+    val daySeries = spreadDeltaFromDayOpenSeriesForDisplayWindow(
+        window = chartPoints,
+        rollingBase = rollingBase.ifEmpty { history },
+    ) ?: return null
     val rubAxis = resolveSpreadDeltaChartRubAxis(
         openExec = null,
         currentDeltaPp = daySeries.deltasPp.lastOrNull() ?: 0.0,
