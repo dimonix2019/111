@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.util.Locale
 
 /** Пороги прибыли открытой сделки (% от «Суммы в сделке»), по одному push на порог за сделку. */
-internal val OPEN_TRADE_PROFIT_NOTIFY_THRESHOLDS_PERCENT = listOf(2.0, 3.0, 5.0)
+internal val OPEN_TRADE_PROFIT_NOTIFY_THRESHOLDS_PERCENT = listOf(2.0, 2.2, 3.0, 5.0)
 
 private const val OPEN_TRADE_PROFIT_NOTIFY_PREFS = "moex_open_trade_profit_notify"
 private const val PREF_PROFIT_STATES_JSON = "profit_states_json"
@@ -97,6 +97,10 @@ internal fun dispatchOpenTradeProfitNotifications(
     actions: List<OpenTradeProfitNotifyAction>,
 ) {
     for (action in actions) {
+        if (action.thresholdPercent == OPEN_TRADE_PROFIT_STOP_ARM_PERCENT) {
+            dispatchOpenTradeProfitStopArmNotification(context, action)
+            continue
+        }
         val thresholdLabel = formatOpenTradeProfitThresholdLabel(action.thresholdPercent)
         showPushNotification(
             context = context,
@@ -108,8 +112,46 @@ internal fun dispatchOpenTradeProfitNotifications(
     }
 }
 
+internal fun dispatchOpenTradeProfitStopArmNotification(
+    context: Context,
+    action: OpenTradeProfitNotifyAction,
+) {
+    val thresholdLabel = formatOpenTradeProfitThresholdLabel(action.thresholdPercent)
+    val depositRub = resolveAccountDepositRub(context)
+    val floorRub = computeDepositProfitStopFloorRub(depositRub)
+    val body = buildString {
+        append(buildOpenTradeProfitNotificationBody(action))
+        append("\nСтоп 2% депозита: закрыть при PnL < ")
+        append(formatRubSigned(floorRub))
+        append(" (счёт ")
+        append(formatRubSigned(depositRub))
+        append(")")
+    }
+    showPushNotification(
+        context = context,
+        title = "Прибыль: $thresholdLabel",
+        body = body,
+        notificationId = openTradeProfitNotificationId(action.tradeId, action.thresholdPercent),
+        correlationTag = openTradeProfitCorrelationTag(action.tradeId, action.thresholdPercent),
+        actionButton = PushNotificationActionButton(
+            label = "Стоп-лосс 2%",
+            pendingIntent = buildArmDepositStopPendingIntent(
+                context = context,
+                tradeId = action.tradeId,
+                stopPercent = OPEN_TRADE_DEPOSIT_STOP_LOSS_PERCENT,
+                requestCode = openTradeProfitStopArmActionRequestCode(action.tradeId),
+            ),
+        ),
+    )
+}
+
+internal fun openTradeProfitStopArmActionRequestCode(tradeId: String): Int =
+    ("openTradeProfitStopArm|$tradeId").hashCode()
+
 internal fun formatOpenTradeProfitThresholdLabel(thresholdPercent: Double): String =
-    if (kotlin.math.abs(thresholdPercent - thresholdPercent.toLong().toDouble()) < 1e-9) {
+    if (kotlin.math.abs(thresholdPercent - 2.2) < 1e-9) {
+        "+2.2%"
+    } else if (kotlin.math.abs(thresholdPercent - thresholdPercent.toLong().toDouble()) < 1e-9) {
         "+${thresholdPercent.toLong()}%"
     } else {
         String.format(Locale.US, "+%.1f%%", thresholdPercent)

@@ -7,48 +7,48 @@ import org.junit.Test
 class MoexOpenTradeProfitNotificationTest {
 
     @Test
-    fun planOpenTradeProfitNotifications_fires2And3Once() {
-        val group = openGroup(pnlRub = 250.0)
+    fun planOpenTradeProfitNotifications_fires2Then22And3() {
         val invested = 10_000.0
 
         val (first, afterFirst) = planOpenTradeProfitNotifications(
-            openGroups = listOf(group),
+            openGroups = listOf(openGroup(pnlRub = 210.0)),
             investedRub = invested,
             previousStates = emptyMap(),
         )
         assertEquals(1, first.size)
         assertEquals(2.0, first[0].thresholdPercent, 0.001)
 
-        val (none, afterStill) = planOpenTradeProfitNotifications(
-            openGroups = listOf(group),
+        val (second, afterSecond) = planOpenTradeProfitNotifications(
+            openGroups = listOf(openGroup(pnlRub = 225.0)),
             investedRub = invested,
             previousStates = afterFirst,
         )
-        assertTrue(none.isEmpty())
-
-        val group3 = openGroup(pnlRub = 320.0)
-        val (second, afterSecond) = planOpenTradeProfitNotifications(
-            openGroups = listOf(group3),
-            investedRub = invested,
-            previousStates = afterStill,
-        )
         assertEquals(1, second.size)
-        assertEquals(3.0, second[0].thresholdPercent, 0.001)
-        assertEquals(setOf(2.0, 3.0), afterSecond["t1"]?.notifiedThresholdsPercent)
+        assertEquals(2.2, second[0].thresholdPercent, 0.001)
+
+        val (third, afterThird) = planOpenTradeProfitNotifications(
+            openGroups = listOf(openGroup(pnlRub = 320.0)),
+            investedRub = invested,
+            previousStates = afterSecond,
+        )
+        assertEquals(1, third.size)
+        assertEquals(3.0, third[0].thresholdPercent, 0.001)
+        assertEquals(setOf(2.0, 2.2, 3.0), afterThird["t1"]?.notifiedThresholdsPercent)
     }
 
     @Test
-    fun planOpenTradeProfitNotifications_jumpsTo3FiresBoth() {
+    fun planOpenTradeProfitNotifications_jumpsTo3FiresAllBelow() {
         val group = openGroup(pnlRub = 350.0)
         val (actions, state) = planOpenTradeProfitNotifications(
             openGroups = listOf(group),
             investedRub = 10_000.0,
             previousStates = emptyMap(),
         )
-        assertEquals(2, actions.size)
+        assertEquals(3, actions.size)
         assertEquals(2.0, actions[0].thresholdPercent, 0.001)
-        assertEquals(3.0, actions[1].thresholdPercent, 0.001)
-        assertEquals(setOf(2.0, 3.0), state["t1"]?.notifiedThresholdsPercent)
+        assertEquals(2.2, actions[1].thresholdPercent, 0.001)
+        assertEquals(3.0, actions[2].thresholdPercent, 0.001)
+        assertEquals(setOf(2.0, 2.2, 3.0), state["t1"]?.notifiedThresholdsPercent)
     }
 
     @Test
@@ -95,7 +95,7 @@ class MoexOpenTradeProfitNotificationTest {
     fun planOpenTradeProfitNotifications_fires5Once() {
         val group = openGroup(pnlRub = 520.0)
         val invested = 10_000.0
-        val prev = mapOf("t1" to OpenTradeProfitNotifyState(notifiedThresholdsPercent = setOf(2.0, 3.0)))
+        val prev = mapOf("t1" to OpenTradeProfitNotifyState(notifiedThresholdsPercent = setOf(2.0, 2.2, 3.0)))
         val (actions, next) = planOpenTradeProfitNotifications(
             openGroups = listOf(group),
             investedRub = invested,
@@ -103,7 +103,7 @@ class MoexOpenTradeProfitNotificationTest {
         )
         assertEquals(1, actions.size)
         assertEquals(5.0, actions[0].thresholdPercent, 0.001)
-        assertEquals(setOf(2.0, 3.0, 5.0), next["t1"]?.notifiedThresholdsPercent)
+        assertEquals(setOf(2.0, 2.2, 3.0, 5.0), next["t1"]?.notifiedThresholdsPercent)
     }
 
     private fun openGroup(pnlRub: Double): PortfolioTradeGroupRow =

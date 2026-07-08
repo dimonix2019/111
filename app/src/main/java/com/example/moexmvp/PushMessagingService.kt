@@ -305,6 +305,11 @@ internal fun createAppUpdateNotificationChannel(context: Context) {
     manager.createNotificationChannel(channel)
 }
 
+internal data class PushNotificationActionButton(
+    val label: String,
+    val pendingIntent: PendingIntent,
+)
+
 internal fun showPushNotification(
     context: Context,
     title: String,
@@ -313,7 +318,8 @@ internal fun showPushNotification(
     virtualTradeTap: VirtualTradeTapIntent? = null,
     appUpdateTap: AppRemoteUpdate? = null,
     skipDuplicateCheck: Boolean = false,
-    correlationTag: String? = null
+    correlationTag: String? = null,
+    actionButton: PushNotificationActionButton? = null,
 ): Boolean {
     val app = context.applicationContext
     val receivedAtMillis = System.currentTimeMillis()
@@ -384,14 +390,22 @@ internal fun showPushNotification(
     } else {
         NotificationCompat.PRIORITY_DEFAULT
     }
-    val notification = NotificationCompat.Builder(context, channelId)
+    val notificationBuilder = NotificationCompat.Builder(context, channelId)
         .setSmallIcon(android.R.drawable.ic_dialog_info)
         .setContentTitle(title)
         .setContentText(displayBody)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(displayBody))
         .setAutoCancel(true)
         .setPriority(priority)
         .setContentIntent(pendingIntent)
-        .build()
+    actionButton?.let { action ->
+        notificationBuilder.addAction(
+            android.R.drawable.ic_menu_close_clear_cancel,
+            action.label,
+            action.pendingIntent,
+        )
+    }
+    val notification = notificationBuilder.build()
 
     NotificationManagerCompat.from(context).notify(notificationId, notification)
     trace(true, null, notificationId)
