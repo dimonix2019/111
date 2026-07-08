@@ -134,6 +134,10 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestDurationSummary by mutableStateOf<StrategyTestDurationSummary?>(null)
     var strategyTestMonthlyReturnSummary by mutableStateOf<StrategyTestMonthlyReturnSummary?>(null)
     var strategyTestSpreadHourlyVolatility by mutableStateOf<SpreadHourlyVolatilityReport?>(null)
+    /** Прогноз Z-режима (10д) для адаптивных порогов. */
+    var strategyTestZRegimeSnapshot by mutableStateOf<ZRegimeAdaptiveSnapshot?>(null)
+    /** Сравнение закрытия по take-profit +2% / +3% / +5% vs Z-выход. */
+    var strategyTestProfitTakeCompare by mutableStateOf<List<StrategyTestProfitTakeRow>>(emptyList())
     /** Кэш hourly vol по fingerprint 15м ряда (не зависит от порогов sim). */
     var strategyTestHourlyVolCacheKey: Long = 0L
     var strategyTestHourlyVolCache: SpreadHourlyVolatilityReport? = null

@@ -85,6 +85,8 @@ internal fun StrategyTestTabContent(
     onExportCompareCsv: () -> Unit = {},
     dailyReconciliation: DailyPortfolioReconciliation? = null,
     onSpreadDeltaFullscreenClick: (() -> Unit)? = null,
+    zRegimeSnapshot: ZRegimeAdaptiveSnapshot? = null,
+    profitTakeCompare: List<StrategyTestProfitTakeRow> = emptyList(),
 ) {
     val (displayTradeItems, displayRiskAssessments) = remember(
         tradeItems,
@@ -225,6 +227,26 @@ internal fun StrategyTestTabContent(
                 ) {
                     Text("Нет данных для Equity", color = Color(0xFF757575), fontSize = 10.sp)
                 }
+            }
+        }
+        zRegimeSnapshot?.let { snapshot ->
+            PortfolioCollapsibleSection(
+                title = "Z-режим · прогноз порогов",
+                subtitle = formatStrategyTestZRegimeSubtitle(snapshot),
+                defaultExpanded = false,
+                compactHeader = true,
+            ) {
+                StrategyTestZRegimePanel(snapshot = snapshot)
+            }
+        }
+        if (profitTakeCompare.isNotEmpty()) {
+            PortfolioCollapsibleSection(
+                title = "Закрытие по прибыли +2% / +3% / +5%",
+                subtitle = formatStrategyTestProfitTakeSubtitle(profitTakeCompare),
+                defaultExpanded = false,
+                compactHeader = true,
+            ) {
+                StrategyTestProfitTakeComparePanel(rows = profitTakeCompare)
             }
         }
         PortfolioCollapsibleSection(
@@ -988,4 +1010,135 @@ internal fun StrategyTestZScoreTradingViewChart(
         landscapeMinimal = landscapeMinimal,
         modifier = modifier,
     )
+}
+
+@Composable
+internal fun StrategyTestZRegimePanel(snapshot: ZRegimeAdaptiveSnapshot) {
+    val cfg = snapshot.config
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "Окно ${cfg.windowTradingDays} торг. дн. · узкие ${cfg.tightFour.entryLong}/${cfg.tightFour.exitLong} · широкие ${cfg.wideFour.entryLong}/${cfg.wideFour.exitLong}",
+            color = Color(0xFF9E9E9E),
+            fontSize = 10.sp,
+        )
+        Text(
+            text = String.format(
+                Locale.US,
+                "Walk-forward: %.0f%% (%d/%d)",
+                snapshot.walkForward.accuracy * 100.0,
+                snapshot.walkForward.folds.count { it.correct },
+                snapshot.walkForward.folds.size,
+            ),
+            color = Color(0xFFBDBDBD),
+            fontSize = 10.sp,
+        )
+        snapshot.currentWindow?.let { cur ->
+            Text(
+                text = String.format(
+                    Locale.US,
+                    "Сейчас %s…%s: %s (meanZ=%+.2f)",
+                    cur.startLabel,
+                    cur.endLabel,
+                    zRegimeLabelRu(cur.regime),
+                    cur.meanZ,
+                ),
+                color = Color(0xFFE0E0E0),
+                fontSize = 10.sp,
+            )
+        }
+        snapshot.nextForecast?.let { fc ->
+            val four = snapshot.liveAppliedFour
+            Text(
+                text = String.format(
+                    Locale.US,
+                    "Прогноз след. окна: %s (%.0f%%) → пороги %.1f/%.1f",
+                    zRegimeLabelRu(fc.predicted),
+                    fc.confidence * 100.0,
+                    four.entryLong,
+                    four.exitLong,
+                ),
+                color = Color(0xFF80CBC4),
+                fontSize = 10.sp,
+            )
+        }
+        snapshot.windowPlans.takeLast(6).forEach { plan ->
+            val pred = plan.predictedRegime?.let { zRegimeLabelRu(it) } ?: "warmup"
+            val mark = when {
+                plan.predictedRegime == null -> "—"
+                plan.predictedRegime == plan.actualRegime -> "✓"
+                else -> "✗"
+            }
+            Text(
+                text = String.format(
+                    Locale.US,
+                    "%s: прогноз %s · факт %s · %.1f/%.1f %s",
+                    plan.windowId,
+                    pred,
+                    zRegimeLabelRu(plan.actualRegime),
+                    plan.appliedFour.entryLong,
+                    plan.appliedFour.exitLong,
+                    mark,
+                ),
+                color = Color(0xFF757575),
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun StrategyTestProfitTakeComparePanel(rows: List<StrategyTestProfitTakeRow>) {
+    val bestPnl = remember(rows) { rows.maxOfOrNull { it.pnlRub } }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            text = String.format(
+                Locale.US,
+                "%-18s %10s %5s %8s %5s",
+                "режим",
+                "PnL ₽",
+                "сд.",
+                "DD ₽",
+                "WR%",
+            ),
+            color = Color(0xFF9E9E9E),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        rows.forEach { row ->
+            val isBest = bestPnl != null && row.pnlRub >= bestPnl - 0.01
+            Text(
+                text = buildString {
+                    append(String.format(Locale.US, "%-18s %10s %5d %8s %5.0f",
+                        row.label,
+                        formatRubSigned(row.pnlRub),
+                        row.trades,
+                        formatRubSigned(-row.maxDrawdownRub),
+                        row.winRate,
+                    ))
+                    if (row.profitTakePercent != null) {
+                        append(" (Δ ")
+                        append(formatRubSigned(row.deltaVsBaselineRub))
+                        append(")")
+                    }
+                    if (isBest) append(" ◀")
+                },
+                color = if (isBest) Color(0xFF80CBC4) else Color(0xFFBDBDBD),
+                fontSize = 9.sp,
+                maxLines = 2,
+            )
+        }
+        Text(
+            text = "Take-profit: закрытие при MTM ≥ порога от номинала сделки (как push +2/+3/+5%).",
+            color = Color(0xFF616161),
+            fontSize = 9.sp,
+        )
+    }
 }

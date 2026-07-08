@@ -88,6 +88,22 @@ class MoexOpenTradeProfitNotificationTest {
     fun formatOpenTradeProfitThresholdLabel() {
         assertEquals("+2%", formatOpenTradeProfitThresholdLabel(2.0))
         assertEquals("+3%", formatOpenTradeProfitThresholdLabel(3.0))
+        assertEquals("+5%", formatOpenTradeProfitThresholdLabel(5.0))
+    }
+
+    @Test
+    fun planOpenTradeProfitNotifications_fires5Once() {
+        val group = openGroup(pnlRub = 520.0)
+        val invested = 10_000.0
+        val prev = mapOf("t1" to OpenTradeProfitNotifyState(notifiedThresholdsPercent = setOf(2.0, 3.0)))
+        val (actions, next) = planOpenTradeProfitNotifications(
+            openGroups = listOf(group),
+            investedRub = invested,
+            previousStates = prev,
+        )
+        assertEquals(1, actions.size)
+        assertEquals(5.0, actions[0].thresholdPercent, 0.001)
+        assertEquals(setOf(2.0, 3.0, 5.0), next["t1"]?.notifiedThresholdsPercent)
     }
 
     private fun openGroup(pnlRub: Double): PortfolioTradeGroupRow =

@@ -333,6 +333,8 @@ internal fun MoexScreenTabStrategyTest(
                         },
                         dailyReconciliation = dailyReconciliation,
                         onSpreadDeltaFullscreenClick = enterSpreadDeltaFullscreen,
+                        zRegimeSnapshot = strategyTestZRegimeSnapshot,
+                        profitTakeCompare = strategyTestProfitTakeCompare,
                     )
                 }
             }

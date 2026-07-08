@@ -204,6 +204,13 @@ internal fun buildZStrategyPortfolioMetrics(
                 return true
             }
         }
+        if (simOptions.forcedProfitTakePercent > 0.0) {
+            val netRub = netMtmIfClosedNow(bar)
+            val retPct = openTradeReturnPercent(netRub, positionNotionalRub)
+            if (!retPct.isNaN() && retPct >= simOptions.forcedProfitTakePercent) {
+                return true
+            }
+        }
         return false
     }
 

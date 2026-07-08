@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.util.Locale
 
 /** Пороги прибыли открытой сделки (% от «Суммы в сделке»), по одному push на порог за сделку. */
-internal val OPEN_TRADE_PROFIT_NOTIFY_THRESHOLDS_PERCENT = listOf(2.0, 3.0)
+internal val OPEN_TRADE_PROFIT_NOTIFY_THRESHOLDS_PERCENT = listOf(2.0, 3.0, 5.0)
 
 private const val OPEN_TRADE_PROFIT_NOTIFY_PREFS = "moex_open_trade_profit_notify"
 private const val PREF_PROFIT_STATES_JSON = "profit_states_json"

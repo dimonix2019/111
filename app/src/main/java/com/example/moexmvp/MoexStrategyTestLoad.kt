@@ -10,6 +10,13 @@ import java.time.temporal.ChronoUnit
 /** Минимальный календарный охват 15м для полной симуляции (~255 дн.). */
 internal const val STRATEGY_TEST_MIN_SPAN_DAYS = 180L
 
+private data class StrategyTestSimBundle(
+    val simPoints: List<DataPoint>,
+    val metrics: PortfolioMetrics?,
+    val zRegimeSnapshot: ZRegimeAdaptiveSnapshot?,
+    val profitTakeCompare: List<StrategyTestProfitTakeRow>,
+)
+
 internal fun List<DataPoint>.m15CalendarSpanDays(): Long {
     if (size < 2) return 0L
     val zone = moexZoneId
@@ -38,6 +45,8 @@ internal fun MoexScreenState.clearStrategyTestVisibleState() {
     strategyTestDurationSummary = null
     strategyTestMonthlyReturnSummary = null
     strategyTestSpreadHourlyVolatility = null
+    strategyTestZRegimeSnapshot = null
+    strategyTestProfitTakeCompare = emptyList()
     strategyTestSimComputing = false
     strategyTestM15Loading = false
     strategyTestError = null
@@ -81,31 +90,46 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 journalThresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
                 applyJournalOverlay = !strategyTestUseLiveZSignals,
             )
+            val simOptions = buildStrategyTestSimOptions(
+                context = context,
+                accountSizeRub = strategyTestAccountSizeRub,
+                maxLossDdPercent = strategyTestMaxLossDdPercent,
+            )
+            val thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate)
             val metrics = buildZStrategyPortfolioMetrics(
                 points = simPoints,
-                thresholds = DynamicThresholds(entry, exit, dynamicThresholds.calculatedDate),
+                thresholds = thresholds,
                 notionalRub = strategyTestAccountSizeRub,
                 leverage = 1.0,
                 commissionPercentPerSide = commissionPct,
                 periodDescription = buildStrategyTestPeriodDescription(context),
                 compoundReturns = strategyTestCompoundReturns,
                 exitMode = ZStrategyExitMode.FixedThreshold,
-                simOptions = buildStrategyTestSimOptions(
-                    context = context,
-                    accountSizeRub = strategyTestAccountSizeRub,
-                    maxLossDdPercent = strategyTestMaxLossDdPercent,
-                ),
+                simOptions = simOptions,
                 prodLikeSizing = ZStrategyProdLikeSizing(
                     accountSizeRub = strategyTestAccountSizeRub,
                     capitalUsagePercent = strategyTestCapitalUsagePercent,
                     leverageForLots = portfolioLeverage,
                 ),
             )
-            simPoints to metrics
+            val zRegime = resolveStrategyTestZRegimeSnapshot(points)
+            val profitTake = buildStrategyTestProfitTakeCompare(
+                simPoints = simPoints,
+                thresholds = thresholds,
+                accountSizeRub = strategyTestAccountSizeRub,
+                capitalUsagePercent = strategyTestCapitalUsagePercent,
+                leverageForLots = portfolioLeverage,
+                commissionPercentPerSide = commissionPct,
+                compoundReturns = strategyTestCompoundReturns,
+                baseSimOptions = simOptions,
+            ).orEmpty()
+            StrategyTestSimBundle(simPoints, metrics, zRegime, profitTake)
         }
         if (!isStrategyTestWorkCurrent(workId)) return
-        val simPoints = simResult?.first
-        val metrics = simResult?.second
+        val simPoints = simResult?.simPoints
+        val metrics = simResult?.metrics
+        val zRegimeSnapshot = simResult?.zRegimeSnapshot
+        val profitTakeCompare = simResult?.profitTakeCompare.orEmpty()
         val chartTail = withContext(Dispatchers.Default) {
             strategyTestM15PointsForChart(simPoints ?: points)
         }
@@ -122,6 +146,8 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                     m15PointsForRisk = points,
                     entryThreshold = entry,
                     spreadHourlyVolatility = hourlyVol,
+                    zRegimeSnapshot = zRegimeSnapshot,
+                    profitTakeCompare = profitTakeCompare,
                 )
             }
         } else {
@@ -137,6 +163,8 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
         strategyTestDurationSummary = analytics?.durationSummary
         strategyTestMonthlyReturnSummary = analytics?.monthlyReturnSummary
         strategyTestSpreadHourlyVolatility = analytics?.spreadHourlyVolatility
+        strategyTestZRegimeSnapshot = analytics?.zRegimeSnapshot
+        strategyTestProfitTakeCompare = analytics?.profitTakeCompare.orEmpty()
         if (metrics != null && chartTail.size >= 2) {
             strategyTestVisibleSessionCache = StrategyTestVisibleSnapshot(
                 simKey = simKey,
@@ -148,6 +176,8 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 durationSummary = strategyTestDurationSummary,
                 monthlyReturnSummary = strategyTestMonthlyReturnSummary,
                 spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
+                zRegimeSnapshot = strategyTestZRegimeSnapshot,
+                profitTakeCompare = strategyTestProfitTakeCompare,
             )
         }
         if (metrics != null && persistExport) {
@@ -206,6 +236,8 @@ internal fun MoexScreenState.invalidateStrategyTestSimResults() {
     strategyTestDurationSummary = null
     strategyTestMonthlyReturnSummary = null
     strategyTestSpreadHourlyVolatility = null
+    strategyTestZRegimeSnapshot = null
+    strategyTestProfitTakeCompare = emptyList()
     strategyTestVisibleSessionCache = null
     strategyTestLastSimKey = 0L
 }
