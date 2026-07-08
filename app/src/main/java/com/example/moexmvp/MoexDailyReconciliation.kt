@@ -74,6 +74,8 @@ internal fun buildDailyPortfolioReconciliation(
     val exitRuleText = when (simExitMode) {
         ZStrategyExitMode.FixedThreshold -> "выход ±${fmt(simExitThreshold)}"
         ZStrategyExitMode.ZPeakTrailing -> "трейл от пика Z ${fmt(simZPeakTrailZ)}"
+        ZStrategyExitMode.OppositeExtreme -> "противоп. экстремум ±${fmt(simExitThreshold)}"
+        ZStrategyExitMode.LocalExtrema -> "лок. экстремум Z, отскок ${fmt(simExitThreshold)}"
     }
 
     if (journalPositionAtDayOpen != simPositionAtDayOpen) {

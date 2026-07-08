@@ -107,3 +107,20 @@ internal fun buildProdLikeStrategySimMetricsCluster(
         fourThresholdsSeries = fourSeries,
     )
 }
+
+internal fun buildProdLikeStrategySimMetricsRegimeAdaptive(
+    points: List<DataPoint>,
+    config: ZRegimeAdaptiveThresholdConfig = ZRegimeAdaptiveThresholdConfig(),
+    accountSizeRub: Double = DEFAULT_STRATEGY_TEST_ACCOUNT_RUB,
+    periodDescription: String = "prod-like regime-adaptive",
+    simOptions: ZStrategySimOptions = defaultProdLikeSimOptions(),
+): PortfolioMetrics? {
+    val series = buildZRegimeAdaptiveFourThresholdSeries(points, config) ?: return null
+    return buildProdLikeStrategySimMetricsCluster(
+        points = points,
+        fourSeries = series,
+        accountSizeRub = accountSizeRub,
+        periodDescription = periodDescription,
+        simOptions = simOptions,
+    )
+}
