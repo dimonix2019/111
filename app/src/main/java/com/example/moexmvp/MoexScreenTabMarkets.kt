@@ -177,7 +177,11 @@ internal fun MoexScreenTabMarkets(
             buildSpreadHourlyVolatilityReport(marketsM15SourcePoints)
         }
     }
-    val spreadDeltaChartPoints = remember(marketsM15ChartPoints, marketsLiveSpreadPercent) {
+    val spreadDeltaChartPoints = remember(
+        marketsM15ChartPoints,
+        marketsLiveSpreadPercent,
+        screen.marketsZChartPeriod,
+    ) {
         applyLiveSpreadToM15ChartPoints(marketsM15ChartPoints, marketsLiveSpreadPercent)
     }
     val openExecForDelta = resolveSingleOpenExecutionForDisplay(sandboxSpreadExecutions)
@@ -185,6 +189,7 @@ internal fun MoexScreenTabMarkets(
         spreadDeltaChartPoints,
         marketsM15SourcePoints,
         marketsLiveSpreadPercent,
+        screen.marketsZChartPeriod,
         openExecForDelta?.tradeId,
         openExecForDelta?.netPnlRubApprox,
         openExecForDelta?.legLongPnlSplitRubApprox,
@@ -500,6 +505,8 @@ internal fun MoexScreenTabMarkets(
                                 item {
                                     SpreadDelta15mChartCard(
                                         context = spreadDelta15m,
+                                        initialWindowWidth = marketsZInitialWindow.first,
+                                        initialWindowStart = marketsZInitialWindow.second,
                                         onFullscreenClick = enterSpreadDeltaFullscreen,
                                     )
                                 }
