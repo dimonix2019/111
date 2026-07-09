@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import threading
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -109,6 +112,23 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _open_browser_when_ready(url: str = "http://127.0.0.1:8765") -> None:
+    import time
+
+    for _ in range(40):
+        time.sleep(0.25)
+        try:
+            import urllib.request
+
+            with urllib.request.urlopen(f"{url}/api/health", timeout=0.5) as resp:
+                if resp.status == 200:
+                    webbrowser.open(url)
+                    return
+        except OSError:
+            continue
+    webbrowser.open(url)
+
+
 def main() -> None:
     # Подставляем lightweight-charts в chart-frame.html при старте
     frame = STATIC / "chart-frame.html"
@@ -122,6 +142,8 @@ def main() -> None:
                 encoding="utf-8",
             )
     print("MOEX Bar Replay: http://127.0.0.1:8765")
+    if os.environ.get("MOEX_REPLAY_OPEN_BROWSER", "").strip().lower() in ("1", "true", "yes"):
+        threading.Thread(target=_open_browser_when_ready, daemon=True).start()
     uvicorn.run(app, host="127.0.0.1", port=8765, log_level="info")
 
 

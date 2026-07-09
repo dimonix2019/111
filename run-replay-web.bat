@@ -10,7 +10,10 @@ if errorlevel 1 (
   exit /b 1
 )
 
+set MOEX_REPLAY_OPEN_BROWSER=1
 cd strategy-web
 pip install -q -r requirements.txt 2>nul
+echo Starting server... Browser opens automatically.
+echo Close this window to stop the server.
 python replay/replay_app.py
 endlocal

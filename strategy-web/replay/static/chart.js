@@ -17,8 +17,23 @@ class ReplayChart {
     this.markersPlugin = null;
     this.priceLines = [];
     this.replayCursorLine = null;
+    this._resizeObserver = null;
     this._init();
-    window.addEventListener('resize', () => this.resize());
+  }
+
+  _measure() {
+    const parent = this.container.parentElement;
+    const w = Math.max(
+      this.container.clientWidth,
+      parent?.clientWidth ?? 0,
+      400,
+    );
+    const h = Math.max(
+      this.container.clientHeight,
+      parent?.clientHeight ?? 0,
+      320,
+    );
+    return { w, h };
   }
 
   _init() {
@@ -26,16 +41,15 @@ class ReplayChart {
       this.container.innerHTML = '<div class="chart-error">lightweight-charts не загружен</div>';
       return;
     }
-    const rect = this.container.getBoundingClientRect();
-    this.chart = LightweightCharts.createChart(this.container, {
-      width: Math.max(300, rect.width),
-      height: Math.max(200, rect.height),
+    const opts = {
+      autoSize: true,
       layout: { background: { color: TV.bg }, textColor: TV.text },
       grid: { vertLines: { color: TV.grid }, horzLines: { color: TV.grid } },
       rightPriceScale: { borderColor: TV.grid },
       timeScale: { borderColor: TV.grid, timeVisible: true, secondsVisible: false },
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    });
+    };
+    this.chart = LightweightCharts.createChart(this.container, opts);
     this.series = this.chart.addCandlestickSeries({
       upColor: TV.up,
       downColor: TV.down,
@@ -43,15 +57,26 @@ class ReplayChart {
       wickUpColor: TV.up,
       wickDownColor: TV.down,
     });
+    this._bindResize();
+  }
+
+  _bindResize() {
+    const onResize = () => this.resize();
+    window.addEventListener('resize', onResize);
+    if (typeof ResizeObserver !== 'undefined') {
+      this._resizeObserver = new ResizeObserver(() => {
+        requestAnimationFrame(() => this.resize());
+      });
+      const target = this.container.parentElement || this.container;
+      this._resizeObserver.observe(target);
+    }
   }
 
   resize() {
     if (!this.chart) return;
-    const rect = this.container.getBoundingClientRect();
-    this.chart.applyOptions({
-      width: Math.max(300, rect.width),
-      height: Math.max(200, rect.height),
-    });
+    const { w, h } = this._measure();
+    this.chart.applyOptions({ width: w, height: h });
+    this.chart.timeScale().fitContent();
   }
 
   _clearPriceLines() {
@@ -70,6 +95,7 @@ class ReplayChart {
 
   setReplay(payload) {
     if (!this.series || !payload?.candles?.length) return;
+    this.resize();
     this.series.setData(payload.candles);
     this._clearPriceLines();
     for (const hl of payload.hlines || []) {

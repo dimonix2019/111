@@ -192,14 +192,16 @@
       allPoints = data.bars;
       $('meta').textContent = `TATN/TATNP · ${data.count} баров · ${data.csv}`;
       rebuildEngine();
+      $('loading').classList.add('hidden');
+      $('app').classList.remove('hidden');
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       if (!chart) {
         chart = new ReplayChart($('chart'));
       } else {
         chart.resize();
       }
       refreshUi();
-      $('loading').classList.add('hidden');
-      $('app').classList.remove('hidden');
+      setTimeout(() => chart?.resize(), 100);
     } catch (e) {
       $('loading').textContent = `Ошибка: ${e.message}`;
       console.error(e);
