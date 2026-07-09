@@ -39,7 +39,7 @@ import org.json.JSONObject
 import java.time.LocalDateTime
 import kotlin.math.roundToInt
 
-private const val TRADINGVIEW_ASSET_BASE = "file:///android_asset/tradingview/"
+internal const val TRADINGVIEW_ASSET_BASE = "file:///android_asset/tradingview/"
 private const val LW_CHARTS_INJECT_MARKER = "<!-- INJECT_LIGHTWEIGHT_CHARTS -->"
 
 internal data class TradingViewTradeSegment(

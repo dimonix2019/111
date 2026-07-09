@@ -78,6 +78,8 @@
     let clickBound = false;
     let viewportBound = false;
     let refreshMarkersTimer = 0;
+    let replayCursorLine = null;
+    let replayMode = false;
 
     function showError(msg) {
       const el = document.getElementById('err');
@@ -585,14 +587,118 @@
     window.updateMoexChart = function (payload) {
       try {
         const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        replayMode = false;
+        clearReplayCursorLine();
         renderPayload(data);
       } catch (e) {
         showError('updateMoexChart: ' + e.message);
       }
     };
 
+    function clearReplayCursorLine() {
+      if (!series || !replayCursorLine) return;
+      try { series.removePriceLine(replayCursorLine); } catch (e) {}
+      replayCursorLine = null;
+    }
+
+    function drawReplayCursorLine(lastCandle) {
+      if (!series || !lastCandle) return;
+      clearReplayCursorLine();
+      replayCursorLine = series.createPriceLine({
+        price: lastCandle.close,
+        color: '#FACC15',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Solid,
+        axisLabelVisible: true,
+        title: 'replay',
+      });
+    }
+
+    /**
+     * Лёгкий путь Bar Replay: только бары ≤ cursor (уже нарезанные на Android),
+     * без полного remount WebView. markers/trades — только «случившиеся».
+     */
+    window.setReplayCursor = function (payload) {
+      try {
+        const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        const candles = dedupeCandles(data.candles || []);
+        if (!candles.length) return;
+        if (!ensureChart()) {
+          pendingPayload = data;
+          requestAnimationFrame(() => window.setReplayCursor(data));
+          return;
+        }
+        replayMode = true;
+        document.getElementById('err').style.display = 'none';
+        series.setData(candles);
+        lastCandleTimes = candles.map((c) => c.time);
+        lastMarkers = (data.markers || []).map((m) => ({
+          time: m.time,
+          position: m.position,
+          color: m.color,
+          shape: m.shape,
+          text: m.text || '',
+          size: m.size || 1,
+          tradeId: m.tradeId || m.text || '',
+          isEntry: !!m.isEntry,
+        }));
+        lastTrades = (data.trades || []).map((t) => ({
+          id: t.id,
+          entryTime: t.entryTime,
+          entryZ: t.entryZ,
+          exitTime: t.exitTime === null || t.exitTime === undefined ? null : t.exitTime,
+          exitZ: t.exitZ === null || t.exitZ === undefined ? null : t.exitZ,
+          open: !!t.open,
+        }));
+        for (const pl of priceLines) series.removePriceLine(pl);
+        priceLines = [];
+        for (const hl of data.hlines || []) {
+          priceLines.push(series.createPriceLine({
+            price: hl.value,
+            color: hl.color,
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: hl.title || '',
+          }));
+        }
+        drawReplayCursorLine(candles[candles.length - 1]);
+        const n = candles.length;
+        const widthFrac = typeof data.windowWidth === 'number' ? data.windowWidth : 1;
+        applyInitialWindow(n, Math.max(0, 1 - widthFrac), widthFrac);
+        refreshMarkers();
+        updateHighlightLine();
+        if (data.playing) {
+          /* optional pulse reserved for setReplayPlaying */
+        }
+      } catch (e) {
+        showError('setReplayCursor: ' + e.message);
+      }
+    };
+
+    window.setReplayCursorFromBase64 = function (b64) {
+      try {
+        window.setReplayCursor(parseUtf8Base64Json(b64));
+      } catch (e) {
+        showError('setReplayCursor base64: ' + e.message);
+      }
+    };
+
+    window.setReplayPlaying = function (playing) {
+      try {
+        /* Reserved: subtle cursor pulse while Playing */
+        if (!replayMode) return;
+        void playing;
+      } catch (e) {
+        console.error('setReplayPlaying', e);
+      }
+    };
+
     window.moexChartPageReady = function () {
-      if (pendingPayload) renderPayload(pendingPayload);
+      if (pendingPayload) {
+        if (replayMode) window.setReplayCursor(pendingPayload);
+        else renderPayload(pendingPayload);
+      }
       if (window.MoexChartBridge && MoexChartBridge.onReady) MoexChartBridge.onReady();
     };
 

@@ -191,6 +191,15 @@ internal fun StrategyTestTabContent(
                     Text("Нет данных для Z-score", color = Color(0xFF757575), fontSize = 10.sp)
                 }
             }
+            StrategyTestBarReplaySection(
+                points = m15ChartPoints,
+                thresholds = DynamicThresholds(
+                    entry = entryThreshold,
+                    exit = exitThreshold,
+                    calculatedDate = chartThresholds?.calculatedDate,
+                ),
+                chartHeightDp = zChartHeightDp,
+            )
             if (chartMetrics != null &&
                 chartMetrics.equityCurveRub.isNotEmpty() &&
                 chartMetrics.drawdownCurveRub.isNotEmpty()
