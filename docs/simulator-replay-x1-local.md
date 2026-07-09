@@ -270,13 +270,23 @@ git checkout main && git pull
 # Открыть Cursor → New Agent Chat → вставить промпт из §4
 ```
 
-### Windows-приложение (без телефона)
+### Windows — Web Bar Replay (рекомендуется)
 
 ```bat
 cd C:\Users\root\MoexMvp
+run-replay-web.bat
+```
+
+Браузер: **http://127.0.0.1:8765** — TradingView lightweight-charts, таблица сделок, ▶ Play.  
+См. [`strategy-web/replay/README.md`](../strategy-web/replay/README.md).
+
+### Windows — desktop (legacy, JavaFX)
+
+```bat
 run-desktop.bat
 ```
 
-См. [`windows-desktop.md`](windows-desktop.md) — Swing Bar Replay из CSV `strategy-web/data/m15_tatn_255d.csv`.
+Если график чёрный — используйте web-версию выше.
+
 
 Готово. Дальше ведёт агент по R1.

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MOEX Bar Replay · TradingView</title>
+  <link rel="stylesheet" href="/static/replay.css" />
+</head>
+<body>
+  <div id="loading" class="loading">Загрузка 15м данных…</div>
+
+  <div class="app hidden" id="app">
+    <header class="toolbar">
+      <h1>MOEX Bar Replay</h1>
+      <span class="meta" id="meta">TATN/TATNP · 15м</span>
+      <span class="meta">Период:</span>
+      <div class="chip-group" id="periodChips">
+        <button type="button" class="chip active" data-days="30">30д</button>
+        <button type="button" class="chip" data-days="90">3М</button>
+        <button type="button" class="chip" data-days="180">6М</button>
+        <button type="button" class="chip" data-days="400">Всё</button>
+      </div>
+      <label class="meta">Вх ±
+        <select id="entrySel">
+          <option value="0.5">0.5</option>
+          <option value="0.6">0.6</option>
+          <option value="0.7" selected>0.7</option>
+          <option value="0.8">0.8</option>
+          <option value="1.0">1.0</option>
+          <option value="1.2">1.2</option>
+        </select>
+      </label>
+      <label class="meta">Вых ±
+        <select id="exitSel">
+          <option value="0.3">0.3</option>
+          <option value="0.4">0.4</option>
+          <option value="0.5" selected>0.5</option>
+          <option value="0.6">0.6</option>
+          <option value="0.7">0.7</option>
+        </select>
+      </label>
+      <label class="meta">CSV
+        <select id="csvSel">
+          <option value="m15_tatn_255d.csv" selected>255д</option>
+          <option value="m15_tatn_365d.csv">365д</option>
+          <option value="m15_test_3d.csv">тест 3д</option>
+        </select>
+      </label>
+    </header>
+
+    <div class="status-bar" id="status">—</div>
+
+    <main class="main">
+      <div class="chart-wrap">
+        <div id="chart"></div>
+      </div>
+      <aside class="trades-panel">
+        <h2>Сделки</h2>
+        <div class="trades-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>№</th>
+                <th>Тип</th>
+                <th>Вход</th>
+                <th>Z</th>
+                <th>Выход</th>
+                <th>Z</th>
+                <th>Статус</th>
+              </tr>
+            </thead>
+            <tbody id="tradesBody"></tbody>
+          </table>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="controls">
+      <div class="transport">
+        <button type="button" class="btn" id="btnStart">⏮ В начало</button>
+        <button type="button" class="btn" id="btnBack">⏪ −1 бар</button>
+        <button type="button" class="btn btn-primary" id="btnPlay">▶ Play</button>
+        <button type="button" class="btn" id="btnFwd">⏩ +1 бар</button>
+        <button type="button" class="btn" id="btnEnd">⏭ В конец</button>
+      </div>
+      <div class="speeds">
+        <span>Скорость:</span>
+        <div class="chip-group" id="speedChips"></div>
+      </div>
+      <div class="scrub-row">
+        <input type="range" id="scrub" min="0" max="1000" value="0" />
+        <span id="progress">0%</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="/static/lightweight-charts.standalone.production.js"></script>
+  <script src="/static/replay-engine.js"></script>
+  <script src="/static/chart.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
