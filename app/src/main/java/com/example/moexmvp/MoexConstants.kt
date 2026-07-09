@@ -185,6 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.233 — «Тест страт.» replay: при вкл. режима скрывается статичный WebView (один график на X1).
 1.7.232 — «Тест страт.»: Bar Replay (▶⏸⏪⏩, 0.5×…10×, слайдер); свечи ≤ cursor; инкрементальные Z-сигналы/маркеры.
 1.7.231 — Fix OTA: проверка подписи/отката перед установкой; кнопки «Удалить» и «Через браузер» при ошибке.
 1.7.230 — «Рынок»: single-flight MOEX 15м refresh; Z/live overlay на базе 255д (parity с монитором).

@@ -62,6 +62,7 @@ internal fun StrategyTestBarReplaySection(
     thresholds: DynamicThresholds,
     chartHeightDp: Int,
     modifier: Modifier = Modifier,
+    onReplayEnabledChange: (Boolean) -> Unit = {},
 ) {
     var enabled by remember { mutableStateOf(false) }
     Column(
@@ -82,7 +83,13 @@ internal fun StrategyTestBarReplaySection(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
             )
-            Switch(checked = enabled, onCheckedChange = { enabled = it })
+            Switch(
+                checked = enabled,
+                onCheckedChange = {
+                    enabled = it
+                    onReplayEnabledChange(it)
+                },
+            )
         }
         if (!enabled) {
             Text(

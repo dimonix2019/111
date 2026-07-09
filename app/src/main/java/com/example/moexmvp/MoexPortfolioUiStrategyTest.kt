@@ -172,7 +172,8 @@ internal fun StrategyTestTabContent(
             val equityLabels = chartMetrics?.equityCurveLabels.orEmpty()
             val syncTimeAxis = remember(equityLabels) { buildStrategyTestChartTimeAxis(equityLabels) }
             val zChartReady = syncTimeAxis != null && m15ChartPoints.size >= 2
-            if (zChartReady) {
+            var barReplayEnabled by remember { mutableStateOf(false) }
+            if (zChartReady && !barReplayEnabled) {
                 StrategyTestZScoreLineChartCard(
                     dailyLabels = equityLabels,
                     m15Points = m15ChartPoints,
@@ -199,6 +200,7 @@ internal fun StrategyTestTabContent(
                     calculatedDate = chartThresholds?.calculatedDate,
                 ),
                 chartHeightDp = zChartHeightDp,
+                onReplayEnabledChange = { barReplayEnabled = it },
             )
             if (chartMetrics != null &&
                 chartMetrics.equityCurveRub.isNotEmpty() &&
