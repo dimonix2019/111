@@ -70,8 +70,9 @@ class MoexBarReplayEngineTest {
 
     @Test
     fun visibleIndexRange_clipsToAbout30Days() {
+        // >40 календарных дней непрерывных 15м баров, чтобы окно 30д обрезало хвост.
         val start = LocalDateTime.of(2025, 1, 1, 10, 0)
-        val points = (0 until 2000).map { i ->
+        val points = (0 until 4000).map { i ->
             val ts = start.plusMinutes(15L * i)
             pointAt(ts, z = 0.0)
         }
@@ -83,8 +84,9 @@ class MoexBarReplayEngineTest {
             java.time.Instant.ofEpochMilli(points[range.first].timestampMillis),
             java.time.Instant.ofEpochMilli(points[range.last].timestampMillis),
         ).toDays()
-        assertTrue("window days=$days", days in 28..31)
+        assertTrue("window days=$days", days in 29..31)
         assertTrue(range.first > 0)
+        assertTrue(range.first < cursor)
     }
 
     @Test
