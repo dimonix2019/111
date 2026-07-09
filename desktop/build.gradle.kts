@@ -1,16 +1,23 @@
 plugins {
     kotlin("jvm")
     application
+    id("org.openjfx.javafxplugin") version "0.1.0"
 }
 
 group = "com.example.moexmvp"
-version = "1.0.0"
+version = "1.1.0"
 
 application {
     mainClass.set("com.example.moexmvp.desktop.MainKt")
 }
 
+javafx {
+    version = "21"
+    modules("javafx.web", "javafx.swing", "javafx.controls")
+}
+
 dependencies {
+    implementation("org.json:json:20240303")
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
 }
@@ -36,15 +43,4 @@ tasks.register<Jar>("fatJar") {
     from({
         configurations.runtimeClasspath.get().filter { it.name.endsWith(".jar") }.map { zipTree(it) }
     })
-}
-
-tasks.register<Exec>("packageWindowsBat") {
-    group = "distribution"
-    description = "Copy fat JAR next to run-desktop-jar.bat"
-    dependsOn("fatJar")
-    commandLine("cmd", "/c", "echo packaged")
-    doLast {
-        val jar = tasks.named<Jar>("fatJar").get().archiveFile.get().asFile
-        println("Desktop JAR: ${jar.absolutePath}")
-    }
 }

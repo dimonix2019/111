@@ -1,14 +1,6 @@
 # MOEX Bar Replay — Windows-приложение
 
-Нативное **Windows-приложение** (Kotlin + Swing) в папке `MoexMvp/desktop/` — Bar Replay Z-score 15м без Android-эмулятора.
-
-## Требования
-
-| Компонент | Версия |
-|-----------|--------|
-| **JDK** | 17 (Temurin / OpenJDK) |
-| **ОЗУ** | 8 ГБ — закройте браузер на время первой сборки |
-| **Данные** | `strategy-web/data/m15_tatn_255d.csv` (уже в репо) |
+Нативное **Windows-приложение** (Kotlin + Swing + **TradingView lightweight-charts**) — Bar Replay Z-score 15м.
 
 ## Быстрый старт
 
@@ -17,64 +9,55 @@ cd C:\Users\root\MoexMvp
 run-desktop.bat
 ```
 
-Первый запуск скачает зависимости Gradle (5–15 мин на X1).
+**JDK 17** обязателен: [Temurin 17](https://adoptium.net/temurin/releases/?version=17)
 
-## Сборка JAR
+## Интерфейс (как TradingView Bar Replay)
 
-```bat
-gradlew.bat :desktop:fatJar
-java -jar desktop\build\libs\desktop-1.0.0-all.jar
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ TATN/TATNP Z · 15м   Период: [30д][3М][6М][Всё]   Вх/Вых ±    │
+├────────────────────────────────────────────┬─────────────────────┤
+│  TradingView Z-свечи + маркеры сделок     │  Таблица сделок     │
+│  (lightweight-charts, z_chart.html)        │  № Тип Вход Выход   │
+├────────────────────────────────────────────┴─────────────────────┤
+│ ⏮ В начало  ⏪ −1  ▶ Play  ⏩ +1  ⏭ В конец                     │
+│ Скорость: [0.5×][1×][2×][5×][10×]          Прогресс ████░ 67%  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-## Сборка EXE (опционально, jpackage)
+| Элемент | Назначение |
+|---------|------------|
+| **Период** | Окно графика: 30д / 3М / 6М / весь ряд |
+| **Вх / Вых** | Пороги Z (как «Тест страт.») |
+| **▶ Play** | Авто-шаг 15м баров |
+| **Таблица** | Сделки, появившиеся к текущему cursor |
+| **Слайдер** | Scrub по всему ряду |
 
-После `fatJar` можно упаковать через `jpackage` (JDK 17+):
+## Данные
+
+Автозагрузка: `strategy-web\data\m15_tatn_255d.csv`
+
+Свой файл:
 
 ```bat
-jpackage --input desktop\build\libs --name MoexBarReplay --main-jar desktop-1.0.0-all.jar --type exe
+gradlew.bat :desktop:run --args="D:\data\m15.csv"
 ```
 
-## Свой CSV
-
-```bat
-gradlew.bat :desktop:run --args="C:\path\to\m15.csv"
-```
-
-Формат: `timestamp,z_score,spread_percent,tatn_close,tatnp_close` (как в `strategy-web/data/`).
-
-## Управление
-
-| Элемент | Действие |
-|---------|----------|
-| ▶ / ⏸ | авто-шаг по 15м барам |
-| ⏪ / ⏩ | −1 / +1 бар |
-| ⏮ / ⏭ | к началу / к концу ряда |
-| 0.5×…10× | скорость (1× ≈ 900 ms/бар) |
-| Слайдер | scrub по индексу |
-| Вх / Вых | пороги Z (как на «Тест страт.») |
-
-## Тесты
+## Сборка
 
 ```bat
 gradlew.bat :desktop:test
+gradlew.bat :desktop:fatJar
+java -jar desktop\build\libs\desktop-1.1.0-all.jar
 ```
 
-## Android vs Windows
+## Технически
 
-| | Android (`app/`) | Windows (`desktop/`) |
-|--|------------------|----------------------|
-| Данные | MOEX live + SQLite | CSV из `strategy-web/data/` |
-| График | TradingView `z_chart.html` | Swing Canvas (Z-line) |
-| Replay engine | `BarReplayEngine` | тот же алгоритм (parity-тест) |
+- График: тот же `z_chart.html` + `setReplayCursor` (parity с Android)
+- Движок: `BarReplayEngine` (инкрементальные Z-сигналы)
+- WebView: JavaFX внутри Swing
 
-Для полного бэктеста с MOEX live — Android APK или вкладка «Тест страт.».
+## Android
 
-## Gradle на 8 ГБ
-
-В `gradle.properties` уже есть `-Xmx3g`. На слабом ноуте можно снизить до `1536m` (см. `docs/simulator-replay-x1-local.md`).
-
-## Связанные файлы
-
-- `desktop/src/main/kotlin/.../Main.kt` — окно и UI
-- `desktop/.../DesktopBarReplayEngine.kt` — движок replay
-- `docs/simulator-desktop.md` — архитектура Replay
+Полный бэктест с MOEX live — вкладка «Тест страт.» или APK:
+https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk

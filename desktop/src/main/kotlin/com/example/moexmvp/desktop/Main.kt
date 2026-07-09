@@ -1,25 +1,34 @@
 package com.example.moexmvp.desktop
 
+import javafx.application.Platform
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Component
 import java.awt.Dimension
 import java.awt.FlowLayout
-import java.awt.Font
-import java.awt.Graphics
-import java.awt.Graphics2D
-import java.awt.RenderingHints
+import java.awt.Font as AwtFont
+import java.awt.GridLayout
+import java.util.concurrent.CountDownLatch
 import javax.swing.BorderFactory
+import javax.swing.Box
+import javax.swing.BoxLayout
 import javax.swing.JButton
+import javax.swing.JComboBox
 import javax.swing.JFrame
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.JScrollPane
 import javax.swing.JSlider
+import javax.swing.JSplitPane
+import javax.swing.JTable
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 import javax.swing.WindowConstants
+import javax.swing.table.DefaultTableModel
 import kotlin.math.roundToInt
 
 fun main(args: Array<String>) {
+    initJavaFxToolkit()
     val repoRoot = detectRepoRoot()
     val csvArg = args.firstOrNull { !it.startsWith("-") }
     val csvPath = resolveM15CsvPath(repoRoot, csvArg)
@@ -29,69 +38,201 @@ fun main(args: Array<String>) {
     }
 }
 
+private fun initJavaFxToolkit() {
+  try {
+        Platform.startup { }
+    } catch (_: IllegalStateException) {
+        // toolkit already running
+    }
+    val latch = CountDownLatch(1)
+    Platform.runLater { latch.countDown() }
+    latch.await()
+}
+
 private class DesktopReplayFrame(
-    private val points: List<DataPoint>,
+    private val allPoints: List<DataPoint>,
     csvPath: String?,
     repoRoot: String,
-) : JFrame("MOEX Bar Replay · Windows") {
+) : JFrame("MOEX Bar Replay · TradingView") {
     private var entryThreshold = 0.7
     private var exitThreshold = 0.5
     private var playing = false
     private var speed = 1f
     private var scrubbing = false
+    private var chartPeriod = ReplayChartPeriod.D30
 
     private val statusLabel = JLabel(" ")
-    private val chartPanel = ReplayChartPanel()
+    private val progressLabel = JLabel("0%")
     private val playTimer = Timer(900) { onTimerTick() }
     private val slider = JSlider(0, 1000, 0)
+    private val playButton = JButton("▶  Play")
+    private val speedButtons = mutableListOf<JButton>()
+    private val periodButtons = mutableListOf<JButton>()
 
     private lateinit var engine: BarReplayEngine
+    private lateinit var chartPanel: TradingViewPanel
+    private val tradesModel = DefaultTableModel(
+        arrayOf("№", "Тип", "Вход", "Z вх", "Выход", "Z вых", "Статус"),
+        0,
+    )
 
     init {
+        applyDarkChrome()
         defaultCloseOperation = WindowConstants.EXIT_ON_CLOSE
-        minimumSize = Dimension(900, 600)
-        setSize(1100, 720)
-        layout = BorderLayout(8, 8)
-        (contentPane as JPanel).border = BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        minimumSize = Dimension(1100, 720)
+        setSize(1280, 800)
+        layout = BorderLayout(0, 0)
 
-        if (points.size < 2) {
-            statusLabel.text = buildString {
-                append("<html>Нет CSV. Корень: ")
-                append(repoRoot)
-                append("<br>Нужен strategy-web/data/m15_tatn_255d.csv")
-                if (csvPath != null) append("<br>Пробовали: $csvPath")
-                append("</html>")
-            }
-            add(statusLabel, BorderLayout.CENTER)
+        if (allPoints.size < 2) {
+            add(
+                JLabel(
+                    "<html><h3>Нет данных CSV</h3><p>$repoRoot</p>" +
+                        "<p>Нужен <code>strategy-web/data/m15_tatn_255d.csv</code></p></html>",
+                ),
+                BorderLayout.CENTER,
+            )
         } else {
             rebuildEngine()
-            val top = JPanel(BorderLayout())
-            top.add(
-                JLabel("Z-score · 15м Bar Replay · ${points.size} баров · ${csvPath?.substringAfterLast('\\') ?: "CSV"}"),
-                BorderLayout.WEST,
-            )
-            statusLabel.font = Font(Font.SANS_SERIF, Font.PLAIN, 12)
-            top.add(statusLabel, BorderLayout.SOUTH)
-            add(top, BorderLayout.NORTH)
+            chartPanel = TradingViewPanel(loadTradingViewChartHtml())
 
-            chartPanel.background = Color(0x13, 0x17, 0x22)
-            add(chartPanel, BorderLayout.CENTER)
+            add(buildTopToolbar(csvPath), BorderLayout.NORTH)
+            add(buildStatusBar(), BorderLayout.PAGE_START)
 
-            val controls = JPanel(FlowLayout(FlowLayout.CENTER, 6, 4))
-            controls.add(btn("⏮") { seekStart() })
-            controls.add(btn("⏪") { stepBack() })
-            controls.add(btn("▶/⏸") { togglePlay() })
-            controls.add(btn("⏩") { stepForward() })
-            controls.add(btn("⏭") { seekEnd() })
+            val split = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, chartPanel, buildTradesPanel()).apply {
+                resizeWeight = 0.78
+                dividerLocation = 920
+                border = BorderFactory.createMatteBorder(1, 0, 0, 0, Color(0x2A, 0x2E, 0x39))
+            }
+            add(split, BorderLayout.CENTER)
+            add(buildControlDeck(), BorderLayout.SOUTH)
+
+            refreshUi()
+        }
+        setLocationRelativeTo(null)
+    }
+
+    private fun applyDarkChrome() {
+        contentPane.background = Ui.bgPanel
+    }
+
+    private fun buildTopToolbar(csvPath: String?): JPanel {
+        val bar = JPanel(FlowLayout(FlowLayout.LEFT, 8, 6)).apply {
+            background = Ui.bgToolbar
+            border = BorderFactory.createMatteBorder(0, 0, 1, 0, Ui.border)
+        }
+        bar.add(JLabel("TATN/TATNP Z · 15м").apply { foreground = Ui.textPrimary; font = font.deriveFont(AwtFont.BOLD, 13f) })
+        bar.add(JLabel("· ${allPoints.size} баров · ${csvPath?.substringAfterLast('\\') ?: "CSV"}").apply {
+            foreground = Ui.textMuted
+        })
+        bar.add(Box.createHorizontalStrut(12))
+        bar.add(JLabel("Период:").apply { foreground = Ui.textSecondary })
+        for (period in ReplayChartPeriod.entries) {
+            val btn = chipButton(period.label, period == chartPeriod) {
+                chartPeriod = period
+                updatePeriodSelection()
+                refreshUi()
+            }
+            periodButtons += btn
+            bar.add(btn)
+        }
+        bar.add(Box.createHorizontalStrut(12))
+        bar.add(JLabel("Вх ±").apply { foreground = Ui.textSecondary })
+        entryCombo = JComboBox((3..20).map { "%.1f".format(it / 10.0) }.toTypedArray()).apply {
+            selectedItem = "%.1f".format(entryThreshold)
+            addActionListener { applyThresholdsFromUi() }
+        }
+        bar.add(entryCombo)
+        bar.add(JLabel("Вых ±").apply { foreground = Ui.textSecondary })
+        exitCombo = JComboBox((1..15).map { "%.1f".format(it / 10.0) }.toTypedArray()).apply {
+            selectedItem = "%.1f".format(exitThreshold)
+            addActionListener { applyThresholdsFromUi() }
+        }
+        bar.add(exitCombo)
+        return bar
+    }
+
+    private var entryCombo: JComboBox<String>? = null
+    private var exitCombo: JComboBox<String>? = null
+
+    private fun applyThresholdsFromUi() {
+        entryThreshold = entryCombo?.selectedItem?.toString()?.toDoubleOrNull() ?: entryThreshold
+        exitThreshold = exitCombo?.selectedItem?.toString()?.toDoubleOrNull() ?: exitThreshold
+        rebuildEngine()
+        refreshUi()
+    }
+
+    private fun buildStatusBar(): JPanel {
+        val p = JPanel(BorderLayout()).apply {
+            background = Ui.bgPanel
+            border = BorderFactory.createEmptyBorder(6, 12, 6, 12)
+        }
+        statusLabel.foreground = Ui.textPrimary
+        statusLabel.font = AwtFont("Monospaced", AwtFont.PLAIN, 12)
+        p.add(statusLabel, BorderLayout.CENTER)
+        return p
+    }
+
+    private fun buildTradesPanel(): JScrollPane {
+        val table = JTable(tradesModel).apply {
+            background = Ui.bgChart
+            foreground = Ui.textPrimary
+            gridColor = Ui.border
+            tableHeader.background = Ui.bgToolbar
+            tableHeader.foreground = Ui.textSecondary
+            rowHeight = 22
+            fillsViewportHeight = true
+        }
+        return JScrollPane(table).apply {
+            preferredSize = Dimension(300, 400)
+            border = BorderFactory.createMatteBorder(0, 1, 0, 0, Ui.border)
+            background = Ui.bgPanel
+        }
+    }
+
+    private fun buildControlDeck(): JPanel {
+        val deck = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            background = Ui.bgToolbar
+            border = BorderFactory.createMatteBorder(1, 0, 0, 0, Ui.border)
+            preferredSize = Dimension(10, 148)
+        }
+
+        val transport = JPanel(FlowLayout(FlowLayout.CENTER, 10, 8)).apply {
+            background = Ui.bgToolbar
+            add(transportButton("⏮  В начало") { seekStart() })
+            add(transportButton("⏪  −1 бар") { stepBack() })
+            playButton.addActionListener { togglePlay() }
+            playButton.preferredSize = Dimension(120, 38)
+            playButton.font = AwtFont(AwtFont.SANS_SERIF, AwtFont.BOLD, 13)
+            stylePrimary(playButton)
+            add(playButton)
+            add(transportButton("⏩  +1 бар") { stepForward() })
+            add(transportButton("⏭  В конец") { seekEnd() })
+        }
+        deck.add(transport)
+
+        val speeds = JPanel(FlowLayout(FlowLayout.CENTER, 6, 4)).apply {
+            background = Ui.bgToolbar
+            add(JLabel("Скорость:").apply { foreground = Ui.textSecondary })
             for (s in BAR_REPLAY_SPEEDS) {
-                controls.add(btn(formatReplaySpeed(s)) {
+                val btn = chipButton(formatReplaySpeed(s), kotlin.math.abs(speed - s) < 0.01f) {
                     speed = s
                     engine.speed = s
                     if (playing) playTimer.delay = barReplayDelayMs(speed).toInt()
-                })
+                    updateSpeedSelection()
+                }
+                speedButtons += btn
+                add(btn)
             }
-            add(controls, BorderLayout.SOUTH)
+        }
+        deck.add(speeds)
 
+        val scrub = JPanel(BorderLayout(8, 0)).apply {
+            background = Ui.bgToolbar
+            border = BorderFactory.createEmptyBorder(0, 16, 10, 16)
+            progressLabel.foreground = Ui.textSecondary
+            progressLabel.preferredSize = Dimension(48, 20)
+            add(progressLabel, BorderLayout.EAST)
             slider.addChangeListener {
                 if (!slider.valueIsAdjusting) {
                     scrubbing = false
@@ -100,46 +241,76 @@ private class DesktopReplayFrame(
                 scrubbing = true
                 playing = false
                 playTimer.stop()
+                playButton.text = "▶  Play"
                 val frac = slider.value / 1000f
                 val minC = Z_SCORE_ROLLING_MIN_BARS.coerceAtMost(engine.lastIndex)
                 val span = (engine.lastIndex - minC).coerceAtLeast(0)
                 engine.seekTo((minC + frac * span).roundToInt())
                 refreshUi()
             }
-            val sliderPanel = JPanel(BorderLayout())
-            sliderPanel.add(slider, BorderLayout.CENTER)
-            add(sliderPanel, BorderLayout.PAGE_END)
-
-            refreshUi()
+            add(slider, BorderLayout.CENTER)
         }
-        setLocationRelativeTo(null)
+        deck.add(scrub)
+        return deck
     }
 
-    private fun btn(text: String, action: () -> Unit) = JButton(text).apply {
+    private fun transportButton(text: String, action: () -> Unit) = JButton(text).apply {
+        preferredSize = Dimension(110, 34)
+        styleSecondary(this)
         addActionListener { action() }
+    }
+
+    private fun chipButton(text: String, selected: Boolean, action: () -> Unit) = JButton(text).apply {
+        styleChip(this, selected)
+        addActionListener {
+            action()
+            updatePeriodSelection()
+            updateSpeedSelection()
+        }
+    }
+
+    private fun updatePeriodSelection() {
+        ReplayChartPeriod.entries.forEachIndexed { i, p ->
+            if (i < periodButtons.size) styleChip(periodButtons[i], p == chartPeriod)
+        }
+    }
+
+    private fun updateSpeedSelection() {
+        BAR_REPLAY_SPEEDS.forEachIndexed { i, s ->
+            if (i < speedButtons.size) {
+                styleChip(speedButtons[i], kotlin.math.abs(speed - s) < 0.01f)
+            }
+        }
     }
 
     private fun rebuildEngine() {
         engine = BarReplayEngine(
             ReplayConfig(
-                points = points,
+                points = allPoints,
                 thresholds = DynamicThresholds(entryThreshold, exitThreshold),
-                startIndex = Z_SCORE_ROLLING_MIN_BARS.coerceAtMost(points.lastIndex),
+                startIndex = Z_SCORE_ROLLING_MIN_BARS.coerceAtMost(allPoints.lastIndex),
             ),
         )
     }
 
     private fun refreshUi() {
         val frame = engine.frameAtCursor()
-        val range = barReplayVisibleIndexRange(points, frame.cursorIndex)
+        val range = barReplayVisibleIndexRange(allPoints, frame.cursorIndex, chartPeriod.visibleDays)
         val windowPoints = if (range.isEmpty()) emptyList()
-        else points.subList(range.first, range.last + 1)
-        chartPanel.update(
-            windowPoints = windowPoints,
-            edges = frame.signalEdgesSoFar,
-            entry = entryThreshold,
-            exit = exitThreshold,
+        else allPoints.subList(range.first, range.last + 1)
+        val candles = barReplayWindowCandles(allPoints, frame.cursorIndex, chartPeriod.visibleDays)
+        val markers = barReplaySignalMarkers(frame.signalEdgesSoFar, allPoints)
+        val trades = buildTradeSegmentsFromEdges(frame.signalEdgesSoFar)
+        val payload = buildTradingViewReplayCursorJson(
+            candles = candles,
+            displayPoints = windowPoints,
+            referenceLines = buildZReferenceLines(DynamicThresholds(entryThreshold, exitThreshold)),
+            pointMarkers = markers,
+            tradeSegments = trades,
+            playing = playing,
         )
+        chartPanel.pushReplayPayload(payload, playing)
+
         val z = frame.visiblePoints.lastOrNull()?.zScore
         val zText = z?.let { "%+.2f".format(it) } ?: "—"
         val pos = when (frame.position) {
@@ -147,8 +318,16 @@ private class DesktopReplayFrame(
             ZStrategyPosition.Long -> "Long"
             ZStrategyPosition.Short -> "Short"
         }
-        statusLabel.text = "${frame.barLabel} · Z $zText · $pos · сигн. ${frame.signalEdgesSoFar.size}"
+        statusLabel.text = "${frame.barLabel}   ·   Z $zText   ·   $pos   ·   пороги ±$entryThreshold / ±$exitThreshold"
+        progressLabel.text = "${(engine.progressFraction * 100).roundToInt()}%"
         slider.value = (engine.progressFraction * 1000).roundToInt()
+
+        tradesModel.rowCount = 0
+        for (row in buildTradeTableRows(frame.signalEdgesSoFar)) {
+            tradesModel.addRow(
+                arrayOf(row.id, row.side, row.entryTime, row.entryZ, row.exitTime, row.exitZ, row.status),
+            )
+        }
     }
 
     private fun togglePlay() {
@@ -156,12 +335,14 @@ private class DesktopReplayFrame(
             playing = false
             playTimer.stop()
             engine.pause()
+            playButton.text = "▶  Play"
         } else {
             engine.speed = speed
             engine.play()
             playing = true
             playTimer.delay = barReplayDelayMs(speed).toInt()
             playTimer.start()
+            playButton.text = "⏸  Pause"
         }
         refreshUi()
     }
@@ -172,6 +353,7 @@ private class DesktopReplayFrame(
         if (next == null) {
             playing = false
             playTimer.stop()
+            playButton.text = "▶  Play"
         }
         refreshUi()
     }
@@ -179,6 +361,7 @@ private class DesktopReplayFrame(
     private fun stepBack() {
         playing = false
         playTimer.stop()
+        playButton.text = "▶  Play"
         engine.stepBackward()
         refreshUi()
     }
@@ -186,6 +369,7 @@ private class DesktopReplayFrame(
     private fun stepForward() {
         playing = false
         playTimer.stop()
+        playButton.text = "▶  Play"
         engine.pause()
         engine.stepForward()
         refreshUi()
@@ -194,6 +378,7 @@ private class DesktopReplayFrame(
     private fun seekStart() {
         playing = false
         playTimer.stop()
+        playButton.text = "▶  Play"
         engine.seekToStart()
         refreshUi()
     }
@@ -201,90 +386,52 @@ private class DesktopReplayFrame(
     private fun seekEnd() {
         playing = false
         playTimer.stop()
+        playButton.text = "▶  Play"
         engine.seekToEnd()
         refreshUi()
     }
 }
 
-private class ReplayChartPanel : JPanel() {
-    private var windowPoints: List<DataPoint> = emptyList()
-    private var edges: List<ZStrategy15mSignalEdge> = emptyList()
-    private var entry = 0.7
-    private var exit = 0.5
+/** Тёмная тема в духе TradingView. */
+private object Ui {
+    val bgToolbar = Color(0x1E, 0x22, 0x2D)
+    val bgPanel = Color(0x16, 0x1A, 0x25)
+    val bgChart = Color(0x13, 0x17, 0x22)
+    val border = Color(0x2A, 0x2E, 0x39)
+    val textPrimary = Color(0xD1, 0xD4, 0xDC)
+    val textSecondary = Color(0x9E, 0xA4, 0xB0)
+    val textMuted = Color(0x6B, 0x72, 0x80)
+    val accent = Color(0x29, 0x62, 0xFF)
+    val accentBg = Color(0x1E, 0x3A, 0x8A)
+}
 
-    fun update(
-        windowPoints: List<DataPoint>,
-        edges: List<ZStrategy15mSignalEdge>,
-        entry: Double,
-        exit: Double,
-    ) {
-        this.windowPoints = windowPoints
-        this.edges = edges
-        this.entry = entry
-        this.exit = exit
-        repaint()
+private fun stylePrimary(button: JButton) {
+    button.background = Ui.accent
+    button.foreground = Color.WHITE
+    button.isFocusPainted = false
+    button.border = BorderFactory.createEmptyBorder(6, 14, 6, 14)
+}
+
+private fun styleSecondary(button: JButton) {
+    button.background = Color(0x2A, 0x2E, 0x39)
+    button.foreground = Ui.textPrimary
+    button.isFocusPainted = false
+    button.border = BorderFactory.createCompoundBorder(
+        BorderFactory.createLineBorder(Ui.border),
+        BorderFactory.createEmptyBorder(5, 10, 5, 10),
+    )
+}
+
+private fun styleChip(button: JButton, selected: Boolean) {
+    if (selected) {
+        button.background = Ui.accentBg
+        button.foreground = Color(0x93, 0xC5, 0xFD)
+        button.border = BorderFactory.createLineBorder(Ui.accent)
+    } else {
+        button.background = Color(0x2A, 0x2E, 0x39)
+        button.foreground = Ui.textSecondary
+        button.border = BorderFactory.createLineBorder(Ui.border)
     }
-
-    override fun paintComponent(g: Graphics) {
-        super.paintComponent(g)
-        val g2 = g as Graphics2D
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-        if (windowPoints.size < 2) return
-
-        val padL = 48
-        val padR = 16
-        val padT = 12
-        val padB = 28
-        val w = width - padL - padR
-        val h = height - padT - padB
-        if (w <= 0 || h <= 0) return
-
-        val zValues = windowPoints.map { it.zScore }
-        var yMin = (zValues.minOrNull() ?: -1.0) - 0.2
-        var yMax = (zValues.maxOrNull() ?: 1.0) + 0.2
-        yMin = minOf(yMin, -entry - 0.3, -exit - 0.3)
-        yMax = maxOf(yMax, entry + 0.3, exit + 0.3)
-        val ySpan = (yMax - yMin).coerceAtLeast(0.5)
-
-        fun yOf(z: Double): Int = padT + (h * (1.0 - (z - yMin) / ySpan)).toInt()
-        fun xOf(index: Int): Int {
-            val last = (windowPoints.size - 1).coerceAtLeast(1)
-            return padL + (w * index / last)
-        }
-
-        g2.color = Color(0x61, 0x61, 0x61)
-        for (value in listOf(entry, -entry, exit, -exit, 0.0)) {
-            val y = yOf(value)
-            g2.drawLine(padL, y, padL + w, y)
-        }
-
-        g2.color = Color(0x42, 0xA5, 0xF5)
-        for (i in 0 until windowPoints.size - 1) {
-            g2.drawLine(
-                xOf(i), yOf(windowPoints[i].zScore),
-                xOf(i + 1), yOf(windowPoints[i + 1].zScore),
-            )
-        }
-
-        val edgeByTs = edges.associateBy { it.bar.timestampMillis }
-        windowPoints.forEachIndexed { index, point ->
-            val edge = edgeByTs[point.timestampMillis] ?: return@forEachIndexed
-            g2.color = when (edge.signal) {
-                ZStrategySignal.EnterLong -> Color(0x69, 0xF0, 0xAE)
-                ZStrategySignal.EnterShort -> Color(0xFF, 0x52, 0x52)
-                ZStrategySignal.ExitLong -> Color(0x80, 0xCB, 0xC4)
-                ZStrategySignal.ExitShort -> Color(0xFF, 0xAB, 0x91)
-                ZStrategySignal.None -> return@forEachIndexed
-            }
-            val x = xOf(index)
-            val y = yOf(point.zScore)
-            g2.fillOval(x - 4, y - 4, 8, 8)
-        }
-
-        val lastIdx = windowPoints.lastIndex
-        val cx = xOf(lastIdx)
-        g2.color = Color(0xFA, 0xCC, 0x15)
-        g2.drawLine(cx, padT, cx, padT + h)
-        g2.fillOval(cx - 4, yOf(windowPoints[lastIdx].zScore) - 4, 8, 8)
-    }
+    button.isFocusPainted = false
+    button.preferredSize = Dimension(52, 28)
 }
