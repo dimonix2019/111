@@ -13,6 +13,9 @@
     <header class="toolbar">
       <h1>MOEX Bar Replay</h1>
       <span class="meta" id="meta">TATN/TATNP · 15м</span>
+      <label class="meta">Старт
+        <input type="date" id="startDate" />
+      </label>
       <span class="meta">Период:</span>
       <div class="chip-group" id="periodChips">
         <button type="button" class="chip active" data-days="30">30д</button>
@@ -55,19 +58,15 @@
         <div id="chart"></div>
       </div>
       <aside class="trades-panel">
-        <h2>Сделки</h2>
-        <div class="trades-scroll">
-          <table>
+        <div class="trades-panel-head">
+          <h2>Сделки</h2>
+          <button type="button" class="btn btn-sm" id="btnColumns" title="Столбцы">☰</button>
+        </div>
+        <div class="column-picker hidden" id="columnPicker"></div>
+        <div class="trades-scroll" id="tradesScroll">
+          <table class="trades-table" id="tradesTable">
             <thead>
-              <tr>
-                <th>№</th>
-                <th>Тип</th>
-                <th>Вход</th>
-                <th>Z</th>
-                <th>Выход</th>
-                <th>Z</th>
-                <th>Статус</th>
-              </tr>
+              <tr id="tradesHead"></tr>
             </thead>
             <tbody id="tradesBody"></tbody>
           </table>

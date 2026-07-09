@@ -186,12 +186,12 @@ function labelToUnixSec(label) {
   return Math.floor(new Date(iso).getTime() / 1000);
 }
 
-function buildMarkers(edges, allPoints) {
+function buildMarkers(edges, windowPoints) {
   const markers = [];
   let tradeNo = 0;
+  const windowMs = new Set(windowPoints.map((p) => p.timestampMs));
   for (const edge of edges) {
-    const idx = allPoints.findIndex((p) => p.timestampMs === edge.bar.timestampMs);
-    if (idx < 0) continue;
+    if (!windowMs.has(edge.bar.timestampMs)) continue;
     const time = labelToUnixSec(edge.bar.tradeDate);
     switch (edge.signal) {
       case 'EnterLong':
@@ -245,45 +245,295 @@ function buildMarkers(edges, allPoints) {
   return markers;
 }
 
-function buildTradeRows(edges) {
+/** Симуляция PnL — parity с Android/zsim defaults. */
+const SIM_NOTIONAL_RUB = 100_000;
+const SIM_LEVERAGE = 7;
+const SIM_COMMISSION_PCT_PER_SIDE = 0.04;
+const SIM_OVERNIGHT_FEE_PCT_PER_DAY = 0.033;
+
+const TRADE_COLUMNS = [
+  { key: 'Index', title: '#', width: 28 },
+  { key: 'Direction', title: 'Напр.', width: 40 },
+  { key: 'Entry', title: 'Вход', width: 72 },
+  { key: 'Exit', title: 'Выход', width: 72 },
+  { key: 'Duration', title: 'Длит.', width: 52 },
+  { key: 'Net', title: 'Чист.', width: 56 },
+  { key: 'SpreadEntry', title: 'S%вх', width: 44 },
+  { key: 'SpreadExit', title: 'S%вых', width: 44 },
+  { key: 'SpreadDelta', title: 'Δпп', width: 40 },
+  { key: 'Gross', title: 'Вал.', width: 52 },
+  { key: 'Commission', title: 'Ком.', width: 48 },
+  { key: 'Overnight', title: 'Овн.', width: 48 },
+  { key: 'Risk', title: 'Риск', width: 72 },
+];
+
+const TRADE_COLUMN_KEYS = TRADE_COLUMNS.map((c) => c.key);
+const TRADE_COLUMNS_DEFAULT = [...TRADE_COLUMN_KEYS];
+
+function spreadPnlToRub(pnlSpreadPts, effectiveNotionalRub) {
+  return effectiveNotionalRub * (pnlSpreadPts / 100);
+}
+
+function overnightDays(entryTs, exitTs) {
+  const e = parseDay(entryTs);
+  const x = parseDay(exitTs);
+  if (!e || !x) return 0;
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.round((x - e) / msPerDay));
+}
+
+function parseDay(ts) {
+  const s = String(ts).trim().replace('T', ' ').slice(0, 10);
+  const d = new Date(`${s}T00:00:00+03:00`);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
+function parseTradeMs(ts) {
+  const s = String(ts).trim().replace('T', ' ');
+  const iso = s.length >= 16 ? `${s.slice(0, 16).replace(' ', 'T')}:00+03:00` : `${s}+03:00`;
+  const ms = new Date(iso).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function formatSimTradeDuration(entryDate, exitDate) {
+  const entryMs = parseTradeMs(entryDate);
+  const exitMs = parseTradeMs(exitDate);
+  if (entryMs == null || exitMs == null) return '—';
+  const diffMs = exitMs - entryMs;
+  if (diffMs < 0) return '—';
+  if (diffMs === 0) return '0 мин';
+  const totalMinutes = Math.floor(diffMs / 60000);
+  if (totalMinutes === 0) return '< 1 мин';
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) {
+    let out = `${days} дн.`;
+    if (hours > 0) out += ` ${hours} ч`;
+    return out;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours} ч ${minutes} мин` : `${hours} ч`;
+  }
+  return `${minutes} мин`;
+}
+
+function durationTone(entryDate, exitDate) {
+  const entryMs = parseTradeMs(entryDate);
+  const exitMs = parseTradeMs(exitDate);
+  if (entryMs == null || exitMs == null) return 'neutral';
+  const diffMs = exitMs - entryMs;
+  if (diffMs < 24 * 60 * 60 * 1000) return 'short';
+  if (diffMs >= 24 * 60 * 60 * 1000) return 'long';
+  return 'neutral';
+}
+
+function formatRub(value) {
+  const sign = value > 0 ? '+' : value < 0 ? '−' : '';
+  const abs = Math.abs(value);
+  if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(1)}k`;
+  return `${sign}${abs.toFixed(0)}`;
+}
+
+function formatCostRub(value) {
+  if (value <= 0) return '0';
+  return `−${value.toFixed(0)}`;
+}
+
+function entryHourMsk(entryDate) {
+  const ms = parseTradeMs(entryDate);
+  if (ms == null) return null;
+  const d = new Date(ms);
+  const utcH = d.getUTCHours();
+  return (utcH + 3) % 24;
+}
+
+function isFridayEntryMsk(entryDate) {
+  const ms = parseTradeMs(entryDate);
+  if (ms == null) return false;
+  const d = new Date(ms);
+  const day = (d.getUTCDay() + Math.floor((d.getUTCHours() + 3) / 24)) % 7;
+  return day === 5;
+}
+
+function buildTradeRiskFlags(entryDate, exitDate, entryZ, overnightRub, entryThreshold) {
+  const durationMs = parseTradeMs(exitDate) - parseTradeMs(entryDate);
+  const flags = [];
+  if (durationMs != null && durationMs > 5 * 24 * 60 * 60 * 1000) flags.push('>5д');
+  else if (durationMs != null && durationMs > 2 * 24 * 60 * 60 * 1000) flags.push('>2д');
+  if (overnightRub > 100) flags.push('Ovn100');
+  else if (overnightRub > 50 && durationMs != null && durationMs > 24 * 60 * 60 * 1000) flags.push('Ovn50');
+  if (entryZ != null && Math.abs(entryZ) < 1.0 && durationMs != null && durationMs > 6 * 60 * 60 * 1000) {
+    flags.push('Z<1');
+  }
+  if (durationMs != null && durationMs > 6 * 60 * 60 * 1000) {
+    const h = entryHourMsk(entryDate);
+    if (h === 13) flags.push('13ч');
+    else if (h >= 12 && h <= 14) flags.push('12–14');
+  }
+  if (durationMs != null && durationMs > 2 * 24 * 60 * 60 * 1000 && isFridayEntryMsk(entryDate)) {
+    flags.push('Пт>2д');
+  }
+  if (
+    entryZ != null &&
+    Math.abs(entryZ) < entryThreshold + 0.05 &&
+    durationMs != null &&
+    durationMs > 24 * 60 * 60 * 1000
+  ) {
+    flags.push('~порог');
+  }
+  return flags.length ? flags.join(' ') : '—';
+}
+
+function decodeTradeColumns(raw) {
+  if (!raw) return [...TRADE_COLUMNS_DEFAULT];
+  const loaded = raw.split(',').map((t) => t.trim()).filter((k) => TRADE_COLUMN_KEYS.includes(k));
+  return loaded.length ? loaded : [...TRADE_COLUMNS_DEFAULT];
+}
+
+function encodeTradeColumns(keys) {
+  const valid = keys.filter((k) => TRADE_COLUMN_KEYS.includes(k));
+  return (valid.length ? valid : TRADE_COLUMNS_DEFAULT).join(',');
+}
+
+function buildTradeRows(edges, entryThreshold = 0.7) {
+  const effNotional = SIM_NOTIONAL_RUB * SIM_LEVERAGE;
+  const commPerSide = effNotional * (SIM_COMMISSION_PCT_PER_SIDE / 100);
+  const overnightPerDay = SIM_NOTIONAL_RUB * Math.max(0, SIM_LEVERAGE - 1) * (SIM_OVERNIGHT_FEE_PCT_PER_DAY / 100);
+
   const rows = [];
   let tradeNo = 0;
   let openEntry = null;
+  let entryCommission = 0;
+
   for (const edge of edges) {
     if (edge.signal === 'EnterLong' || edge.signal === 'EnterShort') {
       tradeNo++;
       openEntry = edge;
+      entryCommission = commPerSide;
     } else if (edge.signal === 'ExitLong' || edge.signal === 'ExitShort') {
       if (!openEntry) continue;
-      const side = openEntry.signal === 'EnterLong' ? 'Long' : 'Short';
-      rows.push({
-        id: String(tradeNo),
-        side,
-        entryTime: openEntry.bar.tradeDate,
-        exitTime: edge.bar.tradeDate,
+      const isLong = openEntry.signal === 'EnterLong';
+      const entrySpread = openEntry.bar.spreadPercent ?? 0;
+      const exitSpread = edge.bar.spreadPercent ?? 0;
+      const pnlPts = isLong ? exitSpread - entrySpread : entrySpread - exitSpread;
+      const gross = spreadPnlToRub(pnlPts, effNotional);
+      const ovn = overnightPerDay * overnightDays(openEntry.bar.tradeDate, edge.bar.tradeDate);
+      const commTotal = entryCommission + commPerSide;
+      const net = gross - commTotal - ovn;
+      rows.push(makeTradeRow({
+        index: tradeNo,
+        direction: isLong ? 'Long' : 'Short',
+        entryDate: openEntry.bar.tradeDate,
+        exitDate: edge.bar.tradeDate,
         entryZ: openEntry.bar.zScore,
-        exitZ: edge.bar.zScore,
+        entrySpread,
+        exitSpread,
+        pnlPts,
+        gross,
+        commission: commTotal,
+        overnight: ovn,
+        net,
         status: 'Закрыта',
-      });
+        entryThreshold,
+      }));
       openEntry = null;
+      entryCommission = 0;
     }
   }
   if (openEntry) {
-    const side = openEntry.signal === 'EnterLong' ? 'Long' : 'Short';
-    rows.push({
-      id: String(tradeNo),
-      side,
-      entryTime: openEntry.bar.tradeDate,
-      exitTime: '—',
+    const isLong = openEntry.signal === 'EnterLong';
+    rows.push(makeTradeRow({
+      index: tradeNo,
+      direction: isLong ? 'Long' : 'Short',
+      entryDate: openEntry.bar.tradeDate,
+      exitDate: '—',
       entryZ: openEntry.bar.zScore,
-      exitZ: null,
+      entrySpread: openEntry.bar.spreadPercent ?? 0,
+      exitSpread: null,
+      pnlPts: null,
+      gross: null,
+      commission: null,
+      overnight: null,
+      net: null,
       status: 'Открыта',
-    });
+      entryThreshold,
+    }));
   }
   return rows;
 }
 
-function buildChartPayload(candles, entry, exit, markers, trades, playing) {
+function makeTradeRow(t) {
+  const closed = t.status === 'Закрыта';
+  return {
+    index: t.index,
+    direction: t.direction,
+    entryDate: t.entryDate,
+    exitDate: t.exitDate,
+    duration: closed ? formatSimTradeDuration(t.entryDate, t.exitDate) : '—',
+    durationTone: closed ? durationTone(t.entryDate, t.exitDate) : 'neutral',
+    net: closed ? formatRub(t.net) : '—',
+    netValue: t.net,
+    spreadEntry: t.entrySpread != null ? t.entrySpread.toFixed(2) : '—',
+    spreadExit: t.exitSpread != null ? t.exitSpread.toFixed(2) : '—',
+    spreadDelta: closed && t.pnlPts != null ? `${t.pnlPts >= 0 ? '+' : ''}${t.pnlPts.toFixed(2)}` : '—',
+    gross: closed ? formatRub(t.gross) : '—',
+    grossValue: t.gross,
+    commission: closed ? formatCostRub(t.commission) : '—',
+    overnight: closed ? formatCostRub(t.overnight) : '—',
+    risk: closed
+      ? buildTradeRiskFlags(t.entryDate, t.exitDate, t.entryZ, t.overnight ?? 0, t.entryThreshold)
+      : '—',
+    status: t.status,
+    entryZ: t.entryZ,
+    exitZ: null,
+  };
+}
+
+function tradeCellValue(row, colKey) {
+  switch (colKey) {
+    case 'Index': return String(row.index);
+    case 'Direction': return row.direction === 'Long' ? 'L' : 'S';
+    case 'Entry': return compactDateTime(row.entryDate);
+    case 'Exit': return row.exitDate === '—' ? '—' : compactDateTime(row.exitDate);
+    case 'Duration': return row.duration;
+    case 'Net': return row.net;
+    case 'SpreadEntry': return row.spreadEntry;
+    case 'SpreadExit': return row.spreadExit;
+    case 'SpreadDelta': return row.spreadDelta;
+    case 'Gross': return row.gross;
+    case 'Commission': return row.commission;
+    case 'Overnight': return row.overnight;
+    case 'Risk': return row.risk;
+    default: return '';
+  }
+}
+
+function tradeCellClass(row, colKey) {
+  if (colKey === 'Direction') return row.direction === 'Long' ? 'side-long' : 'side-short';
+  if (colKey === 'Duration') {
+    if (row.durationTone === 'short') return 'tone-short';
+    if (row.durationTone === 'long') return 'tone-long';
+  }
+  if (colKey === 'Net' || colKey === 'Gross' || colKey === 'SpreadDelta') {
+    const v = colKey === 'Net' ? row.netValue : row.grossValue;
+    if (v == null) return '';
+    if (v > 0) return 'pnl-pos';
+    if (v < 0) return 'pnl-neg';
+  }
+  if (colKey === 'Commission' || colKey === 'Overnight') return 'cost';
+  if (colKey === 'Risk' && row.risk !== '—') return 'risk-flagged';
+  return '';
+}
+
+function compactDateTime(label) {
+  if (!label || label === '—') return '—';
+  const s = String(label).replace('T', ' ');
+  if (s.length >= 16) return `${s.slice(5, 10)} ${s.slice(11, 16)}`;
+  return s;
+}
+
+function buildChartPayload(candles, entry, exit, markers, trades, playing, opts = {}) {
   const candleArr = [];
   const seen = new Set();
   for (const c of candles) {
@@ -310,7 +560,7 @@ function buildChartPayload(candles, entry, exit, markers, trades, playing) {
     hlines,
     markers,
     trades,
-    windowWidth: 1,
+    windowWidth: typeof opts.windowWidth === 'number' ? opts.windowWidth : 1,
     playing: !!playing,
   };
 }

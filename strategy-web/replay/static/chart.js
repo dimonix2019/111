@@ -1,5 +1,5 @@
 /**
- * TradingView lightweight-charts — обёртка setReplayCursor (parity z_chart.html).
+ * TradingView lightweight-charts — replay window pan (parity chart-frame setReplayCursor).
  */
 const TV = {
   bg: '#131722',
@@ -8,6 +8,24 @@ const TV = {
   up: '#089981',
   down: '#f23645',
 };
+
+const CHART_RIGHT_OFFSET_BARS = 18;
+const CHART_INITIAL_RIGHT_MARGIN_IN_WINDOW = 0.18;
+
+/** Показать хвост окна: widthFrac=1 → весь slice, курсор справа с отступом. */
+function applyReplayVisibleWindow(chart, candleCount, windowWidth = 1) {
+  if (!chart || candleCount < 1) return;
+  const n = candleCount;
+  const maxIndex = n - 1;
+  const widthFrac = Math.max(0.05, Math.min(1, windowWidth || 1));
+  const visibleBars = Math.max(2, Math.ceil(widthFrac * n));
+  const startFrac = Math.max(0, 1 - widthFrac);
+  const startIdx = Math.floor(startFrac * maxIndex);
+  const from = Math.max(0, startIdx);
+  const to = Math.min(maxIndex, from + visibleBars - 1);
+  const rightGapBars = Math.max(2, Math.ceil(visibleBars * CHART_INITIAL_RIGHT_MARGIN_IN_WINDOW));
+  chart.timeScale().setVisibleLogicalRange({ from, to: to + rightGapBars });
+}
 
 class ReplayChart {
   constructor(container) {
@@ -18,6 +36,8 @@ class ReplayChart {
     this.priceLines = [];
     this.replayCursorLine = null;
     this._resizeObserver = null;
+    this._lastWindowWidth = 1;
+    this._lastCandleCount = 0;
     this._init();
   }
 
@@ -46,7 +66,12 @@ class ReplayChart {
       layout: { background: { color: TV.bg }, textColor: TV.text },
       grid: { vertLines: { color: TV.grid }, horzLines: { color: TV.grid } },
       rightPriceScale: { borderColor: TV.grid },
-      timeScale: { borderColor: TV.grid, timeVisible: true, secondsVisible: false },
+      timeScale: {
+        borderColor: TV.grid,
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: CHART_RIGHT_OFFSET_BARS,
+      },
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     };
     this.chart = LightweightCharts.createChart(this.container, opts);
@@ -72,11 +97,16 @@ class ReplayChart {
     }
   }
 
+  _reapplyVisibleWindow() {
+    if (!this.chart || this._lastCandleCount < 1) return;
+    applyReplayVisibleWindow(this.chart, this._lastCandleCount, this._lastWindowWidth);
+  }
+
   resize() {
     if (!this.chart) return;
     const { w, h } = this._measure();
     this.chart.applyOptions({ width: w, height: h });
-    this.chart.timeScale().fitContent();
+    this._reapplyVisibleWindow();
   }
 
   _clearPriceLines() {
@@ -95,8 +125,13 @@ class ReplayChart {
 
   setReplay(payload) {
     if (!this.series || !payload?.candles?.length) return;
-    this.resize();
+    const { w, h } = this._measure();
+    if (w > 0 && h > 0) this.chart.applyOptions({ width: w, height: h });
+
     this.series.setData(payload.candles);
+    this._lastCandleCount = payload.candles.length;
+    this._lastWindowWidth = typeof payload.windowWidth === 'number' ? payload.windowWidth : 1;
+
     this._clearPriceLines();
     for (const hl of payload.hlines || []) {
       this.priceLines.push(
@@ -139,6 +174,7 @@ class ReplayChart {
         console.warn('markers', e);
       }
     }
-    this.chart.timeScale().fitContent();
+    this.chart.timeScale().applyOptions({ rightOffset: CHART_RIGHT_OFFSET_BARS });
+    applyReplayVisibleWindow(this.chart, this._lastCandleCount, this._lastWindowWidth);
   }
 }
