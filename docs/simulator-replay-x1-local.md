@@ -270,4 +270,13 @@ git checkout main && git pull
 # Открыть Cursor → New Agent Chat → вставить промпт из §4
 ```
 
+### Windows-приложение (без телефона)
+
+```bat
+cd C:\Users\root\MoexMvp
+run-desktop.bat
+```
+
+См. [`windows-desktop.md`](windows-desktop.md) — Swing Bar Replay из CSV `strategy-web/data/m15_tatn_255d.csv`.
+
 Готово. Дальше ведёт агент по R1.
