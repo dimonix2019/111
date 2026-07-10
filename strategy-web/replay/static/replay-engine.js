@@ -166,6 +166,13 @@ function barReplayVisibleIndexRange(points, cursorIndex, visibleDays = 30) {
   return { start, end: cursor };
 }
 
+/** Сколько баров держать на экране (фикс. zoom); slice = visibleDays календарных дней. */
+function visibleBarsOnScreen(visibleDays) {
+  const map = { 30: 200, 90: 280, 180: 340, 400: 420 };
+  if (map[visibleDays]) return map[visibleDays];
+  return Math.min(500, Math.max(120, Math.round(visibleDays * 6.5)));
+}
+
 function buildZCandles(points) {
   return points.map((p, i) => {
     const close = p.zScore;
@@ -561,6 +568,7 @@ function buildChartPayload(candles, entry, exit, markers, trades, playing, opts 
     markers,
     trades,
     windowWidth: typeof opts.windowWidth === 'number' ? opts.windowWidth : 1,
+    maxVisibleBars: typeof opts.maxVisibleBars === 'number' ? opts.maxVisibleBars : 200,
     playing: !!playing,
   };
 }

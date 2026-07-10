@@ -12,17 +12,17 @@ const TV = {
 const CHART_RIGHT_OFFSET_BARS = 18;
 const CHART_INITIAL_RIGHT_MARGIN_IN_WINDOW = 0.18;
 
-/** Показать хвост окна: widthFrac=1 → весь slice, курсор справа с отступом. */
-function applyReplayVisibleWindow(chart, candleCount, windowWidth = 1) {
+/**
+ * Фиксированный zoom: последние maxVisibleBars баров slice, курсор справа.
+ * Не сжимать весь slice (windowWidth=1) при росте числа баров.
+ */
+function applyReplayVisibleWindow(chart, candleCount, maxVisibleBars = 200) {
   if (!chart || candleCount < 1) return;
   const n = candleCount;
   const maxIndex = n - 1;
-  const widthFrac = Math.max(0.05, Math.min(1, windowWidth || 1));
-  const visibleBars = Math.max(2, Math.ceil(widthFrac * n));
-  const startFrac = Math.max(0, 1 - widthFrac);
-  const startIdx = Math.floor(startFrac * maxIndex);
-  const from = Math.max(0, startIdx);
-  const to = Math.min(maxIndex, from + visibleBars - 1);
+  const visibleBars = Math.min(Math.max(2, maxVisibleBars), n);
+  const from = Math.max(0, maxIndex - visibleBars + 1);
+  const to = maxIndex;
   const rightGapBars = Math.max(2, Math.ceil(visibleBars * CHART_INITIAL_RIGHT_MARGIN_IN_WINDOW));
   chart.timeScale().setVisibleLogicalRange({ from, to: to + rightGapBars });
 }
@@ -36,7 +36,7 @@ class ReplayChart {
     this.priceLines = [];
     this.replayCursorLine = null;
     this._resizeObserver = null;
-    this._lastWindowWidth = 1;
+    this._lastMaxVisibleBars = 200;
     this._lastCandleCount = 0;
     this._init();
   }
@@ -86,8 +86,7 @@ class ReplayChart {
   }
 
   _bindResize() {
-    const onResize = () => this.resize();
-    window.addEventListener('resize', onResize);
+    window.addEventListener('resize', () => this.resize());
     if (typeof ResizeObserver !== 'undefined') {
       this._resizeObserver = new ResizeObserver(() => {
         requestAnimationFrame(() => this.resize());
@@ -99,7 +98,7 @@ class ReplayChart {
 
   _reapplyVisibleWindow() {
     if (!this.chart || this._lastCandleCount < 1) return;
-    applyReplayVisibleWindow(this.chart, this._lastCandleCount, this._lastWindowWidth);
+    applyReplayVisibleWindow(this.chart, this._lastCandleCount, this._lastMaxVisibleBars);
   }
 
   resize() {
@@ -130,7 +129,9 @@ class ReplayChart {
 
     this.series.setData(payload.candles);
     this._lastCandleCount = payload.candles.length;
-    this._lastWindowWidth = typeof payload.windowWidth === 'number' ? payload.windowWidth : 1;
+    this._lastMaxVisibleBars = typeof payload.maxVisibleBars === 'number'
+      ? payload.maxVisibleBars
+      : 200;
 
     this._clearPriceLines();
     for (const hl of payload.hlines || []) {
@@ -175,6 +176,6 @@ class ReplayChart {
       }
     }
     this.chart.timeScale().applyOptions({ rightOffset: CHART_RIGHT_OFFSET_BARS });
-    applyReplayVisibleWindow(this.chart, this._lastCandleCount, this._lastWindowWidth);
+    applyReplayVisibleWindow(this.chart, this._lastCandleCount, this._lastMaxVisibleBars);
   }
 }

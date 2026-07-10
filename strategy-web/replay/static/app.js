@@ -163,7 +163,7 @@
       markers,
       [],
       playing,
-      { windowWidth: 1 },
+      { maxVisibleBars: visibleBarsOnScreen(visibleDays) },
     );
     chart.setReplay(payload);
 
