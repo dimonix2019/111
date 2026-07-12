@@ -189,6 +189,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.302 — Push +2.2%: кнопка «Стоп-лосс 2%» ставит broker stop-loss заявки Tinkoff на обе ноги сделки.
 1.7.301 — Prod «Открытая сделка»: сверка с GetPortfolio убирает локальную сделку, если TATN/TATNP уже закрыты у брокера.
 1.7.300 — Старт приложения: по умолчанию открывается вкладка «Рынок»; fix CI M15 lookback от последнего бара.
 1.7.299 — «Рынок» Δ спред: досчёт из TATN/TATNP + SQLite-снимки при пробелах (как Z-score); rolling-base для 1D/1W.

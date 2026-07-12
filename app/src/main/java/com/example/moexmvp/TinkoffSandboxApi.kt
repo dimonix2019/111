@@ -13,6 +13,9 @@ import java.io.IOException
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.round
+import kotlin.math.roundToLong
 
 private val jsonMediaUtf8 = "application/json; charset=utf-8".toMediaType()
 
@@ -129,6 +132,9 @@ private suspend fun tinkoffInstrumentsPostRaw(token: String, method: String, bod
 private suspend fun tinkoffProdOrdersPostRaw(token: String, method: String, bodyJson: String): String =
     tinkoffSbxPostRaw(TINVEST_PROD_ORDERS_PREFIXES, token, method, bodyJson)
 
+private suspend fun tinkoffProdStopOrdersPostRaw(token: String, method: String, bodyJson: String): String =
+    tinkoffSbxPostRaw(TINVEST_PROD_STOP_ORDERS_PREFIXES, token, method, bodyJson)
+
 private suspend fun tinkoffProdInstrumentsPostRaw(token: String, method: String, bodyJson: String): String =
     tinkoffSbxPostRaw(TINVEST_PROD_INSTRUMENTS_PREFIXES, token, method, bodyJson)
 
@@ -150,6 +156,11 @@ internal suspend fun tinkoffSandboxPostAsync(token: String, method: String, body
 
 internal suspend fun tinkoffProdOrdersPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffProdOrdersPostRaw(token, method, body.toString())
+    return parseJsonObjectOrEmpty(raw)
+}
+
+internal suspend fun tinkoffProdStopOrdersPostAsync(token: String, method: String, body: JSONObject): JSONObject {
+    val raw = tinkoffProdStopOrdersPostRaw(token, method, body.toString())
     return parseJsonObjectOrEmpty(raw)
 }
 
@@ -579,6 +590,186 @@ internal suspend fun tinkoffPostMarketOrder(
         tinkoffPostSandboxMarketOrder(token, accountId, instrumentId, orderDirection, quantityLots)
     TinkoffExecutionMode.Prod ->
         tinkoffPostProdMarketOrder(token, accountId, instrumentId, orderDirection, quantityLots)
+}
+
+internal data class BrokerLegStopOrderPlan(
+    val ticker: String,
+    val closeDirection: String,
+    val stopPriceRub: Double,
+    val quantityLots: Int,
+    val isLongLeg: Boolean,
+)
+
+internal data class BrokerLegStopOrderPlacement(
+    val ticker: String,
+    val closeDirection: String,
+    val stopPriceRub: Double,
+    val quantityLots: Int,
+    val stopOrderId: String,
+    val responseJson: JSONObject,
+)
+
+private fun roundRubStopPrice(value: Double): Double =
+    (round(value * 10.0) / 10.0).coerceAtLeast(0.1)
+
+internal fun planBrokerLegStopLossOrders(
+    execution: SandboxSpreadExecUi,
+    brokerPnl: SpreadLegBrokerPnl,
+    stopPercent: Double,
+): List<BrokerLegStopOrderPlan> {
+    val pct = (stopPercent.coerceAtLeast(0.0) / 100.0)
+    val qty = execution.quantityLots.coerceAtLeast(1)
+    val longPrice = brokerPnl.longLegPriceRub?.takeIf { it > 0.0 } ?: return emptyList()
+    val shortPrice = brokerPnl.shortLegPriceRub?.takeIf { it > 0.0 } ?: return emptyList()
+    val longStop = roundRubStopPrice(longPrice * (1.0 - pct))
+    val shortStop = roundRubStopPrice(shortPrice * (1.0 + pct))
+    return listOf(
+        BrokerLegStopOrderPlan(
+            ticker = execution.longLegTicker,
+            closeDirection = "STOP_ORDER_DIRECTION_SELL",
+            stopPriceRub = longStop,
+            quantityLots = qty,
+            isLongLeg = true,
+        ),
+        BrokerLegStopOrderPlan(
+            ticker = execution.shortLegTicker,
+            closeDirection = "STOP_ORDER_DIRECTION_BUY",
+            stopPriceRub = shortStop,
+            quantityLots = qty,
+            isLongLeg = false,
+        ),
+    )
+}
+
+private fun quotationFromRub(value: Double): JSONObject {
+    val rounded = roundRubStopPrice(value)
+    val units = floor(rounded).toLong()
+    val nano = ((rounded - units) * 1_000_000_000.0).roundToLong()
+    return JSONObject()
+        .put("units", units.toString())
+        .put("nano", nano)
+}
+
+internal fun postStopOrderBodyCamel(
+    accountId: String,
+    instrumentId: String,
+    plan: BrokerLegStopOrderPlan,
+): JSONObject {
+    val stopPrice = quotationFromRub(plan.stopPriceRub)
+    return JSONObject()
+        .put("accountId", accountId)
+        .put("instrumentId", instrumentId)
+        .put("quantity", plan.quantityLots.toString())
+        .put("direction", plan.closeDirection)
+        .put("stopOrderType", "STOP_ORDER_TYPE_STOP_LOSS")
+        .put("expirationType", "STOP_ORDER_EXPIRATION_TYPE_GOOD_TILL_CANCEL")
+        .put("stopPrice", stopPrice)
+        .put("price", stopPrice)
+}
+
+internal fun postStopOrderBodySnake(
+    accountId: String,
+    instrumentId: String,
+    plan: BrokerLegStopOrderPlan,
+): JSONObject {
+    val stopPrice = quotationFromRub(plan.stopPriceRub)
+    return JSONObject()
+        .put("account_id", accountId)
+        .put("instrument_id", instrumentId)
+        .put("quantity", plan.quantityLots.toString())
+        .put("direction", plan.closeDirection)
+        .put("stop_order_type", "STOP_ORDER_TYPE_STOP_LOSS")
+        .put("expiration_type", "STOP_ORDER_EXPIRATION_TYPE_GOOD_TILL_CANCEL")
+        .put("stop_price", stopPrice)
+        .put("price", stopPrice)
+}
+
+private fun postStopOrderBodySnakeNoPrice(
+    accountId: String,
+    instrumentId: String,
+    plan: BrokerLegStopOrderPlan,
+): JSONObject = postStopOrderBodySnake(accountId, instrumentId, plan).apply {
+    remove("price")
+}
+
+private fun postStopOrderBodyCamelNoPrice(
+    accountId: String,
+    instrumentId: String,
+    plan: BrokerLegStopOrderPlan,
+): JSONObject = postStopOrderBodyCamel(accountId, instrumentId, plan).apply {
+    remove("price")
+}
+
+private fun stopOrderIdFromResponse(root: JSONObject): String =
+    root.firstNonBlankString("stopOrderId", "stop_order_id", "orderId", "order_id")
+        ?: root.optJSONObject("postStopOrderResponse")
+            ?.firstNonBlankString("stopOrderId", "stop_order_id", "orderId", "order_id")
+        ?: root.optJSONObject("post_stop_order_response")
+            ?.firstNonBlankString("stopOrderId", "stop_order_id", "orderId", "order_id")
+        ?: root.toString().take(80)
+
+internal suspend fun tinkoffPostProdStopLossOrder(
+    token: String,
+    accountId: String,
+    instrumentId: String,
+    plan: BrokerLegStopOrderPlan,
+): BrokerLegStopOrderPlacement {
+    var last: IOException? = null
+    val bodies = listOf(
+        { postStopOrderBodySnake(accountId, instrumentId, plan) },
+        { postStopOrderBodyCamel(accountId, instrumentId, plan) },
+        { postStopOrderBodySnakeNoPrice(accountId, instrumentId, plan) },
+        { postStopOrderBodyCamelNoPrice(accountId, instrumentId, plan) },
+    )
+    for (factory in bodies) {
+        try {
+            val response = tinkoffProdStopOrdersPostAsync(token, "PostStopOrder", factory())
+            return BrokerLegStopOrderPlacement(
+                ticker = plan.ticker,
+                closeDirection = plan.closeDirection,
+                stopPriceRub = plan.stopPriceRub,
+                quantityLots = plan.quantityLots,
+                stopOrderId = stopOrderIdFromResponse(response),
+                responseJson = response,
+            )
+        } catch (e: IOException) {
+            last = e
+        }
+    }
+    throw last ?: IOException("PostStopOrder: неизвестная ошибка")
+}
+
+internal suspend fun placeProdOpenTradeLegStopLossOrders(
+    context: Context,
+    execution: SandboxSpreadExecUi,
+    stopPercent: Double,
+): List<BrokerLegStopOrderPlacement> {
+    val app = context.applicationContext
+    val mode = TinkoffExecutionMode.Prod
+    val token = TinkoffSandboxStorage.getActiveToken(app, mode)
+        ?: throw IOException("Prod token is empty")
+    val accountId = TinkoffSandboxStorage.getActiveAccountId(app, mode)
+        ?: throw IOException("Prod accountId is empty")
+    val snapshot = loadSpreadBrokerPositionSnapshot(app, execution.signalType, mode)
+        ?: throw IOException("GetPortfolio: не удалось получить позицию TATN/TATNP")
+    if (snapshot.state != SpreadBrokerPositionState.Open || snapshot.pnl == null) {
+        throw IOException("GetPortfolio: спрэд-позиция не открыта (${snapshot.state})")
+    }
+    val plans = planBrokerLegStopLossOrders(execution, snapshot.pnl, stopPercent)
+    if (plans.size != 2) {
+        throw IOException("Не удалось рассчитать stop-loss цены для обеих ног")
+    }
+    return plans.map { plan ->
+        val instrumentId = runCatching { tinkoffResolveShareInstrumentId(mode, token, plan.ticker) }
+            .getOrElse {
+                when (plan.ticker.uppercase(Locale.US)) {
+                    "TATN" -> TINKOFF_MOEX_TATN_INSTRUMENT_ID
+                    "TATNP" -> TINKOFF_MOEX_TATNP_INSTRUMENT_ID
+                    else -> throw it
+                }
+            }
+        tinkoffPostProdStopLossOrder(token, accountId, instrumentId, plan)
+    }
 }
 
 /**

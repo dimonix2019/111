@@ -3,7 +3,10 @@ package com.example.moexmvp
 import android.content.Context
 import android.content.Intent
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.io.IOException
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 
@@ -28,6 +31,8 @@ internal data class OpenTradeDepositProfitStop(
     val stopPercent: Double,
     val armedAtMillis: Long,
     val pnlAtArmRub: Double,
+    val brokerStopOrderIds: List<String> = emptyList(),
+    val brokerStopSummary: String = "",
 )
 
 internal fun resolveAccountDepositRub(context: Context): Double {
@@ -104,13 +109,34 @@ internal fun clearOpenTradeDepositProfitStopsExcept(context: Context, openTradeI
 }
 
 internal fun formatDepositProfitStopArmedBody(stop: OpenTradeDepositProfitStop): String =
-    String.format(
+    buildString {
+        append(String.format(
         Locale.US,
         "Депозит %s · стоп при PnL < %s (2%% счёта) · сейчас %s",
         formatRubSigned(stop.depositRub),
         formatRubSigned(stop.floorPnlRub),
         formatRubSigned(stop.pnlAtArmRub),
-    )
+        ))
+        if (stop.brokerStopSummary.isNotBlank()) {
+            append('\n')
+            append(stop.brokerStopSummary)
+        }
+    }
+
+private fun formatBrokerLegStopOrdersSummary(placements: List<BrokerLegStopOrderPlacement>): String =
+    placements.joinToString("; ") { p ->
+        val side = if (p.closeDirection.endsWith("_SELL")) "SELL" else "BUY"
+        "${p.ticker} $side stop ${String.format(Locale.US, "%.1f", p.stopPriceRub)} ₽ #${p.stopOrderId}"
+    }
+
+internal suspend fun armOpenTradeBrokerLegStopLoss(
+    context: Context,
+    execution: SandboxSpreadExecUi,
+    stopPercent: Double,
+): List<BrokerLegStopOrderPlacement> {
+    if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) return emptyList()
+    return placeProdOpenTradeLegStopLossOrders(context, execution, stopPercent)
+}
 
 internal suspend fun processOpenTradeDepositProfitStops(
     context: Context,
@@ -157,7 +183,7 @@ internal suspend fun processOpenTradeDepositProfitStops(
 internal fun openTradeDepositStopTriggeredNotificationId(tradeId: String): Int =
     "openTradeDepositStop|hit|$tradeId".hashCode()
 
-internal fun handleArmOpenTradeDepositStopIntent(context: Context, intent: Intent) {
+internal suspend fun handleArmOpenTradeDepositStopIntentSuspend(context: Context, intent: Intent) {
     if (intent.action != ACTION_ARM_OPEN_TRADE_DEPOSIT_STOP) return
     val tradeId = intent.getStringExtra(EXTRA_OPEN_TRADE_ID)?.trim().orEmpty()
     if (tradeId.isEmpty()) return
@@ -168,24 +194,57 @@ internal fun handleArmOpenTradeDepositStopIntent(context: Context, intent: Inten
     val app = context.applicationContext
     val executions = TinkoffSandboxSpreadExecLog.loadRecent(app)
     val execution = executions.firstOrNull { it.tradeId == tradeId } ?: return
-    val pnl = execution.netPnlRubApprox
-    if (pnl.isNaN()) return
+    val placements = try {
+        armOpenTradeBrokerLegStopLoss(app, execution, stopPercent)
+    } catch (e: IOException) {
+        showPushNotification(
+            context = app,
+            title = "Стоп-лосс ${stopPercent.toInt()}% не поставлен",
+            body = "Tinkoff stop-order: ${e.message ?: e.javaClass.simpleName}",
+            notificationId = openTradeDepositStopArmedNotificationId(tradeId),
+            correlationTag = "openTradeDepositStop|broker_failed|$tradeId",
+            skipDuplicateCheck = true,
+        )
+        return
+    }
+    val brokerPnl = if (currentExecutionMode(app) == TinkoffExecutionMode.Prod) {
+        runCatching { loadProdSpreadLegBrokerPnl(app, execution.signalType)?.netGrossRub }.getOrNull()
+    } else {
+        null
+    }
+    val pnl = execution.netPnlRubApprox.takeUnless { it.isNaN() } ?: brokerPnl ?: 0.0
 
-    val stop = armOpenTradeDepositProfitStop(
+    val baseStop = armOpenTradeDepositProfitStop(
         context = app,
         tradeId = tradeId,
         currentPnlRub = pnl,
         stopPercent = stopPercent,
     ) ?: return
+    val stop = if (placements.isEmpty()) {
+        baseStop
+    } else {
+        baseStop.copy(
+            brokerStopOrderIds = placements.map { it.stopOrderId },
+            brokerStopSummary = formatBrokerLegStopOrdersSummary(placements),
+        ).also { saveOpenTradeDepositProfitStop(app, it) }
+    }
 
     showPushNotification(
         context = app,
-        title = "Стоп-лосс ${stopPercent.toInt()}% депозита включён",
+        title = if (placements.isEmpty()) {
+            "Стоп-лосс ${stopPercent.toInt()}% депозита включён"
+        } else {
+            "Stop-loss ${stopPercent.toInt()}% выставлен в Tinkoff"
+        },
         body = formatDepositProfitStopArmedBody(stop),
         notificationId = openTradeDepositStopArmedNotificationId(tradeId),
         correlationTag = "openTradeDepositStop|armed|$tradeId",
         skipDuplicateCheck = true,
     )
+}
+
+internal fun handleArmOpenTradeDepositStopIntent(context: Context, intent: Intent) {
+    runBlocking { handleArmOpenTradeDepositStopIntentSuspend(context, intent) }
 }
 
 internal fun openTradeDepositStopArmedNotificationId(tradeId: String): Int =
@@ -220,7 +279,9 @@ internal fun encodeOpenTradeDepositProfitStops(stops: Map<String, OpenTradeDepos
                 .put("depositRub", stop.depositRub)
                 .put("stopPercent", stop.stopPercent)
                 .put("armedAtMillis", stop.armedAtMillis)
-                .put("pnlAtArmRub", stop.pnlAtArmRub),
+                .put("pnlAtArmRub", stop.pnlAtArmRub)
+                .put("brokerStopOrderIds", JSONArray().apply { stop.brokerStopOrderIds.forEach(::put) })
+                .put("brokerStopSummary", stop.brokerStopSummary),
         )
     }
     return root.toString()
@@ -238,6 +299,13 @@ internal fun decodeOpenTradeDepositProfitStops(raw: String): Map<String, OpenTra
             stopPercent = o.optDouble("stopPercent", OPEN_TRADE_DEPOSIT_STOP_LOSS_PERCENT),
             armedAtMillis = o.optLong("armedAtMillis", 0L),
             pnlAtArmRub = o.optDouble("pnlAtArmRub", Double.NaN),
+            brokerStopOrderIds = buildList {
+                val arr = o.optJSONArray("brokerStopOrderIds") ?: JSONArray()
+                for (i in 0 until arr.length()) {
+                    arr.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+                }
+            },
+            brokerStopSummary = o.optString("brokerStopSummary", ""),
         )
     }
     return out
