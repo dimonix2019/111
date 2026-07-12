@@ -12,6 +12,7 @@ import org.json.JSONTokener
 import java.io.IOException
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.abs
 
 private val jsonMediaUtf8 = "application/json; charset=utf-8".toMediaType()
 
@@ -1132,6 +1133,17 @@ internal data class SpreadLegBrokerPnl(
     }
 }
 
+internal enum class SpreadBrokerPositionState {
+    Open,
+    Partial,
+    Closed,
+}
+
+internal data class SpreadBrokerPositionSnapshot(
+    val state: SpreadBrokerPositionState,
+    val pnl: SpreadLegBrokerPnl?,
+)
+
 private data class BrokerPositionRow(
     val yieldRub: Double,
     val currentPriceRub: Double?,
@@ -1184,15 +1196,11 @@ private fun collectPortfolioPositions(portfolioJson: JSONObject): List<JSONObjec
     return out
 }
 
-/** Котировки и нереализованный PnL по ногам из GetPortfolio (как в T‑Invest). */
-internal fun parseSpreadLegBrokerPnl(
-    portfolioJson: JSONObject,
-    signalType: StrategySignalType,
-): SpreadLegBrokerPnl? {
+private fun collectBrokerPositionRowsByTicker(portfolioJson: JSONObject): Map<String, BrokerPositionRow> {
     val rowsByTicker = linkedMapOf<String, BrokerPositionRow>()
     for (pos in collectPortfolioPositions(portfolioJson)) {
         val ticker = pos.positionTicker() ?: continue
-        val yieldRub = parsePositionExpectedYieldRub(pos) ?: continue
+        val yieldRub = parsePositionExpectedYieldRub(pos) ?: 0.0
         val prev = rowsByTicker[ticker]
         rowsByTicker[ticker] = BrokerPositionRow(
             yieldRub = (prev?.yieldRub ?: 0.0) + yieldRub,
@@ -1200,20 +1208,41 @@ internal fun parseSpreadLegBrokerPnl(
             quantityUnits = (prev?.quantityUnits ?: 0) + parsePositionQuantityUnits(pos),
         )
     }
-    val tatn = rowsByTicker["TATN"] ?: return null
-    val tatnp = rowsByTicker["TATNP"] ?: return null
-    return when (signalType) {
-        StrategySignalType.EnterLong -> SpreadLegBrokerPnl(
-            longLegYieldRub = tatn.yieldRub,
-            shortLegYieldRub = tatnp.yieldRub,
+    return rowsByTicker
+}
+
+private fun BrokerPositionRow?.hasBrokerPosition(): Boolean =
+    this != null &&
+        (quantityUnits != 0 || currentPriceRub != null || abs(yieldRub) > 0.01)
+
+/** Позиция спрэда в GetPortfolio: нужна, чтобы не держать локальную открытую сделку после закрытия у брокера. */
+internal fun parseSpreadBrokerPositionSnapshot(
+    portfolioJson: JSONObject,
+    signalType: StrategySignalType,
+): SpreadBrokerPositionSnapshot {
+    val rowsByTicker = collectBrokerPositionRowsByTicker(portfolioJson)
+    val tatn = rowsByTicker["TATN"]
+    val tatnp = rowsByTicker["TATNP"]
+    val tatnOpen = tatn.hasBrokerPosition()
+    val tatnpOpen = tatnp.hasBrokerPosition()
+    val state = when {
+        tatnOpen && tatnpOpen -> SpreadBrokerPositionState.Open
+        tatnOpen || tatnpOpen -> SpreadBrokerPositionState.Partial
+        else -> SpreadBrokerPositionState.Closed
+    }
+    val pnl = when {
+        state != SpreadBrokerPositionState.Open -> null
+        signalType == StrategySignalType.EnterLong -> SpreadLegBrokerPnl(
+            longLegYieldRub = tatn!!.yieldRub,
+            shortLegYieldRub = tatnp!!.yieldRub,
             longLegPriceRub = tatn.currentPriceRub,
             shortLegPriceRub = tatnp.currentPriceRub,
             longLegQuantity = tatn.quantityUnits,
             shortLegQuantity = tatnp.quantityUnits,
         )
-        StrategySignalType.EnterShort -> SpreadLegBrokerPnl(
-            longLegYieldRub = tatnp.yieldRub,
-            shortLegYieldRub = tatn.yieldRub,
+        signalType == StrategySignalType.EnterShort -> SpreadLegBrokerPnl(
+            longLegYieldRub = tatnp!!.yieldRub,
+            shortLegYieldRub = tatn!!.yieldRub,
             longLegPriceRub = tatnp.currentPriceRub,
             shortLegPriceRub = tatn.currentPriceRub,
             longLegQuantity = tatnp.quantityUnits,
@@ -1221,25 +1250,41 @@ internal fun parseSpreadLegBrokerPnl(
         )
         else -> null
     }
+    return SpreadBrokerPositionSnapshot(state, pnl)
+}
+
+/** Котировки и нереализованный PnL по ногам из GetPortfolio (как в T‑Invest). */
+internal fun parseSpreadLegBrokerPnl(
+    portfolioJson: JSONObject,
+    signalType: StrategySignalType,
+): SpreadLegBrokerPnl? =
+    parseSpreadBrokerPositionSnapshot(portfolioJson, signalType).pnl
+
+internal suspend fun loadSpreadBrokerPositionSnapshot(
+    context: Context,
+    signalType: StrategySignalType,
+    mode: TinkoffExecutionMode = currentExecutionMode(context),
+): SpreadBrokerPositionSnapshot? {
+    val token = TinkoffSandboxStorage.getActiveToken(context, mode) ?: return null
+    val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode) ?: return null
+    return runCatching {
+        val portfolio = tinkoffGetPortfolio(mode, token, accountId)
+        parseSpreadBrokerPositionSnapshot(portfolio, signalType)
+    }.getOrNull()
 }
 
 internal suspend fun loadSpreadLegBrokerPnl(
     context: Context,
     signalType: StrategySignalType,
     mode: TinkoffExecutionMode = currentExecutionMode(context),
-): SpreadLegBrokerPnl? {
-    val token = TinkoffSandboxStorage.getActiveToken(context, mode) ?: return null
-    val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode) ?: return null
-    return runCatching {
-        val portfolio = tinkoffGetPortfolio(mode, token, accountId)
-        parseSpreadLegBrokerPnl(portfolio, signalType)
-    }.getOrNull()
-}
+): SpreadLegBrokerPnl? =
+    loadSpreadBrokerPositionSnapshot(context, signalType, mode)?.pnl
 
 internal suspend fun loadProdSpreadBrokerSnapshot(
     context: Context,
     signalType: StrategySignalType,
-): SpreadLegBrokerPnl? = loadSpreadLegBrokerPnl(context, signalType, TinkoffExecutionMode.Prod)
+): SpreadBrokerPositionSnapshot? =
+    loadSpreadBrokerPositionSnapshot(context, signalType, TinkoffExecutionMode.Prod)
 
 internal suspend fun loadProdSpreadLegBrokerPnl(
     context: Context,

@@ -277,12 +277,14 @@ internal suspend fun resolveSignalMonitorOpenTrade(
             it.signalType == StrategySignalType.EnterLong ||
                 it.signalType == StrategySignalType.EnterShort
         }
-    val latest = opens.maxByOrNull { it.barTimestampMillis } ?: return null
+    val (brokerOpen, brokerLegPnl) = reconcileProdOpenExecutionsWithBroker(app, opens)
+    val latest = brokerOpen.maxByOrNull { it.barTimestampMillis } ?: return null
     if (points.isEmpty() && currentExecutionMode(app) != TinkoffExecutionMode.Prod) return null
     val enriched = enrichOpenExecutionsForBackgroundMonitor(
         context = app,
         executions = listOf(latest),
         points = points,
+        brokerLegPnlOverride = brokerLegPnl,
     ).firstOrNull() ?: return null
     val investedRub = resolveOpenTradeInvestedRub(app)
     return signalMonitorOpenTradeSnapshot(enriched, investedRub)

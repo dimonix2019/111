@@ -146,13 +146,14 @@ internal suspend fun enrichOpenExecutionsForBackgroundMonitor(
     executions: List<SandboxSpreadExecUi>,
     points: List<DataPoint>,
     commissionPercentPerSide: Double = 0.04,
+    brokerLegPnlOverride: SpreadLegBrokerPnl? = null,
 ): List<SandboxSpreadExecUi> {
     if (executions.isEmpty()) return executions
     val app = context.applicationContext
     val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(app)
     val mode = currentExecutionMode(app)
     val pnlLeverage = portfolioPnlLeverageMultiplier(mode, leverage)
-    val brokerLegPnl = executions.firstOrNull()?.signalType?.let { signal ->
+    val brokerLegPnl = brokerLegPnlOverride ?: executions.firstOrNull()?.signalType?.let { signal ->
         loadSpreadLegBrokerPnl(app, signal, mode)
     }
     val journal = loadStrategySignalEvents(app)
@@ -241,11 +242,12 @@ private suspend fun MoexScreenState.applyBrokerEnrichmentToOpenExecutions(
     openExecutions: List<SandboxSpreadExecUi>,
     journalEvents: List<StrategySignalEvent>,
     points: List<DataPoint>,
+    brokerLegPnlOverride: SpreadLegBrokerPnl? = null,
 ): List<SandboxSpreadExecUi> {
     if (openExecutions.isEmpty()) return openExecutions
     val mode = currentExecutionMode(context)
     val pnlLeverage = portfolioPnlLeverageMultiplier(mode, portfolioLeverage)
-    val brokerLegPnl = openExecutions.firstOrNull()?.signalType?.let { signal ->
+    val brokerLegPnl = brokerLegPnlOverride ?: openExecutions.firstOrNull()?.signalType?.let { signal ->
         loadSpreadLegBrokerPnl(context, signal, mode)
     }
     return withContext(Dispatchers.IO) {
@@ -261,6 +263,53 @@ private suspend fun MoexScreenState.applyBrokerEnrichmentToOpenExecutions(
             brokerLegPnl = brokerLegPnl,
         )
     }
+}
+
+/** Prod: локальная открытая сделка должна исчезать, если в GetPortfolio уже нет пары TATN/TATNP. */
+internal suspend fun reconcileProdOpenExecutionsWithBroker(
+    context: Context,
+    openExecutions: List<SandboxSpreadExecUi>,
+): Pair<List<SandboxSpreadExecUi>, SpreadLegBrokerPnl?> {
+    val app = context.applicationContext
+    if (openExecutions.isEmpty() || currentExecutionMode(app) != TinkoffExecutionMode.Prod) {
+        return openExecutions to null
+    }
+    val signal = openExecutions.firstOrNull()?.signalType ?: return openExecutions to null
+    val snapshot = loadSpreadBrokerPositionSnapshot(app, signal, TinkoffExecutionMode.Prod)
+        ?: return openExecutions to null
+    if (snapshot.state != SpreadBrokerPositionState.Closed) {
+        return openExecutions to snapshot.pnl
+    }
+
+    openExecutions.forEach { exec ->
+        TinkoffSandboxSpreadExecLog.removeByTradeId(app, exec.tradeId)
+        removePortfolioExecutionLedgerEntry(
+            context = app,
+            barTimestampMillis = exec.barTimestampMillis,
+            signalType = exec.signalType,
+            source = exec.source,
+        )
+    }
+    val remaining = TinkoffSandboxSpreadExecLog.loadRecent(app)
+    if (remaining.isEmpty()) {
+        saveStrategyPosition(app, ZStrategyPosition.Flat)
+    }
+    MoexDiagnostics.log(
+        app,
+        "open_trade",
+        "prod broker has no TATN/TATNP spread legs; removed local open execs=${openExecutions.size}",
+    )
+    return emptyList<SandboxSpreadExecUi>() to null
+}
+
+internal suspend fun MoexScreenState.reconcileProdOpenExecutionsWithBroker(
+    openExecutions: List<SandboxSpreadExecUi>,
+): Pair<List<SandboxSpreadExecUi>, SpreadLegBrokerPnl?> {
+    val result = reconcileProdOpenExecutionsWithBroker(context, openExecutions)
+    if (result.first.isEmpty() && currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+        zStrategyPosition = loadSavedStrategyPosition(context)
+    }
+    return result
 }
 
 /** Быстрое обновление открытых сделок с боевого счёта (GetPortfolio), без MOEX. */
@@ -288,11 +337,19 @@ internal suspend fun MoexScreenState.refreshProdOpenTradesFromBroker(
         return
     }
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(raw, ledgerIncludeAuto)
+    val (brokerOpenExecutions, brokerLegPnl) = reconcileProdOpenExecutionsWithBroker(modeFiltered)
+    if (brokerOpenExecutions.isEmpty()) {
+        sandboxSpreadExecutions = emptyList()
+        syncZStrategyPositionFromOpenExecutions(emptyList())
+        refreshProdClosedTradesInPortfolioUi(journalEvents)
+        return
+    }
     val points = resolveEnrichmentPoints()
     sandboxSpreadExecutions = applyBrokerEnrichmentToOpenExecutions(
-        openExecutions = modeFiltered,
+        openExecutions = brokerOpenExecutions,
         journalEvents = journalEvents,
         points = points,
+        brokerLegPnlOverride = brokerLegPnl,
     )
     val stalePoints = portfolioM15Points.ifEmpty { points }
     if (stalePoints.isNotEmpty()) {
@@ -368,10 +425,12 @@ internal suspend fun MoexScreenState.syncSandboxExecutionsEnrichment(
         return
     }
     val modeFiltered = filterSandboxExecutionsByPortfolioMode(raw, ledgerIncludeAuto)
+    val (brokerOpenExecutions, brokerLegPnl) = reconcileProdOpenExecutionsWithBroker(modeFiltered)
     sandboxSpreadExecutions = applyBrokerEnrichmentToOpenExecutions(
-        openExecutions = modeFiltered,
+        openExecutions = brokerOpenExecutions,
         journalEvents = journalEvents,
         points = points,
+        brokerLegPnlOverride = brokerLegPnl,
     )
     syncZStrategyPositionFromOpenExecutions(sandboxSpreadExecutions)
     enforceProdMoneyStopIfNeeded()

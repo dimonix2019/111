@@ -119,10 +119,15 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
         portfolioBrokerWindowPnlSummary = null
         emptyList()
     }
-    val modeFilteredOpens = filterSandboxExecutionsByPortfolioMode(
+    val filteredOpenExecutions = filterSandboxExecutionsByPortfolioMode(
         sandboxRaw,
         ledgerIncludeAuto,
     )
+    val (modeFilteredOpens, brokerLegPnlForOpen) = if (execMode == TinkoffExecutionMode.Prod) {
+        reconcileProdOpenExecutionsWithBroker(filteredOpenExecutions)
+    } else {
+        filteredOpenExecutions to null
+    }
     val mergedClosed = mergePortfolioClosedTableRowsForMode(
         mode = execMode,
         fromReplay = executed.tableRows,
@@ -137,7 +142,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
         executionMode = execMode,
     )
     val modeFiltered = modeFilteredOpens
-    val brokerLegPnl = modeFiltered.firstOrNull()?.signalType?.let { signal ->
+    val brokerLegPnl = brokerLegPnlForOpen ?: modeFiltered.firstOrNull()?.signalType?.let { signal ->
         withContext(Dispatchers.IO) { loadSpreadLegBrokerPnl(context, signal, execMode) }
     }
     val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage)
