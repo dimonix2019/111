@@ -204,6 +204,13 @@ internal fun buildZStrategyPortfolioMetrics(
                 return true
             }
         }
+        if (simOptions.forcedProfitTakePercent > 0.0) {
+            val netRub = netMtmIfClosedNow(bar)
+            val retPct = openTradeReturnPercent(netRub, positionNotionalRub)
+            if (!retPct.isNaN() && retPct >= simOptions.forcedProfitTakePercent) {
+                return true
+            }
+        }
         return false
     }
 
@@ -375,6 +382,7 @@ internal fun buildZStrategyPortfolioMetrics(
     for (index in loopStart until points.size) {
         val prev = points[index - 1]
         val current = points[index]
+        val prevPrev = if (index >= 2) points[index - 2] else null
         var closedThisBar = false
         when (position) {
             ZStrategyPosition.Long -> {
@@ -404,6 +412,18 @@ internal fun buildZStrategyPortfolioMetrics(
                                     ZStrategySignal.ExitLong
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitLong(current.zScore, zBestSinceEntry, entryAt(index), zPeakTrailZ)
+                            ZStrategyExitMode.OppositeExtreme ->
+                                oppositeExtremeExitLongBetweenBars(prev, current, exit)
+                            ZStrategyExitMode.LocalExtrema ->
+                                prevPrev != null &&
+                                    localExtremaExitLongBetweenBars(
+                                        prevPrev,
+                                        prev,
+                                        current,
+                                        zBestSinceEntry,
+                                        entry,
+                                        exit,
+                                    )
                         }
                         if (ruleExit) {
                             closeLongAt(current)
@@ -440,6 +460,18 @@ internal fun buildZStrategyPortfolioMetrics(
                                     ZStrategySignal.ExitShort
                             ZStrategyExitMode.ZPeakTrailing ->
                                 zPeakTrailingExitShort(current.zScore, zBestSinceEntry, entryAt(index), zPeakTrailZ)
+                            ZStrategyExitMode.OppositeExtreme ->
+                                oppositeExtremeExitShortBetweenBars(prev, current, exit)
+                            ZStrategyExitMode.LocalExtrema ->
+                                prevPrev != null &&
+                                    localExtremaExitShortBetweenBars(
+                                        prevPrev,
+                                        prev,
+                                        current,
+                                        zBestSinceEntry,
+                                        entry,
+                                        exit,
+                                    )
                         }
                         if (ruleExit) {
                             closeShortAt(current)
@@ -453,7 +485,18 @@ internal fun buildZStrategyPortfolioMetrics(
         }
         // Live-монитор: максимум одно действие на бар — без входа в тот же бар после выхода.
         if (!closedThisBar && position == ZStrategyPosition.Flat && !tradingHalted && !blockNewEntries(current)) {
-            if (entryPullbackZ <= 0.0) {
+            if (exitMode == ZStrategyExitMode.LocalExtrema && prevPrev != null && entryPullbackZ <= 0.0) {
+                when {
+                    localExtremaLongEntryBetweenBars(prevPrev, prev, current, entry) &&
+                        spreadOk(current.spreadPercent) &&
+                        entryZOk(current.zScore, ZStrategyPosition.Long, index) ->
+                        enterLongAtBar(current)
+                    localExtremaShortEntryBetweenBars(prevPrev, prev, current, entry) &&
+                        spreadOk(current.spreadPercent) &&
+                        entryZOk(current.zScore, ZStrategyPosition.Short, index) ->
+                        enterShortAtBar(current)
+                }
+            } else if (entryPullbackZ <= 0.0) {
                 when (signalBetweenBars(prev, current, ZStrategyPosition.Flat, index)) {
                     ZStrategySignal.EnterLong ->
                         if (spreadOk(current.spreadPercent) &&
@@ -576,6 +619,10 @@ internal fun buildZStrategyPortfolioMetrics(
             "выход ±${String.format(Locale.US, "%.1f", exit)}"
         ZStrategyExitMode.ZPeakTrailing ->
             "выход трейл Z ${String.format(Locale.US, "%.2f", zPeakTrailZ)} от пика"
+        ZStrategyExitMode.OppositeExtreme ->
+            "выход противоп. экстремум ±${String.format(Locale.US, "%.1f", exit)}"
+        ZStrategyExitMode.LocalExtrema ->
+            "лок. дно→вершина Z, отскок ${String.format(Locale.US, "%.1f", exit)}"
     }
     val entryNote = if (entryPullbackZ > 0.0) {
         ", вход откат Z ${String.format(Locale.US, "%.2f", entryPullbackZ)}"

@@ -81,6 +81,27 @@ class MoexTradingViewChartTest {
     }
 
     @Test
+    fun buildTradingViewChartPayloadJson_includesPnlAxis() {
+        val candles = listOf(
+            CandlePoint("2026-05-19 10:00", open = 0.0, high = 0.1, low = -0.1, close = 0.05),
+        )
+        val points = listOf(point("2026-05-19 10:00", z = 0.05))
+        val json = JSONObject(
+            buildTradingViewChartPayloadJson(
+                candles = candles,
+                displayPoints = points,
+                referenceLines = emptyList(),
+                pointMarkers = emptyList(),
+                pnlRubPerSpreadPoint = 894.4,
+                pnlNetOffsetRub = -10.0,
+            )
+        )
+        val axis = json.getJSONObject("pnlAxis")
+        assertEquals(894.4, axis.getDouble("rubPerPoint"), 0.01)
+        assertEquals(-10.0, axis.getDouble("netOffset"), 0.01)
+    }
+
+    @Test
     fun buildTradingViewChartPayloadJson_marksFormingBarCandle() {
         val label = "2026-05-19 10:15"
         val candles = listOf(

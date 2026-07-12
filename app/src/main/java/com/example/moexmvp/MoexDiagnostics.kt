@@ -44,6 +44,7 @@ internal object MoexDiagnostics {
                 is SocketTimeoutException,
                 is ConnectException,
                 is SSLException,
+                is org.json.JSONException,
                 -> return true
                 is IOException -> {
                     val msg = t.message?.lowercase().orEmpty()

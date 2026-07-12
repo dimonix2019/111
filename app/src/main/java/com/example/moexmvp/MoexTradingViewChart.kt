@@ -11,13 +11,23 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -273,6 +283,9 @@ internal fun buildTradingViewChartPayloadJson(
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
+    chartBackgroundHex: String? = null,
+    pnlRubPerSpreadPoint: Double? = null,
+    pnlNetOffsetRub: Double = 0.0,
     formingBar: MarketsFormingBarHint? = null,
 ): String {
     val candleArr = JSONArray()
@@ -410,6 +423,17 @@ internal fun buildTradingViewChartPayloadJson(
         )
     if (!areaFillColor.isNullOrBlank()) {
         root.put("areaFillColor", areaFillColor)
+    }
+    if (!chartBackgroundHex.isNullOrBlank()) {
+        root.put("backgroundColor", chartBackgroundHex)
+    }
+    if (pnlRubPerSpreadPoint != null) {
+        root.put(
+            "pnlAxis",
+            JSONObject()
+                .put("rubPerPoint", pnlRubPerSpreadPoint)
+                .put("netOffset", pnlNetOffsetRub),
+        )
     }
     formingBar?.let { hint ->
         root.put(
@@ -598,6 +622,7 @@ internal fun TradingViewZScoreChart(
 @Composable
 internal fun TradingViewZScoreChartCard(
     title: String,
+    subtitle: String? = null,
     candles: List<CandlePoint>,
     displayPoints: List<DataPoint>,
     chartHeightDp: Int,
@@ -611,6 +636,11 @@ internal fun TradingViewZScoreChartCard(
     initialWindowWidth: Float = 1f,
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
+    chartBackgroundHex: String? = null,
+    pnlRubPerSpreadPoint: Double? = null,
+    pnlNetOffsetRub: Double = 0.0,
+    onFullscreenClick: (() -> Unit)? = null,
+    onExitFullscreenClick: (() -> Unit)? = null,
     formingBarHint: MarketsFormingBarHint? = null,
     formingBarHintText: String? = null,
 ) {
@@ -626,6 +656,9 @@ internal fun TradingViewZScoreChartCard(
         initialWindowWidth,
         initialWindowStart,
         areaFillColor,
+        chartBackgroundHex,
+        pnlRubPerSpreadPoint,
+        pnlNetOffsetRub,
         formingBarHint,
     ) {
         buildTradingViewChartPayloadJson(
@@ -639,31 +672,92 @@ internal fun TradingViewZScoreChartCard(
             initialWindowWidth = initialWindowWidth,
             initialWindowStart = initialWindowStart,
             areaFillColor = areaFillColor,
+            chartBackgroundHex = chartBackgroundHex,
+            pnlRubPerSpreadPoint = pnlRubPerSpreadPoint,
+            pnlNetOffsetRub = pnlNetOffsetRub,
             formingBar = formingBarHint,
         )
     }
+    val cardBg = chartBackgroundHex?.let { hex ->
+        runCatching {
+            Color(AndroidColor.parseColor(hex))
+        }.getOrNull()
+    } ?: Color(0xFF131722)
     Column(
         modifier = modifier
             .then(if (landscapeMinimal) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
-            .background(Color(0xFF131722), RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp)),
+            .background(cardBg, RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp)),
     ) {
-        if (!landscapeMinimal && (title.isNotBlank() || !formingBarHintText.isNullOrBlank())) {
-            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                if (title.isNotBlank()) {
-                    Text(
-                        text = title,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFE5E7EB),
-                        fontSize = 14.sp,
-                    )
+        if (!landscapeMinimal &&
+            (title.isNotBlank() || !subtitle.isNullOrBlank() || !formingBarHintText.isNullOrBlank() ||
+                onFullscreenClick != null || onExitFullscreenClick != null)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    if (title.isNotBlank()) {
+                        Text(
+                            text = title,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFE5E7EB),
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
+                    subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
+                        Text(
+                            text = sub,
+                            color = Color(0xFF80CBC4),
+                            fontSize = 10.sp,
+                            lineHeight = 12.sp,
+                            modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                        )
+                    }
+                    if (!formingBarHintText.isNullOrBlank()) {
+                        Text(
+                            text = formingBarHintText,
+                            color = Color(0xFFFBBF24),
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                        )
+                    }
                 }
-                if (!formingBarHintText.isNullOrBlank()) {
-                    Text(
-                        text = formingBarHintText,
-                        color = Color(0xFFFBBF24),
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(top = if (title.isNotBlank()) 4.dp else 0.dp),
-                    )
+                when {
+                    onExitFullscreenClick != null -> {
+                        IconButton(
+                            onClick = onExitFullscreenClick,
+                            modifier = Modifier.size(36.dp),
+                            colors = IconButtonDefaults.iconButtonColors(
+                                contentColor = Color(0xFF90CAF9),
+                            ),
+                        ) {
+                            Icon(
+                                Icons.Filled.CloseFullscreen,
+                                contentDescription = "Свернуть",
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                    onFullscreenClick != null -> {
+                        IconButton(
+                            onClick = onFullscreenClick,
+                            modifier = Modifier.size(36.dp),
+                            colors = IconButtonDefaults.iconButtonColors(
+                                contentColor = Color(0xFF90CAF9),
+                            ),
+                        ) {
+                            Icon(
+                                Icons.Filled.OpenInFull,
+                                contentDescription = "На весь экран",
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
                 }
             }
         }

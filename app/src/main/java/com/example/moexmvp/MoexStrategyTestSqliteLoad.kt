@@ -10,7 +10,7 @@ import java.time.LocalDate
 internal const val STRATEGY_TEST_SQLITE_CHUNK_ROWS = 2_500
 
 /**
- * Только SQLite: чанками + Z из снимков (persistedZScore) или rolling-пересчёт при пробелах.
+ * Только SQLite: чанками + Z/Δ спреда из снимков или пересчёт при пробелах (spread из TATN/TATNP).
  * Без MOEX и без глобального DataLoadProgressCard.
  */
 internal suspend fun loadStrategyTestM15CacheOnlyChunked(
@@ -55,7 +55,11 @@ internal suspend fun loadStrategyTestM15CacheOnlyChunked(
         return@withContext emptyList()
     }
 
+    fillM15SpreadFromLegClosesInPlace(merged, entities)
+    persistM15SpreadFromLegSnapshots(dao, entities, merged)
     val recalculated = fillM15ZScoresInPlace(merged, entities)
+    fillM15SpreadDeltaSnapshotsInPlace(merged, entities)
+    persistM15SpreadDeltaSnapshots(dao, entities, merged)
     if (recalculated) {
         MoexDiagnostics.log(app, "st_sqlite", "apply_z rows=${merged.size}")
         persistM15ZScoreSnapshots(dao, entities, merged)

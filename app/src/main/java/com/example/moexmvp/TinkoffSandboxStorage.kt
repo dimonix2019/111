@@ -28,6 +28,7 @@ private const val KEY_SANDBOX_AUTO_EXECUTE_SPREAD = "sandbox_auto_execute_spread
 private const val KEY_PORTFOLIO_LEDGER_INCLUDE_AUTO = "portfolio_ledger_include_auto"
 private const val KEY_SANDBOX_PORTFOLIO_MODE_SPLIT_MIGRATED = "sandbox_portfolio_mode_split_migrated_v1"
 private const val KEY_SANDBOX_NOTIFY_LEVERAGE = "sandbox_notify_leverage"
+private const val KEY_PORTFOLIO_TRADE_AMOUNT_RUB = "portfolio_trade_amount_rub"
 
 internal object TinkoffSandboxStorage {
 
@@ -232,6 +233,25 @@ internal object TinkoffSandboxStorage {
     fun setSandboxNotifyLeverage(context: Context, leverage: Double) {
         prefs(context).edit()
             .putFloat(KEY_SANDBOX_NOTIFY_LEVERAGE, leverage.toFloat().coerceIn(1f, 30f))
+            .apply()
+    }
+
+    /** Целевая сумма в одной сделке на «Портфеле» (лимит лот-сайзинга). */
+    fun getPortfolioTradeAmountRub(context: Context): Double =
+        prefs(context).getFloat(
+            KEY_PORTFOLIO_TRADE_AMOUNT_RUB,
+            DEFAULT_PORTFOLIO_TRADE_AMOUNT_RUB.toFloat(),
+        ).toDouble().coerceIn(STRATEGY_TEST_ACCOUNT_RUB_MIN, STRATEGY_TEST_ACCOUNT_RUB_MAX)
+
+    fun setPortfolioTradeAmountRub(context: Context, rub: Double) {
+        prefs(context).edit()
+            .putFloat(
+                KEY_PORTFOLIO_TRADE_AMOUNT_RUB,
+                rub.toFloat().coerceIn(
+                    STRATEGY_TEST_ACCOUNT_RUB_MIN.toFloat(),
+                    STRATEGY_TEST_ACCOUNT_RUB_MAX.toFloat(),
+                ),
+            )
             .apply()
     }
 

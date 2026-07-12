@@ -19,6 +19,7 @@ import org.json.JSONObject
 import java.util.Locale
 
 internal const val PUSH_CHANNEL_ID = "moex_push_channel"
+internal const val APP_UPDATE_CHANNEL_ID = "moex_app_update_channel"
 internal const val PUSH_TOPIC = "moex_updates"
 internal const val PUSH_LOG_TAG = "MoexPush"
 /** PendingIntent → MainActivity: восстановить карточку «Принять» по данным из уведомления. */
@@ -278,6 +279,7 @@ internal fun buildStrategySignalJournalPushView(
 
 internal fun createPushNotificationChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return
     val channel = NotificationChannel(
         PUSH_CHANNEL_ID,
         "MOEX Push",
@@ -285,9 +287,28 @@ internal fun createPushNotificationChannel(context: Context) {
     ).apply {
         description = "Push notifications for MOEX updates"
     }
-    val manager = context.getSystemService(NotificationManager::class.java)
-    manager?.createNotificationChannel(channel)
+    manager.createNotificationChannel(channel)
 }
+
+/** Отдельный канал с высоким приоритетом — OTA-обновления не теряются среди сигналов. */
+internal fun createAppUpdateNotificationChannel(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return
+    val channel = NotificationChannel(
+        APP_UPDATE_CHANNEL_ID,
+        "Обновления MOEX MVP",
+        NotificationManager.IMPORTANCE_HIGH
+    ).apply {
+        description = "Уведомления о новых сборках приложения"
+        enableVibration(true)
+    }
+    manager.createNotificationChannel(channel)
+}
+
+internal data class PushNotificationActionButton(
+    val label: String,
+    val pendingIntent: PendingIntent,
+)
 
 internal fun showPushNotification(
     context: Context,
@@ -297,7 +318,8 @@ internal fun showPushNotification(
     virtualTradeTap: VirtualTradeTapIntent? = null,
     appUpdateTap: AppRemoteUpdate? = null,
     skipDuplicateCheck: Boolean = false,
-    correlationTag: String? = null
+    correlationTag: String? = null,
+    actionButton: PushNotificationActionButton? = null,
 ): Boolean {
     val app = context.applicationContext
     val receivedAtMillis = System.currentTimeMillis()
@@ -337,6 +359,9 @@ internal fun showPushNotification(
     }
 
     createPushNotificationChannel(context)
+    if (appUpdateTap != null) {
+        createAppUpdateNotificationChannel(context)
+    }
     val intent = Intent(context, MainActivity::class.java).apply {
         addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         if (virtualTradeTap != null) {
@@ -359,14 +384,28 @@ internal fun showPushNotification(
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-    val notification = NotificationCompat.Builder(context, PUSH_CHANNEL_ID)
+    val channelId = if (appUpdateTap != null) APP_UPDATE_CHANNEL_ID else PUSH_CHANNEL_ID
+    val priority = if (appUpdateTap != null) {
+        NotificationCompat.PRIORITY_HIGH
+    } else {
+        NotificationCompat.PRIORITY_DEFAULT
+    }
+    val notificationBuilder = NotificationCompat.Builder(context, channelId)
         .setSmallIcon(android.R.drawable.ic_dialog_info)
         .setContentTitle(title)
         .setContentText(displayBody)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(displayBody))
         .setAutoCancel(true)
-        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .setPriority(priority)
         .setContentIntent(pendingIntent)
-        .build()
+    actionButton?.let { action ->
+        notificationBuilder.addAction(
+            android.R.drawable.ic_menu_close_clear_cancel,
+            action.label,
+            action.pendingIntent,
+        )
+    }
+    val notification = notificationBuilder.build()
 
     NotificationManagerCompat.from(context).notify(notificationId, notification)
     trace(true, null, notificationId)
