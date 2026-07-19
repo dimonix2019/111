@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MOEX Bar Replay · TradingView</title>
-  <link rel="stylesheet" href="/static/replay.css?v=20260717c" />
+  <title>MOEX · Торговля / История / Счёт / Replay</title>
+  <link rel="stylesheet" href="/static/replay.css?v=20260719d" />
 </head>
 <body>
   <div id="loading" class="loading">
@@ -12,30 +12,39 @@
     <div class="loading-sub" id="loadingSub">подключение к http://127.0.0.1:8765</div>
   </div>
 
-  <div class="app hidden" id="app">
+  <div class="app hidden" id="app" data-view="trade">
     <header class="toolbar">
-      <h1>MOEX Bar Replay</h1>
-      <span class="meta" id="meta">TATN/TATNP · 15м</span>
-      <label class="meta">Старт
+      <h1 id="appTitle">MOEX · Торговля</h1>
+      <div class="chip-group view-mode-chips" id="viewModeChips">
+        <button type="button" class="chip active" data-view="trade">Торговля</button>
+        <button type="button" class="chip" data-view="history">История</button>
+        <button type="button" class="chip" data-view="account">Счёт</button>
+        <button type="button" class="chip" data-view="replay">Replay</button>
+      </div>
+      <span class="meta trade-only" id="tradeMeta">TATN/TATNP</span>
+      <span class="meta history-only" id="historyMeta">История</span>
+      <span class="meta account-only" id="liveMeta">T‑Invest</span>
+      <span class="meta replay-only" id="meta">TATN/TATNP · 15м</span>
+      <label class="meta replay-only">Старт
         <input type="date" id="startDate" />
       </label>
-      <span class="meta">Период:</span>
-      <div class="chip-group" id="periodChips">
+      <span class="meta replay-only">Период:</span>
+      <div class="chip-group replay-only" id="periodChips">
         <button type="button" class="chip active" data-days="30">30д</button>
         <button type="button" class="chip" data-days="90">3М</button>
         <button type="button" class="chip" data-days="180">6М</button>
         <button type="button" class="chip" data-days="400">Всё</button>
       </div>
-      <label class="meta">Вх ±
+      <label class="meta replay-only">Вх ±
         <select id="entrySel"></select>
       </label>
-      <label class="meta">Вых ±
+      <label class="meta replay-only">Вых ±
         <select id="exitSel"></select>
       </label>
-      <label class="meta">Капитал ₽
+      <label class="meta replay-only">Капитал ₽
         <input type="number" id="notionalSel" min="1000" max="10000000" step="1000" value="10000" />
       </label>
-      <label class="meta">CSV
+      <label class="meta replay-only">CSV
         <select id="csvSel">
           <option value="m15_tatn_255d.csv" selected>255д</option>
           <option value="m15_tatn_365d.csv">365д</option>
@@ -44,9 +53,160 @@
       </label>
     </header>
 
-    <div class="status-bar" id="status">—</div>
+    <div class="status-bar trade-only" id="tradeStatus">Торговля · загрузка…</div>
+    <div class="status-bar history-only" id="historyStatus">История · загрузка…</div>
+    <div class="status-bar account-only" id="liveStatus">Счёт · не подключено</div>
+    <div class="status-bar replay-only" id="status">—</div>
 
-    <main class="main" id="mainSplit">
+    <!-- —— Торговля (главный стол) —— -->
+    <main class="trade-desk trade-only" id="tradeView">
+      <div class="trade-charts">
+        <section class="live-card trade-chart-head">
+          <div class="live-row" style="justify-content:space-between;align-items:center;margin:0">
+            <div class="chip-group" id="tradePeriodChips">
+              <button type="button" class="chip" data-days="1">1Д</button>
+              <button type="button" class="chip active" data-days="7">1Н</button>
+              <button type="button" class="chip" data-days="30">1М</button>
+              <button type="button" class="chip" data-days="90">3М</button>
+            </div>
+            <button type="button" class="btn btn-primary" id="tradeBtnRefresh">Обновить MOEX</button>
+          </div>
+          <div class="markets-strip" id="tradeStrip">—</div>
+        </section>
+        <section class="live-card">
+          <div class="pnl-head">
+            <div class="pnl-label">Z-score · 15м</div>
+            <span class="meta" id="tradeThreshLabel">пороги ±1.3 / ±1.2</span>
+          </div>
+          <div id="tradeZChart" class="markets-chart"></div>
+        </section>
+        <section class="live-card">
+          <div class="pnl-head">
+            <div class="pnl-label">Спред % · 15м</div>
+          </div>
+          <div id="tradeSpreadChart" class="markets-chart markets-chart-sm"></div>
+        </section>
+      </div>
+
+      <aside class="trade-side live-card" id="tradeSidePanel">
+        <h2>Сделка</h2>
+        <div class="trade-side-status" id="tradeSideStatus">FLAT · монитор — · auto —</div>
+
+        <div class="trade-params">
+          <label>Вх \|Z\|
+            <input type="number" id="tradeEntryZ" min="0.05" max="8" step="0.05" value="1.3" />
+          </label>
+          <label>Вых \|Z\|
+            <input type="number" id="tradeExitZ" min="0.05" max="8" step="0.05" value="1.2" />
+          </label>
+          <label>Плечо
+            <input type="number" id="tradeLeverage" min="1" max="30" step="0.5" value="7" />
+          </label>
+        </div>
+        <div class="live-row live-actions">
+          <label class="live-check">
+            <input type="checkbox" id="tradeAutoExec" />
+            Авто
+          </label>
+          <button type="button" class="btn btn-sm" id="tradeBtnSaveParams">Сохранить</button>
+        </div>
+
+        <div class="trade-open-box" id="tradeOpenBox">
+          <div class="trade-open-empty">Нет открытой позиции</div>
+        </div>
+
+        <div class="live-row live-actions">
+          <button type="button" class="btn btn-trade btn-close-all" id="tradeBtnClose" disabled>Закрыть сделку</button>
+        </div>
+
+        <div class="trade-broker" id="tradeBrokerBox">Брокер: —</div>
+        <div class="trade-mon-msg" id="tradeMonMsg"></div>
+      </aside>
+    </main>
+
+    <!-- —— История —— -->
+    <main class="tab-view history-only" id="historyView">
+      <section class="live-card">
+        <div class="live-row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">Закрытые сделки</h2>
+          <div class="chip-group" id="historyDepthChips">
+            <button type="button" class="chip" data-days="1">1д</button>
+            <button type="button" class="chip" data-days="3">3д</button>
+            <button type="button" class="chip active" data-days="7">7д</button>
+            <button type="button" class="chip" data-days="30">30д</button>
+          </div>
+        </div>
+        <div class="meta" id="historyCount"></div>
+        <div class="live-table-wrap" style="max-height:480px;margin-top:8px">
+          <table class="trades-table" id="historyClosedTable">
+            <thead>
+              <tr>
+                <th>#</th><th>Dir</th><th>Вход</th><th>Выход</th><th>Лоты</th><th>Z вх</th><th>Z вых</th><th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="historyClosedBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <!-- —— Счёт —— -->
+    <main class="live-view account-only" id="liveView">
+      <section class="live-card" id="liveAccountCard">
+        <h2>Счёт T‑Invest</h2>
+        <div class="live-row">
+          <label>Режим
+            <select id="liveMode">
+              <option value="sandbox">Песочница</option>
+              <option value="prod">Боевой (Prod)</option>
+            </select>
+          </label>
+          <label class="live-grow">Токен
+            <input type="password" id="liveToken" placeholder="Bearer-токен из кабинета Т‑Инвест" autocomplete="off" />
+          </label>
+        </div>
+        <div class="live-row">
+          <label class="live-grow">Account ID
+            <input type="text" id="liveAccountId" placeholder="после «Список счетов»" />
+          </label>
+        </div>
+        <div class="live-row live-actions">
+          <button type="button" class="btn btn-primary" id="liveBtnSave">Сохранить</button>
+          <button type="button" class="btn" id="liveBtnAccounts">Список счетов</button>
+          <button type="button" class="btn" id="liveBtnPortfolio">Портфель</button>
+          <button type="button" class="btn" id="liveBtnSizing">Лоты</button>
+        </div>
+        <div class="live-hint" id="liveAccountHint">Пороги Z и Авто — на вкладке «Торговля». Токен только в SQLite на сервере.</div>
+      </section>
+
+      <section class="live-card" id="liveMonitorCard">
+        <h2>Монитор сигналов</h2>
+        <div class="live-row live-actions">
+          <button type="button" class="btn btn-primary" id="liveBtnMonitorStart">▶ Старт монитора</button>
+          <button type="button" class="btn" id="liveBtnMonitorStop">⏹ Стоп</button>
+          <button type="button" class="btn" id="liveBtnTick">Тик сейчас</button>
+        </div>
+        <div class="live-market" id="liveMarketBox">—</div>
+        <div class="live-portfolio" id="livePortfolioBox">—</div>
+      </section>
+
+      <section class="live-card" id="liveTradeCard">
+        <h2>Ручной вход (редко)</h2>
+        <div class="live-row live-actions">
+          <button type="button" class="btn btn-trade btn-long" id="liveBtnLong">Long</button>
+          <button type="button" class="btn btn-trade btn-short" id="liveBtnShort">Short</button>
+        </div>
+        <div class="live-hint">Закрытие и параметры сделки — на вкладке «Торговля».</div>
+      </section>
+
+      <section class="live-card live-card-wide">
+        <h2>События</h2>
+        <div class="live-events" id="liveEvents"></div>
+      </section>
+    </main>
+
+    <!-- —— Replay —— -->
+    <main class="main replay-only" id="mainSplit">
       <div class="chart-wrap">
         <div class="chart-stack" id="chartStack">
           <div class="chart-pane-z-wrap">
@@ -101,7 +261,7 @@
       </aside>
     </main>
 
-    <footer class="controls">
+    <footer class="controls replay-only">
       <div class="controls-row">
         <div class="trade-actions" id="tradeActions">
           <button type="button" class="btn btn-trade btn-long" id="btnLong" title="Открыть Long на текущем баре">Long</button>
@@ -127,9 +287,12 @@
     </footer>
   </div>
 
-  <script src="/static/lightweight-charts.standalone.production.js?v=20260717c"></script>
-  <script src="/static/replay-engine.js?v=20260717c"></script>
-  <script src="/static/chart.js?v=20260717c"></script>
-  <script src="/static/app.js?v=20260717c"></script>
+  <script src="/static/lightweight-charts.standalone.production.js?v=20260719d"></script>
+  <script src="/static/replay-engine.js?v=20260719d"></script>
+  <script src="/static/chart.js?v=20260719d"></script>
+  <script src="/static/trade.js?v=20260719d"></script>
+  <script src="/static/history.js?v=20260719d"></script>
+  <script src="/static/live.js?v=20260719d"></script>
+  <script src="/static/app.js?v=20260719d"></script>
 </body>
 </html>

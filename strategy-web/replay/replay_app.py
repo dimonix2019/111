@@ -24,8 +24,16 @@ if str(STRATEGY_WEB) not in sys.path:
     sys.path.insert(0, str(STRATEGY_WEB))
 
 from replay.replay_db import ensure_replay_bars  # noqa: E402
+from live.routes import router as live_router  # noqa: E402
+from live.markets_api import router as markets_router  # noqa: E402
+from live.portfolio_api import router as portfolio_router  # noqa: E402
+from live.trade_api import router as trade_router  # noqa: E402
 
-app = FastAPI(title="MOEX Bar Replay", version="1.1.0")
+app = FastAPI(title="MOEX Bar Replay", version="1.4.0")
+app.include_router(live_router)
+app.include_router(markets_router)
+app.include_router(portfolio_router)
+app.include_router(trade_router)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 ALLOWED_CSV = {

@@ -727,14 +727,20 @@
     }
   }
 
-  async function bootstrap(csv) {
+  async function bootstrap(csv, opts = {}) {
+    const background = !!opts.background;
     const title = $('loadingTitle');
     const sub = $('loadingSub');
     try {
-      $('loading').classList.remove('hidden');
+      if (!background) {
+        $('loading').classList.remove('hidden');
+        $('app').classList.add('hidden');
+      }
       const data = await loadBars(csv);
-      if (title) title.textContent = 'Инициализация графика…';
-      if (sub) sub.textContent = `${data.count} баров`;
+      if (!background) {
+        if (title) title.textContent = 'Инициализация графика…';
+        if (sub) sub.textContent = `${data.count} баров`;
+      }
       allPoints = data.bars;
       chartFocusIndex = null;
       selectedTradeId = null;
@@ -757,12 +763,18 @@
       } else {
         chart.resize();
       }
-      if (title) title.textContent = 'Построение сделок…';
+      if (!background && title) title.textContent = 'Построение сделок…';
       refreshUi();
       setTimeout(() => chart?.resize(), 100);
-      $('loading').classList.add('hidden');
-      $('app').classList.remove('hidden');
+      if (!background) {
+        $('loading').classList.add('hidden');
+        $('app').classList.remove('hidden');
+      }
     } catch (e) {
+      if (background) {
+        console.error(e);
+        return;
+      }
       if (title) title.textContent = 'Ошибка загрузки';
       if (sub) sub.textContent = e.message || String(e);
       else $('loading').textContent = `Ошибка: ${e.message}`;
@@ -990,6 +1002,16 @@
     bindChartVerticalSplit();
     bindPnlModeToggle();
     bindControls();
-    bootstrap($('csvSel').value);
+    window.__moexReplayResize = () => chart?.resize();
+    const savedView = (window.MoexLive && MoexLive.getSavedView()) || 'trade';
+    if (savedView === 'replay') {
+      if (window.MoexLive) MoexLive.setViewMode('replay');
+      bootstrap($('csvSel').value);
+    } else {
+      $('loading').classList.add('hidden');
+      $('app').classList.remove('hidden');
+      if (window.MoexLive) MoexLive.setViewMode(savedView);
+      bootstrap($('csvSel').value, { background: true });
+    }
   });
 })();

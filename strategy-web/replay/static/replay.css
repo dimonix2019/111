@@ -679,6 +679,311 @@ input[type="number"] {
 
 .hidden { display: none !important; }
 
+/* —— View mode: Торговля | История | Счёт | Replay —— */
+.app[data-view="trade"] .history-only,
+.app[data-view="trade"] .account-only,
+.app[data-view="trade"] .replay-only,
+.app[data-view="trade"] .live-only,
+.app[data-view="trade"] .markets-only,
+.app[data-view="trade"] .portfolio-only { display: none !important; }
+
+.app[data-view="history"] .trade-only,
+.app[data-view="history"] .account-only,
+.app[data-view="history"] .replay-only,
+.app[data-view="history"] .live-only,
+.app[data-view="history"] .markets-only,
+.app[data-view="history"] .portfolio-only { display: none !important; }
+
+.app[data-view="account"] .trade-only,
+.app[data-view="account"] .history-only,
+.app[data-view="account"] .replay-only,
+.app[data-view="account"] .markets-only,
+.app[data-view="account"] .portfolio-only { display: none !important; }
+
+.app[data-view="replay"] .trade-only,
+.app[data-view="replay"] .history-only,
+.app[data-view="replay"] .account-only,
+.app[data-view="replay"] .live-only,
+.app[data-view="replay"] .markets-only,
+.app[data-view="replay"] .portfolio-only { display: none !important; }
+
+.app[data-view="trade"],
+.app[data-view="history"],
+.app[data-view="account"] {
+  grid-template-rows: auto auto 1fr;
+}
+
+.view-mode-chips { margin-right: 8px; }
+
+.tab-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.trade-desk {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 340px);
+  gap: 12px;
+  padding: 12px 14px;
+  overflow: hidden;
+  min-height: 0;
+  height: 100%;
+}
+
+.trade-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  overflow: auto;
+}
+
+.trade-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.trade-side h2 { font-size: 13px; margin: 0; }
+
+.trade-side-status {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.trade-params {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.trade-params label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.trade-params input {
+  background: #2a2e39;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.trade-open-box {
+  background: #1a1e2a;
+  border-radius: 4px;
+  padding: 10px;
+  font-size: 12px;
+  flex: 1 1 auto;
+  min-height: 120px;
+}
+
+.trade-open-empty { color: var(--muted); }
+.trade-open-dir { font-weight: 600; margin-bottom: 8px; color: #93c5fd; }
+
+.trade-open-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+
+.trade-open-grid span { color: var(--muted); }
+.trade-open-grid b { font-weight: 500; }
+
+.pnl-pos { color: var(--green); }
+.pnl-neg { color: var(--red); }
+
+.trade-risk {
+  margin-top: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.risk-ok { background: #1a2e24; color: #6ee7b7; }
+.risk-warn { background: #2e2a1a; color: #fbbf24; }
+.risk-red { background: #2e1a1a; color: #f87171; }
+
+.trade-broker, .trade-mon-msg {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.markets-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.markets-strip span b {
+  color: var(--muted);
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.markets-chart {
+  width: 100%;
+  height: 300px;
+  margin-top: 6px;
+}
+
+.markets-chart-sm {
+  height: 150px;
+}
+
+.live-view {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: min-content;
+  gap: 12px;
+  padding: 12px 14px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.live-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+
+.live-card-wide {
+  grid-column: 1 / -1;
+}
+
+.live-card h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+
+.live-card h3 {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.live-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.live-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.live-grow { flex: 1 1 180px; min-width: 140px; }
+
+.live-row input[type="text"],
+.live-row input[type="password"],
+.live-row input[type="number"] {
+  background: #2a2e39;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  min-width: 80px;
+}
+
+.live-actions { align-items: center; }
+
+.live-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+  color: var(--text) !important;
+  font-size: 12px !important;
+  cursor: pointer;
+}
+
+.live-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.live-market,
+.live-portfolio,
+.live-open {
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  color: var(--text);
+  background: #1a1e2a;
+  border-radius: 4px;
+  padding: 8px 10px;
+  min-height: 40px;
+}
+
+.live-split {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 12px;
+}
+
+.live-table-wrap {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.live-events {
+  max-height: 220px;
+  overflow: auto;
+  font-size: 11px;
+  font-family: ui-monospace, Consolas, monospace;
+  background: #1a1e2a;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.live-event {
+  padding: 3px 0;
+  border-bottom: 1px solid #222633;
+  color: var(--muted);
+}
+
+.live-event span { color: #5b6070; margin-right: 6px; }
+.live-event-error { color: var(--red); }
+.live-event-signal { color: #93c5fd; }
+
+@media (max-width: 900px) {
+  .live-view { grid-template-columns: 1fr; }
+  .live-split { grid-template-columns: 1fr; }
+  .trade-desk {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+}
+
 @media (max-width: 900px) {
   .main {
     flex-direction: column;

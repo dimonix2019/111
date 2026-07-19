@@ -1,2 +1,7 @@
 __pycache__/
 data/replay_m15.db
+data/replay_m15.db-shm
+data/replay_m15.db-wal
+data/live_trading.db
+data/live_trading.db-shm
+data/live_trading.db-wal
