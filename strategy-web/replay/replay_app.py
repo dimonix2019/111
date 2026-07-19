@@ -36,12 +36,40 @@ ALLOWED_CSV = {
 }
 
 
-def _is_online() -> bool:
+_online_cache: tuple[float, bool] | None = None
+_online_lock = threading.Lock()
+
+
+def _probe_online() -> bool:
     try:
-        socket.create_connection(("iss.moex.com", 443), timeout=2).close()
+        socket.create_connection(("iss.moex.com", 443), timeout=1.0).close()
         return True
     except OSError:
         return False
+
+
+def _refresh_online_cache() -> None:
+    global _online_cache
+    import time
+
+    ok = _probe_online()
+    with _online_lock:
+        _online_cache = (time.time(), ok)
+
+
+def _is_online() -> bool:
+    """Не блокируем /api/bars: кэш или optimistic True + фоновый probe."""
+    global _online_cache
+    import time
+
+    now = time.time()
+    with _online_lock:
+        cached = _online_cache
+    if cached and now - cached[0] < 60:
+        return cached[1]
+    # Первый запрос / протухший кэш — не ждём TCP
+    threading.Thread(target=_refresh_online_cache, daemon=True).start()
+    return cached[1] if cached else True
 
 
 @app.get("/")
@@ -107,6 +135,7 @@ def main() -> None:
         tpl = frame.read_text(encoding="utf-8")
         js_path = STATIC / "lightweight-charts.standalone.production.js"
         marker = "<!-- INJECT_LIGHTWEIGHT_CHARTS -->"
+        # Не перезаписывать огромный бандл на каждый старт, если уже инжектнут
         if marker in tpl and js_path.is_file():
             js = js_path.read_text(encoding="utf-8")
             frame.write_text(tpl.replace(marker, f"<script>\n{js}\n</script>"), encoding="utf-8")

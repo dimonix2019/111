@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +24,10 @@ if str(ROOT) not in sys.path:
 
 def _connect() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     _init_schema(conn)
     return conn
 
@@ -121,15 +124,62 @@ def db_bar_count() -> int:
         return int(row["c"]) if row else 0
 
 
-def _try_moex_tail_sync(csv_path: Path) -> bool:
-    try:
-        from m15_iss_loader import ensure_m15_data
+def _moex_tail_sync_inner(csv_path: Path) -> bool:
+    from m15_iss_loader import ensure_m15_data
 
-        _, refreshed = ensure_m15_data(csv_path, days=255, moex_live=True)
-        return refreshed
+    _, refreshed = ensure_m15_data(csv_path, days=255, moex_live=True)
+    return refreshed
+
+
+def _try_moex_tail_sync(csv_path: Path, *, timeout_sec: float = 12.0) -> bool:
+    """Догрузка хвоста MOEX — с таймаутом, чтобы не блокировать UI минутами."""
+    import concurrent.futures
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            fut = pool.submit(_moex_tail_sync_inner, csv_path)
+            return bool(fut.result(timeout=timeout_sec))
+    except concurrent.futures.TimeoutError:
+        log.warning("MOEX tail sync timed out after %.0fs — отдаём кэш", timeout_sec)
+        return False
     except Exception as exc:
         log.warning("MOEX tail sync skipped: %s", exc)
         return False
+
+
+def _load_cached_bars(
+    csv_path: Path,
+    source_name: str,
+    start_date: str | None,
+) -> list[dict[str, Any]]:
+    count = db_bar_count()
+    if count < 100 and csv_path.is_file():
+        seed_from_csv(csv_path, source_name)
+
+    bars = load_bars_from_db(start_date)
+    if bars:
+        return bars
+
+    if not csv_path.is_file():
+        return []
+
+    bars = load_bars_from_csv(csv_path)
+    if start_date:
+        bars = [b for b in bars if b["tradeDate"] >= start_date]
+    if bars:
+        seed_from_csv(csv_path, source_name)
+        bars = load_bars_from_db(start_date) or bars
+    return bars
+
+
+def _background_moex_sync(csv_path: Path, source_name: str) -> None:
+    if not _try_moex_tail_sync(csv_path):
+        return
+    try:
+        seed_from_csv(csv_path, source_name)
+        log.info("MOEX tail synced in background → %s", source_name)
+    except Exception as exc:
+        log.warning("Background MOEX seed failed: %s", exc)
 
 
 def ensure_replay_bars(
@@ -141,31 +191,21 @@ def ensure_replay_bars(
 ) -> dict[str, Any]:
     """
     Load 15м bars for replay: SQLite cache + optional MOEX tail when online.
-    Seeds DB from CSV when empty; merges CSV rows after online refresh.
+    Сначала отдаём кэш (CSV/SQLite), затем пробуем догрузку MOEX с таймаутом.
     """
-    refreshed = False
-    if online and csv_path.is_file():
-        refreshed = _try_moex_tail_sync(csv_path)
+    bars = _load_cached_bars(csv_path, source_name, start_date)
 
-    count = db_bar_count()
-    if count < 100 and csv_path.is_file():
-        seed_from_csv(csv_path, source_name)
-    elif refreshed and csv_path.is_file():
-        seed_from_csv(csv_path, source_name)
-
-    bars = load_bars_from_db(start_date)
-    if not bars and csv_path.is_file():
-        bars = load_bars_from_csv(csv_path)
-        if start_date:
-            bars = [b for b in bars if b["tradeDate"] >= start_date]
-        if bars:
-            seed_from_csv(csv_path, source_name)
-            bars = load_bars_from_db(start_date) or bars
+    if online and csv_path.is_file() and bars:
+        threading.Thread(
+            target=_background_moex_sync,
+            args=(csv_path, source_name),
+            daemon=True,
+        ).start()
 
     return {
         "bars": bars,
         "source": "sqlite" if db_bar_count() > 0 else "csv",
         "db_count": db_bar_count(),
-        "refreshed": refreshed,
+        "refreshed": False,
         "online": online,
     }

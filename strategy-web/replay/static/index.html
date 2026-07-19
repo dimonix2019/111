@@ -4,10 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MOEX Bar Replay · TradingView</title>
-  <link rel="stylesheet" href="/static/replay.css" />
+  <link rel="stylesheet" href="/static/replay.css?v=20260717c" />
 </head>
 <body>
-  <div id="loading" class="loading">Загрузка 15м данных…</div>
+  <div id="loading" class="loading">
+    <div id="loadingTitle">Загрузка 15м данных…</div>
+    <div class="loading-sub" id="loadingSub">подключение к http://127.0.0.1:8765</div>
+  </div>
 
   <div class="app hidden" id="app">
     <header class="toolbar">
@@ -24,23 +27,13 @@
         <button type="button" class="chip" data-days="400">Всё</button>
       </div>
       <label class="meta">Вх ±
-        <select id="entrySel">
-          <option value="0.5">0.5</option>
-          <option value="0.6">0.6</option>
-          <option value="0.7" selected>0.7</option>
-          <option value="0.8">0.8</option>
-          <option value="1.0">1.0</option>
-          <option value="1.2">1.2</option>
-        </select>
+        <select id="entrySel"></select>
       </label>
       <label class="meta">Вых ±
-        <select id="exitSel">
-          <option value="0.3">0.3</option>
-          <option value="0.4">0.4</option>
-          <option value="0.5" selected>0.5</option>
-          <option value="0.6">0.6</option>
-          <option value="0.7">0.7</option>
-        </select>
+        <select id="exitSel"></select>
+      </label>
+      <label class="meta">Капитал ₽
+        <input type="number" id="notionalSel" min="1000" max="10000000" step="1000" value="10000" />
       </label>
       <label class="meta">CSV
         <select id="csvSel">
@@ -53,11 +46,35 @@
 
     <div class="status-bar" id="status">—</div>
 
-    <main class="main">
+    <main class="main" id="mainSplit">
       <div class="chart-wrap">
-        <div id="chart"></div>
+        <div class="chart-stack" id="chartStack">
+          <div class="chart-pane-z-wrap">
+            <div id="openTradeOverlay" class="open-trade-overlay hidden"></div>
+            <div id="chart" class="chart-pane-z"></div>
+          </div>
+          <div class="split-divider-h" id="deltaSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота графиков Z / Дельта ПП" title="Перетащите · двойной клик — сброс"></div>
+          <div class="delta-wrap" id="deltaPane">
+            <div class="pnl-head">
+              <div class="pnl-label" id="deltaLabel">Дельта ПП · изменение по сделке</div>
+            </div>
+            <div id="deltaChart" class="chart-pane-delta"></div>
+          </div>
+          <div class="split-divider-h" id="chartSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота графиков Дельта / PnL" title="Перетащите · двойной клик — сброс"></div>
+          <div class="pnl-wrap" id="pnlPane">
+            <div class="pnl-head">
+              <div class="pnl-label" id="pnlLabel">PnL · % от вложения</div>
+              <div class="chip-group pnl-mode-chips" id="pnlModeChips">
+                <button type="button" class="chip active" data-pnl-mode="total">Общий</button>
+                <button type="button" class="chip" data-pnl-mode="trade">Сделка</button>
+              </div>
+            </div>
+            <div id="pnlChart" class="chart-pane-pnl"></div>
+          </div>
+        </div>
       </div>
-      <aside class="trades-panel">
+      <div class="split-divider" id="splitDivider" role="separator" aria-orientation="vertical" aria-label="Ширина таблицы сделок" title="Перетащите · двойной клик — сброс"></div>
+      <aside class="trades-panel" id="tradesPanel">
         <div class="trades-panel-head">
           <h2>Сделки</h2>
           <button type="button" class="btn btn-sm" id="btnColumns" title="Столбцы">☰</button>
@@ -71,16 +88,33 @@
             <tbody id="tradesBody"></tbody>
           </table>
         </div>
+        <div class="trades-summary" id="tradesSummary">
+          <div class="trades-summary-filters" id="tradesRiskFilters">
+            <button type="button" class="chip risk-filter active" data-risk-filter="all">Все</button>
+            <button type="button" class="chip risk-filter" data-risk-filter="no-red" title="Скрыть сделки High/Critical (score ≥ 4)">Без красной</button>
+            <button type="button" class="chip risk-filter" data-risk-filter="only-red" title="Только красная зона">Красная</button>
+          </div>
+          <div class="trades-summary-scroll" id="tradesSummaryScroll">
+            <div class="trades-summary-grid" id="tradesSummaryGrid"></div>
+          </div>
+        </div>
       </aside>
     </main>
 
     <footer class="controls">
-      <div class="transport">
-        <button type="button" class="btn" id="btnStart">⏮ В начало</button>
-        <button type="button" class="btn" id="btnBack">⏪ −1 бар</button>
-        <button type="button" class="btn btn-primary" id="btnPlay">▶ Play</button>
-        <button type="button" class="btn" id="btnFwd">⏩ +1 бар</button>
-        <button type="button" class="btn" id="btnEnd">⏭ В конец</button>
+      <div class="controls-row">
+        <div class="trade-actions" id="tradeActions">
+          <button type="button" class="btn btn-trade btn-long" id="btnLong" title="Открыть Long на текущем баре">Long</button>
+          <button type="button" class="btn btn-trade btn-short" id="btnShort" title="Открыть Short на текущем баре">Short</button>
+          <button type="button" class="btn btn-trade btn-close-all" id="btnCloseAll" title="Закрыть открытую позицию">Закрыть все</button>
+        </div>
+        <div class="transport">
+          <button type="button" class="btn" id="btnStart">⏮ В начало</button>
+          <button type="button" class="btn" id="btnBack">⏪ −1 бар</button>
+          <button type="button" class="btn btn-primary" id="btnPlay">▶ Play</button>
+          <button type="button" class="btn" id="btnFwd">⏩ +1 бар</button>
+          <button type="button" class="btn" id="btnEnd">⏭ В конец</button>
+        </div>
       </div>
       <div class="speeds">
         <span>Скорость:</span>
@@ -93,9 +127,9 @@
     </footer>
   </div>
 
-  <script src="/static/lightweight-charts.standalone.production.js"></script>
-  <script src="/static/replay-engine.js"></script>
-  <script src="/static/chart.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/lightweight-charts.standalone.production.js?v=20260717c"></script>
+  <script src="/static/replay-engine.js?v=20260717c"></script>
+  <script src="/static/chart.js?v=20260717c"></script>
+  <script src="/static/app.js?v=20260717c"></script>
 </body>
 </html>
