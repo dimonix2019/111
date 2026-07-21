@@ -228,6 +228,95 @@ class TInvestClient:
         q = _find_nested_money(portfolio, ["totalAmountPortfolio", "total_amount_portfolio"])
         return quotation_to_float(q)
 
+    def _portfolio_positions(self, portfolio: dict[str, Any]) -> list[dict[str, Any]]:
+        for key in ("positions", "Positions", "portfolioPositions", "portfolio_positions"):
+            arr = portfolio.get(key)
+            if isinstance(arr, list):
+                return [p for p in arr if isinstance(p, dict)]
+        return []
+
+    def _position_signed_qty(self, pos: dict[str, Any]) -> float:
+        """Штуки (quantity); отрицательное = шорт."""
+        for key in ("quantity", "Quantity", "balance", "Balance"):
+            v = pos.get(key)
+            if isinstance(v, dict):
+                q = quotation_to_float(v)
+                if q is not None:
+                    return q
+            if isinstance(v, (int, float)):
+                return float(v)
+        for key in ("quantityLots", "quantity_lots", "QuantityLots"):
+            v = pos.get(key)
+            if isinstance(v, dict):
+                q = quotation_to_float(v)
+                if q is not None:
+                    return q
+            if isinstance(v, (int, float)):
+                return float(v)
+        return 0.0
+
+    def _position_matches(self, pos: dict[str, Any], ticker: str, instrument_id: str) -> bool:
+        want = ticker.strip().upper()
+        t = str(pos.get("ticker") or pos.get("Ticker") or "").strip().upper()
+        if t == want:
+            return True
+        ids = {
+            str(pos.get("figi") or ""),
+            str(pos.get("FIGI") or ""),
+            str(pos.get("instrumentUid") or ""),
+            str(pos.get("instrument_uid") or ""),
+            str(pos.get("uid") or ""),
+            str(pos.get("instrumentId") or ""),
+            str(pos.get("instrument_id") or ""),
+        }
+        return bool(instrument_id) and instrument_id in ids
+
+    def detect_spread_position(self, portfolio: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        Ищет спред TATN/TATNP на брокере.
+        LONG = long TATN + short TATNP; SHORT = long TATNP + short TATN.
+        """
+        try:
+            tatn_id = self.resolve_instrument_id("TATN")
+        except Exception:
+            tatn_id = TATN_FALLBACK_ID
+        try:
+            tatnp_id = self.resolve_instrument_id("TATNP")
+        except Exception:
+            tatnp_id = TATNP_FALLBACK_ID
+
+        qty_n = 0.0
+        qty_np = 0.0
+        for pos in self._portfolio_positions(portfolio):
+            if self._position_matches(pos, "TATN", tatn_id):
+                qty_n = self._position_signed_qty(pos)
+            elif self._position_matches(pos, "TATNP", tatnp_id):
+                qty_np = self._position_signed_qty(pos)
+
+        # lot size 1 для TATN/TATNP TQBR
+        lots_n = int(round(abs(qty_n)))
+        lots_np = int(round(abs(qty_np)))
+        if lots_n < 1 or lots_np < 1:
+            return None
+
+        if qty_n > 0 and qty_np < 0:
+            direction = "LONG"
+            signal = "ENTER_LONG"
+        elif qty_n < 0 and qty_np > 0:
+            direction = "SHORT"
+            signal = "ENTER_SHORT"
+        else:
+            return None
+
+        lots = max(1, min(lots_n, lots_np))
+        return {
+            "direction": direction,
+            "entry_signal": signal,
+            "quantity_lots": lots,
+            "qty_tatn": qty_n,
+            "qty_tatnp": qty_np,
+        }
+
     def get_margin_attributes(self, account_id: str) -> dict[str, float] | None:
         if self.mode != "prod":
             return None

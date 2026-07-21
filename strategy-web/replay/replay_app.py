@@ -7,6 +7,7 @@ import socket
 import sys
 import threading
 import webbrowser
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -24,12 +25,24 @@ if str(STRATEGY_WEB) not in sys.path:
     sys.path.insert(0, str(STRATEGY_WEB))
 
 from replay.replay_db import ensure_replay_bars  # noqa: E402
+from live import engine as live_engine  # noqa: E402
 from live.routes import router as live_router  # noqa: E402
 from live.markets_api import router as markets_router  # noqa: E402
 from live.portfolio_api import router as portfolio_router  # noqa: E402
 from live.trade_api import router as trade_router  # noqa: E402
 
-app = FastAPI(title="MOEX Bar Replay", version="1.4.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Always-on live monitor (daemon thread), matching APK intent."""
+    live_engine.start_monitor()
+    try:
+        yield
+    finally:
+        live_engine.stop_monitor()
+
+
+app = FastAPI(title="MOEX Bar Replay", version="1.4.0", lifespan=lifespan)
 app.include_router(live_router)
 app.include_router(markets_router)
 app.include_router(portfolio_router)
@@ -120,6 +133,12 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/health/live")
+def health_live() -> dict[str, Any]:
+    """Process + monitor probe for external watchdog."""
+    return live_engine.health_live()
+
+
 def _open_browser_when_ready(url: str = "http://127.0.0.1:8765") -> None:
     import time
 
@@ -147,10 +166,18 @@ def main() -> None:
         if marker in tpl and js_path.is_file():
             js = js_path.read_text(encoding="utf-8")
             frame.write_text(tpl.replace(marker, f"<script>\n{js}\n</script>"), encoding="utf-8")
-    print("MOEX Bar Replay: http://127.0.0.1:8765")
+    host = (os.environ.get("MOEX_REPLAY_HOST") or "127.0.0.1").strip() or "127.0.0.1"
+    port = int(os.environ.get("MOEX_REPLAY_PORT") or "8765")
+    print(f"MOEX Bar Replay: http://{host}:{port}")
+    if host in ("0.0.0.0", "::"):
+        print("  (слушает все интерфейсы — Tailscale/LAN: http://<tailscale-ip>:8765)")
     if os.environ.get("MOEX_REPLAY_OPEN_BROWSER", "").strip().lower() in ("1", "true", "yes"):
-        threading.Thread(target=_open_browser_when_ready, daemon=True).start()
-    uvicorn.run(app, host="127.0.0.1", port=8765, log_level="info")
+        browse = f"http://127.0.0.1:{port}"
+        threading.Thread(
+            target=lambda: _open_browser_when_ready(browse),
+            daemon=True,
+        ).start()
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":

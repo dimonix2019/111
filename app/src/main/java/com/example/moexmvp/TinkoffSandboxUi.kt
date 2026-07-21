@@ -129,6 +129,11 @@ internal fun TinkoffSandboxTabContent(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        WebDeskMonitorCard(
+            onOrdersOnWebChanged = {
+                onSandboxPrefsChanged()
+            },
+        )
         Text(
             text = "Контур исполнения",
             color = Color(0xFFB3E5FC),

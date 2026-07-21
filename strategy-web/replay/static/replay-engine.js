@@ -16,6 +16,80 @@ function buildZThresholdValues(minVal, maxVal = Z_THRESHOLD_MAX, step = Z_THRESH
   return vals;
 }
 
+/**
+ * Режим спреда по последним M15 барам: сжатие / разжатие / боковик + движение |Z|.
+ * lookback по умолчанию ~2ч (8×15м).
+ *
+ * @param {Array<{spread?: number, z?: number, spreadPercent?: number, zScore?: number}>} bars
+ * @param {{ lookback?: number, flatPp?: number, flatAbsZ?: number }} [opts]
+ * @returns {{ key: string, label: string, zKey: string, zLabel: string, deltaSpread: number|null, deltaAbsZ: number|null, title: string }}
+ */
+function classifySpreadRegime(bars, opts = {}) {
+  const lookback = Math.max(3, opts.lookback || 8);
+  const flatPp = opts.flatPp != null ? opts.flatPp : 0.08;
+  const flatAbsZ = opts.flatAbsZ != null ? opts.flatAbsZ : 0.15;
+  const empty = {
+    key: 'na',
+    label: '—',
+    zKey: 'na',
+    zLabel: '',
+    deltaSpread: null,
+    deltaAbsZ: null,
+    title: '',
+  };
+  if (!Array.isArray(bars) || bars.length < 3) return empty;
+
+  const slice = bars.slice(-lookback);
+  const spreads = [];
+  const absZ = [];
+  for (const b of slice) {
+    const sp = b.spread != null ? Number(b.spread)
+      : (b.spreadPercent != null ? Number(b.spreadPercent) : NaN);
+    const z = b.z != null ? Number(b.z)
+      : (b.zScore != null ? Number(b.zScore) : NaN);
+    if (Number.isFinite(sp)) spreads.push(sp);
+    if (Number.isFinite(z)) absZ.push(Math.abs(z));
+  }
+  if (spreads.length < 3) return empty;
+
+  const deltaSpread = spreads[spreads.length - 1] - spreads[0];
+  let key;
+  let label;
+  if (Math.abs(deltaSpread) < flatPp) {
+    key = 'flat';
+    label = 'боковик';
+  } else if (deltaSpread < 0) {
+    key = 'compress';
+    label = 'сжатие';
+  } else {
+    key = 'expand';
+    label = 'разжатие';
+  }
+
+  let zKey = 'na';
+  let zLabel = '';
+  let deltaAbsZ = null;
+  if (absZ.length >= 3) {
+    deltaAbsZ = absZ[absZ.length - 1] - absZ[0];
+    if (Math.abs(deltaAbsZ) < flatAbsZ) {
+      zKey = 'stable';
+      zLabel = '|Z| стабилен';
+    } else if (deltaAbsZ > 0) {
+      zKey = 'away';
+      zLabel = 'уход от μ';
+    } else {
+      zKey = 'revert';
+      zLabel = 'к среднему';
+    }
+  }
+
+  const dSp = deltaSpread >= 0 ? `+${deltaSpread.toFixed(2)}` : deltaSpread.toFixed(2);
+  const dZ = deltaAbsZ == null ? '' : ` · Δ|Z| ${deltaAbsZ >= 0 ? '+' : ''}${deltaAbsZ.toFixed(2)}`;
+  const title = `за ${spreads.length} бар: Δспред ${dSp} п.п.${dZ}`;
+
+  return { key, label, zKey, zLabel, deltaSpread, deltaAbsZ, title };
+}
+
 function populateThresholdSelect(selectEl, minVal, selectedVal) {
   if (!selectEl) return;
   const values = buildZThresholdValues(minVal);
@@ -41,6 +115,25 @@ function barReplayDelayMs(speed) {
 function isConsecutiveM15Bar(prev, cur) {
   if (!prev.timestampMs || !cur.timestampMs) return false;
   return cur.timestampMs - prev.timestampMs === 15 * 60 * 1000;
+}
+
+/**
+ * TQBR (TATN/TATNP): торги пн–пт с утренней сессии 07:00 до вечерней ~23:50 МСК.
+ * Бары ISS 06:30/06:45 — до открытия; сигналы на них в тесте/live запрещены.
+ * Источник: расписание фондового рынка Мосбиржи (утро 07:00–09:50, основная, вечер до 23:50).
+ */
+function isMoexEquitySessionBar(tradeDate) {
+  const s = String(tradeDate || '').replace('T', ' ').trim();
+  if (s.length < 16) return false;
+  const y = Number(s.slice(0, 4));
+  const mo = Number(s.slice(5, 7));
+  const d = Number(s.slice(8, 10));
+  const hm = s.slice(11, 16);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return false;
+  // UTC noon calendar day → стабильный weekday без сдвига TZ
+  const dow = new Date(Date.UTC(y, mo - 1, d, 12, 0, 0)).getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+  return hm >= '07:00' && hm < '23:50';
 }
 
 function determineZSignal(prevZ, curZ, position, entry, exit) {
@@ -69,16 +162,233 @@ function positionAfter(signal) {
   }
 }
 
+/** Опции forced-exit — parity Android ZStrategySimOptions (+ TP %). */
+function normalizeSimExitOpts(opts = {}) {
+  const n = (v) => {
+    const x = Number(v);
+    return Number.isFinite(x) && x > 0 ? x : 0;
+  };
+  return {
+    takeProfitPct: n(opts.takeProfitPct),
+    forcedTimeStopHours: n(opts.forcedTimeStopHours),
+    forcedZStopDeviation: n(opts.forcedZStopDeviation),
+    /** Z-stop как % от |Z_входа|: deviation = pct/100 × |entryZ| (0 = выкл). */
+    forcedZStopPctOfEntryZ: n(opts.forcedZStopPctOfEntryZ),
+    maxLossRub: n(opts.maxLossRub),
+    /** Экстремальный DD: закрыть, если плавающий убыток ≥ pct% от номинала сделки. */
+    maxLossPctOfNotional: n(opts.maxLossPctOfNotional),
+    forcedHoldHoursIfLosing: n(opts.forcedHoldHoursIfLosing),
+    forcedHoldRequireNeverGreen: !!opts.forcedHoldRequireNeverGreen,
+  };
+}
+
+/** Группы Risk exit — независимый выбор, opts мержатся. */
+const RISK_EXIT_GROUPS = [
+  {
+    id: 'zStop',
+    label: 'Z±',
+    title: 'Z-stop: фикс ±0.5 или % от |Z входа| в сторону mean-revert',
+    selId: 'riskZSel',
+    lsKey: 'moexReplay.riskZ',
+    options: [
+      { id: 'off', label: 'выкл', short: '—', opts: {} },
+      { id: 'z05', label: '±0.5', short: 'Z±0.5', opts: { forcedZStopDeviation: 0.5 } },
+      { id: 'z20', label: '±20%|Z|', short: 'Z±20%', opts: { forcedZStopPctOfEntryZ: 20 } },
+      { id: 'z30', label: '±30%|Z|', short: 'Z±30%', opts: { forcedZStopPctOfEntryZ: 30 } },
+      { id: 'z40', label: '±40%|Z|', short: 'Z±40%', opts: { forcedZStopPctOfEntryZ: 40 } },
+    ],
+  },
+  {
+    id: 'ddStop',
+    label: 'DD stop',
+    title: 'Экстремальный DD: закрыть при плавающем убытке ≥ N% от номинала сделки',
+    selId: 'riskDdSel',
+    lsKey: 'moexReplay.riskDd',
+    options: [
+      { id: 'off', label: 'выкл', short: '—', opts: {} },
+      { id: 'dd15', label: '15% кап.', short: 'DD15%', opts: { maxLossPctOfNotional: 15 } },
+      { id: 'dd20', label: '20% кап.', short: 'DD20%', opts: { maxLossPctOfNotional: 20 } },
+      { id: 'dd25', label: '25% кап.', short: 'DD25%', opts: { maxLossPctOfNotional: 25 } },
+    ],
+  },
+  {
+    id: 'timeStop',
+    label: 'Время',
+    title: 'Time stop: закрыть по времени (всегда / только в минусе)',
+    selId: 'riskTimeSel',
+    lsKey: 'moexReplay.riskTime',
+    options: [
+      { id: 'off', label: 'выкл', short: '—', opts: {} },
+      { id: 't24', label: '24ч всегда', short: 'T24', opts: { forcedTimeStopHours: 24 } },
+      { id: 't48', label: '48ч всегда', short: 'T48', opts: { forcedTimeStopHours: 48 } },
+      { id: 'h48', label: '48ч + минус', short: 'H48−', opts: { forcedHoldHoursIfLosing: 48 } },
+      {
+        id: 'h48ng',
+        label: '48ч− never-green',
+        short: 'H48−NG',
+        opts: { forcedHoldHoursIfLosing: 48, forcedHoldRequireNeverGreen: true },
+      },
+    ],
+  },
+  {
+    id: 'moneyStop',
+    label: 'Money ₽',
+    title: 'Money stop: фиксированный ₽ или 3.5× среднего выигрыша',
+    selId: 'riskMoneySel',
+    lsKey: 'moexReplay.riskMoney',
+    options: [
+      { id: 'off', label: 'выкл', short: '—', opts: {} },
+      { id: 'm2k', label: '2000₽', short: 'M2k', opts: { maxLossRub: 2000 } },
+      { id: 'm4k', label: '4000₽', short: 'M4k', opts: { maxLossRub: 4000 } },
+      { id: 'm35w', label: '3.5×avgWin', short: 'M×3.5', opts: { maxLossRubDynamic: true } },
+    ],
+  },
+];
+
+/** Миграция со старого единого riskExitSel. */
+const RISK_EXIT_LEGACY_MAP = {
+  off: { zStop: 'off', ddStop: 'off', timeStop: 'off', moneyStop: 'off' },
+  t24: { zStop: 'off', ddStop: 'off', timeStop: 't24', moneyStop: 'off' },
+  z05: { zStop: 'z05', ddStop: 'off', timeStop: 'off', moneyStop: 'off' },
+  z20pct: { zStop: 'z20', ddStop: 'off', timeStop: 'off', moneyStop: 'off' },
+  z30pct: { zStop: 'z30', ddStop: 'off', timeStop: 'off', moneyStop: 'off' },
+  z40pct: { zStop: 'z40', ddStop: 'off', timeStop: 'off', moneyStop: 'off' },
+  m4k: { zStop: 'off', ddStop: 'off', timeStop: 'off', moneyStop: 'm4k' },
+  dd15: { zStop: 'off', ddStop: 'dd15', timeStop: 'off', moneyStop: 'off' },
+  dd20: { zStop: 'off', ddStop: 'dd20', timeStop: 'off', moneyStop: 'off' },
+  dd25: { zStop: 'off', ddStop: 'dd25', timeStop: 'off', moneyStop: 'off' },
+  m35w: { zStop: 'off', ddStop: 'off', timeStop: 'off', moneyStop: 'm35w' },
+  h48: { zStop: 'off', ddStop: 'off', timeStop: 'h48', moneyStop: 'off' },
+  h48ng: { zStop: 'off', ddStop: 'off', timeStop: 'h48ng', moneyStop: 'off' },
+  antiHold: { zStop: 'z30', ddStop: 'dd20', timeStop: 't24', moneyStop: 'off' },
+  z30dd20: { zStop: 'z30', ddStop: 'dd20', timeStop: 'off', moneyStop: 'off' },
+  z40dd20: { zStop: 'z40', ddStop: 'dd20', timeStop: 'off', moneyStop: 'off' },
+  combo1: { zStop: 'z05', ddStop: 'off', timeStop: 't24', moneyStop: 'm4k' },
+  combo2: { zStop: 'off', ddStop: 'off', timeStop: 't24', moneyStop: 'off' },
+  combo3: { zStop: 'z05', ddStop: 'off', timeStop: 'h48ng', moneyStop: 'm4k' },
+};
+
+function getRiskExitGroup(groupId) {
+  return RISK_EXIT_GROUPS.find((g) => g.id === groupId) || null;
+}
+
+function getRiskExitGroupOption(groupId, optionId) {
+  const g = getRiskExitGroup(groupId);
+  if (!g) return { id: 'off', label: 'выкл', short: '—', opts: {} };
+  return g.options.find((o) => o.id === optionId) || g.options[0];
+}
+
+/** Слить выбранные опции групп → raw sim opts. */
+function mergeRiskExitGroupOpts(selectionByGroup) {
+  const merged = {};
+  for (const g of RISK_EXIT_GROUPS) {
+    const opt = getRiskExitGroupOption(g.id, selectionByGroup[g.id] || 'off');
+    Object.assign(merged, opt.opts);
+  }
+  return merged;
+}
+
+function formatRiskExitSelectionShort(selectionByGroup) {
+  const parts = [];
+  for (const g of RISK_EXIT_GROUPS) {
+    const opt = getRiskExitGroupOption(g.id, selectionByGroup[g.id] || 'off');
+    if (opt.id !== 'off') parts.push(opt.short || opt.label);
+  }
+  return parts.length ? parts.join('+') : 'выкл';
+}
+
+function simTradeDurationMs(entryDate, barDate) {
+  const a = parseTradeMs(entryDate);
+  const b = parseTradeMs(barDate);
+  if (a == null || b == null) return null;
+  return b - a;
+}
+
+/** Money / DD stop — плавающий убыток (комиссия выхода + overnight). */
+function resolveMaxLossRubLimit(opts, constants) {
+  const limits = [];
+  if (opts.maxLossRub > 0) limits.push(opts.maxLossRub);
+  if (opts.maxLossPctOfNotional > 0) {
+    limits.push(Math.max(1, constants.notionalRub) * (opts.maxLossPctOfNotional / 100));
+  }
+  if (!limits.length) return 0;
+  return Math.min(...limits);
+}
+
+function stopLossRubHit(bar, position, entrySpread, entryDate, constants, maxLossRub) {
+  if (!(maxLossRub > 0) || (position !== 'Long' && position !== 'Short')) return false;
+  // Parity zsim._stop_loss_hit: MTM без exit-slip (slip только в entrySpread / на реальном выходе).
+  const net = openTradeNetRub(bar, position, entrySpread, entryDate, constants, false);
+  return -net >= maxLossRub;
+}
+
+/**
+ * Forced exits — parity MoexZStrategySim.forcedExitHit + TP + money/DD stop.
+ * @returns {'ExitLong'|'ExitShort'|'None'}
+ */
+function resolveProtectiveExit(ctx) {
+  const {
+    bar, position, entrySpread, entryDate, entryZ, peakMtmNetRub, constants, opts,
+  } = ctx;
+  if (position !== 'Long' && position !== 'Short') return 'None';
+  const exitSig = position === 'Long' ? 'ExitLong' : 'ExitShort';
+  const netClose = openTradeNetRub(bar, position, entrySpread, entryDate, constants, true);
+  const netMtm = openTradeNetRub(bar, position, entrySpread, entryDate, constants, false);
+
+  if (opts.takeProfitPct > 0) {
+    const pct = (netMtm / Math.max(1, constants.notionalRub)) * 100;
+    if (pct >= opts.takeProfitPct) return exitSig;
+  }
+  const maxLossRub = resolveMaxLossRubLimit(opts, constants);
+  if (stopLossRubHit(bar, position, entrySpread, entryDate, constants, maxLossRub)) {
+    return exitSig;
+  }
+
+  const durationMs = simTradeDurationMs(entryDate, bar.tradeDate);
+  if (durationMs == null) return 'None';
+
+  if (opts.forcedTimeStopHours > 0
+    && durationMs >= opts.forcedTimeStopHours * 3_600_000) {
+    return exitSig;
+  }
+  if (opts.forcedZStopPctOfEntryZ > 0 || opts.forcedZStopDeviation > 0) {
+    const z = bar.zScore ?? 0;
+    // % от |Z_входа| имеет приоритет над фикс. deviation, если задан.
+    const dev = opts.forcedZStopPctOfEntryZ > 0
+      ? (opts.forcedZStopPctOfEntryZ / 100) * Math.abs(entryZ)
+      : opts.forcedZStopDeviation;
+    if (dev > 0) {
+      if (position === 'Long' && z > entryZ + dev) return exitSig;
+      if (position === 'Short' && z < entryZ - dev) return exitSig;
+    }
+  }
+  if (opts.forcedHoldHoursIfLosing > 0
+    && durationMs >= opts.forcedHoldHoursIfLosing * 3_600_000) {
+    if (netClose < 0 && (!opts.forcedHoldRequireNeverGreen || peakMtmNetRub <= 0)) {
+      return exitSig;
+    }
+  }
+  return 'None';
+}
+
 class BarReplayEngine {
-  constructor(points, entry, exit, startIndex = Z_SCORE_ROLLING_MIN_BARS) {
+  constructor(points, entry, exit, startIndex = Z_SCORE_ROLLING_MIN_BARS, opts = {}) {
     this.points = points;
     this.entry = entry;
     this.exit = exit;
+    this.simOpts = normalizeSimExitOpts(opts);
+    /** @deprecated use simOpts.takeProfitPct */
+    this.takeProfitPct = this.simOpts.takeProfitPct;
     this.minCursor = Math.min(Math.max(0, startIndex), Math.max(0, points.length - 1));
     this.cursor = this.minCursor;
     this.state = 'Idle';
     this.speed = 1;
     this.position = 'Flat';
+    this.openEntrySpread = 0;
+    this.openEntryDate = '';
+    this.openEntryZ = 0;
+    this.peakMtmNetRub = 0;
+    this.sizing = createSimSizingState();
     this.edges = [];
     this.manualEdges = [];
     this.manualSeq = 0;
@@ -111,7 +421,8 @@ class BarReplayEngine {
     }
     const next = this.cursor + 1;
     const edgesBefore = this.edges.length;
-    this.rebuildStateToCursor(next);
+    // Инкремент: один бар, без полного rebuildStateToCursor (O(n) → O(1))
+    this._processBarAt(next);
     this.cursor = next;
     const newEdge = this.edges.length > edgesBefore ? this.edges[this.edges.length - 1] : null;
     return this._frame(newEdge?.signal ?? null);
@@ -142,23 +453,75 @@ class BarReplayEngine {
     return this._frame(null);
   }
 
+  /**
+   * Обработать один бар i (сигналы Z / protective / manual).
+   * Требует корректного состояния на баре i-1 (или i==0).
+   */
+  _processBarAt(i) {
+    if (i < 0 || i >= this.points.length) return;
+    if (i === 0) {
+      this._applyManualEdgesAtIndex(0);
+      return;
+    }
+    const prev = this.points[i - 1];
+    const cur = this.points[i];
+    let signal = 'None';
+
+    // Вне сессии TQBR — только ручные маркеры (нет AUTO entry/exit / risk-exit).
+    if (!isMoexEquitySessionBar(cur.tradeDate)) {
+      this._applyManualEdgesAtIndex(i);
+      return;
+    }
+
+    if (
+      (this.position === 'Long' || this.position === 'Short')
+      && this.openEntryDate
+    ) {
+      const constants = this.sizing.constants;
+      const netClose = openTradeNetRub(
+        cur,
+        this.position,
+        this.openEntrySpread,
+        this.openEntryDate,
+        constants,
+        true,
+      );
+      this.peakMtmNetRub = Math.max(this.peakMtmNetRub, netClose);
+      signal = resolveProtectiveExit({
+        bar: cur,
+        position: this.position,
+        entrySpread: this.openEntrySpread,
+        entryDate: this.openEntryDate,
+        entryZ: this.openEntryZ,
+        peakMtmNetRub: this.peakMtmNetRub,
+        constants,
+        opts: this.simOpts,
+      });
+    }
+
+    if (signal === 'None' && isConsecutiveM15Bar(prev, cur)) {
+      signal = determineZSignal(prev.zScore, cur.zScore, this.position, this.entry, this.exit);
+    }
+    if (signal !== 'None') this._pushEdge(signal, cur, false);
+    this._applyManualEdgesAtIndex(i);
+  }
+
   rebuildStateToCursor(target) {
     this.position = 'Flat';
+    this.openEntrySpread = 0;
+    this.openEntryDate = '';
+    this.openEntryZ = 0;
+    this.peakMtmNetRub = 0;
+    this.sizing = createSimSizingState();
     this.edges = [];
     if (this.points.length < 1 || target < 0) return;
 
     const lastBar = Math.min(target, this.points.length - 1);
-    this._applyManualEdgesAtIndex(0);
+    this._processBarAt(0);
     if (lastBar < 1) return;
 
     for (let i = 1; i <= lastBar; i++) {
-      const prev = this.points[i - 1];
-      const cur = this.points[i];
-      if (isConsecutiveM15Bar(prev, cur)) {
-        const signal = determineZSignal(prev.zScore, cur.zScore, this.position, this.entry, this.exit);
-        if (signal !== 'None') this._pushEdge(signal, cur, false);
-      }
-      this._applyManualEdgesAtIndex(i);
+      this._processBarAt(i);
     }
   }
 
@@ -190,6 +553,36 @@ class BarReplayEngine {
       manual: !!manual,
     };
     this.position = edge.positionAfter;
+    if (signal === 'EnterLong' || signal === 'EnterShort') {
+      const dir = signal === 'EnterLong' ? 'Long' : 'Short';
+      this.openEntrySpread = simEntrySpread(bar.spreadPercent ?? 0, dir);
+      this.openEntryDate = bar.tradeDate;
+      this.openEntryZ = bar.zScore ?? 0;
+      this.peakMtmNetRub = openTradeNetRub(
+        bar,
+        dir,
+        this.openEntrySpread,
+        this.openEntryDate,
+        this.sizing.constants,
+        true,
+      );
+    } else if (signal === 'ExitLong' || signal === 'ExitShort') {
+      if (this.openEntryDate && (before === 'Long' || before === 'Short')) {
+        const net = openTradeNetRub(
+          bar,
+          before,
+          this.openEntrySpread,
+          this.openEntryDate,
+          this.sizing.constants,
+          true,
+        );
+        this.sizing.applyClosedNet(net);
+      }
+      this.openEntrySpread = 0;
+      this.openEntryDate = '';
+      this.openEntryZ = 0;
+      this.peakMtmNetRub = 0;
+    }
     this.edges.push(edge);
     return edge;
   }
@@ -345,6 +738,10 @@ class BarReplayEngine {
 function barReplayVisibleIndexRange(points, cursorIndex, visibleDays = 30, includeIndex = null) {
   if (!points.length) return { start: 0, end: 0 };
   const cursor = Math.min(cursorIndex, points.length - 1);
+  // «Всё» (400+) — от начала данных до курсора симуляции
+  if (!visibleDays || visibleDays >= 400) {
+    return { start: 0, end: cursor };
+  }
   const till = points[cursor].timestampMs;
   const dayMs = 24 * 60 * 60 * 1000;
   let from = till - visibleDays * dayMs;
@@ -361,7 +758,9 @@ function barReplayVisibleIndexRange(points, cursorIndex, visibleDays = 30, inclu
 
 /** Сколько баров держать на экране (фикс. zoom); slice = visibleDays календарных дней. */
 function visibleBarsOnScreen(visibleDays) {
-  const map = { 30: 200, 90: 280, 180: 340, 400: 420 };
+  // «Всё» — уместить весь загруженный период (zoom-out без потолка)
+  if (!visibleDays || visibleDays >= 400) return 1_000_000;
+  const map = { 30: 200, 90: 280, 180: 340 };
   if (map[visibleDays]) return map[visibleDays];
   return Math.min(500, Math.max(120, Math.round(visibleDays * 6.5)));
 }
@@ -513,16 +912,181 @@ function buildMarkers(edges, windowPoints) {
   return markers;
 }
 
+/**
+ * Точки на Z: первый бар, где PnL сделки (% от вложения) ≥ 1% / 2% / 3%.
+ * Квадраты над свечой; на одном баре снизу вверх: 1% → 2% → 3%.
+ */
+function buildPnlMilestoneMarkers(edges, allPoints, windowPoints, cursorIndex) {
+  if (!allPoints.length || !windowPoints.length || !edges.length) return [];
+
+  const markers = [];
+  const windowLabels = new Set(windowPoints.map((p) => p.tradeDate));
+  const edgesByMs = groupEdgesByBarMs(edges);
+  const lastIdx = Math.min(cursorIndex, allPoints.length - 1);
+  const sizing = createSimSizingState();
+
+  let position = 'Flat';
+  let entrySpread = 0;
+  let entryDate = '';
+  let tradeNo = 0;
+  /** @type {{ entryDate: string, direction: string, entrySpread: number, tradeNo: number, constants: object } | null} */
+  let open = null;
+
+  const flushTrade = (endDate, closedAtEnd) => {
+    if (!open) return;
+    const ms = computeTradePnlMilestones(
+      allPoints,
+      open.entryDate,
+      endDate,
+      open.direction,
+      open.entrySpread,
+      closedAtEnd,
+      open.constants,
+    );
+    if (closedAtEnd) {
+      const endBar = allPoints.find((p) => p.tradeDate === endDate) || allPoints[lastIdx];
+      if (endBar) {
+        const net = openTradeNetRub(
+          endBar,
+          open.direction,
+          open.entrySpread,
+          open.entryDate,
+          open.constants,
+          true,
+        );
+        sizing.applyClosedNet(net);
+      }
+    }
+    const tid = tradeSelectId(open.tradeNo);
+    const push = (date, level) => {
+      if (!date || !windowLabels.has(date)) return;
+      const style = level === 1
+        ? { color: '#69F0AE', text: '▲1%', size: 2.0 }
+        : level === 2
+          ? { color: '#40C4FF', text: '▲2%', size: 2.2 }
+          : { color: '#E040FB', text: '▲3%', size: 2.4 };
+      markers.push({
+        time: labelToUnixSec(date),
+        position: 'aboveBar',
+        color: style.color,
+        shape: 'square',
+        text: style.text,
+        tradeId: tid,
+        isEntry: false,
+        size: style.size,
+        milestone: level,
+      });
+    };
+    push(ms.hit1Date, 1);
+    push(ms.hit2Date, 2);
+    push(ms.hit3Date, 3);
+  };
+
+  for (let i = 0; i <= lastIdx; i++) {
+    const p = allPoints[i];
+    const barEdges = edgesByMs.get(p.timestampMs) || [];
+
+    for (const edge of barEdges) {
+      if (edge.signal === 'EnterLong' || edge.signal === 'EnterShort') {
+        if (open) flushTrade(p.tradeDate, false);
+        position = edge.positionAfter;
+        entrySpread = simEntrySpread(edge.bar.spreadPercent ?? 0, position);
+        entryDate = edge.bar.tradeDate;
+        tradeNo += 1;
+        open = {
+          entryDate,
+          direction: position,
+          entrySpread,
+          tradeNo,
+          constants: sizing.constants,
+        };
+      } else if (edge.signal === 'ExitLong' || edge.signal === 'ExitShort') {
+        if (open) {
+          flushTrade(edge.bar.tradeDate, true);
+          open = null;
+        }
+        position = 'Flat';
+        entrySpread = 0;
+        entryDate = '';
+      }
+    }
+  }
+
+  if (open) {
+    const end = allPoints[lastIdx]?.tradeDate || open.entryDate;
+    flushTrade(end, false);
+  }
+
+  markers.sort((a, b) => a.time - b.time || (a.milestone || 0) - (b.milestone || 0));
+  return markers;
+}
+
+/** Первый бар удержания, где PnL (% от номинала сделки) достиг 1% / 2% / 3%. */
+function computeTradePnlMilestones(allPoints, entryDate, endDate, direction, entrySpread, closedAtEnd, constants) {
+  const c = constants || simPnlConstants();
+  const notional = Math.max(1, c.notionalRub);
+  const entryMs = parseTradeMs(entryDate);
+  const endMs = parseTradeMs(endDate);
+  const out = {
+    hit1Date: null, hit2Date: null, hit3Date: null,
+    hit1Ms: null, hit2Ms: null, hit3Ms: null,
+  };
+  if (entryMs == null || endMs == null || !allPoints.length) return out;
+
+  let hit1 = false;
+  let hit2 = false;
+  let hit3 = false;
+  for (const p of allPoints) {
+    if (p.timestampMs < entryMs || p.timestampMs > endMs) continue;
+    const includeExit = closedAtEnd && p.timestampMs === endMs;
+    const net = openTradeNetRub(p, direction, entrySpread, entryDate, c, includeExit);
+    const pct = (net / notional) * 100;
+    if (!hit1 && pct >= 1) {
+      hit1 = true;
+      out.hit1Date = p.tradeDate;
+      out.hit1Ms = p.timestampMs;
+    }
+    if (!hit2 && pct >= 2) {
+      hit2 = true;
+      out.hit2Date = p.tradeDate;
+      out.hit2Ms = p.timestampMs;
+    }
+    if (!hit3 && pct >= 3) {
+      hit3 = true;
+      out.hit3Date = p.tradeDate;
+      out.hit3Ms = p.timestampMs;
+    }
+    if (hit1 && hit2 && hit3) break;
+  }
+  return out;
+}
+
 /** Открытая сделка — parity шторки Android (formatSignalMonitorOpenTradeLine). */
 function buildOpenTradeOverlay(edges, currentPoint, positionHint = null) {
   if (!currentPoint) return null;
+  const sizing = createSimSizingState();
   let tradeNo = 0;
   let openEntry = null;
+  let entryConstants = sizing.constants;
   for (const edge of edges) {
     if (edge.signal === 'EnterLong' || edge.signal === 'EnterShort') {
       tradeNo++;
       openEntry = edge;
+      entryConstants = sizing.constants;
     } else if (edge.signal === 'ExitLong' || edge.signal === 'ExitShort') {
+      if (openEntry) {
+        const isLong = openEntry.signal === 'EnterLong';
+        const dir = isLong ? 'Long' : 'Short';
+        const net = openTradeNetRub(
+          edge.bar,
+          dir,
+          simEntrySpread(openEntry.bar.spreadPercent ?? 0, dir),
+          openEntry.bar.tradeDate,
+          entryConstants,
+          true,
+        );
+        sizing.applyClosedNet(net);
+      }
       openEntry = null;
     }
   }
@@ -537,6 +1101,7 @@ function buildOpenTradeOverlay(edges, currentPoint, positionHint = null) {
           || (positionHint === 'Short' && edge.signal === 'EnterShort')
         ) {
           openEntry = edge;
+          entryConstants = sizing.constants;
         }
       }
     }
@@ -546,10 +1111,10 @@ function buildOpenTradeOverlay(edges, currentPoint, positionHint = null) {
   const isLong = openEntry.signal === 'EnterLong';
   const direction = isLong ? 'Long' : 'Short';
   const dirShort = tradeDirectionShort(direction);
-  const entrySpread = openEntry.bar.spreadPercent ?? 0;
-  const lastSpread = currentPoint.spreadPercent ?? 0;
+  const entrySpread = simEntrySpread(openEntry.bar.spreadPercent ?? 0, direction);
+  const lastSpread = simExitSpread(currentPoint.spreadPercent ?? 0, direction);
   const pnlPts = isLong ? lastSpread - entrySpread : entrySpread - lastSpread;
-  const { effNotional, commPerSide, overnightPerDay } = simPnlConstants();
+  const { effNotional, commPerSide, overnightPerDay } = entryConstants;
   const gross = spreadPnlToRub(pnlPts, effNotional);
   const ovn = overnightPerDay * overnightDays(openEntry.bar.tradeDate, currentPoint.tradeDate);
   const net = gross - commPerSide - ovn;
@@ -573,7 +1138,13 @@ function buildOpenTradeOverlay(edges, currentPoint, positionHint = null) {
 const SIM_NOTIONAL_DEFAULT = 10_000;
 const SIM_NOTIONAL_MIN = 1_000;
 const SIM_NOTIONAL_MAX = 10_000_000;
+/** Adverse slip по спреду (п.п.), калибровка Prod 2026-07-20 (−86 ₽). */
+const SIM_SLIPPAGE_SPREAD_PTS_DEFAULT = 0.12;
+const SIM_SLIPPAGE_SPREAD_PTS_MIN = 0;
+const SIM_SLIPPAGE_SPREAD_PTS_MAX = 0.5;
 let _simNotionalRub = SIM_NOTIONAL_DEFAULT;
+let _simCompound = false;
+let _simSlippageSpreadPts = SIM_SLIPPAGE_SPREAD_PTS_DEFAULT;
 
 function resolveSimNotionalRub(value) {
   const n = Number(value);
@@ -590,6 +1161,85 @@ function setSimNotionalRub(value) {
   return _simNotionalRub;
 }
 
+function resolveSimSlippageSpreadPts(value) {
+  const n = Number(String(value ?? '').replace(',', '.'));
+  if (!Number.isFinite(n)) return SIM_SLIPPAGE_SPREAD_PTS_DEFAULT;
+  return Math.max(
+    SIM_SLIPPAGE_SPREAD_PTS_MIN,
+    Math.min(SIM_SLIPPAGE_SPREAD_PTS_MAX, Math.round(n * 100) / 100),
+  );
+}
+
+function getSimSlippageSpreadPts() {
+  return _simSlippageSpreadPts;
+}
+
+function setSimSlippageSpreadPts(value) {
+  _simSlippageSpreadPts = resolveSimSlippageSpreadPts(value);
+  return _simSlippageSpreadPts;
+}
+
+/**
+ * Спред входа с adverse slip — parity zsim._entry_spread / Android zSimEntrySpread.
+ * @param {number} spreadPercent
+ * @param {'Long'|'Short'|string} direction
+ */
+function simEntrySpread(spreadPercent, direction) {
+  const sp = Number(spreadPercent) || 0;
+  const slip = Math.max(0, getSimSlippageSpreadPts());
+  if (direction === 'Long') return sp + slip;
+  if (direction === 'Short') return sp - slip;
+  return sp;
+}
+
+/**
+ * Спред выхода с adverse slip — parity zsim._exit_spread / Android zSimExitSpread.
+ * @param {number} spreadPercent
+ * @param {'Long'|'Short'|string} direction
+ */
+function simExitSpread(spreadPercent, direction) {
+  const sp = Number(spreadPercent) || 0;
+  const slip = Math.max(0, getSimSlippageSpreadPts());
+  if (direction === 'Long') return sp - slip;
+  if (direction === 'Short') return sp + slip;
+  return sp;
+}
+
+function getSimCompound() {
+  return !!_simCompound;
+}
+
+function setSimCompound(on) {
+  _simCompound = !!on;
+  return _simCompound;
+}
+
+/** Номинал сделки: при капитализации PnL реинвестируется в размер следующей. */
+function createSimSizingState() {
+  const baseNotional = getSimNotionalRub();
+  const state = {
+    baseNotional,
+    compound: getSimCompound(),
+    realizedRub: 0,
+    positionNotional: baseNotional,
+    constants: null,
+  };
+  state.refresh = () => {
+    if (state.compound) {
+      state.positionNotional = Math.max(1, state.baseNotional + state.realizedRub);
+    } else {
+      state.positionNotional = state.baseNotional;
+    }
+    state.constants = simPnlConstants(state.positionNotional);
+  };
+  state.applyClosedNet = (net) => {
+    state.realizedRub += net;
+    state.refresh();
+  };
+  state.refresh();
+  return state;
+}
+
 const SIM_LEVERAGE = 7;
 const SIM_COMMISSION_PCT_PER_SIDE = 0.04;
 const SIM_OVERNIGHT_FEE_PCT_PER_DAY = 0.033;
@@ -597,12 +1247,17 @@ const SIM_OVERNIGHT_FEE_PCT_PER_DAY = 0.033;
 const TRADE_COLUMNS = [
   { key: 'Index', title: '#', width: 28 },
   { key: 'Direction', title: 'Напр.', width: 40 },
-  { key: 'Entry', title: 'Вход', width: 72 },
-  { key: 'Exit', title: 'Выход', width: 72 },
+  { key: 'Entry', title: 'Вход', width: 96 },
+  { key: 'Exit', title: 'Выход', width: 96 },
+  { key: 'EntryZ', title: 'Zвх', width: 44, hint: 'Z-score на баре входа' },
+  { key: 'ExitZ', title: 'Zвых', width: 44, hint: 'Z-score на баре выхода' },
   { key: 'Duration', title: 'Длит.', width: 52 },
   { key: 'Net', title: 'Чист.', width: 56 },
-  { key: 'PnlMin', title: 'Min', width: 48 },
-  { key: 'PnlMax', title: 'Max', width: 48 },
+  { key: 'PnlMin', title: 'Min', width: 48, hint: 'Мин. MTM по сделке (от входа, с комиссией входа и overnight)' },
+  { key: 'PnlMax', title: 'Max', width: 48, hint: 'Макс. MTM по сделке (от входа, с комиссией входа и overnight)' },
+  { key: 'Hit1', title: '1%', width: 72, hint: 'Первый бар, где PnL ≥ 1% от вложения' },
+  { key: 'Hit2', title: '2%', width: 72, hint: 'Первый бар, где PnL ≥ 2% от вложения' },
+  { key: 'Hit3', title: '3%', width: 72, hint: 'Первый бар, где PnL ≥ 3% от вложения' },
   { key: 'SpreadEntry', title: 'S%вх', width: 44 },
   { key: 'SpreadExit', title: 'S%вых', width: 44 },
   { key: 'SpreadDelta', title: 'Δпп', width: 40 },
@@ -640,18 +1295,13 @@ function parseTradeMs(ts) {
   return Number.isNaN(ms) ? null : ms;
 }
 
-function formatSimTradeDuration(entryDate, exitDate) {
-  const entryMs = parseTradeMs(entryDate);
-  const exitMs = parseTradeMs(exitDate);
-  if (entryMs == null || exitMs == null) return '—';
-  const diffMs = exitMs - entryMs;
-  if (diffMs < 0) return '—';
-  if (diffMs === 0) return '0 мин';
-  const totalMinutes = Math.floor(diffMs / 60000);
-  if (totalMinutes === 0) return '< 1 мин';
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
+function formatDurationMinutes(totalMinutes) {
+  if (!Number.isFinite(totalMinutes)) return '—';
+  const m = Math.max(0, Math.round(totalMinutes));
+  if (m === 0) return totalMinutes > 0 ? '< 1 мин' : '0 мин';
+  const days = Math.floor(m / (24 * 60));
+  const hours = Math.floor((m % (24 * 60)) / 60);
+  const minutes = m % 60;
   if (days > 0) {
     let out = `${days} дн.`;
     if (hours > 0) out += ` ${hours} ч`;
@@ -661,6 +1311,18 @@ function formatSimTradeDuration(entryDate, exitDate) {
     return minutes > 0 ? `${hours} ч ${minutes} мин` : `${hours} ч`;
   }
   return `${minutes} мин`;
+}
+
+function formatSimTradeDuration(entryDate, exitDate) {
+  const entryMs = parseTradeMs(entryDate);
+  const exitMs = parseTradeMs(exitDate);
+  if (entryMs == null || exitMs == null) return '—';
+  const diffMs = exitMs - entryMs;
+  if (diffMs < 0) return '—';
+  if (diffMs === 0) return '0 мин';
+  const totalMinutes = Math.floor(diffMs / 60000);
+  if (totalMinutes === 0) return '< 1 мин';
+  return formatDurationMinutes(totalMinutes);
 }
 
 function durationTone(entryDate, exitDate) {
@@ -791,14 +1453,22 @@ function buildTradeSimSummary(rows, notionalRub = getSimNotionalRub()) {
   const longs = closed.filter((r) => r.direction === 'Long');
   const shorts = closed.filter((r) => r.direction === 'Short');
 
+  // Equity = депо + накопленный PnL. DD% — от пика equity (не от стартового депо),
+  // иначе при капитализации/−росте счёта −7k от 10k выглядит как «−70%».
   let cumulative = 0;
-  let peak = 0;
+  let peakPnl = 0;
   let maxDd = 0;
+  let maxDdPct = 0;
   for (const t of closed) {
     cumulative += t.netValue;
-    if (cumulative > peak) peak = cumulative;
-    const dd = peak - cumulative;
+    if (cumulative > peakPnl) peakPnl = cumulative;
+    const dd = peakPnl - cumulative;
     if (dd > maxDd) maxDd = dd;
+    const peakEquity = notionalRub + peakPnl;
+    if (peakEquity > 0 && dd > 0) {
+      const pct = (dd / peakEquity) * 100;
+      if (pct > maxDdPct) maxDdPct = pct;
+    }
   }
 
   const wins = closed.filter((r) => r.netValue > 0);
@@ -822,6 +1492,7 @@ function buildTradeSimSummary(rows, notionalRub = getSimNotionalRub()) {
     totalPnl,
     retPct,
     maxDd,
+    maxDdPct,
     winCount: wins.length,
     lossCount: losses.length,
     winRate,
@@ -838,10 +1509,109 @@ function buildTradeSimSummary(rows, notionalRub = getSimNotionalRub()) {
   };
 }
 
+const MONTH_SHORT_RU = [
+  'Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн',
+  'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек',
+];
+
+/** Calendar YYYY-MM from trade date label (MSK), or null. */
+function tradeMonthKeyFromLabel(label) {
+  if (label == null || label === '—') return null;
+  const s = String(label).trim().replace('T', ' ');
+  if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
+  const ms = parseTradeMs(s);
+  if (ms == null) return null;
+  // Labels are MSK (+03); derive calendar month in that zone.
+  const shifted = new Date(ms + 3 * 60 * 60 * 1000);
+  const y = shifted.getUTCFullYear();
+  const m = shifted.getUTCMonth() + 1;
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+function formatMonthPnlLabel(ymKey) {
+  const [ys, ms] = String(ymKey).split('-');
+  const y = parseInt(ys, 10);
+  const m = parseInt(ms, 10);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return ymKey;
+  const yy = String(y).slice(-2);
+  return `${MONTH_SHORT_RU[m - 1]} ${yy}`;
+}
+
+/**
+ * Net PnL by calendar month for closed trades (same filter as summary).
+ * Month key = exitDate preferred, else entryDate. Field: netValue.
+ */
+function buildMonthlyPnl(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    if (r.status !== 'Закрыта' || r.netValue == null || !Number.isFinite(r.netValue)) continue;
+    const key = tradeMonthKeyFromLabel(r.exitDate) || tradeMonthKeyFromLabel(r.entryDate);
+    if (!key) continue;
+    const cur = map.get(key) || { key, pnl: 0, count: 0 };
+    cur.pnl += r.netValue;
+    cur.count += 1;
+    map.set(key, cur);
+  }
+  const months = Array.from(map.values()).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  let maxAbs = 0;
+  for (const m of months) {
+    const a = Math.abs(m.pnl);
+    if (a > maxAbs) maxAbs = a;
+  }
+  return months.map((m) => ({
+    key: m.key,
+    label: formatMonthPnlLabel(m.key),
+    pnl: m.pnl,
+    count: m.count,
+    barPct: maxAbs > 0 ? (Math.abs(m.pnl) / maxAbs) * 100 : 0,
+  }));
+}
+
 function decodeTradeColumns(raw) {
   if (!raw) return [...TRADE_COLUMNS_DEFAULT];
   const loaded = raw.split(',').map((t) => t.trim()).filter((k) => TRADE_COLUMN_KEYS.includes(k));
-  return loaded.length ? loaded : [...TRADE_COLUMNS_DEFAULT];
+  if (!loaded.length) return [...TRADE_COLUMNS_DEFAULT];
+  // Только сохранённый набор — новые столбцы не форсируем при каждом reload
+  // (иначе после обновления версии «выключенные» поля снова появляются).
+  return loaded;
+}
+
+/**
+ * Однократная миграция: добавить новые столбцы в сохранение пользователя.
+ * version bump только когда реально появляются новые колонки.
+ */
+const TRADE_COLUMNS_MIG_VERSION = 4;
+
+function migrateTradeColumnsOnce(keys) {
+  let next = [...keys];
+  const insertAfter = (arr, key, after) => {
+    if (arr.includes(key)) return arr;
+    if (!TRADE_COLUMN_KEYS.includes(key)) return arr;
+    const i = arr.indexOf(after);
+    const out = [...arr];
+    out.splice(i >= 0 ? i + 1 : out.length, 0, key);
+    return out;
+  };
+  const ver = parseInt(
+    (typeof localStorage !== 'undefined' && localStorage.getItem('moexReplay.tradeColumnsMig')) || '0',
+    10,
+  ) || 0;
+  if (ver >= TRADE_COLUMNS_MIG_VERSION) return next;
+  if (ver < 1) {
+    next = insertAfter(next, 'Hit2', 'PnlMax');
+    next = insertAfter(next, 'Hit3', 'Hit2');
+  }
+  if (ver < 3) {
+    next = insertAfter(next, 'EntryZ', 'Exit');
+    next = insertAfter(next, 'ExitZ', 'EntryZ');
+  }
+  if (ver < 4) {
+    next = insertAfter(next, 'Hit1', 'PnlMax');
+  }
+  try {
+    localStorage.setItem('moexReplay.tradeColumnsMig', String(TRADE_COLUMNS_MIG_VERSION));
+  } catch (_) { /* ignore */ }
+  return next;
 }
 
 function encodeTradeColumns(keys) {
@@ -850,8 +1620,8 @@ function encodeTradeColumns(keys) {
 }
 
 /** Min/max чистого PnL по барам удержания (MTM; на выходе — с комиссией выхода). */
-function computeTradePnlMinMax(allPoints, entryDate, endDate, direction, entrySpread, closedAtEnd) {
-  const constants = simPnlConstants();
+function computeTradePnlMinMax(allPoints, entryDate, endDate, direction, entrySpread, closedAtEnd, constants) {
+  const c = constants || simPnlConstants();
   const entryMs = parseTradeMs(entryDate);
   const endMs = parseTradeMs(endDate);
   if (entryMs == null || endMs == null || !allPoints.length) return { min: null, max: null };
@@ -863,7 +1633,7 @@ function computeTradePnlMinMax(allPoints, entryDate, endDate, direction, entrySp
   for (const p of allPoints) {
     if (p.timestampMs < entryMs || p.timestampMs > endMs) continue;
     const includeExit = closedAtEnd && p.timestampMs === endMs;
-    const net = openTradeNetRub(p, direction, entrySpread, entryDate, constants, includeExit);
+    const net = openTradeNetRub(p, direction, entrySpread, entryDate, c, includeExit);
     found = true;
     if (net < min) min = net;
     if (net > max) max = net;
@@ -873,37 +1643,59 @@ function computeTradePnlMinMax(allPoints, entryDate, endDate, direction, entrySp
   return { min, max };
 }
 
-function buildTradeRows(edges, entryThreshold = 0.7, allPoints = [], cursorIndex = -1) {
-  const { effNotional, commPerSide, overnightPerDay } = simPnlConstants();
-
+function buildTradeRows(edges, entryThreshold = 0.7, allPoints = [], cursorIndex = -1, opts = {}) {
+  const skipExtras = !!opts.skipExtras;
+  const sizing = createSimSizingState();
   const rows = [];
   let tradeNo = 0;
   let openEntry = null;
   let entryCommission = 0;
+  let entryConstants = sizing.constants;
 
   for (const edge of edges) {
     if (edge.signal === 'EnterLong' || edge.signal === 'EnterShort') {
       tradeNo++;
       openEntry = edge;
-      entryCommission = commPerSide;
+      entryConstants = sizing.constants;
+      entryCommission = entryConstants.commPerSide;
     } else if (edge.signal === 'ExitLong' || edge.signal === 'ExitShort') {
       if (!openEntry) continue;
       const isLong = openEntry.signal === 'EnterLong';
-      const entrySpread = openEntry.bar.spreadPercent ?? 0;
-      const exitSpread = edge.bar.spreadPercent ?? 0;
+      const dir = isLong ? 'Long' : 'Short';
+      const entrySpread = simEntrySpread(openEntry.bar.spreadPercent ?? 0, dir);
+      const exitSpread = simExitSpread(edge.bar.spreadPercent ?? 0, dir);
       const pnlPts = isLong ? exitSpread - entrySpread : entrySpread - exitSpread;
+      const { effNotional, commPerSide, overnightPerDay } = entryConstants;
       const gross = spreadPnlToRub(pnlPts, effNotional);
       const ovn = overnightPerDay * overnightDays(openEntry.bar.tradeDate, edge.bar.tradeDate);
       const commTotal = entryCommission + commPerSide;
       const net = gross - commTotal - ovn;
-      const { min: pnlMin, max: pnlMax } = computeTradePnlMinMax(
-        allPoints,
-        openEntry.bar.tradeDate,
-        edge.bar.tradeDate,
-        isLong ? 'Long' : 'Short',
-        entrySpread,
-        true,
-      );
+      let pnlMin = null;
+      let pnlMax = null;
+      let milestones = {
+        hit1Date: null, hit2Date: null, hit3Date: null,
+        hit1Ms: null, hit2Ms: null, hit3Ms: null,
+      };
+      if (!skipExtras) {
+        ({ min: pnlMin, max: pnlMax } = computeTradePnlMinMax(
+          allPoints,
+          openEntry.bar.tradeDate,
+          edge.bar.tradeDate,
+          dir,
+          entrySpread,
+          true,
+          entryConstants,
+        ));
+        milestones = computeTradePnlMilestones(
+          allPoints,
+          openEntry.bar.tradeDate,
+          edge.bar.tradeDate,
+          dir,
+          entrySpread,
+          true,
+          entryConstants,
+        );
+      }
       const risk = assessTradeRisk(
         openEntry.bar.tradeDate,
         edge.bar.tradeDate,
@@ -913,10 +1705,11 @@ function buildTradeRows(edges, entryThreshold = 0.7, allPoints = [], cursorIndex
       );
       rows.push(makeTradeRow({
         index: tradeNo,
-        direction: isLong ? 'Long' : 'Short',
+        direction: dir,
         entryDate: openEntry.bar.tradeDate,
         exitDate: edge.bar.tradeDate,
         entryZ: openEntry.bar.zScore,
+        exitZ: edge.bar.zScore,
         entrySpread,
         exitSpread,
         pnlPts,
@@ -926,33 +1719,60 @@ function buildTradeRows(edges, entryThreshold = 0.7, allPoints = [], cursorIndex
         net,
         pnlMin,
         pnlMax,
+        hit1Date: milestones.hit1Date,
+        hit2Date: milestones.hit2Date,
+        hit3Date: milestones.hit3Date,
+        hit1Ms: milestones.hit1Ms,
+        hit2Ms: milestones.hit2Ms,
+        hit3Ms: milestones.hit3Ms,
         status: 'Закрыта',
         entryThreshold,
         _risk: risk,
       }));
+      sizing.applyClosedNet(net);
       openEntry = null;
       entryCommission = 0;
     }
   }
   if (openEntry) {
     const isLong = openEntry.signal === 'EnterLong';
-    const entrySpread = openEntry.bar.spreadPercent ?? 0;
+    const dir = isLong ? 'Long' : 'Short';
+    const entrySpread = simEntrySpread(openEntry.bar.spreadPercent ?? 0, dir);
     const cursorBar = cursorIndex >= 0 ? allPoints[cursorIndex] : null;
     const endDate = cursorBar?.tradeDate ?? openEntry.bar.tradeDate;
-    const { min: pnlMin, max: pnlMax } = computeTradePnlMinMax(
-      allPoints,
-      openEntry.bar.tradeDate,
-      endDate,
-      isLong ? 'Long' : 'Short',
-      entrySpread,
-      false,
-    );
+    let pnlMin = null;
+    let pnlMax = null;
+    let milestones = {
+      hit1Date: null, hit2Date: null, hit3Date: null,
+      hit1Ms: null, hit2Ms: null, hit3Ms: null,
+    };
+    if (!skipExtras) {
+      ({ min: pnlMin, max: pnlMax } = computeTradePnlMinMax(
+        allPoints,
+        openEntry.bar.tradeDate,
+        endDate,
+        dir,
+        entrySpread,
+        false,
+        entryConstants,
+      ));
+      milestones = computeTradePnlMilestones(
+        allPoints,
+        openEntry.bar.tradeDate,
+        endDate,
+        dir,
+        entrySpread,
+        false,
+        entryConstants,
+      );
+    }
     rows.push(makeTradeRow({
       index: tradeNo,
-      direction: isLong ? 'Long' : 'Short',
+      direction: dir,
       entryDate: openEntry.bar.tradeDate,
       exitDate: '—',
       entryZ: openEntry.bar.zScore,
+      exitZ: cursorBar?.zScore ?? null,
       entrySpread,
       exitSpread: null,
       pnlPts: null,
@@ -962,11 +1782,23 @@ function buildTradeRows(edges, entryThreshold = 0.7, allPoints = [], cursorIndex
       net: null,
       pnlMin,
       pnlMax,
+      hit1Date: milestones.hit1Date,
+      hit2Date: milestones.hit2Date,
+      hit3Date: milestones.hit3Date,
+      hit1Ms: milestones.hit1Ms,
+      hit2Ms: milestones.hit2Ms,
+      hit3Ms: milestones.hit3Ms,
       status: 'Открыта',
       entryThreshold,
     }));
   }
   return rows;
+}
+
+function formatZScore(z) {
+  if (z == null || !Number.isFinite(z)) return '—';
+  const sign = z > 0 ? '+' : '';
+  return `${sign}${z.toFixed(2)}`;
 }
 
 function makeTradeRow(t) {
@@ -984,6 +1816,18 @@ function makeTradeRow(t) {
     pnlMax: t.pnlMax != null ? formatRub(t.pnlMax) : '—',
     pnlMinValue: t.pnlMin,
     pnlMaxValue: t.pnlMax,
+    hit1Date: t.hit1Date || null,
+    hit2Date: t.hit2Date || null,
+    hit3Date: t.hit3Date || null,
+    hit1Ms: t.hit1Ms ?? null,
+    hit2Ms: t.hit2Ms ?? null,
+    hit3Ms: t.hit3Ms ?? null,
+    hit1: t.hit1Date ? compactDateTime(t.hit1Date) : '—',
+    hit2: t.hit2Date ? compactDateTime(t.hit2Date) : '—',
+    hit3: t.hit3Date ? compactDateTime(t.hit3Date) : '—',
+    hitPnl1: !!(t.hit1Ms ?? t.hit1Date),
+    hitPnl2: !!(t.hit2Ms ?? t.hit2Date),
+    hitPnl3: !!(t.hit3Ms ?? t.hit3Date),
     spreadEntry: t.entrySpread != null ? t.entrySpread.toFixed(2) : '—',
     spreadExit: t.exitSpread != null ? t.exitSpread.toFixed(2) : '—',
     spreadDelta: closed && t.pnlPts != null ? `${t.pnlPts >= 0 ? '+' : ''}${t.pnlPts.toFixed(2)}` : '—',
@@ -1005,7 +1849,9 @@ function makeTradeRow(t) {
     riskRed: closed ? !!t._risk?.isRed : false,
     status: t.status,
     entryZ: t.entryZ,
-    exitZ: null,
+    exitZ: t.exitZ ?? null,
+    entryZText: formatZScore(t.entryZ),
+    exitZText: formatZScore(t.exitZ),
   };
 }
 
@@ -1024,10 +1870,15 @@ function tradeSortValue(row, colKey) {
     case 'Exit':
       if (row.exitDate === '—') return null;
       return parseTradeMs(row.exitDate);
+    case 'EntryZ': return row.entryZ;
+    case 'ExitZ': return row.exitZ;
     case 'Duration': return row.durationMs;
     case 'Net': return row.netValue;
     case 'PnlMin': return row.pnlMinValue;
     case 'PnlMax': return row.pnlMaxValue;
+    case 'Hit1': return row.hit1Ms;
+    case 'Hit2': return row.hit2Ms;
+    case 'Hit3': return row.hit3Ms;
     case 'SpreadEntry': return row.spreadEntryValue;
     case 'SpreadExit': return row.spreadExitValue;
     case 'SpreadDelta': return row.spreadDeltaValue;
@@ -1067,12 +1918,17 @@ function tradeCellValue(row, colKey) {
   switch (colKey) {
     case 'Index': return String(row.index);
     case 'Direction': return row.direction === 'Long' ? 'L' : 'S';
-    case 'Entry': return compactDateTime(row.entryDate);
-    case 'Exit': return row.exitDate === '—' ? '—' : compactDateTime(row.exitDate);
+    case 'Entry': return compactTradeDateTime(row.entryDate);
+    case 'Exit': return row.exitDate === '—' ? '—' : compactTradeDateTime(row.exitDate);
+    case 'EntryZ': return row.entryZText;
+    case 'ExitZ': return row.exitZText;
     case 'Duration': return row.duration;
     case 'Net': return row.net;
     case 'PnlMin': return row.pnlMin;
     case 'PnlMax': return row.pnlMax;
+    case 'Hit1': return row.hit1;
+    case 'Hit2': return row.hit2;
+    case 'Hit3': return row.hit3;
     case 'SpreadEntry': return row.spreadEntry;
     case 'SpreadExit': return row.spreadExit;
     case 'SpreadDelta': return row.spreadDelta;
@@ -1104,6 +1960,10 @@ function tradeCellClass(row, colKey) {
     if (v > 0) return 'pnl-pos';
     if (v < 0) return 'pnl-neg';
   }
+  if (colKey === 'Hit1' || colKey === 'Hit2' || colKey === 'Hit3') {
+    const v = colKey === 'Hit1' ? row.hit1Ms : (colKey === 'Hit2' ? row.hit2Ms : row.hit3Ms);
+    return v != null ? 'pnl-pos' : '';
+  }
   if (colKey === 'Commission' || colKey === 'Overnight') return 'cost';
   if (colKey === 'Risk' && row.risk !== '—') {
     return row.riskRed ? 'risk-flagged risk-red' : 'risk-flagged';
@@ -1111,10 +1971,214 @@ function tradeCellClass(row, colKey) {
   return '';
 }
 
+/** Numeric trade metrics that support hover distribution tips. */
+const TRADE_METRIC_KEYS = new Set([
+  'EntryZ',
+  'ExitZ',
+  'Duration',
+  'Net',
+  'PnlMin',
+  'PnlMax',
+  'SpreadEntry',
+  'SpreadExit',
+  'SpreadDelta',
+  'Gross',
+  'Commission',
+  'Overnight',
+]);
+
+function isTradeMetricColumn(colKey) {
+  return TRADE_METRIC_KEYS.has(colKey);
+}
+
+/** Raw numeric value used for histogram stats (Duration → minutes). */
+function tradeMetricRawValue(row, colKey) {
+  if (!TRADE_METRIC_KEYS.has(colKey)) return null;
+  const v = tradeSortValue(row, colKey);
+  if (v == null || typeof v !== 'number' || !Number.isFinite(v)) return null;
+  if (colKey === 'Duration') return v / 60000;
+  return v;
+}
+
+function formatTradeMetricStat(colKey, value) {
+  if (value == null || !Number.isFinite(value)) return '—';
+  switch (colKey) {
+    case 'Duration':
+      return formatDurationMinutes(value);
+    case 'EntryZ':
+    case 'ExitZ':
+      return formatZScore(value);
+    case 'Net':
+    case 'PnlMin':
+    case 'PnlMax':
+    case 'Gross':
+      return formatRub(value);
+    case 'Commission':
+    case 'Overnight':
+      return formatCostRub(Math.abs(value));
+    case 'SpreadEntry':
+    case 'SpreadExit':
+      return value.toFixed(2);
+    case 'SpreadDelta': {
+      const sign = value > 0 ? '+' : '';
+      return `${sign}${value.toFixed(2)}`;
+    }
+    default:
+      return String(Math.round(value * 100) / 100);
+  }
+}
+
+function computeNumericDistribution(values, binTarget = 24) {
+  const n = values.length;
+  if (n === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const min = sorted[0];
+  const max = sorted[n - 1];
+  let sum = 0;
+  for (const v of values) sum += v;
+  const mean = sum / n;
+  let varAcc = 0;
+  for (const v of values) varAcc += (v - mean) ** 2;
+  const stdev = n > 1 ? Math.sqrt(varAcc / (n - 1)) : 0;
+  const binCount = Math.min(28, Math.max(10, Math.round(Math.sqrt(n) * 2.2) || binTarget));
+  let lo = min;
+  let hi = max;
+  if (hi <= lo) {
+    const pad = Math.max(Math.abs(lo) * 0.05, 1e-6);
+    lo -= pad;
+    hi += pad;
+  }
+  const width = (hi - lo) / binCount;
+  const bins = new Array(binCount).fill(0);
+  for (const v of values) {
+    let i = Math.floor((v - lo) / width);
+    if (i < 0) i = 0;
+    if (i >= binCount) i = binCount - 1;
+    bins[i] += 1;
+  }
+  return { n, min, max, mean, stdev, bins, lo, hi, width, binCount, sorted };
+}
+
+function buildTradeMetricDistributions(rows, colKeys) {
+  const out = {};
+  for (const key of colKeys) {
+    if (!TRADE_METRIC_KEYS.has(key)) continue;
+    const values = [];
+    for (const row of rows) {
+      const v = tradeMetricRawValue(row, key);
+      if (v != null) values.push(v);
+    }
+    const dist = computeNumericDistribution(values);
+    if (dist) out[key] = dist;
+  }
+  return out;
+}
+
+function tradeMetricBinIndex(dist, value) {
+  if (!dist || value == null || !Number.isFinite(value)) return -1;
+  let i = Math.floor((value - dist.lo) / dist.width);
+  if (i < 0) i = 0;
+  if (i >= dist.binCount) i = dist.binCount - 1;
+  return i;
+}
+
+function tradeMetricPercentile(dist, value) {
+  if (!dist || !dist.sorted.length || value == null || !Number.isFinite(value)) return null;
+  let count = 0;
+  for (const v of dist.sorted) {
+    if (v <= value) count += 1;
+  }
+  return (count / dist.sorted.length) * 100;
+}
+
+/**
+ * Placement of a value vs sample mean/σ.
+ * |z|<0.5 near mean · <1 shoulder · <2 tail · ≥2 outside.
+ */
+function classifyTradeMetricPlacement(value, dist) {
+  if (!dist || value == null || !Number.isFinite(value)) {
+    return { key: 'none', label: 'нет данных', z: null };
+  }
+  if (dist.n < 2) {
+    return { key: 'sparse', label: 'мало данных', z: null };
+  }
+  if (!(dist.stdev > 1e-12)) {
+    return { key: 'flat', label: 'как у всех', z: 0 };
+  }
+  const z = (value - dist.mean) / dist.stdev;
+  const az = Math.abs(z);
+  if (az < 0.5) return { key: 'mean', label: 'ближе к среднему', z };
+  if (az < 1) return { key: 'shoulder', label: 'на плече распределения', z };
+  if (az < 2) return { key: 'tail', label: 'в хвосте', z };
+  return { key: 'outside', label: 'вне типичного диапазона', z };
+}
+
+/** Y ticks 0 … maxBin for metric histogram tip. */
+function metricDistCountTicks(maxCount) {
+  const max = Math.max(1, Math.round(Number(maxCount) || 1));
+  if (max <= 2) return [0, max];
+  const mid = Math.round(max / 2);
+  if (mid === 0 || mid === max) return [0, max];
+  return [0, mid, max];
+}
+
+/**
+ * HTML гистограммы распределения (как tip в таблице сделок).
+ * @param {{ title: string, display: string, value: number, dist: object, formatStat?: (v:number)=>string }} opts
+ */
+function buildMetricDistTipHtml(opts) {
+  const { title, display, value, dist } = opts;
+  const formatStat = opts.formatStat || ((v) => (Number.isFinite(v) ? String(Math.round(v * 100) / 100) : '—'));
+  if (!dist || value == null || !Number.isFinite(value)) return '';
+  const place = classifyTradeMetricPlacement(value, dist);
+  const pct = tradeMetricPercentile(dist, value);
+  const activeBin = tradeMetricBinIndex(dist, value);
+  const maxBin = Math.max(1, ...dist.bins);
+  const meanLabel = formatStat(dist.mean);
+  const sigmaLabel = formatStat(dist.stdev);
+  const barsHtml = dist.bins.map((count, i) => {
+    const h = Math.max(2, Math.round((count / maxBin) * 100));
+    const cls = i === activeBin ? ' active' : '';
+    return `<span class="tm-bar${cls}" style="height:${h}%" title="${count}"></span>`;
+  }).join('');
+  const countTicks = metricDistCountTicks(maxBin);
+  const yLabelsHtml = countTicks.map((t) => {
+    const p = (t / maxBin) * 100;
+    return `<span class="tm-y-label" style="bottom:${p}%">${t}</span>`;
+  }).join('');
+  const gridHtml = countTicks.map((t) => {
+    const p = (t / maxBin) * 100;
+    return `<span class="tm-grid-line" style="bottom:${p}%"></span>`;
+  }).join('');
+  const pctText = pct != null ? ` · p${Math.round(pct)}` : '';
+  return (
+    `<div class="tm-title">${title} · <strong>${display}</strong></div>`
+    + `<div class="tm-hist-wrap" aria-hidden="true">`
+    + `<div class="tm-hist-scale">`
+    + `<div class="tm-hist-y">${yLabelsHtml}</div>`
+    + `<div class="tm-hist-plot">`
+    + `<div class="tm-hist-grid">${gridHtml}</div>`
+    + `<div class="tm-hist">${barsHtml}</div>`
+    + `</div></div>`
+    + `<div class="tm-hist-x"><span>${formatStat(dist.min)}</span><span>${meanLabel}</span><span>${formatStat(dist.max)}</span></div>`
+    + `</div>`
+    + `<div class="tm-meta">ср. ${meanLabel} · σ ${sigmaLabel} · n=${dist.n}${pctText}</div>`
+    + `<div class="tm-place tm-place-${place.key}">${place.label}</div>`
+  );
+}
+
 function compactDateTime(label) {
   if (!label || label === '—') return '—';
   const s = String(label).replace('T', ' ');
   if (s.length >= 16) return `${s.slice(5, 10)} ${s.slice(11, 16)}`;
+  return s;
+}
+
+/** Вход/выход в таблице сделок — с годом (для длинной истории). */
+function compactTradeDateTime(label) {
+  if (!label || label === '—') return '—';
+  const s = String(label).replace('T', ' ');
+  if (s.length >= 16) return `${s.slice(0, 10)} ${s.slice(11, 16)}`;
   return s;
 }
 
@@ -1128,10 +2192,14 @@ function simPnlConstants(notionalRub = getSimNotionalRub()) {
 
 function openTradeNetRub(bar, position, entrySpread, entryDate, constants, includeExitComm = false) {
   const { effNotional, commPerSide, overnightPerDay } = constants;
-  const spread = bar.spreadPercent ?? 0;
+  // MTM (includeExitComm=false): сырой спред — parity zsim.mtm_rub (без второго slip).
+  // Закрытие (true): adverse exit-slip, как zsim._exit_spread / close_*.
+  const markSp = includeExitComm
+    ? simExitSpread(bar.spreadPercent ?? 0, position)
+    : (Number(bar.spreadPercent) || 0);
   const pnlPts = position === 'Long'
-    ? spread - entrySpread
-    : entrySpread - spread;
+    ? markSp - entrySpread
+    : entrySpread - markSp;
   const gross = spreadPnlToRub(pnlPts, effNotional);
   const ovn = overnightPerDay * overnightDays(entryDate, bar.tradeDate);
   const comm = commPerSide * (includeExitComm ? 2 : 1);
@@ -1180,7 +2248,8 @@ function applyEdgesOnBar(edgesOnBar, state, handlers) {
 function buildEquitySeries(allPoints, edges, windowPoints, cursorIndex) {
   if (!allPoints.length || !windowPoints.length) return [];
 
-  const { effNotional, commPerSide, overnightPerDay } = simPnlConstants();
+  const sizing = createSimSizingState();
+  let { effNotional, commPerSide, overnightPerDay } = sizing.constants;
   const edgesByMs = groupEdgesByBarMs(edges);
 
   const state = {
@@ -1196,28 +2265,35 @@ function buildEquitySeries(allPoints, edges, windowPoints, cursorIndex) {
     const p = allPoints[i];
     applyEdgesOnBar(edgesByMs.get(p.timestampMs), state, {
       onEnter: (edge, s) => {
+        ({ effNotional, commPerSide, overnightPerDay } = sizing.constants);
         s.position = edge.positionAfter;
-        s.entrySpread = edge.bar.spreadPercent ?? 0;
+        s.entrySpread = simEntrySpread(edge.bar.spreadPercent ?? 0, s.position);
         s.entryDate = edge.bar.tradeDate;
         s.realizedRub -= commPerSide;
       },
       onExit: (edge, s) => {
         const isLong = edge.signal === 'ExitLong';
-        const exitSpread = edge.bar.spreadPercent ?? 0;
+        const dir = isLong ? 'Long' : 'Short';
+        const exitSpread = simExitSpread(edge.bar.spreadPercent ?? 0, dir);
         const pnlPts = isLong ? exitSpread - s.entrySpread : s.entrySpread - exitSpread;
         const gross = spreadPnlToRub(pnlPts, effNotional);
         const ovn = overnightPerDay * overnightDays(s.entryDate, edge.bar.tradeDate);
+        const fullNet = gross - commPerSide * 2 - ovn;
         s.realizedRub += gross - commPerSide - ovn;
+        sizing.applyClosedNet(fullNet);
+        ({ effNotional, commPerSide, overnightPerDay } = sizing.constants);
         s.position = 'Flat';
         s.entrySpread = 0;
         s.entryDate = '';
       },
     });
-    const spread = p.spreadPercent ?? 0;
+    const exitSp = state.position === 'Long' || state.position === 'Short'
+      ? simExitSpread(p.spreadPercent ?? 0, state.position)
+      : (p.spreadPercent ?? 0);
     const mtmSpread = state.position === 'Long'
-      ? spread - state.entrySpread
+      ? exitSp - state.entrySpread
       : state.position === 'Short'
-        ? state.entrySpread - spread
+        ? state.entrySpread - exitSp
         : 0;
     equityByMs.set(p.timestampMs, state.realizedRub + spreadPnlToRub(mtmSpread, effNotional));
   }
@@ -1225,11 +2301,25 @@ function buildEquitySeries(allPoints, edges, windowPoints, cursorIndex) {
   return equitySeriesToWindow(allPoints, windowPoints, cursorIndex, equityByMs);
 }
 
+/**
+ * Базис % на оси PnL / подписях: пик капитала = депо + пик кумулятивного PnL.
+ * Не стартовый notional — иначе −5.2k при счёте ~60k выглядит как «−52%».
+ */
+function resolvePnlPctBasisRub(equityTotalSeries, notionalRub = getSimNotionalRub()) {
+  let peakPnl = 0;
+  for (const p of equityTotalSeries || []) {
+    const v = typeof p?.value === 'number' ? p.value : Number(p?.value);
+    if (Number.isFinite(v) && v > peakPnl) peakPnl = v;
+  }
+  return Math.max(1, notionalRub + Math.max(0, peakPnl));
+}
+
 /** PnL одной открытой сделки: 0 вне позиции и на баре выхода. */
 function buildPerTradeEquitySeries(allPoints, edges, windowPoints, cursorIndex) {
   if (!allPoints.length || !windowPoints.length) return [];
 
-  const constants = simPnlConstants();
+  const sizing = createSimSizingState();
+  let constants = sizing.constants;
   const edgesByMs = groupEdgesByBarMs(edges);
 
   const state = {
@@ -1247,13 +2337,26 @@ function buildPerTradeEquitySeries(allPoints, edges, windowPoints, cursorIndex) 
 
     for (const edge of barEdges) {
       if (edge.signal === 'ExitLong' || edge.signal === 'ExitShort') {
+        if (state.position === 'Long' || state.position === 'Short') {
+          const net = openTradeNetRub(
+            edge.bar,
+            state.position,
+            state.entrySpread,
+            state.entryDate,
+            constants,
+            true,
+          );
+          sizing.applyClosedNet(net);
+          constants = sizing.constants;
+        }
         state.position = 'Flat';
         state.entrySpread = 0;
         state.entryDate = '';
         equity = 0;
       } else if (edge.signal === 'EnterLong' || edge.signal === 'EnterShort') {
+        constants = sizing.constants;
         state.position = edge.positionAfter;
-        state.entrySpread = edge.bar.spreadPercent ?? 0;
+        state.entrySpread = simEntrySpread(edge.bar.spreadPercent ?? 0, state.position);
         state.entryDate = edge.bar.tradeDate;
         equity = 0;
       }
@@ -1292,11 +2395,13 @@ function buildDeltaPpSeries(allPoints, edges, windowPoints, cursorIndex) {
     for (const edge of barEdges) {
       if (edge.signal === 'EnterLong' || edge.signal === 'EnterShort') {
         position = edge.positionAfter;
-        entrySpread = edge.bar.spreadPercent ?? 0;
+        entrySpread = simEntrySpread(edge.bar.spreadPercent ?? 0, position);
         delta = 0;
       } else if (edge.signal === 'ExitLong' || edge.signal === 'ExitShort') {
         const isLong = edge.signal === 'ExitLong';
-        closedDelta = isLong ? spread - entrySpread : entrySpread - spread;
+        const dir = isLong ? 'Long' : 'Short';
+        const exitSp = simExitSpread(spread, dir);
+        closedDelta = isLong ? exitSp - entrySpread : entrySpread - exitSp;
         position = 'Flat';
         entrySpread = 0;
       }
@@ -1305,9 +2410,9 @@ function buildDeltaPpSeries(allPoints, edges, windowPoints, cursorIndex) {
     if (closedDelta != null) {
       delta = closedDelta;
     } else if (position === 'Long') {
-      delta = spread - entrySpread;
+      delta = simExitSpread(spread, 'Long') - entrySpread;
     } else if (position === 'Short') {
-      delta = entrySpread - spread;
+      delta = entrySpread - simExitSpread(spread, 'Short');
     }
 
     deltaByMs.set(p.timestampMs, delta);
@@ -1346,6 +2451,9 @@ function buildChartPayload(candles, entry, exit, markers, trades, playing, opts 
     equity: opts.equity || [],
     deltaPp: opts.deltaPp || [],
     pnlBasisRub: typeof opts.pnlBasisRub === 'number' ? opts.pnlBasisRub : getSimNotionalRub(),
+    fitFull: !!opts.fitFull,
+    light: !!opts.light,
+    markersChanged: opts.markersChanged !== false,
     windowWidth: typeof opts.windowWidth === 'number' ? opts.windowWidth : 1,
     maxVisibleBars: typeof opts.maxVisibleBars === 'number' ? opts.maxVisibleBars : 200,
     playing: !!playing,

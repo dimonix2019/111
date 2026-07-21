@@ -50,12 +50,30 @@ def live_status() -> dict[str, Any]:
             }
         except Exception as exc:
             market = {"error": str(exc)}
+
+        broker = None
+        mode, token, account = store.get_credentials()
+        if token and account:
+            try:
+                client = TInvestClient(mode, token)
+                pf = client.get_portfolio(account)
+                broker = {
+                    "mode": mode,
+                    "account_id": account,
+                    "cash_rub": client.portfolio_cash_rub(pf),
+                    "total_rub": client.portfolio_total_rub(pf),
+                }
+            except Exception as exc:
+                broker = {"error": str(exc), "mode": mode, "account_id": account}
+
         return {
             "settings": store.get_settings_bundle(),
             "monitor": engine.monitor_status(),
             "open": store.get_open_trade(),
             "market": market,
+            "broker": broker,
             "events": store.list_events(30),
+            "parity": store.parity_summary(),
         }
     except Exception as exc:
         raise HTTPException(500, str(exc)) from exc
@@ -178,9 +196,35 @@ def monitor_stop() -> dict[str, Any]:
     return engine.stop_monitor()
 
 
+@router.post("/monitor/restart")
+def monitor_restart() -> dict[str, Any]:
+    return engine.restart_monitor()
+
+
 @router.post("/monitor/tick")
 def monitor_tick() -> dict[str, Any]:
     try:
         return {"ok": True, "result": engine.monitor_tick(), "status": engine.monitor_status()}
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/parity")
+def parity_status() -> dict[str, Any]:
+    return store.parity_summary()
+
+
+@router.post("/parity/check")
+def parity_check_now() -> dict[str, Any]:
+    """Принудительно прогнать все pending parity-сверки."""
+    from live import parity as parity_mod
+
+    n = store.force_parity_due()
+    results = parity_mod.process_due_parity_checks()
+    return {
+        "ok": True,
+        "forced": n,
+        "checked": len(results),
+        "results": results,
+        "summary": store.parity_summary(),
+    }

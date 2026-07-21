@@ -32,6 +32,26 @@
     return Number(n).toLocaleString('ru-RU', { maximumFractionDigits: d });
   }
 
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function monBadge(running) {
+    return running
+      ? '<span class="badge-mon-on"><span class="badge-quiet">монитор</span> ON</span>'
+      : '<span class="badge-mon-off"><span class="badge-quiet">монитор</span> OFF</span>';
+  }
+
+  function modeBadge(mode) {
+    return mode === 'prod'
+      ? '<span class="badge-mode-prod">Prod</span>'
+      : '<span class="badge-mode-sandbox">Sandbox</span>';
+  }
+
   function currentMode() {
     return $('liveMode').value === 'prod' ? 'prod' : 'sandbox';
   }
@@ -41,19 +61,65 @@
     if (s.account_id != null) $('liveAccountId').value = s.account_id || '';
   }
 
+  function modeLabel(mode) {
+    return mode === 'prod' ? 'Боевой (Prod)' : 'Песочница';
+  }
+
+  function renderFunds(broker, settingsMode) {
+    const box = $('liveFundsBox');
+    const modeEl = $('liveFundsMode');
+    const totalEl = $('liveFundsTotal');
+    const cashEl = $('liveFundsCash');
+    const portfolioEl = $('livePortfolioBox');
+    if (!box || !totalEl || !cashEl) return;
+
+    box.classList.remove('is-prod', 'is-error');
+    const mode = broker?.mode || settingsMode;
+    if (modeEl) modeEl.textContent = mode ? modeLabel(mode) : 'Счёт не выбран';
+
+    if (!broker) {
+      totalEl.textContent = '—';
+      cashEl.textContent = 'нужны токен и accountId';
+      if (portfolioEl) portfolioEl.textContent = 'Портфель: —';
+      return;
+    }
+    if (broker.error) {
+      box.classList.add('is-error');
+      totalEl.textContent = broker.error;
+      cashEl.textContent = mode ? modeLabel(mode) : '';
+      if (portfolioEl) portfolioEl.textContent = `Портфель: ${broker.error}`;
+      return;
+    }
+    if (mode === 'prod') box.classList.add('is-prod');
+    totalEl.textContent = `${fmt(broker.total_rub, 0)} ₽`;
+    cashEl.textContent = `cash ${fmt(broker.cash_rub, 0)} ₽`;
+    if (portfolioEl) {
+      portfolioEl.textContent =
+        `Портфель [${mode}]: ${fmt(broker.total_rub, 0)} ₽ · cash ${fmt(broker.cash_rub, 0)} ₽`;
+    }
+  }
+
   function renderStatus(data, { hydrateForm = false } = {}) {
     const s = data.settings || {};
     const m = data.market || {};
     const mon = data.monitor || {};
-    const modeRu = s.mode === 'prod' ? 'Prod' : 'Sandbox';
-    const monRu = mon.running ? 'монитор ON' : 'монитор OFF';
-    $('liveStatus').textContent =
-      `${modeRu} · ${s.has_token ? 'токен ✓' : 'нет токена'} · ` +
-      `${s.account_id ? s.account_id.slice(0, 8) + '…' : 'нет account'} · ${monRu}` +
+    const modeHtml = modeBadge(s.mode);
+    const monHtml = monBadge(!!mon.running);
+    const acct = s.account_id ? `${s.account_id.slice(0, 8)}…` : 'нет account';
+    const b = data.broker;
+    const fundsShort = (!b || b.error)
+      ? ''
+      : ` · <b>${fmt(b.total_rub, 0)} ₽</b>`;
+    $('liveStatus').innerHTML =
+      `${modeHtml} · ${s.has_token ? 'токен ✓' : 'нет токена'} · ` +
+      `${escapeHtml(acct)} · ${monHtml}` +
+      fundsShort +
       (m.z != null ? ` · Z ${Number(m.z).toFixed(2)}` : '');
 
-    $('liveMeta').textContent =
-      `Счёт · ${modeRu}` + (s.token_preview ? ` · ${s.token_preview}` : '');
+    $('liveMeta').innerHTML =
+      `Счёт · ${modeHtml}` +
+      (s.token_preview ? ` · ${escapeHtml(s.token_preview)}` : '') +
+      ((!b || b.error) ? '' : ` · ${fmt(b.total_rub, 0)} ₽`);
 
     if (hydrateForm || !formHydrated) {
       syncFormFromSettings(s);
@@ -68,6 +134,8 @@
         (mon.last_message ? `\nМонитор: ${mon.last_message}` : '');
     }
 
+    renderFunds(b, s.mode);
+
     const ev = $('liveEvents');
     if (ev) {
       ev.innerHTML = (data.events || [])
@@ -79,8 +147,23 @@
     }
   }
 
+  async function ensureMonitorRunning(data) {
+    const settings = data.settings || {};
+    const mon = data.monitor || {};
+    if (settings.monitor_running && !mon.running) {
+      try {
+        await api('/api/live/monitor/start', { method: 'POST' });
+        return true;
+      } catch (_) { /* keep status as-is */ }
+    }
+    return false;
+  }
+
   async function refreshAll({ hydrateForm = false } = {}) {
-    const data = await api('/api/live/status');
+    let data = await api('/api/live/status');
+    if (await ensureMonitorRunning(data)) {
+      data = await api('/api/live/status');
+    }
     renderStatus(data, { hydrateForm });
   }
 
@@ -113,7 +196,7 @@
       trade: 'MOEX · Торговля',
       history: 'MOEX · История',
       account: 'MOEX · Счёт',
-      replay: 'MOEX Bar Replay',
+      replay: 'MOEX · Тестирование',
     };
     const title = $('appTitle');
     if (title) title.textContent = titles[v] || titles.trade;
@@ -216,8 +299,11 @@
     $('liveBtnPortfolio')?.addEventListener('click', async () => {
       try {
         const data = await api('/api/live/portfolio');
-        $('livePortfolioBox').textContent =
-          `Портфель [${data.mode}]: ${fmt(data.total_rub)} ₽ · cash ${fmt(data.cash_rub)} ₽`;
+        renderFunds({
+          mode: data.mode,
+          cash_rub: data.cash_rub,
+          total_rub: data.total_rub,
+        }, data.mode);
       } catch (e) {
         alert(e.message);
       }

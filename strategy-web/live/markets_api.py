@@ -98,7 +98,10 @@ def markets_snapshot(days: int = Query(7, description="1 / 7 / 30 / 90")) -> dic
 
 
 @router.post("/refresh")
-def markets_refresh(days: int = Query(7)) -> dict[str, Any]:
+def markets_refresh(
+    days: int = Query(7),
+    csv: str = Query("m15_tatn_255d.csv", description="CSV в strategy-web/data"),
+) -> dict[str, Any]:
     """Force MOEX tail sync then return snapshot."""
     try:
         from pathlib import Path
@@ -106,10 +109,18 @@ def markets_refresh(days: int = Query(7)) -> dict[str, Any]:
         from replay import replay_db
 
         data_dir = Path(__file__).resolve().parent.parent / "data"
-        csv_path = data_dir / "m15_tatn_255d.csv"
+        name = Path(csv).name
+        csv_path = data_dir / name
         if csv_path.is_file():
-            replay_db._try_moex_tail_sync(csv_path, timeout_sec=20.0)
-            replay_db.seed_from_csv(csv_path, "m15_tatn_255d.csv")
+            # 1095d seed/sync может занять дольше 45с
+            from m15_iss_loader import lookback_days_for_path
+
+            days_lookback = lookback_days_for_path(name)
+            timeout = 90.0 if days_lookback >= 900 else 45.0
+            replay_db.sync_moex_tail(
+                csv_path, name, timeout_sec=timeout, force=True
+            )
+        # markets_snapshot → ensure_replay_bars (фон); данные уже в SQLite после sync.
         return markets_snapshot(days=days)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc

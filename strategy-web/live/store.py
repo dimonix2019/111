@@ -69,8 +69,30 @@ def _init(conn: sqlite3.Connection) -> None:
             level TEXT NOT NULL,
             message TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS live_parity_edges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_ms INTEGER NOT NULL,
+            bar_ts TEXT NOT NULL,
+            bar_ms INTEGER NOT NULL,
+            signal TEXT NOT NULL,
+            z_score REAL,
+            entry_z REAL NOT NULL,
+            exit_z REAL NOT NULL,
+            trade_id INTEGER,
+            check_after_ms INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            result_json TEXT
+        );
         """
     )
+    # Default: monitor ON (APK always-on intent); only seed if unset
+    row = conn.execute(
+        "SELECT 1 FROM live_settings WHERE key = 'monitor_running'"
+    ).fetchone()
+    if row is None:
+        conn.execute(
+            "INSERT INTO live_settings(key, value) VALUES('monitor_running', '1')"
+        )
     conn.commit()
 
 
@@ -103,7 +125,7 @@ def get_settings_bundle() -> dict[str, Any]:
         "token_preview": (token[:4] + "…" + token[-4:]) if len(token) >= 12 else ("***" if token else ""),
         "account_id": account,
         "auto_execute": (get_setting("auto_execute", "0") or "0") == "1",
-        "monitor_running": (get_setting("monitor_running", "0") or "0") == "1",
+        "monitor_running": (get_setting("monitor_running", "1") or "1") == "1",
         "entry_z": float(get_setting("entry_z", "1.3") or "1.3"),
         "exit_z": float(get_setting("exit_z", "1.2") or "1.2"),
         "leverage": float(get_setting("leverage", "7") or "7"),
@@ -146,7 +168,7 @@ def log_event(message: str, level: str = "info") -> None:
 def list_events(limit: int = 40) -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT ts_ms, level, message FROM live_events ORDER BY id DESC LIMIT ?",
+            "SELECT id, ts_ms, level, message FROM live_events ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -256,3 +278,105 @@ def clear_open_trades() -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM live_open_trades")
         conn.commit()
+
+
+def insert_parity_edge(edge: dict[str, Any]) -> int:
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO live_parity_edges(
+                created_ms, bar_ts, bar_ms, signal, z_score, entry_z, exit_z,
+                trade_id, check_after_ms, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+            """,
+            (
+                int(time.time() * 1000),
+                edge["bar_ts"],
+                int(edge["bar_ms"]),
+                edge["signal"],
+                edge.get("z_score"),
+                float(edge["entry_z"]),
+                float(edge["exit_z"]),
+                edge.get("trade_id"),
+                int(edge["check_after_ms"]),
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def list_due_parity_edges() -> list[dict[str, Any]]:
+    now = int(time.time() * 1000)
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM live_parity_edges
+            WHERE status = 'pending' AND check_after_ms <= ?
+            ORDER BY id ASC
+            LIMIT 20
+            """,
+            (now,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_parity_edge(edge_id: int, result: dict[str, Any]) -> None:
+    status = str(result.get("status") or ("matched" if result.get("ok") else "missing"))
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE live_parity_edges
+            SET status = ?, result_json = ?
+            WHERE id = ?
+            """,
+            (status, json.dumps(result, ensure_ascii=False), edge_id),
+        )
+        conn.commit()
+
+
+def list_parity_edges(limit: int = 20) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM live_parity_edges
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if d.get("result_json"):
+            try:
+                d["result"] = json.loads(d["result_json"])
+            except json.JSONDecodeError:
+                d["result"] = None
+        out.append(d)
+    return out
+
+
+def force_parity_due() -> int:
+    """Сделать все pending edges due (ручной /parity/check)."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE live_parity_edges SET check_after_ms = 0 WHERE status = 'pending'"
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+
+def parity_summary() -> dict[str, Any]:
+    edges = list_parity_edges(30)
+    pending = sum(1 for e in edges if e.get("status") == "pending")
+    matched = sum(1 for e in edges if e.get("status") == "matched")
+    missing = sum(1 for e in edges if e.get("status") == "missing")
+    latest = edges[0] if edges else None
+    return {
+        "pending": pending,
+        "matched": matched,
+        "missing": missing,
+        "latest": latest,
+        "edges": edges[:10],
+        "delay_min": int(get_setting("parity_delay_min", "45") or "45"),
+    }

@@ -1,7 +1,11 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo MOEX Bar Replay — Web (TradingView in browser)
+echo MOEX Bar Replay — Web + watchdog
+echo   Local:     http://127.0.0.1:8765
+echo   Tailscale: http://^<100.x.x.x^>:8765  (host=0.0.0.0)
+echo   Log: strategy-web\data\watchdog.log
+echo   Close this window / Ctrl+C to stop server + watchdog.
 echo.
 
 where python >nul 2>&1
@@ -16,7 +20,6 @@ powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8765 -State List
 
 timeout /t 1 /nobreak >nul
 
-set MOEX_REPLAY_OPEN_BROWSER=1
 cd strategy-web
 if errorlevel 1 (
   echo [ERROR] Folder strategy-web not found
@@ -25,15 +28,27 @@ if errorlevel 1 (
 )
 
 pip install -q -r requirements.txt 2>nul
-echo Starting server... Browser opens automatically.
-echo Close this window to stop the server.
+
+REM Один процесс-супервизор: поднимает сервер, открывает браузер один раз, чинит монитор/процесс
+REM 0.0.0.0 — доступ с телефона через Tailscale (http://<100.x.x.x>:8765)
+set MOEX_REPLAY_HOST=0.0.0.0
+set MOEX_REPLAY_PORT=8765
+set MOEX_REPLAY_OPEN_BROWSER=1
+set MOEX_WATCHDOG_MANAGE_SERVER=1
+set MOEX_WATCHDOG_URL=http://127.0.0.1:8765
+set MOEX_WATCHDOG_PORT=8765
+set MOEX_WATCHDOG_INTERVAL_SEC=60
+
+echo Starting supervised server...
 echo.
-python replay/replay_app.py
+python scripts\live_watchdog.py
 set EXITCODE=%ERRORLEVEL%
+
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+
 if not "%EXITCODE%"=="0" (
   echo.
-  echo [ERROR] Server exited with code %EXITCODE%
-  echo Check the message above. Close other Bar Replay windows and try again.
+  echo [ERROR] Watchdog exited with code %EXITCODE%
   pause
 )
 endlocal & exit /b %EXITCODE%

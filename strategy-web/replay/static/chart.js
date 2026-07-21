@@ -40,6 +40,43 @@ const CHART_SCROLL_SCALE = {
   },
 };
 
+/** Почти безлимитный zoom-out: уместить весь период симуляции на экран. */
+const CHART_TIME_SCALE_ZOOM = {
+  minBarSpacing: 0.001,
+  maxBarSpacing: 64,
+};
+
+/** Подписи оси/кроссхейра в MSK — как Trade / chart-frame (unix без сдвига данных). */
+const CHART_TZ_MSK = 'Europe/Moscow';
+
+function formatChartTickMsk(time) {
+  if (typeof time !== 'number') return '';
+  return new Date(time * 1000).toLocaleString('ru-RU', {
+    timeZone: CHART_TZ_MSK,
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function chartTimeOptsMsk(extraTimeScale = {}) {
+  return {
+    timeScale: {
+      borderColor: TV.grid,
+      timeVisible: true,
+      secondsVisible: false,
+      tickMarkFormatter: formatChartTickMsk,
+      ...extraTimeScale,
+    },
+    localization: {
+      locale: 'ru-RU',
+      timeFormatter: formatChartTickMsk,
+    },
+  };
+}
+
 function applyReplayVisibleWindow(chart, candleCount, maxVisibleBars = 200) {
   if (!chart || candleCount < 1) return;
   const n = candleCount;
@@ -173,12 +210,10 @@ class ReplayChart {
         borderColor: TV.grid,
         minimumWidth: CHART_SCALE_RIGHT_W,
       },
-      timeScale: {
-        borderColor: TV.grid,
-        timeVisible: true,
-        secondsVisible: false,
+      ...chartTimeOptsMsk({
         rightOffset: CHART_RIGHT_OFFSET_BARS,
-      },
+        ...CHART_TIME_SCALE_ZOOM,
+      }),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
       ...CHART_SCROLL_SCALE,
     };
@@ -245,11 +280,12 @@ class ReplayChart {
         borderColor: TV.grid,
         minimumWidth: CHART_SCALE_LEFT_W,
       },
-      timeScale: {
+      ...chartTimeOptsMsk({
         visible: false,
         borderVisible: false,
         rightOffset: CHART_RIGHT_OFFSET_BARS,
-      },
+        ...CHART_TIME_SCALE_ZOOM,
+      }),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
       ...CHART_SCROLL_SCALE,
     });
@@ -339,11 +375,12 @@ class ReplayChart {
         borderColor: TV.grid,
         minimumWidth: CHART_SCALE_LEFT_W,
       },
-      timeScale: {
+      ...chartTimeOptsMsk({
         visible: false,
         borderVisible: false,
         rightOffset: CHART_RIGHT_OFFSET_BARS,
-      },
+        ...CHART_TIME_SCALE_ZOOM,
+      }),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
       ...CHART_SCROLL_SCALE,
     });
@@ -525,8 +562,8 @@ class ReplayChart {
       if (p.value > max) max = p.value;
     }
 
-    this._setPnlGuideLine('pnlMinLine', min, TV.down, 'min');
-    this._setPnlGuideLine('pnlMaxLine', max, TV.up, 'max');
+    this._setPnlGuideLine('pnlMinLine', min, TV.down, 'min эквити');
+    this._setPnlGuideLine('pnlMaxLine', max, TV.up, 'max эквити');
   }
 
   _setDeltaGuideLine(refKey, price, color, label) {
@@ -704,7 +741,8 @@ class ReplayChart {
 
   _markerPersistKey(m) {
     const id = m.tradeId || m.text || '';
-    return `${id}:${m.isEntry ? 'e' : 'x'}:${m.time}`;
+    const kind = m.milestone != null ? `m${m.milestone}` : (m.isEntry ? 'e' : 'x');
+    return `${id}:${kind}:${m.time}`;
   }
 
   _tradeById(id) {
@@ -864,6 +902,11 @@ class ReplayChart {
       return;
     }
     this._applyMarkerSelection(marker, true);
+    const tradeId = marker.tradeId || marker.text;
+    if (tradeId) {
+      this.centerOnTrade(tradeId);
+      requestAnimationFrame(() => this.centerOnTrade(tradeId));
+    }
   }
 
   _onCrosshairMove(param) {
@@ -975,7 +1018,11 @@ class ReplayChart {
     }
   }
 
-  /** Центрирует Z / Δпп / PnL на сделке (середина видимого окна). */
+  /**
+   * Подгоняет Z / Δпп / PnL под сделку: logical range entry→exit с небольшим padding.
+   * Открытая сделка: exitTime = текущий курсор (см. buildTradeSegments).
+   * Курсор replay не двигает — только timeScale (+ автомасштаб цены по видимым барам).
+   */
   centerOnTrade(tradeId) {
     if (!this.chart || !tradeId || !this.lastCandleTimes.length) return false;
     const trade = this._tradeById(tradeId);
@@ -997,28 +1044,39 @@ class ReplayChart {
 
     const entryIdx = findIdx(trade.entryTime);
     if (entryIdx < 0) return false;
-    const exitIdx = trade.exitTime != null ? findIdx(trade.exitTime) : entryIdx;
-    const mid = (entryIdx + Math.max(entryIdx, exitIdx)) / 2;
-    const n = this.lastCandleTimes.length;
-    const span = Math.min(Math.max(2, this._lastMaxVisibleBars || 200), n);
-    const half = span / 2;
-    const rightGap = Math.max(2, Math.ceil(span * CHART_INITIAL_RIGHT_MARGIN_IN_WINDOW));
+    // Открытая / без exit: до правого края данных (курсор replay в окне)
+    let exitIdx = trade.exitTime != null
+      ? findIdx(trade.exitTime)
+      : this.lastCandleTimes.length - 1;
+    if (exitIdx < 0) exitIdx = entryIdx;
 
-    let from = mid - half;
-    let to = mid + half;
+    const lo = Math.min(entryIdx, exitIdx);
+    const hi = Math.max(entryIdx, exitIdx);
+    const n = this.lastCandleTimes.length;
+    const tradeBars = Math.max(1, hi - lo + 1);
+    // ~12% с каждой стороны, минимум 2 бара; короткие сделки — не меньше ~12 баров
+    const pad = Math.max(2, Math.ceil(tradeBars * 0.12));
+    const minSpan = Math.min(n, Math.max(12, tradeBars + pad * 2));
+
+    let from = lo - pad;
+    let to = hi + pad;
+    if (to - from + 1 < minSpan) {
+      const mid = (lo + hi) / 2;
+      from = mid - minSpan / 2;
+      to = mid + minSpan / 2;
+    }
     if (from < 0) {
-      to -= from;
+      to = Math.min(n - 1, to - from);
       from = 0;
     }
     if (to > n - 1) {
-      from -= to - (n - 1);
+      from = Math.max(0, from - (to - (n - 1)));
       to = n - 1;
-      if (from < 0) from = 0;
     }
 
     try {
       this._followRightEdge = false;
-      const range = { from, to: to + rightGap };
+      const range = { from, to };
       this._lastLogicalRange = range;
       this._syncingRange = true;
       try {
@@ -1028,6 +1086,10 @@ class ReplayChart {
       } finally {
         this._syncingRange = false;
       }
+      // Вертикально: автомасштаб по видимым барам (сделка + padding)
+      try {
+        this.series?.priceScale()?.applyOptions?.({ autoScale: true });
+      } catch (_) {}
       this._updateDeltaMinMaxLines(range);
       this._updatePnlMinMaxLines(range);
       return true;
@@ -1040,6 +1102,35 @@ class ReplayChart {
   _reapplyVisibleWindow() {
     if (!this.chart || this._lastCandleCount < 1) return;
     this._applyFollowRightEdgeWindow();
+  }
+
+  /**
+   * Показать все загруженные бары (от начала до конца текущего окна симуляции).
+   * Снимает follow-right-edge, чтобы смена параметров не прыгала к хвосту.
+   */
+  fitFullRange() {
+    if (!this.chart || this._lastCandleCount < 1) return false;
+    const n = this._lastCandleCount;
+    const range = { from: 0, to: Math.max(0, n - 1) };
+    this._followRightEdge = false;
+    this._lastLogicalRange = range;
+    this._syncingRange = true;
+    try {
+      this.chart.timeScale().setVisibleLogicalRange(range);
+      if (this.deltaChart) this.deltaChart.timeScale().setVisibleLogicalRange(range);
+      if (this.pnlChart) this.pnlChart.timeScale().setVisibleLogicalRange(range);
+    } catch (_) {
+      this._syncingRange = false;
+      return false;
+    }
+    this._syncingRange = false;
+    try {
+      this.series?.priceScale()?.applyOptions?.({ autoScale: true });
+    } catch (_) {}
+    this._updateDeltaMinMaxLines(range);
+    this._updatePnlMinMaxLines(range);
+    this._scheduleRefreshMarkers();
+    return true;
   }
 
   resize() {
@@ -1115,88 +1206,202 @@ class ReplayChart {
     }
     this.hoverTradeId = null;
 
-    this.series.setData(payload.candles);
-    if (this._zLeftSpacer) {
-      this._zLeftSpacer.setData(payload.candles.map((c) => ({ time: c.time, value: 0 })));
+    const candleFp = `${payload.candles.length}|${payload.candles[0]?.time}|${payload.candles[payload.candles.length - 1]?.time}`;
+    const sameCandles = candleFp === this._candleFp;
+    const light = !!payload.light;
+    const canAppend = light
+      && this._lastCandleCount > 0
+      && payload.candles.length === this._lastCandleCount + 1
+      && this.lastCandleTimes[0] === payload.candles[0]?.time
+      && this.lastCandleTimes[this._lastCandleCount - 1] === payload.candles[payload.candles.length - 2]?.time;
+
+    if (canAppend) {
+      const lastC = payload.candles[payload.candles.length - 1];
+      try {
+        this.series.update(lastC);
+        if (this._zLeftSpacer) this._zLeftSpacer.update({ time: lastC.time, value: 0 });
+      } catch (_) {
+        this.series.setData(payload.candles);
+      }
+      this.lastCandleTimes.push(lastC.time);
+      this._lastCandleCount = payload.candles.length;
+      this._candleFp = candleFp;
+    } else if (!sameCandles) {
+      this.series.setData(payload.candles);
+      if (this._zLeftSpacer) {
+        this._zLeftSpacer.setData(payload.candles.map((c) => ({ time: c.time, value: 0 })));
+      }
+      this.lastCandleTimes = payload.candles.map((c) => c.time);
+      this._lastCandleCount = payload.candles.length;
+      this._candleFp = candleFp;
+    } else if (payload.candles.length) {
+      try {
+        this.series.update(payload.candles[payload.candles.length - 1]);
+      } catch (_) {
+        this.series.setData(payload.candles);
+      }
     }
-    this.lastCandleTimes = payload.candles.map((c) => c.time);
-    this._lastCandleCount = payload.candles.length;
     this._lastMaxVisibleBars = typeof payload.maxVisibleBars === 'number'
       ? payload.maxVisibleBars
       : 200;
 
-    this._clearPriceLines();
-    for (const hl of payload.hlines || []) {
-      this.priceLines.push(
-        this.series.createPriceLine({
-          price: hl.value,
-          color: hl.color,
-          lineWidth: 1,
-          lineStyle: LightweightCharts.LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: hl.title || '',
-        }),
-      );
+    if (!light || (!sameCandles && !canAppend)) {
+      this._clearPriceLines();
+      for (const hl of payload.hlines || []) {
+        this.priceLines.push(
+          this.series.createPriceLine({
+            price: hl.value,
+            color: hl.color,
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: hl.title || '',
+          }),
+        );
+      }
     }
     const last = payload.candles[payload.candles.length - 1];
-    this._clearReplayLine();
-    this.replayCursorLine = this.series.createPriceLine({
-      price: last.close,
-      color: '#FACC15',
-      lineWidth: 1,
-      lineStyle: LightweightCharts.LineStyle.Solid,
-      axisLabelVisible: true,
-      title: 'replay',
-    });
-
-    this.chart.timeScale().applyOptions({ rightOffset: CHART_RIGHT_OFFSET_BARS });
-    if (this.deltaChart) {
-      this.deltaChart.timeScale().applyOptions({ rightOffset: CHART_RIGHT_OFFSET_BARS });
-      // 1:1 с барами Z — иначе маркеры и ось времени расходятся
-      const byTime = new Map();
-      for (const p of payload.deltaPp || []) {
-        byTime.set(p.time, typeof p.value === 'number' ? p.value : 0);
+    if (this.replayCursorLine) {
+      try {
+        this.replayCursorLine.applyOptions({ price: last.close });
+      } catch (_) {
+        this._clearReplayLine();
+        this.replayCursorLine = this.series.createPriceLine({
+          price: last.close,
+          color: '#FACC15',
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Solid,
+          axisLabelVisible: true,
+          title: 'replay',
+        });
       }
-      const deltaPp = payload.candles.map((c) => {
-        const value = byTime.has(c.time) ? byTime.get(c.time) : 0;
-        return {
-          time: c.time,
-          value,
-          color: value >= 0 ? TV.up : TV.down,
-        };
+    } else {
+      this.replayCursorLine = this.series.createPriceLine({
+        price: last.close,
+        color: '#FACC15',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Solid,
+        axisLabelVisible: true,
+        title: 'replay',
       });
-      this._lastDeltaPp = deltaPp.map((p) => ({ time: p.time, value: p.value }));
-      this.deltaSeries.setData(deltaPp);
-      if (this._deltaRightSpacer) {
-        this._deltaRightSpacer.setData(deltaPp.map((p) => ({ time: p.time, value: 0 })));
+    }
+
+    if (!light) {
+      this.chart.timeScale().applyOptions({ rightOffset: CHART_RIGHT_OFFSET_BARS });
+    }
+    if (this.deltaChart) {
+      if (!light) {
+        this.deltaChart.timeScale().applyOptions({ rightOffset: CHART_RIGHT_OFFSET_BARS });
+      }
+      if ((canAppend || (light && sameCandles)) && payload.deltaPp?.length) {
+        const lastD = payload.deltaPp[payload.deltaPp.length - 1];
+        const lastC = payload.candles[payload.candles.length - 1];
+        const pt = {
+          time: lastC.time,
+          value: typeof lastD.value === 'number' ? lastD.value : 0,
+          color: (lastD.value || 0) >= 0 ? TV.up : TV.down,
+        };
+        try {
+          this.deltaSeries.update(pt);
+          if (this._lastDeltaPp) {
+            if (canAppend) this._lastDeltaPp.push({ time: pt.time, value: pt.value });
+            else this._lastDeltaPp[this._lastDeltaPp.length - 1] = { time: pt.time, value: pt.value };
+          }
+        } catch (_) {
+          /* fall through to full below */
+          const byTime = new Map();
+          for (const p of payload.deltaPp || []) {
+            byTime.set(p.time, typeof p.value === 'number' ? p.value : 0);
+          }
+          const deltaPp = payload.candles.map((c) => {
+            const value = byTime.has(c.time) ? byTime.get(c.time) : 0;
+            return { time: c.time, value, color: value >= 0 ? TV.up : TV.down };
+          });
+          this._lastDeltaPp = deltaPp.map((p) => ({ time: p.time, value: p.value }));
+          this.deltaSeries.setData(deltaPp);
+        }
+      } else {
+        const byTime = new Map();
+        for (const p of payload.deltaPp || []) {
+          byTime.set(p.time, typeof p.value === 'number' ? p.value : 0);
+        }
+        const deltaPp = payload.candles.map((c) => {
+          const value = byTime.has(c.time) ? byTime.get(c.time) : 0;
+          return {
+            time: c.time,
+            value,
+            color: value >= 0 ? TV.up : TV.down,
+          };
+        });
+        this._lastDeltaPp = deltaPp.map((p) => ({ time: p.time, value: p.value }));
+        this.deltaSeries.setData(deltaPp);
+        if (this._deltaRightSpacer) {
+          this._deltaRightSpacer.setData(deltaPp.map((p) => ({ time: p.time, value: 0 })));
+        }
       }
     }
     if (this.pnlChart) {
-      this.pnlChart.timeScale().applyOptions({ rightOffset: CHART_RIGHT_OFFSET_BARS });
-      this._pnlBasisRub = payload.pnlBasisRub > 0 ? payload.pnlBasisRub : 10_000;
-      const byTimeRub = new Map();
-      for (const p of payload.equity || []) {
-        byTimeRub.set(p.time, p.value);
+      if (!light) {
+        this.pnlChart.timeScale().applyOptions({ rightOffset: CHART_RIGHT_OFFSET_BARS });
       }
-      const equityRub = payload.candles.map((c) => ({
-        time: c.time,
-        value: byTimeRub.has(c.time) ? byTimeRub.get(c.time) : 0,
-      }));
-      const equityPct = equityRub.map((p) => ({
-        time: p.time,
-        value: this._rubToPnlPct(p.value),
-      }));
-      this._lastEquityRub = equityRub;
-      this._lastEquityPct = equityPct;
-      this.pnlSeries.setData(equityPct);
-      this.pnlRubSeries.setData(equityRub);
-      this._applyPnlScaleFormatters();
+      this._pnlBasisRub = payload.pnlBasisRub > 0 ? payload.pnlBasisRub : 10_000;
+      if ((canAppend || (light && sameCandles)) && payload.equity?.length) {
+        const lastE = payload.equity[payload.equity.length - 1];
+        const lastC = payload.candles[payload.candles.length - 1];
+        const rub = { time: lastC.time, value: typeof lastE.value === 'number' ? lastE.value : 0 };
+        const pct = { time: lastC.time, value: this._rubToPnlPct(rub.value) };
+        try {
+          this.pnlSeries.update(pct);
+          if (this.pnlRubSeries) this.pnlRubSeries.update(rub);
+          if (this._lastEquityRub) {
+            if (canAppend) {
+              this._lastEquityRub.push(rub);
+              this._lastEquityPct.push(pct);
+            } else {
+              this._lastEquityRub[this._lastEquityRub.length - 1] = rub;
+              this._lastEquityPct[this._lastEquityPct.length - 1] = pct;
+            }
+          }
+        } catch (_) {
+          const byTimeRub = new Map();
+          for (const p of payload.equity || []) byTimeRub.set(p.time, p.value);
+          const equityRub = payload.candles.map((c) => ({
+            time: c.time,
+            value: byTimeRub.has(c.time) ? byTimeRub.get(c.time) : 0,
+          }));
+          const equityPct = equityRub.map((p) => ({ time: p.time, value: this._rubToPnlPct(p.value) }));
+          this._lastEquityRub = equityRub;
+          this._lastEquityPct = equityPct;
+          this.pnlSeries.setData(equityPct);
+          if (this.pnlRubSeries) this.pnlRubSeries.setData(equityRub);
+        }
+      } else {
+        const byTimeRub = new Map();
+        for (const p of payload.equity || []) {
+          byTimeRub.set(p.time, p.value);
+        }
+        const equityRub = payload.candles.map((c) => ({
+          time: c.time,
+          value: byTimeRub.has(c.time) ? byTimeRub.get(c.time) : 0,
+        }));
+        const equityPct = equityRub.map((p) => ({
+          time: p.time,
+          value: this._rubToPnlPct(p.value),
+        }));
+        this._lastEquityRub = equityRub;
+        this._lastEquityPct = equityPct;
+        this.pnlSeries.setData(equityPct);
+        if (this.pnlRubSeries) this.pnlRubSeries.setData(equityRub);
+        this._applyPnlScaleFormatters();
+      }
     }
 
     const followEdge = this._followRightEdge || !!payload.playing;
-    if (followEdge) {
+    if (payload.fitFull) {
+      this.fitFullRange();
+    } else if (followEdge) {
       this._applyFollowRightEdgeWindow();
-    } else {
+    } else if (!light) {
       const keep = this._lastLogicalRange;
       if (keep) {
         try {
@@ -1215,9 +1420,14 @@ class ReplayChart {
         this._applyFollowRightEdgeWindow();
       }
     }
-    this._refreshMarkers();
-    this._updateHighlightLine();
-    this._scheduleRefreshMarkers();
-    setTimeout(() => this._refreshMarkers(), 120);
+    if (light) {
+      if (payload.markersChanged) this._refreshMarkers();
+      this._updateHighlightLine();
+    } else {
+      this._refreshMarkers();
+      this._updateHighlightLine();
+      this._scheduleRefreshMarkers();
+      setTimeout(() => this._refreshMarkers(), 120);
+    }
   }
 }

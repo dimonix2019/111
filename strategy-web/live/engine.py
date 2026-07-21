@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 from pathlib import Path
@@ -11,12 +12,23 @@ from typing import Any
 from live.constants import (
     DEFAULT_Z_ENTRY,
     DEFAULT_Z_EXIT,
+    MONITOR_CATCHUP_MAX_EDGES,
+    MONITOR_HEARTBEAT_SEC,
     MONITOR_INTERVAL_SEC,
+    MONITOR_STALE_SEC,
+    MONITOR_SYNC_TIMEOUT_SEC,
     SPREAD_LOT_MIN_LOTS,
     SPREAD_LOT_PROD_DEFAULT_LEVERAGE,
 )
 from live.lot_sizing import compute_spread_quantity_lots
-from live.signals import Position, Signal, determine_z_signal, is_consecutive_m15
+from live.signals import (
+    Position,
+    Signal,
+    determine_z_signal,
+    is_consecutive_m15,
+    is_moex_equity_session_bar,
+    plan_monitor_catchup,
+)
 from live import store
 from live.tinvest import TInvestClient
 
@@ -25,6 +37,9 @@ log = logging.getLogger(__name__)
 _monitor_stop = threading.Event()
 _monitor_thread: threading.Thread | None = None
 _monitor_lock = threading.Lock()
+_last_heartbeat_ms = 0
+_monitor_started_ms = 0
+_keep_awake_held = False
 _last_status: dict[str, Any] = {
     "running": False,
     "last_tick_ms": 0,
@@ -32,6 +47,30 @@ _last_status: dict[str, Any] = {
     "last_z": None,
     "last_bar": None,
 }
+
+# Windows: не уводить ПК в сон, пока крутится монитор.
+_ES_CONTINUOUS = 0x80000000
+_ES_SYSTEM_REQUIRED = 0x00000001
+_ES_AWAYMODE_REQUIRED = 0x00000040
+
+
+def _set_monitor_keep_awake(enabled: bool) -> None:
+    """Prevent system sleep while live monitor is running (Windows)."""
+    global _keep_awake_held
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        if enabled:
+            flags = _ES_CONTINUOUS | _ES_SYSTEM_REQUIRED | _ES_AWAYMODE_REQUIRED
+            ctypes.windll.kernel32.SetThreadExecutionState(flags)
+            _keep_awake_held = True
+        elif _keep_awake_held:
+            ctypes.windll.kernel32.SetThreadExecutionState(_ES_CONTINUOUS)
+            _keep_awake_held = False
+    except Exception as exc:
+        log.warning("keep-awake failed: %s", exc)
 
 
 def client_from_store() -> TInvestClient:
@@ -41,13 +80,43 @@ def client_from_store() -> TInvestClient:
     return TInvestClient(mode, token)
 
 
-def market_snapshot() -> dict[str, Any]:
-    """Last two M15 bars from replay SQLite (or CSV seed)."""
-    from replay.replay_db import ensure_replay_bars
+def market_snapshot(
+    *,
+    wait_sync: bool = False,
+    sync_timeout_sec: float | None = None,
+) -> dict[str, Any]:
+    """M15 bars from replay SQLite (or CSV seed).
+
+    wait_sync=True — дождаться MOEX tail (monitor tick), иначе фон + кэш.
+    После кэша всегда пробуем быстрый LAST-tip (утро без свечей / тик внутри слота).
+    """
+    from replay.replay_db import ensure_replay_bars, seed_from_csv
+    from m15_iss_loader import apply_live_last_overlay
 
     data_dir = Path(__file__).resolve().parent.parent / "data"
     csv_path = data_dir / "m15_tatn_255d.csv"
-    payload = ensure_replay_bars(csv_path, "m15_tatn_255d.csv", online=True, start_date=None)
+    timeout = sync_timeout_sec
+    if timeout is None:
+        timeout = 30.0 if wait_sync else 25.0
+    payload = ensure_replay_bars(
+        csv_path,
+        "m15_tatn_255d.csv",
+        online=True,
+        start_date=None,
+        wait_sync=wait_sync,
+        sync_timeout_sec=timeout,
+    )
+    # Desk/UI без wait_sync: не ждать полный ISS, но подтянуть LAST (~0.5с).
+    if not wait_sync and apply_live_last_overlay(csv_path):
+        seed_from_csv(csv_path, "m15_tatn_255d.csv")
+        payload = ensure_replay_bars(
+            csv_path,
+            "m15_tatn_255d.csv",
+            online=False,
+            start_date=None,
+        )
+        payload = {**payload, "refreshed": True, "online": True}
+
     bars = payload.get("bars") or []
     if not bars:
         raise RuntimeError("Нет баров M15 — сначала откройте Replay или скачайте CSV")
@@ -57,6 +126,8 @@ def market_snapshot() -> dict[str, Any]:
         "count": len(bars),
         "source": payload.get("source"),
         "online": payload.get("online"),
+        "refreshed": payload.get("refreshed"),
+        "bars": bars,
         "bar": last,
         "prev": prev,
         "z": last.get("zScore"),
@@ -182,20 +253,150 @@ def current_position() -> Position:
     return Position.FLAT
 
 
+def reconcile_broker_open_trade(
+    *,
+    portfolio: dict[str, Any] | None = None,
+    market: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Подтянуть открытый спред TATN/TATNP с брокера в локальный журнал.
+    Иначе сделка, открытая в Тинькофф / другим клиентом, в UI не видна.
+    """
+    mode, token, account = store.get_credentials()
+    if not token or not account:
+        return {"ok": False, "reason": "no_credentials"}
+    client = TInvestClient(mode, token)
+    try:
+        pf = portfolio if portfolio is not None else client.get_portfolio(account)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+    spread = client.detect_spread_position(pf)
+    local = store.get_open_trade()
+
+    if spread and not local:
+        snap = market if market is not None else market_snapshot()
+        trade_id = store.insert_open_trade(
+            {
+                "mode": mode,
+                "account_id": account,
+                "direction": spread["direction"],
+                "entry_signal": spread["entry_signal"],
+                "quantity_lots": spread["quantity_lots"],
+                "entry_time": snap.get("trade_date") or "",
+                "entry_z": snap.get("z"),
+                "entry_spread": snap.get("spread"),
+                "entry_tatn": snap.get("tatn"),
+                "entry_tatnp": snap.get("tatnp"),
+                "execution_notional_rub": None,
+                "source": "BROKER",
+                "legs": [
+                    {
+                        "ticker": "TATN",
+                        "qty": spread["qty_tatn"],
+                        "note": "sync from portfolio",
+                    },
+                    {
+                        "ticker": "TATNP",
+                        "qty": spread["qty_tatnp"],
+                        "note": "sync from portfolio",
+                    },
+                ],
+            }
+        )
+        store.log_event(
+            f"BROKER sync: открыт {spread['direction']} · "
+            f"{spread['quantity_lots']}+{spread['quantity_lots']} лот "
+            f"(TATN={spread['qty_tatn']}, TATNP={spread['qty_tatnp']})",
+            "info",
+        )
+        return {"ok": True, "adopted": True, "trade_id": trade_id, "broker": spread}
+
+    return {
+        "ok": True,
+        "adopted": False,
+        "broker": spread,
+        "local": bool(local),
+        "local_direction": (local or {}).get("direction"),
+    }
+
+
+def _maybe_monitor_heartbeat(bar: dict[str, Any], z: float) -> None:
+    global _last_heartbeat_ms
+    now = int(time.time() * 1000)
+    if _last_heartbeat_ms and (now - _last_heartbeat_ms) < MONITOR_HEARTBEAT_SEC * 1000:
+        return
+    _last_heartbeat_ms = now
+    store.log_event(
+        f"Монитор OK · {bar.get('tradeDate')} · Z={z:.2f}",
+        "info",
+    )
+
+
+def _auto_execute_signal(
+    signal: Signal,
+    *,
+    bar: dict[str, Any],
+    cur_ms: int,
+    z: float,
+    entry: float,
+    exit_z: float,
+) -> str:
+    """Execute AUTO trade for one edge; returns status suffix for last_message."""
+    trade_id = None
+    if signal == Signal.ENTER_LONG:
+        opened = open_position(Position.LONG, source="AUTO")
+        trade_id = opened.get("trade_id")
+    elif signal == Signal.ENTER_SHORT:
+        opened = open_position(Position.SHORT, source="AUTO")
+        trade_id = opened.get("trade_id")
+    elif signal in (Signal.EXIT_LONG, Signal.EXIT_SHORT):
+        close_position(source="AUTO")
+    else:
+        return ""
+    try:
+        from live.parity import schedule_parity_for_auto
+
+        schedule_parity_for_auto(
+            bar_ts=str(bar.get("tradeDate") or ""),
+            bar_ms=cur_ms,
+            signal=signal.value,
+            z_score=z,
+            entry_z=entry,
+            exit_z=exit_z,
+            trade_id=trade_id,
+        )
+    except Exception as parity_exc:
+        log.warning("parity schedule failed: %s", parity_exc)
+    return f" · AUTO {signal.value}"
+
+
 def monitor_tick() -> dict[str, Any]:
-    """One monitor cycle: refresh bars, detect edge, optionally auto-exec."""
+    """One monitor cycle: sync tip bar, trade only the next live edge (no replay)."""
     global _last_status
     settings = store.get_settings_bundle()
     entry = float(settings.get("entry_z") or DEFAULT_Z_ENTRY)
     exit_z = float(settings.get("exit_z") or DEFAULT_Z_EXIT)
-    snap = market_snapshot()
+    # Короткий sync — не зависать на ISS.
+    snap = market_snapshot(wait_sync=True, sync_timeout_sec=MONITOR_SYNC_TIMEOUT_SEC)
+    try:
+        reconcile_broker_open_trade()
+    except Exception as sync_exc:
+        log.warning("broker reconcile failed: %s", sync_exc)
+
+    bars = list(snap.get("bars") or [])
     bar = snap["bar"]
-    prev = snap["prev"]
     z = float(bar["zScore"])
     msg = f"{bar.get('tradeDate')} · Z {z:.2f}"
-    result: dict[str, Any] = {"z": z, "bar": bar.get("tradeDate"), "signal": Signal.NONE.value}
+    result: dict[str, Any] = {
+        "z": z,
+        "bar": bar.get("tradeDate"),
+        "signal": Signal.NONE.value,
+        "catchup_edges": 0,
+        "signals": [],
+    }
 
-    if not prev:
+    if len(bars) < 2:
         _last_status.update(
             {
                 "last_tick_ms": int(time.time() * 1000),
@@ -206,10 +407,33 @@ def monitor_tick() -> dict[str, Any]:
         )
         return result
 
-    prev_ms = int(prev.get("timestampMs") or 0)
-    cur_ms = int(bar.get("timestampMs") or 0)
     last_proc = int(store.get_setting("last_processed_bar_ms", "0") or "0")
-    if cur_ms <= last_proc:
+    mode, edges = plan_monitor_catchup(
+        bars,
+        last_proc,
+        max_edges=MONITOR_CATCHUP_MAX_EDGES,
+    )
+
+    if mode == "bootstrap":
+        anchor_ms = int(bar.get("timestampMs") or 0)
+        store.set_setting("last_processed_bar_ms", str(anchor_ms))
+        store.log_event(
+            f"Монитор: якорь на {bar.get('tradeDate')} (без реплея истории)",
+            "info",
+        )
+        _maybe_monitor_heartbeat(bar, z)
+        _last_status.update(
+            {
+                "last_tick_ms": int(time.time() * 1000),
+                "last_message": msg + " · якорь",
+                "last_z": z,
+                "last_bar": bar.get("tradeDate"),
+            }
+        )
+        return result
+
+    if mode == "up_to_date":
+        _maybe_monitor_heartbeat(bar, z)
         _last_status.update(
             {
                 "last_tick_ms": int(time.time() * 1000),
@@ -220,41 +444,86 @@ def monitor_tick() -> dict[str, Any]:
         )
         return result
 
-    if not is_consecutive_m15(prev_ms, cur_ms):
-        store.set_setting("last_processed_bar_ms", str(cur_ms))
+    if mode == "skip_gap":
+        # Пропуски не догоняем сделками — только якорь на хвост + предупреждение.
+        tip_ms = int(bar.get("timestampMs") or 0)
+        n_miss = max(0, len(edges))
+        store.set_setting("last_processed_bar_ms", str(tip_ms))
+        store.log_event(
+            f"Монитор: пропуск {n_miss} бар(ов) без AUTO-догона → якорь {bar.get('tradeDate')}",
+            "warn",
+        )
+        _maybe_monitor_heartbeat(bar, z)
         _last_status.update(
             {
                 "last_tick_ms": int(time.time() * 1000),
-                "last_message": msg + " · пропуск (не consecutive)",
+                "last_message": msg + f" · skip×{n_miss}",
                 "last_z": z,
                 "last_bar": bar.get("tradeDate"),
             }
         )
         return result
 
-    pos = current_position()
-    signal = determine_z_signal(float(prev["zScore"]), z, pos, entry, exit_z)
-    result["signal"] = signal.value
-    store.set_setting("last_processed_bar_ms", str(cur_ms))
+    # mode == "live": ровно одно следующее ребро
+    auto = bool(settings.get("auto_execute"))
+    for prev, cur in edges:
+        prev_ms = int(prev.get("timestampMs") or 0)
+        cur_ms = int(cur.get("timestampMs") or 0)
+        cur_z = float(cur["zScore"])
+        cur_td = str(cur.get("tradeDate") or "")
 
-    auto = settings.get("auto_execute")
-    if signal != Signal.NONE:
-        store.log_event(f"Сигнал {signal.value} @ {bar.get('tradeDate')} Z={z:.2f}", "signal")
+        if not is_consecutive_m15(prev_ms, cur_ms):
+            store.log_event(
+                f"Монитор: дыра в барах {prev.get('tradeDate')} → {cur_td} (сигнал пропущен)",
+                "warn",
+            )
+            store.set_setting("last_processed_bar_ms", str(cur_ms))
+            continue
+
+        if not is_moex_equity_session_bar(cur_td):
+            store.log_event(
+                f"Монитор: вне сессии TQBR {cur_td} (сигнал пропущен)",
+                "info",
+            )
+            store.set_setting("last_processed_bar_ms", str(cur_ms))
+            continue
+
+        pos = current_position()
+        signal = determine_z_signal(float(prev["zScore"]), cur_z, pos, entry, exit_z)
+        store.set_setting("last_processed_bar_ms", str(cur_ms))
+        result["catchup_edges"] = 1
+
+        if signal == Signal.NONE:
+            continue
+
+        result["signal"] = signal.value
+        result["signals"] = [f"{signal.value}@{cur_td}"]
+        store.log_event(f"Сигнал {signal.value} @ {cur_td} Z={cur_z:.2f}", "signal")
+
         if auto:
             try:
-                if signal == Signal.ENTER_LONG:
-                    open_position(Position.LONG, source="AUTO")
-                elif signal == Signal.ENTER_SHORT:
-                    open_position(Position.SHORT, source="AUTO")
-                elif signal in (Signal.EXIT_LONG, Signal.EXIT_SHORT):
-                    close_position(source="AUTO")
-                msg += f" · AUTO {signal.value}"
+                msg += _auto_execute_signal(
+                    signal,
+                    bar=cur,
+                    cur_ms=cur_ms,
+                    z=cur_z,
+                    entry=entry,
+                    exit_z=exit_z,
+                )
             except Exception as exc:
                 store.log_event(f"AUTO fail {signal.value}: {exc}", "error")
                 msg += f" · AUTO err: {exc}"
         else:
             msg += f" · сигнал {signal.value} (auto выкл)"
 
+    try:
+        from live.parity import process_due_parity_checks
+
+        process_due_parity_checks()
+    except Exception as parity_exc:
+        log.warning("parity process failed: %s", parity_exc)
+
+    _maybe_monitor_heartbeat(bar, z)
     _last_status.update(
         {
             "last_tick_ms": int(time.time() * 1000),
@@ -268,26 +537,34 @@ def monitor_tick() -> dict[str, Any]:
 
 def _monitor_loop() -> None:
     store.log_event("Монитор запущен", "info")
-    while not _monitor_stop.is_set():
-        try:
-            monitor_tick()
-        except Exception as exc:
-            store.log_event(f"Монитор: {exc}", "error")
-            _last_status["last_message"] = str(exc)
-            _last_status["last_tick_ms"] = int(time.time() * 1000)
-        _monitor_stop.wait(MONITOR_INTERVAL_SEC)
-    store.log_event("Монитор остановлен", "info")
-    _last_status["running"] = False
+    _set_monitor_keep_awake(True)
+    store.log_event("Монитор: keep-awake ON (ПК не уходит в сон)", "info")
+    try:
+        while not _monitor_stop.is_set():
+            try:
+                monitor_tick()
+            except Exception as exc:
+                store.log_event(f"Монитор: {exc}", "error")
+                _last_status["last_message"] = str(exc)
+                _last_status["last_tick_ms"] = int(time.time() * 1000)
+            # Периодически обновляем keep-awake (Windows сбрасывает через время).
+            _set_monitor_keep_awake(True)
+            _monitor_stop.wait(MONITOR_INTERVAL_SEC)
+    finally:
+        _set_monitor_keep_awake(False)
+        store.log_event("Монитор остановлен", "info")
+        _last_status["running"] = False
 
 
 def start_monitor() -> dict[str, Any]:
-    global _monitor_thread
+    global _monitor_thread, _monitor_started_ms
     with _monitor_lock:
         if _monitor_thread and _monitor_thread.is_alive():
             return {"ok": True, "running": True, "message": "уже запущен"}
         _monitor_stop.clear()
         store.set_setting("monitor_running", "1")
         _last_status["running"] = True
+        _monitor_started_ms = int(time.time() * 1000)
         _monitor_thread = threading.Thread(target=_monitor_loop, daemon=True, name="live-monitor")
         _monitor_thread.start()
     return {"ok": True, "running": True}
@@ -298,7 +575,17 @@ def stop_monitor() -> dict[str, Any]:
         _monitor_stop.set()
         store.set_setting("monitor_running", "0")
         _last_status["running"] = False
+        thread = _monitor_thread
+    if thread and thread.is_alive() and thread is not threading.current_thread():
+        thread.join(timeout=MONITOR_SYNC_TIMEOUT_SEC + 5.0)
+    _set_monitor_keep_awake(False)
     return {"ok": True, "running": False}
+
+
+def restart_monitor() -> dict[str, Any]:
+    """Stop+start — для watchdog, когда поток жив, но last_tick протух."""
+    stop_monitor()
+    return start_monitor()
 
 
 def monitor_status() -> dict[str, Any]:
@@ -308,4 +595,37 @@ def monitor_status() -> dict[str, Any]:
         "running": alive,
         "settings": store.get_settings_bundle(),
         "open": store.get_open_trade(),
+    }
+
+
+def health_live() -> dict[str, Any]:
+    """Liveness + business probe для внешнего watchdog."""
+    now_ms = int(time.time() * 1000)
+    wanted = bool(store.get_settings_bundle().get("monitor_running"))
+    alive = bool(_monitor_thread and _monitor_thread.is_alive())
+    last_tick_ms = int(_last_status.get("last_tick_ms") or 0)
+    ref_ms = last_tick_ms if last_tick_ms > 0 else int(_monitor_started_ms or 0)
+    age_sec: float | None
+    if ref_ms > 0:
+        age_sec = max(0.0, (now_ms - ref_ms) / 1000.0)
+    else:
+        age_sec = None
+    stale = bool(
+        wanted
+        and (
+            not alive
+            or (age_sec is not None and age_sec > MONITOR_STALE_SEC)
+        )
+    )
+    return {
+        "status": "ok",
+        "monitor_wanted": wanted,
+        "monitor_alive": alive,
+        "last_tick_ms": last_tick_ms or None,
+        "last_tick_age_sec": round(age_sec, 1) if age_sec is not None else None,
+        "stale_after_sec": MONITOR_STALE_SEC,
+        "stale": stale,
+        "last_bar": _last_status.get("last_bar"),
+        "last_z": _last_status.get("last_z"),
+        "last_message": _last_status.get("last_message"),
     }

@@ -32,6 +32,7 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
     if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) {
         return false
     }
+    if (WebDeskPrefs.isOrdersOnWebOnly(context)) return false
     if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
     val mode = currentExecutionMode(context)
     val dedupKey = "${signalType.name}|$barTimestampMillis"
@@ -139,6 +140,7 @@ internal suspend fun runSandboxAutoExitIfNeeded(
     ) {
         return false
     }
+    if (WebDeskPrefs.isOrdersOnWebOnly(context)) return false
     if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
     val mode = currentExecutionMode(context)
     val dedupKey = "${exitSignalType.name}|$barTimestampMillis"

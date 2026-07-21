@@ -50,4 +50,12 @@ SPREAD_LOT_MARGIN_PAIR_FRACTION = 0.50
 SPREAD_LOT_PROD_DEFAULT_LEVERAGE = 7.0
 
 MONITOR_INTERVAL_SEC = 45.0
+# Макс. рёбер в плане; >1 → skip_gap без AUTO-реплея.
+MONITOR_CATCHUP_MAX_EDGES = 8
+# Sync ISS в тике монитора — не блокировать надолго.
+MONITOR_SYNC_TIMEOUT_SEC = 12.0
+# Heartbeat в live_events, чтобы видеть «дыры».
+MONITOR_HEARTBEAT_SEC = 300.0
+# Watchdog: тик старше N сек при monitor_wanted → stale (soft→hard restart).
+MONITOR_STALE_SEC = 180.0
 USER_AGENT = "MOEX-MVP-Web-Replay"

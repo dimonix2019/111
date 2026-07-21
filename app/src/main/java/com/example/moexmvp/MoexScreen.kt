@@ -302,6 +302,7 @@ internal fun MoexScreen() {
             MainTab.Journal -> MoexScreenTabJournal(screen, scope, Modifier.weight(1f).fillMaxSize())
             MainTab.About -> MoexScreenTabAbout(screen, scope, Modifier.weight(1f).fillMaxSize())
             MainTab.Sandbox -> MoexScreenTabSandbox(screen, scope, Modifier.weight(1f).fillMaxSize())
+            MainTab.WebDesk -> MoexScreenTabWebDesk(screen, scope, Modifier.weight(1f).fillMaxSize())
             MainTab.Portfolio -> MoexScreenTabPortfolio(
                 screen = screen,
                 scope = scope,

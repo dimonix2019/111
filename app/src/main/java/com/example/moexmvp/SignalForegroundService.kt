@@ -43,6 +43,7 @@ class SignalForegroundService : Service() {
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private var pulseJob: kotlinx.coroutines.Job? = null
     private var signalWorkJob: kotlinx.coroutines.Job? = null
+    private var webDeskPollJob: kotlinx.coroutines.Job? = null
     private var ticksSinceAppUpdateCheck = 0
     private var signalWorkTickCount = 0
     private var lastForegroundZScore: Double? = null
@@ -73,9 +74,15 @@ class SignalForegroundService : Service() {
     }
 
     private fun ensureMonitorWorkerRunning() {
-        if (pulseJob?.isActive == true && signalWorkJob?.isActive == true) return
+        if (pulseJob?.isActive == true &&
+            signalWorkJob?.isActive == true &&
+            webDeskPollJob?.isActive == true
+        ) {
+            return
+        }
         pulseJob?.cancel()
         signalWorkJob?.cancel()
+        webDeskPollJob?.cancel()
         pulseJob = scope.launch {
             while (isActive) {
                 runCatching { performNotificationPulse() }
@@ -92,6 +99,15 @@ class SignalForegroundService : Service() {
                         MoexDiagnostics.logError(applicationContext, "monitor", e, "signal_work failed")
                     }
                 delay(SIGNAL_MONITOR_SIGNAL_WORK_MS)
+            }
+        }
+        webDeskPollJob = scope.launch {
+            while (isActive) {
+                runCatching { pollWebDeskAndNotify(applicationContext) }
+                    .onFailure { e ->
+                        MoexDiagnostics.logError(applicationContext, "web_desk", e, "poll failed")
+                    }
+                delay(WEB_DESK_POLL_MS)
             }
         }
     }
@@ -111,6 +127,8 @@ class SignalForegroundService : Service() {
         pulseJob = null
         signalWorkJob?.cancel()
         signalWorkJob = null
+        webDeskPollJob?.cancel()
+        webDeskPollJob = null
         scope.cancel()
         super.onDestroy()
     }
