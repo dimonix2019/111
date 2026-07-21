@@ -76,13 +76,13 @@ def plan_monitor_catchup(
     max_edges: int = 64,
 ) -> tuple[str, list[tuple[dict, dict]]]:
     """
-    Один «живой» шаг монитора — без реплея пропусков.
+    Живой монитор с догоном consecutive-рёбер (parity APK collectZStrategy15m…SinceProcessedBar).
 
     Returns:
       ("bootstrap", []) — якорь на хвост, без сигналов
       ("up_to_date", []) — новых баров нет
-      ("live", [(prev, cur)]) — ровно следующее consecutive-ребро после last_proc
-      ("skip_gap", [...pending...]) — отстали >1 бар или дыра: якориться вперёд без AUTO
+      ("live", [(prev, cur), ...]) — 1..max_edges consecutive рёбер после last_proc (AUTO)
+      ("skip_gap", [...]) — дыра относительно last_proc: якорь вперёд без AUTO
     """
     if not bars or len(bars) < 2:
         return "bootstrap", []
@@ -98,23 +98,27 @@ def plan_monitor_catchup(
     if start_i is None:
         return "up_to_date", []
     if start_i == 0:
+        # last_proc старше первого бара в окне — нельзя восстановить prev.
         return "skip_gap", []
 
+    # Цепочка только пока шаг ровно 15м и начинается с last_proc.
     pending: list[tuple[dict, dict]] = []
+    expected_prev_ms = last_proc_ms
     for i in range(start_i, len(bars)):
-        pending.append((bars[i - 1], bars[i]))
+        prev, cur = bars[i - 1], bars[i]
+        prev_ms = int(prev.get("timestampMs") or 0)
+        cur_ms = int(cur.get("timestampMs") or 0)
+        if prev_ms != expected_prev_ms or not is_consecutive_m15(prev_ms, cur_ms):
+            if not pending:
+                # Сразу дыра — без AUTO (как раньше skip_gap).
+                return "skip_gap", [(prev, cur)]
+            break
+        pending.append((prev, cur))
+        expected_prev_ms = cur_ms
         if len(pending) >= max_edges:
             break
+
     if not pending:
         return "up_to_date", []
-
-    prev, cur = pending[0]
-    prev_ms = int(prev.get("timestampMs") or 0)
-    cur_ms = int(cur.get("timestampMs") or 0)
-    # Только если prev — ровно последний обработанный бар и шаг 15м.
-    if prev_ms != last_proc_ms or not is_consecutive_m15(prev_ms, cur_ms):
-        return "skip_gap", pending
-    if len(pending) > 1:
-        # Отстали на несколько баров — не догоняем сделки реплеем.
-        return "skip_gap", pending
-    return "live", [(prev, cur)]
+    # Несколько баров подряд после лага / рестарта — догоняем, не пропускаем вход.
+    return "live", pending

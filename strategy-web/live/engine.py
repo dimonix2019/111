@@ -415,7 +415,7 @@ def _auto_execute_signal(
 
 
 def monitor_tick() -> dict[str, Any]:
-    """One monitor cycle: sync tip bar, trade only the next live edge (no replay)."""
+    """One monitor cycle: sync tip bar, AUTO on consecutive edges since last_proc (APK-like catchup)."""
     global _last_status
     settings = store.get_settings_bundle()
     entry = float(settings.get("entry_z") or DEFAULT_Z_ENTRY)
@@ -507,8 +507,9 @@ def monitor_tick() -> dict[str, Any]:
         )
         return result
 
-    # mode == "live": ровно одно следующее ребро
+    # mode == "live": consecutive рёбра после last_proc (догон как APK, до max_edges)
     auto = bool(settings.get("auto_execute"))
+    n_edges = 0
     for prev, cur in edges:
         prev_ms = int(prev.get("timestampMs") or 0)
         cur_ms = int(cur.get("timestampMs") or 0)
@@ -534,13 +535,14 @@ def monitor_tick() -> dict[str, Any]:
         pos = current_position()
         signal = determine_z_signal(float(prev["zScore"]), cur_z, pos, entry, exit_z)
         store.set_setting("last_processed_bar_ms", str(cur_ms))
-        result["catchup_edges"] = 1
+        n_edges += 1
+        result["catchup_edges"] = n_edges
 
         if signal == Signal.NONE:
             continue
 
         result["signal"] = signal.value
-        result["signals"] = [f"{signal.value}@{cur_td}"]
+        result.setdefault("signals", []).append(f"{signal.value}@{cur_td}")
         store.log_event(f"Сигнал {signal.value} @ {cur_td} Z={cur_z:.2f}", "signal")
 
         if auto:

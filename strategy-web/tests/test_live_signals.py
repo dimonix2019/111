@@ -47,10 +47,24 @@ def test_plan_monitor_catchup_after_sleep():
         _bar(step * 3, -1.7, "t3"),
         _bar(step * 4, -1.2, "t4"),
     ]
-    # Отстали на 2 бара → skip_gap, без AUTO-реплея
+    # Отстали на 2 бара → live-догон (parity APK), не skip_gap
+    mode, edges = plan_monitor_catchup(bars, step * 2)
+    assert mode == "live"
+    assert len(edges) == 2
+    assert edges[0][1]["tradeDate"] == "t3"
+    assert edges[1][1]["tradeDate"] == "t4"
+
+
+def test_plan_monitor_catchup_hole_is_skip_gap():
+    step = 15 * 60 * 1000
+    bars = [
+        _bar(step * 1, -1.4, "t1"),
+        _bar(step * 2, -1.5, "t2"),
+        # дыра: нет step*3
+        _bar(step * 4, -1.2, "t4"),
+    ]
     mode, edges = plan_monitor_catchup(bars, step * 2)
     assert mode == "skip_gap"
-    assert len(edges) == 2
 
 
 def test_plan_monitor_live_one_edge():

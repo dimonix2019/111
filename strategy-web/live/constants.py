@@ -50,7 +50,7 @@ SPREAD_LOT_MARGIN_PAIR_FRACTION = 0.50
 SPREAD_LOT_PROD_DEFAULT_LEVERAGE = 7.0
 
 MONITOR_INTERVAL_SEC = 45.0
-# Макс. рёбер в плане; >1 → skip_gap без AUTO-реплея.
+# Макс. рёбер AUTO-догона за тик (consecutive 15м после last_proc; parity APK).
 MONITOR_CATCHUP_MAX_EDGES = 8
 # Sync ISS в тике монитора — не блокировать надолго.
 MONITOR_SYNC_TIMEOUT_SEC = 12.0
