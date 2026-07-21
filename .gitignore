@@ -15,3 +15,7 @@ automation/.state/
 *.pyc
 .aider*
 strategy-web/data/strategy_optimize_run.log
+
+# NSSM binary downloaded by install-moex-live-service.ps1
+tools/nssm/
+

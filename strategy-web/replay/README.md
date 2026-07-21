@@ -4,23 +4,39 @@
 
 ## Запуск (Windows)
 
+### Вариант A — окно (как раньше)
+
 Из корня `MoexMvp`:
 
 ```bat
 run-replay-web.bat
 ```
 
-Один bat как раньше: поднимает сервер, открывает браузер, плюс внешний watchdog.
-
-- Слушает **`0.0.0.0:8765`** (`MOEX_REPLAY_HOST`) — доступ с телефона по Tailscale: `http://<100.x.x.x>:8765` (IP ПК в Tailscale).
-- `GET /api/health/live` каждые ~60 с
-- **soft:** `POST /api/live/monitor/restart` если поток мёртв / `last_tick` старше 180 с
-- **hard:** kill `:8765` + рестарт процесса (браузер повторно не открывает)
-- лог: `strategy-web/data/watchdog.log` (+ toast на hard restart)
-
 Закрытие окна / Ctrl+C останавливает watchdog и сервер.
 
-**APK:** вкладка «Стол web» — WebView на этот URL + push по опросу `/api/live/status` (ордера только на web).
+### Вариант B — Windows-сервис (рекомендуется для Prod)
+
+Админ PowerShell / bat (один раз):
+
+```bat
+scripts\install-moex-live-service.bat
+```
+
+Сервис **`MoexLiveWatchdog`**: автозапуск при старте Windows, поднимает `live_watchdog.py` + uvicorn `:8765`.
+
+- Probe **каждые 60 с** (`MOEX_WATCHDOG_INTERVAL_SEC=60`)
+- soft restart монитора при stale (~90 с без тика)
+- hard restart процесса при мёртвом HTTP
+- лог: `strategy-web/data/watchdog.log` (+ `watchdog-service.*.log`)
+- снятие: `scripts\uninstall-moex-live-service.bat`
+
+**Не** запускайте `run-replay-web.bat` параллельно с сервисом (один порт 8765).  
+В параметрах питания ПК: сон **Никогда** на время торгов (keep-awake в Session 0 ограничен).
+
+Общее:
+
+- Слушает **`0.0.0.0:8765`** — Tailscale: `http://<100.x.x.x>:8765`
+- **APK:** вкладка «Стол web» + push по `/api/live/status` (ордера только на web)
 
 ## Вкладки
 
@@ -33,7 +49,7 @@ run-replay-web.bat
 
 Пороги Z / плечо / Авто задаются **только на «Торговля»** (без дублей).
 
-**Монитор:** пока запущен — Windows keep-awake (ПК не уходит в сон). Торгует только следующее consecutive-ребро; пропуски **не** догоняет AUTO-реплеем (якорь вперёд + warn). Sync ISS ≤12с, heartbeat ~5 мин. Сигналы только в сессии TQBR **пн–пт 07:00–23:50 МСК** (бары 06:30/06:45 до открытия игнорируются).
+**Монитор:** keep-awake пока поток жив. AUTO догоняет до 8 consecutive 15м-рёбер после лага/рестарта (parity APK); настоящие дыры в барах — `skip_gap` без сделок. Sync ISS ≤12с, heartbeat ~5 мин. Сигналы только TQBR **пн–пт 07:00–23:50 МСК**.
 
 **Testing ≈ Prod:** Z на барах — **rolling 30д** (как Android). Пороги теста **не** связаны с Prod автоматически: кнопка **«из Торговли»** на вкладке Тестирование копирует пороги Live → только в UI теста. Опции **TP**, **Капитализация** и **Slip п.п.** (adverse спред на вход/выход, дефолт **0.12** по сделке Prod 20.07.2026) — в группе «Стратегия». Комиссия сима **0.04%/сторона** (тариф Премиум). После AUTO-сделки через ~45 мин сверяется edge с симом → лог `Parity OK/MISSING`.
 
