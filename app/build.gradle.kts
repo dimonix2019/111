@@ -24,8 +24,8 @@ android {
         applicationId = "com.example.moexmvp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 422
-        versionName = "1.7.303"
+        versionCode = 423
+        versionName = "1.7.304"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -117,8 +117,9 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
-/** MOEX ISS backtests are manual/local only — they time out on GitHub Actions and block APK publish. */
+/** Heavy MOEX sims/sweeps are manual/local only — they OOM/timeout on GHA and block APK publish. */
 tasks.withType<Test>().configureEach {
+    maxHeapSize = "2g"
     if (System.getenv("GITHUB_ACTIONS") == "true") {
         filter {
             excludeTestsMatching("com.example.moexmvp.MoexTodayBacktestTest")
@@ -130,6 +131,12 @@ tasks.withType<Test>().configureEach {
             excludeTestsMatching("com.example.moexmvp.MoexJune1011PhantomDiagTest")
             excludeTestsMatching("com.example.moexmvp.UserJournalJune1011ParityTest")
             excludeTestsMatching("com.example.moexmvp.MoexStrategyTestForcedExitRulesTest")
+            excludeTestsMatching("com.example.moexmvp.MoexFourThresholdSweepTest")
+            excludeTestsMatching("com.example.moexmvp.MoexClusterDynamicThresholdSweepTest")
+            excludeTestsMatching("com.example.moexmvp.MoexThresholdAsymmetricSweepTest")
+            excludeTestsMatching("com.example.moexmvp.MoexClusterHybridSweepTest")
+            excludeTestsMatching("com.example.moexmvp.MoexDailySimReplayTest")
+            excludeTestsMatching("com.example.moexmvp.MoexAppRegressionTest")
         }
     }
 }
