@@ -259,8 +259,10 @@ def reconcile_broker_open_trade(
     market: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Подтянуть открытый спред TATN/TATNP с брокера в локальный журнал.
-    Иначе сделка, открытая в Тинькофф / другим клиентом, в UI не видна.
+    Синхронизация локального open с брокером:
+    - спред есть, локально пусто → adopt (сделка из APK / Тинькофф);
+    - локально open, на брокере пусто → закрыть локальный ghost (ручной выход и т.п.);
+    - оба есть, разные стороны → предупреждение (не перетираем автоматически).
     """
     mode, token, account = store.get_credentials()
     if not token or not account:
@@ -273,9 +275,34 @@ def reconcile_broker_open_trade(
 
     spread = client.detect_spread_position(pf)
     local = store.get_open_trade()
+    snap = market if market is not None else None
+
+    if local and not spread:
+        if snap is None:
+            snap = market_snapshot()
+        closed = store.close_open_trade(
+            exit_time=str(snap.get("trade_date") or ""),
+            exit_z=snap.get("z"),
+            exit_spread=snap.get("spread"),
+            pnl_rub=None,
+            legs=[{"note": "broker flat — local open cleared"}],
+        )
+        store.log_event(
+            f"BROKER sync: закрыт локальный {local.get('direction')} "
+            f"(на брокере спреда нет) · бар {snap.get('trade_date')}",
+            "info",
+        )
+        return {
+            "ok": True,
+            "adopted": False,
+            "closed_local": True,
+            "closed": closed,
+            "broker": None,
+        }
 
     if spread and not local:
-        snap = market if market is not None else market_snapshot()
+        if snap is None:
+            snap = market_snapshot()
         trade_id = store.insert_open_trade(
             {
                 "mode": mode,
@@ -311,6 +338,22 @@ def reconcile_broker_open_trade(
             "info",
         )
         return {"ok": True, "adopted": True, "trade_id": trade_id, "broker": spread}
+
+    if local and spread:
+        loc_dir = (local.get("direction") or "").upper()
+        br_dir = (spread.get("direction") or "").upper()
+        if loc_dir and br_dir and loc_dir != br_dir:
+            store.log_event(
+                f"BROKER sync: конфликт направления local={loc_dir} broker={br_dir}",
+                "warn",
+            )
+            return {
+                "ok": True,
+                "adopted": False,
+                "conflict": True,
+                "broker": spread,
+                "local_direction": loc_dir,
+            }
 
     return {
         "ok": True,

@@ -359,7 +359,8 @@ class SignalForegroundService : Service() {
 
             when (edgeSignal) {
                 ZStrategySignal.EnterLong -> {
-                    if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                    val webOnly = WebDeskPrefs.isOrdersOnWebOnly(applicationContext)
+                    if (!webOnly && dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                         val sent = showZStrategySignalPushNotification(
                             context = applicationContext,
                             title = "Вход: LONG TATN / SHORT TATNP",
@@ -379,6 +380,12 @@ class SignalForegroundService : Service() {
                         if (sent) {
                             dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                         }
+                    } else if (webOnly) {
+                        MoexDiagnostics.log(
+                            applicationContext,
+                            "signal",
+                            "web_only skip local push EnterLong",
+                        )
                     }
                     runSandboxAutoEntryIfNeeded(
                         applicationContext,
@@ -390,7 +397,8 @@ class SignalForegroundService : Service() {
                 }
 
                 ZStrategySignal.EnterShort -> {
-                    if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                    val webOnly = WebDeskPrefs.isOrdersOnWebOnly(applicationContext)
+                    if (!webOnly && dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                         val sent = showZStrategySignalPushNotification(
                             context = applicationContext,
                             title = "Вход: LONG TATNP / SHORT TATN",
@@ -410,6 +418,12 @@ class SignalForegroundService : Service() {
                         if (sent) {
                             dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                         }
+                    } else if (webOnly) {
+                        MoexDiagnostics.log(
+                            applicationContext,
+                            "signal",
+                            "web_only skip local push EnterShort",
+                        )
                     }
                     runSandboxAutoEntryIfNeeded(
                         applicationContext,
@@ -422,7 +436,8 @@ class SignalForegroundService : Service() {
 
                 ZStrategySignal.ExitLong -> {
                     clearPendingVirtualTradeProposal(applicationContext)
-                    if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                    val webOnly = WebDeskPrefs.isOrdersOnWebOnly(applicationContext)
+                    if (!webOnly && dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                         val sent = showZStrategySignalPushNotification(
                             context = applicationContext,
                             title = "Выход: закрыть LONG TATN / SHORT TATNP",
@@ -436,6 +451,12 @@ class SignalForegroundService : Service() {
                         if (sent) {
                             dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                         }
+                    } else if (webOnly) {
+                        MoexDiagnostics.log(
+                            applicationContext,
+                            "signal",
+                            "web_only skip local push ExitLong",
+                        )
                     }
                     runSandboxAutoExitIfNeeded(
                         applicationContext,
@@ -447,7 +468,8 @@ class SignalForegroundService : Service() {
 
                 ZStrategySignal.ExitShort -> {
                     clearPendingVirtualTradeProposal(applicationContext)
-                    if (dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
+                    val webOnly = WebDeskPrefs.isOrdersOnWebOnly(applicationContext)
+                    if (!webOnly && dayLimit.sentCount < DAILY_SIGNAL_MAX_PER_DAY) {
                         val sent = showZStrategySignalPushNotification(
                             context = applicationContext,
                             title = "Выход: закрыть LONG TATNP / SHORT TATN",
@@ -461,6 +483,12 @@ class SignalForegroundService : Service() {
                         if (sent) {
                             dayLimit = dayLimit.copy(sentCount = dayLimit.sentCount + 1)
                         }
+                    } else if (webOnly) {
+                        MoexDiagnostics.log(
+                            applicationContext,
+                            "signal",
+                            "web_only skip local push ExitShort",
+                        )
                     }
                     runSandboxAutoExitIfNeeded(
                         applicationContext,
