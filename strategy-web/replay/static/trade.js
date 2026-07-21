@@ -1133,7 +1133,13 @@
         $('tradeStatus').textContent = `Ошибка: ${e.message}`;
         startPoll();
       });
-    requestAnimationFrame(resize);
+    requestAnimationFrame(() => {
+      resize();
+      requestAnimationFrame(resize);
+    });
+    // Phone/WebView: layout settles after paint / keyboard / orientation
+    setTimeout(resize, 120);
+    setTimeout(resize, 400);
   }
 
   function onHide() { stopPoll(); }

@@ -2187,7 +2187,46 @@ input[type="number"] {
   .live-split { grid-template-columns: 1fr; }
   .trade-desk {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
     overflow: auto;
+    height: auto;
+    min-height: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Otherwise height:100% collapses to ~0 and charts are clipped by overflow:hidden */
+  .trade-charts {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    flex: none;
+  }
+  .trade-chart-stack {
+    flex: none;
+    height: min(58vh, 420px);
+    min-height: 280px;
+  }
+  .trade-pane-z-wrap {
+    min-height: 180px;
+  }
+  .trade-pane-z {
+    min-height: 180px;
+  }
+  .trade-pane-spread {
+    flex-basis: 100px;
+    height: 100px;
+    min-height: 80px;
+  }
+  .trade-side {
+    overflow: visible;
+    max-height: none;
+  }
+  .toolbar {
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  .view-mode-chips .chip-view {
+    padding: 6px 10px;
+    font-size: 11px;
   }
 }
 
@@ -2200,6 +2239,7 @@ input[type="number"] {
     flex: 1 1 auto;
     min-width: 0;
     width: 100%;
+    min-height: 280px;
   }
   .trades-panel {
     flex: 0 0 200px;
