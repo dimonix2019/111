@@ -2212,6 +2212,13 @@
     }
   }
 
+  function setPlayButtonLabel(isPlaying) {
+    const btn = $('btnPlay');
+    if (!btn) return;
+    btn.textContent = isPlaying ? '⏸' : '▶';
+    btn.title = isPlaying ? 'Pause' : 'Play';
+  }
+
   function stopTimer() {
     if (timer) {
       clearInterval(timer);
@@ -2226,7 +2233,7 @@
       const next = engine.stepForward();
       if (!next) {
         playing = false;
-        $('btnPlay').textContent = '▶ Play';
+        setPlayButtonLabel(false);
         stopTimer();
         refreshUi(); // полный кадр при остановке
         return;
@@ -2244,13 +2251,13 @@
     if (playing) {
       playing = false;
       engine.pause();
-      $('btnPlay').textContent = '▶ Play';
+      setPlayButtonLabel(false);
       stopTimer();
     } else {
       snapChartsToReplayEdge();
       engine.play();
       playing = true;
-      $('btnPlay').textContent = '⏸ Pause';
+      setPlayButtonLabel(true);
       startTimer();
     }
     refreshUi();
@@ -2259,14 +2266,14 @@
   function pausePlayback() {
     playing = false;
     stopTimer();
-    $('btnPlay').textContent = '▶ Play';
+    setPlayButtonLabel(false);
     engine?.pause();
   }
 
   function stepBackOne() {
     playing = false;
     stopTimer();
-    $('btnPlay').textContent = '▶ Play';
+    setPlayButtonLabel(false);
     snapChartsToReplayEdge();
     engine.stepBackward();
     refreshUi({ light: true });
@@ -2275,7 +2282,7 @@
   function stepFwdOne() {
     playing = false;
     stopTimer();
-    $('btnPlay').textContent = '▶ Play';
+    setPlayButtonLabel(false);
     snapChartsToReplayEdge();
     engine.pause();
     engine.stepForward();
@@ -2285,7 +2292,7 @@
   function jumpToStart() {
     playing = false;
     stopTimer();
-    $('btnPlay').textContent = '▶ Play';
+    setPlayButtonLabel(false);
     snapChartsToReplayEdge();
     engine.seekToStart();
     refreshUi();
@@ -2294,7 +2301,7 @@
   function jumpToEnd() {
     playing = false;
     stopTimer();
-    $('btnPlay').textContent = '▶ Play';
+    setPlayButtonLabel(false);
     snapChartsToReplayEdge();
     engine.seekToEnd();
     refreshUi();
@@ -2339,6 +2346,38 @@
     });
   }
 
+  function isMobileLayout() {
+    return window.matchMedia('(max-width: 900px)').matches;
+  }
+
+  function setReplayParamsOpen(open) {
+    const toolbar = document.querySelector('.toolbar');
+    const btn = $('btnMobileReplayParams');
+    if (!toolbar) return;
+    toolbar.classList.toggle('is-replay-params-open', !!open);
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  let mobileReplayPriorityApplied = false;
+  function applyMobileReplayChartPriority() {
+    if (!isMobileLayout() || mobileReplayPriorityApplied) return;
+    mobileReplayPriorityApplied = true;
+    // Free vertical space for Z chart; user can re-expand via pane buttons.
+    let changed = false;
+    if (!isDeltaPaneHidden()) {
+      setPaneCollapsed('deltaPane', true);
+      changed = true;
+    }
+    if (!isPnlPaneHidden()) {
+      setPaneCollapsed('pnlPane', true);
+      changed = true;
+    }
+    if (changed) syncPaneCollapseUi();
+  }
+
+  window.__moexSetReplayParamsOpen = setReplayParamsOpen;
+  window.__moexApplyMobileReplayLayout = applyMobileReplayChartPriority;
+
   function bindControls() {
     $('btnPlay').addEventListener('click', togglePlay);
     $('btnBack').addEventListener('click', stepBackOne);
@@ -2346,6 +2385,15 @@
     $('btnStart').addEventListener('click', jumpToStart);
     $('btnEnd').addEventListener('click', jumpToEnd);
     bindReplayKeyboard();
+
+    $('btnMobileReplayParams')?.addEventListener('click', () => {
+      const toolbar = document.querySelector('.toolbar');
+      const open = !toolbar?.classList.contains('is-replay-params-open');
+      setReplayParamsOpen(open);
+      requestAnimationFrame(() => {
+        if (typeof window.__moexReplayResize === 'function') window.__moexReplayResize();
+      });
+    });
 
     $('btnLong').addEventListener('click', () => {
       if (!engine) return;
@@ -2378,7 +2426,7 @@
       scrubbing = true;
       playing = false;
       stopTimer();
-      $('btnPlay').textContent = '▶ Play';
+      setPlayButtonLabel(false);
       snapChartsToReplayEdge();
       const frac = $('scrub').value / 1000;
       const minC = engine.minCursor;

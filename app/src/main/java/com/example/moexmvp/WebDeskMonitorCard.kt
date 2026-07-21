@@ -64,7 +64,7 @@ internal fun WebDeskMonitorCard(
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "URL стола на ПК, напр. http://100.x.x.x:8765. Ордера — только на web.",
+            text = "URL стола на ПК (Tailscale), напр. http://100.119.122.31:8765. Затем вкладка «Стол web». Ордера — только на web.",
             color = Color(0xFF90A4AE),
             fontSize = 11.sp,
         )

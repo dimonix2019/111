@@ -2,19 +2,25 @@ package com.example.moexmvp
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.os.Build
+import android.view.ViewGroup
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -26,12 +32,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.CoroutineScope
 
-/** WebView of strategy-web desk ({base}/) over Tailscale/LAN. */
+/** Cache-bust so phone WebView picks up latest strategy-web mobile CSS/JS. */
+private const val WEB_DESK_UI_CACHE = "apk=1.7.306&v=20260721m3"
+
+/** Full-screen strategy-web desk over Tailscale/LAN — phone-first layout. */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal fun MoexScreenTabWebDesk(
@@ -40,9 +50,11 @@ internal fun MoexScreenTabWebDesk(
     modifier: Modifier,
 ) {
     val context = LocalContext.current
-    val base = remember { WebDeskPrefs.normalizedBaseUrl(context) }
+    // Re-read each recomposition so URL saved on «Песочница» applies without restart.
+    val base = WebDeskPrefs.normalizedBaseUrl(context)
     var loadError by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
     if (base.isNullOrBlank()) {
         Box(
@@ -50,7 +62,9 @@ internal fun MoexScreenTabWebDesk(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = "Задайте URL стола на вкладке «Песочница» → «Мониторинг web (Tailscale)».\nПример: http://100.x.x.x:8765",
+                text = "Задайте URL стола на вкладке «Песочница» → «Мониторинг web (Tailscale)».\n" +
+                    "Пример: http://100.119.122.31:8765\n\n" +
+                    "После сохранения откройте «Стол web» — тот же стол, что на ПК, под телефон.",
                 color = Color(0xFFFFCC80),
                 fontSize = 14.sp,
             )
@@ -58,7 +72,36 @@ internal fun MoexScreenTabWebDesk(
         return
     }
 
-    Column(modifier = modifier.fillMaxSize().background(Color.Black)) {
+    val deskUrl = "$base/?$WEB_DESK_UI_CACHE"
+
+    Column(modifier = modifier.fillMaxSize().background(Color(0xFF131722))) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF1E222D))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = base.removePrefix("http://").removePrefix("https://"),
+                color = Color(0xFF90A4AE),
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(end = 8.dp),
+            )
+            TextButton(
+                onClick = {
+                    loadError = null
+                    val wv = webViewRef
+                    if (wv != null) wv.reload() else reloadKey++
+                },
+            ) {
+                Text("Обновить", color = Color(0xFF90CAF9), fontSize = 12.sp)
+            }
+        }
+
         loadError?.let { err ->
             Column(
                 modifier = Modifier
@@ -86,15 +129,35 @@ internal fun MoexScreenTabWebDesk(
             }
         }
 
-        key(reloadKey) {
+        key(base, reloadKey) {
             AndroidView(
                 modifier = Modifier.fillMaxSize().weight(1f, fill = true),
                 factory = { ctx ->
                     WebView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        settings.databaseEnabled = true
                         settings.builtInZoomControls = true
                         settings.displayZoomControls = false
+                        settings.setSupportZoom(true)
+                        // Mobile CSS @media max-width:900px — keep phone viewport.
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = false
+                        settings.cacheMode = WebSettings.LOAD_DEFAULT
+                        settings.mediaPlaybackRequiresUserGesture = false
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                        }
+                        val ua = settings.userAgentString
+                        if (!ua.contains("Mobile", ignoreCase = true)) {
+                            settings.userAgentString = "$ua Mobile"
+                        }
+                        isVerticalScrollBarEnabled = true
+                        isHorizontalScrollBarEnabled = false
                         webViewClient = object : WebViewClient() {
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 loadError = null
@@ -111,8 +174,12 @@ internal fun MoexScreenTabWebDesk(
                                 }
                             }
                         }
-                        loadUrl("$base/")
+                        webViewRef = this
+                        loadUrl(deskUrl)
                     }
+                },
+                update = { view ->
+                    webViewRef = view
                 },
             )
         }

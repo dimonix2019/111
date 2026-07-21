@@ -219,9 +219,17 @@
         $('liveStatus').textContent = `Ошибка: ${e.message}`;
       });
     } else {
+      if (window.__moexApplyMobileReplayLayout) window.__moexApplyMobileReplayLayout();
       requestAnimationFrame(() => {
         if (window.__moexReplayResize) window.__moexReplayResize();
+        setTimeout(() => {
+          if (window.__moexReplayResize) window.__moexReplayResize();
+        }, 80);
       });
+    }
+
+    if (v !== 'replay' && window.__moexSetReplayParamsOpen) {
+      window.__moexSetReplayParamsOpen(false);
     }
   }
 
