@@ -29,6 +29,7 @@ scripts\install-moex-live-service.bat
 - hard restart процесса при мёртвом HTTP
 - лог: `strategy-web/data/watchdog.log` (+ `watchdog-service.*.log`)
 - снятие: `scripts\uninstall-moex-live-service.bat`
+- после обновления кода агент/вы: `scripts\restart-moex-live-service.bat` (или `Restart-Service MoexLiveWatchdog`)
 
 **Не** запускайте `run-replay-web.bat` параллельно с сервисом (один порт 8765).  
 В параметрах питания ПК: сон **Никогда** на время торгов (keep-awake в Session 0 ограничен).

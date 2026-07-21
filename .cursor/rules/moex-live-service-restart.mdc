@@ -1,0 +1,16 @@
+---
+description: After strategy-web live/watchdog changes, restart MoexLiveWatchdog service
+globs: strategy-web/**/*
+alwaysApply: false
+---
+
+# MOEX live Windows service
+
+When changing `strategy-web` live monitor, watchdog, replay server, or related scripts that the running desk loads:
+
+1. Prefer restarting Windows service **`MoexLiveWatchdog`** yourself (do not ask the user to do it):
+   - `Restart-Service MoexLiveWatchdog -Force` (may need admin)
+   - or run `scripts\restart-moex-live-service.bat`
+2. If the service is not installed, say so and point to `scripts\install-moex-live-service.bat` (admin, once).
+3. Do not leave the user on stale Python code after a push that affects the live desk.
+4. Verify with `GET http://127.0.0.1:8765/api/health` when possible.
