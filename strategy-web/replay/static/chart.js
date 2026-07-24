@@ -133,6 +133,8 @@ class ReplayChart {
     this.hoverTradeId = null;
     this._clickBound = false;
     this._crosshairBound = false;
+    this._pnlHoverDateBound = false;
+    this._pnlHoverDateEl = null;
     this._refreshMarkersTimer = 0;
     this._guideLinesRaf = 0;
     this._pendingGuideRange = null;
@@ -423,6 +425,56 @@ class ReplayChart {
     this.pnlSeries.setData([]);
     this.pnlRubSeries.setData([]);
     this._bindSecondaryTimeSync();
+    this._bindPnlHoverDate();
+  }
+
+  /** Дата под курсором на PnL (timeScale скрыт — встроенная подпись оси не видна). */
+  _ensurePnlHoverDateEl() {
+    if (this._pnlHoverDateEl || !this.pnlContainer) return;
+    const el = document.createElement('div');
+    el.className = 'pnl-crosshair-date';
+    el.hidden = true;
+    el.setAttribute('aria-hidden', 'true');
+    this.pnlContainer.appendChild(el);
+    this._pnlHoverDateEl = el;
+  }
+
+  _bindPnlHoverDate() {
+    if (!this.pnlChart || this._pnlHoverDateBound) return;
+    this._ensurePnlHoverDateEl();
+    this._pnlHoverDateBound = true;
+    this.pnlChart.subscribeCrosshairMove((param) => this._onPnlCrosshairMove(param));
+  }
+
+  _onPnlCrosshairMove(param) {
+    const el = this._pnlHoverDateEl;
+    if (!el || !this.pnlContainer) return;
+    const point = param?.point;
+    const time = param?.time;
+    if (
+      time == null
+      || !point
+      || point.x < 0
+      || point.y < 0
+    ) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    const label = formatChartTickMsk(typeof time === 'number' ? time : Number(time));
+    if (!label) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    el.textContent = label;
+    el.hidden = false;
+    const w = this.pnlContainer.clientWidth || 0;
+    const half = Math.max(12, el.offsetWidth / 2);
+    const minX = CHART_SCALE_LEFT_W + half;
+    const maxX = Math.max(minX, w - CHART_SCALE_RIGHT_W - half);
+    const x = Math.min(maxX, Math.max(minX, point.x));
+    el.style.left = `${x}px`;
   }
 
   _formatPnlPctLabel(pct) {

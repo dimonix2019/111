@@ -11,9 +11,11 @@
     tradesSummaryScrollTop: 'moexReplay.tradesSummaryScrollTop',
     riskCompareScrollTop: 'moexReplay.riskCompareScrollTop',
     monthlyPnlScrollTop: 'moexReplay.monthlyPnlScrollTop',
+    zHeatmapScrollTop: 'moexReplay.zHeatmapScrollTop',
     tradesScrollHeight: 'moexReplay.tradesScrollHeight',
     riskCompareHeight: 'moexReplay.riskCompareHeight',
     monthlyPnlHeight: 'moexReplay.monthlyPnlHeight',
+    zHeatmapHeight: 'moexReplay.zHeatmapHeight',
     tradeColumns: 'moexReplay.tradeColumns',
     tradesPanelWidth: 'moexReplay.tradesPanelWidth',
     pnlPaneHeight: 'moexReplay.pnlPaneHeight',
@@ -24,6 +26,11 @@
     riskCompareHidden: 'moexReplay.riskCompareHidden',
     tradesSummaryHidden: 'moexReplay.tradesSummaryHidden',
     monthlyPnlHidden: 'moexReplay.monthlyPnlHidden',
+    zHeatmapHidden: 'moexReplay.zHeatmapHidden',
+    hmEntryMin: 'moexReplay.hmEntryMin',
+    hmEntryMax: 'moexReplay.hmEntryMax',
+    hmExitMin: 'moexReplay.hmExitMin',
+    hmStep: 'moexReplay.hmStep',
     pnlMode: 'moexReplay.pnlMode',
     notionalRub: 'moexReplay.notionalRub',
     slippageSpreadPts: 'moexReplay.slippageSpreadPts',
@@ -53,6 +60,8 @@
   const RISK_COMPARE_HEIGHT_MIN = 48;
   const MONTHLY_PNL_HEIGHT_DEFAULT = 200;
   const MONTHLY_PNL_HEIGHT_MIN = 88;
+  const Z_HEATMAP_HEIGHT_DEFAULT = 240;
+  const Z_HEATMAP_HEIGHT_MIN = 120;
   const TRADES_SUMMARY_MIN = 120;
 
   let allPoints = [];
@@ -89,6 +98,10 @@
   let summaryScrollRestored = false;
   let riskCompareScrollRestored = false;
   let monthlyPnlScrollRestored = false;
+  let zHeatmapScrollRestored = false;
+  let zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+  let zHeatmapTimer = null;
+  let zHeatmapJobId = 0;
   /** Пока true — не писать scroll в localStorage (восстановление / layout). */
   let suppressScrollSave = false;
   let suppressScrollSaveTimer = null;
@@ -144,8 +157,17 @@
     if (typeof setSimSlippageSpreadPts === 'function') {
       const slipV = setSimSlippageSpreadPts($('slipSel')?.value ?? 0.12);
       if ($('slipSel')) $('slipSel').value = String(slipV);
+      if ($('hmSlip')) $('hmSlip').value = String(slipV);
       saveSetting(LS.slippageSpreadPts, slipV);
     }
+    const hmEntryMin = localStorage.getItem(LS.hmEntryMin);
+    const hmEntryMax = localStorage.getItem(LS.hmEntryMax);
+    const hmExitMin = localStorage.getItem(LS.hmExitMin);
+    const hmStep = localStorage.getItem(LS.hmStep);
+    if (hmEntryMin && $('hmEntryMin')) $('hmEntryMin').value = hmEntryMin;
+    if (hmEntryMax && $('hmEntryMax')) $('hmEntryMax').value = hmEntryMax;
+    if (hmExitMin && $('hmExitMin')) $('hmExitMin').value = hmExitMin;
+    if (hmStep && $('hmStep')) $('hmStep').value = hmStep;
     const sortCol = localStorage.getItem(LS.tradeSortCol);
     const sortDir = localStorage.getItem(LS.tradeSortDir);
     if (sortCol && TRADE_COLUMN_KEYS.includes(sortCol)) tradeSortColumn = sortCol;
@@ -201,6 +223,65 @@
       label.appendChild(sel);
       host.appendChild(label);
     }
+    fillHmRiskExitGroupSelects();
+  }
+
+  function fillHmRiskExitGroupSelects() {
+    const host = $('hmRiskExitGroups');
+    if (!host || typeof RISK_EXIT_GROUPS === 'undefined') return;
+    host.innerHTML = '';
+    for (const g of RISK_EXIT_GROUPS) {
+      const label = document.createElement('label');
+      label.className = 'meta';
+      label.title = g.title || g.label;
+      label.appendChild(document.createTextNode(`${g.label} `));
+      const sel = document.createElement('select');
+      sel.id = `hm_${g.selId}`;
+      sel.dataset.riskGroup = g.id;
+      sel.dataset.mirrorSel = g.selId;
+      const primary = $(g.selId);
+      const saved = primary?.value || localStorage.getItem(g.lsKey) || 'off';
+      sel.innerHTML = g.options.map((o) => (
+        `<option value="${o.id}">${o.label}</option>`
+      )).join('');
+      sel.value = g.options.some((o) => o.id === saved) ? saved : 'off';
+      label.appendChild(sel);
+      host.appendChild(label);
+    }
+  }
+
+  let hmStrategySyncLock = false;
+
+  function syncHmStrategyControlsFromToolbar() {
+    if (hmStrategySyncLock) return;
+    hmStrategySyncLock = true;
+    try {
+      const entry = $('entrySel')?.value;
+      const exit = $('exitSel')?.value;
+      if (entry != null && $('hmEntrySel')) {
+        populateThresholdSelect($('hmEntrySel'), 0.5, entry);
+      }
+      if (exit != null && $('hmExitSel')) {
+        populateThresholdSelect($('hmExitSel'), 0.3, exit);
+      }
+      if ($('hmTpSel') && $('tpSel')) $('hmTpSel').value = $('tpSel').value;
+      if ($('hmNotionalSel') && $('notionalSel')) {
+        $('hmNotionalSel').value = $('notionalSel').value;
+      }
+      if ($('hmSlip') && $('slipSel')) $('hmSlip').value = $('slipSel').value;
+      if ($('hmCompoundChk') && $('compoundChk')) {
+        $('hmCompoundChk').checked = !!$('compoundChk').checked;
+      }
+      if (typeof RISK_EXIT_GROUPS !== 'undefined') {
+        for (const g of RISK_EXIT_GROUPS) {
+          const primary = $(g.selId);
+          const hm = $(`hm_${g.selId}`);
+          if (primary && hm) hm.value = primary.value;
+        }
+      }
+    } finally {
+      hmStrategySyncLock = false;
+    }
   }
 
   function selectedRiskExitGroups() {
@@ -221,8 +302,10 @@
   /** Avg win baseline (Z only) → money stop 3.5×avgWin, min 4000₽ — как Android. */
   let moneyStopDynCache = { key: '', value: 4000 };
 
-  function computeMoneyStopDynamic(cursorIndex) {
-    const { entry, exit } = thresholds();
+  function computeMoneyStopDynamic(cursorIndex, entryOverride, exitOverride) {
+    const th = thresholds();
+    const entry = entryOverride != null ? entryOverride : th.entry;
+    const exit = exitOverride != null ? exitOverride : th.exit;
     const idx = Math.max(0, cursorIndex|0);
     const key = [
       entry, exit, getSimNotionalRub(), getSimCompound() ? 1 : 0,
@@ -330,6 +413,10 @@
     return !!$('monthlyPnlPane')?.classList.contains('is-collapsed');
   }
 
+  function isZHeatmapHidden() {
+    return !!$('zHeatmapPane')?.classList.contains('is-collapsed');
+  }
+
   function tradesScrollHeightBounds(panelEl) {
     if (!panelEl) {
       return { min: TRADES_SCROLL_HEIGHT_MIN, max: TRADES_SCROLL_HEIGHT_DEFAULT };
@@ -380,15 +467,21 @@
     const riskHead = summaryEl.querySelector('#riskComparePane .trades-section-head');
     const summaryHead = summaryEl.querySelector('#tradesSummaryPane .trades-section-head');
     const monthlyHead = summaryEl.querySelector('#monthlyPnlPane .trades-section-head');
+    const heatmapHead = summaryEl.querySelector('#zHeatmapPane .trades-section-head');
     const metricsMin = isTradesSummaryHidden() ? 0 : 48;
     const monthlyH = isMonthlyPnlHidden()
       ? 0
       : readCssPxVar(summaryEl, '--monthly-pnl-height', loadMonthlyPnlHeight());
+    const heatmapH = isZHeatmapHidden()
+      ? 0
+      : readCssPxVar(summaryEl, '--z-heatmap-height', loadZHeatmapHeight());
     const used = (riskHead?.offsetHeight || 0)
       + (summaryHead?.offsetHeight || 0) + metricsMin
       + (isTradesSummaryHidden() ? 0 : CHART_SPLITTER_HEIGHT)
       + (monthlyHead?.offsetHeight || 0) + monthlyH
       + (isMonthlyPnlHidden() ? 0 : CHART_SPLITTER_HEIGHT)
+      + (heatmapHead?.offsetHeight || 0) + heatmapH
+      + (isZHeatmapHidden() ? 0 : CHART_SPLITTER_HEIGHT)
       + 16;
     const max = Math.max(RISK_COMPARE_HEIGHT_MIN, summaryEl.clientHeight - used);
     return { min: RISK_COMPARE_HEIGHT_MIN, max };
@@ -427,9 +520,15 @@
       '--risk-compare-height',
       loadRiskCompareHeight(),
     );
+    const heatmapHead = summaryEl.querySelector('#zHeatmapPane .trades-section-head');
+    const heatmapH = isZHeatmapHidden()
+      ? 0
+      : readCssPxVar(summaryEl, '--z-heatmap-height', loadZHeatmapHeight());
     const used = (filters?.offsetHeight || 0)
       + riskH + CHART_SPLITTER_HEIGHT
-      + metricsMin + CHART_SPLITTER_HEIGHT + 16;
+      + metricsMin + CHART_SPLITTER_HEIGHT
+      + (isZHeatmapHidden() ? 0 : CHART_SPLITTER_HEIGHT + (heatmapHead?.offsetHeight || 0) + heatmapH)
+      + 16;
     const max = Math.max(MONTHLY_PNL_HEIGHT_MIN, summaryEl.clientHeight - used);
     return { min: MONTHLY_PNL_HEIGHT_MIN, max };
   }
@@ -456,6 +555,56 @@
       : MONTHLY_PNL_HEIGHT_DEFAULT;
   }
 
+  function zHeatmapHeightBounds(summaryEl) {
+    if (!summaryEl) {
+      return { min: Z_HEATMAP_HEIGHT_MIN, max: Z_HEATMAP_HEIGHT_DEFAULT };
+    }
+    const riskHead = summaryEl.querySelector('#riskComparePane .trades-section-head');
+    const summaryHead = summaryEl.querySelector('#tradesSummaryPane .trades-section-head');
+    const monthlyHead = summaryEl.querySelector('#monthlyPnlPane .trades-section-head');
+    const heatmapHead = summaryEl.querySelector('#zHeatmapPane .trades-section-head');
+    const riskH = isRiskCompareHidden()
+      ? 0
+      : readCssPxVar(summaryEl, '--risk-compare-height', loadRiskCompareHeight());
+    const metricsMin = isTradesSummaryHidden() ? 0 : 48;
+    const monthlyH = isMonthlyPnlHidden()
+      ? 0
+      : readCssPxVar(summaryEl, '--monthly-pnl-height', loadMonthlyPnlHeight());
+    const used = (riskHead?.offsetHeight || 0)
+      + (isRiskCompareHidden() ? 0 : riskH + CHART_SPLITTER_HEIGHT)
+      + (summaryHead?.offsetHeight || 0)
+      + (isTradesSummaryHidden() ? 0 : metricsMin + CHART_SPLITTER_HEIGHT)
+      + (monthlyHead?.offsetHeight || 0)
+      + (isMonthlyPnlHidden() ? 0 : monthlyH + CHART_SPLITTER_HEIGHT)
+      + (heatmapHead?.offsetHeight || 0)
+      + CHART_SPLITTER_HEIGHT
+      + 16;
+    const max = Math.max(Z_HEATMAP_HEIGHT_MIN, summaryEl.clientHeight - used);
+    return { min: Z_HEATMAP_HEIGHT_MIN, max };
+  }
+
+  function applyZHeatmapHeight(heightPx) {
+    const summary = $('tradesSummary');
+    const scrollEl = $('tradesZHeatmapScroll');
+    if (!summary || !scrollEl) return Z_HEATMAP_HEIGHT_DEFAULT;
+    if (summary.clientHeight <= 0) {
+      const h = Math.round(Math.max(Z_HEATMAP_HEIGHT_MIN, heightPx));
+      summary.style.setProperty('--z-heatmap-height', `${h}px`);
+      return h;
+    }
+    const { min, max } = zHeatmapHeightBounds(summary);
+    const h = Math.round(Math.max(min, Math.min(max, heightPx)));
+    summary.style.setProperty('--z-heatmap-height', `${h}px`);
+    return h;
+  }
+
+  function loadZHeatmapHeight() {
+    const saved = parseInt(localStorage.getItem(LS.zHeatmapHeight) || '', 10);
+    return Number.isFinite(saved) && saved >= Z_HEATMAP_HEIGHT_MIN
+      ? saved
+      : Z_HEATMAP_HEIGHT_DEFAULT;
+  }
+
   function readCssPxVar(el, prop, fallback) {
     if (!el) return fallback;
     const n = parseInt(getComputedStyle(el).getPropertyValue(prop), 10);
@@ -466,6 +615,7 @@
     applyTradesScrollHeight(loadTradesScrollHeight());
     applyRiskCompareHeight(loadRiskCompareHeight());
     applyMonthlyPnlHeight(loadMonthlyPnlHeight());
+    applyZHeatmapHeight(loadZHeatmapHeight());
 
     const bindH = ({
       dividerId, readHeight, applyHeight, saveKey, defaultHeight, invertDy = false, isHidden,
@@ -540,12 +690,30 @@
     // Полоска НАД гистограммой (как у chart panes): вверх = больше PnL, вниз = меньше
     bindH({
       dividerId: 'monthlyPnlSplitDividerH',
-      readHeight: () => readCssPxVar($('tradesSummary'), '--monthly-pnl-height', loadMonthlyPnlHeight()),
+      readHeight: () => {
+        const el = $('tradesMonthlyPnlScroll');
+        if (el && el.clientHeight > 0) return el.clientHeight;
+        return readCssPxVar($('tradesSummary'), '--monthly-pnl-height', loadMonthlyPnlHeight());
+      },
       applyHeight: applyMonthlyPnlHeight,
       saveKey: LS.monthlyPnlHeight,
       defaultHeight: MONTHLY_PNL_HEIGHT_DEFAULT,
       invertDy: true,
       isHidden: isMonthlyPnlHidden,
+    });
+
+    bindH({
+      dividerId: 'zHeatmapSplitDividerH',
+      readHeight: () => {
+        const el = $('tradesZHeatmapScroll');
+        if (el && el.clientHeight > 0) return el.clientHeight;
+        return readCssPxVar($('tradesSummary'), '--z-heatmap-height', loadZHeatmapHeight());
+      },
+      applyHeight: applyZHeatmapHeight,
+      saveKey: LS.zHeatmapHeight,
+      defaultHeight: Z_HEATMAP_HEIGHT_DEFAULT,
+      invertDy: true,
+      isHidden: isZHeatmapHidden,
     });
 
     // Re-clamp for display only. Never write back to LS — early/hidden layout
@@ -554,6 +722,7 @@
       if (!isTradesTableHidden()) applyTradesScrollHeight(loadTradesScrollHeight());
       if (!isRiskCompareHidden()) applyRiskCompareHeight(loadRiskCompareHeight());
       if (!isMonthlyPnlHidden()) applyMonthlyPnlHeight(loadMonthlyPnlHeight());
+      if (!isZHeatmapHidden()) applyZHeatmapHeight(loadZHeatmapHeight());
     });
   }
 
@@ -750,6 +919,7 @@
     const riskHidden = isRiskCompareHidden();
     const summaryHidden = isTradesSummaryHidden();
     const monthlyHidden = isMonthlyPnlHidden();
+    const heatmapHidden = isZHeatmapHidden();
 
     const deltaSplit = $('deltaSplitDividerH');
     const pnlSplit = $('chartSplitDividerH');
@@ -775,6 +945,7 @@
     syncBtn('btnCollapseRiskCompare', riskHidden);
     syncBtn('btnCollapseTradesSummary', summaryHidden);
     syncBtn('btnCollapseMonthlyPnl', monthlyHidden);
+    syncBtn('btnCollapseZHeatmap', heatmapHidden);
 
     const syncSplit = (id, hidden) => {
       const el = $(id);
@@ -786,12 +957,14 @@
     syncSplit('riskCompareSplitDividerH', riskHidden);
     // Hide monthly splitter when either adjacent body is collapsed
     syncSplit('monthlyPnlSplitDividerH', monthlyHidden || summaryHidden);
+    syncSplit('zHeatmapSplitDividerH', heatmapHidden || monthlyHidden);
 
     if (!deltaHidden) applyDeltaChartHeight(loadDeltaChartHeight());
     if (!pnlHidden) applyPnlChartHeight(loadPnlChartHeight());
     if (!tradesHidden) applyTradesScrollHeight(loadTradesScrollHeight());
     if (!riskHidden) applyRiskCompareHeight(loadRiskCompareHeight());
     if (!monthlyHidden) applyMonthlyPnlHeight(loadMonthlyPnlHeight());
+    if (!heatmapHidden) applyZHeatmapHeight(loadZHeatmapHeight());
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -818,6 +991,7 @@
     setPaneCollapsed('riskComparePane', loadPaneHidden(LS.riskCompareHidden));
     setPaneCollapsed('tradesSummaryPane', loadPaneHidden(LS.tradesSummaryHidden));
     setPaneCollapsed('monthlyPnlPane', loadPaneHidden(LS.monthlyPnlHidden));
+    setPaneCollapsed('zHeatmapPane', loadPaneHidden(LS.zHeatmapHidden));
 
     const bindToggle = (btnId, paneId, lsKey, isHidden) => {
       $(btnId)?.addEventListener('click', () => {
@@ -825,6 +999,9 @@
         setPaneCollapsed(paneId, next);
         saveSetting(lsKey, next ? '1' : '');
         syncPaneCollapseUi();
+        if (paneId === 'zHeatmapPane' && !next) {
+          scheduleZHeatmapUpdate(engine?.cursor ?? -1);
+        }
       });
     };
     bindToggle('btnCollapseDelta', 'deltaPane', LS.deltaPaneHidden, isDeltaPaneHidden);
@@ -833,8 +1010,49 @@
     bindToggle('btnCollapseRiskCompare', 'riskComparePane', LS.riskCompareHidden, isRiskCompareHidden);
     bindToggle('btnCollapseTradesSummary', 'tradesSummaryPane', LS.tradesSummaryHidden, isTradesSummaryHidden);
     bindToggle('btnCollapseMonthlyPnl', 'monthlyPnlPane', LS.monthlyPnlHidden, isMonthlyPnlHidden);
+    bindToggle('btnCollapseZHeatmap', 'zHeatmapPane', LS.zHeatmapHidden, isZHeatmapHidden);
+    bindZHeatmapFullscreen();
 
     syncPaneCollapseUi();
+  }
+
+  function isZHeatmapFullscreen() {
+    return !!$('zHeatmapPane')?.classList.contains('is-fullscreen');
+  }
+
+  function setZHeatmapFullscreen(on) {
+    const pane = $('zHeatmapPane');
+    const btn = $('btnExpandZHeatmap');
+    if (!pane) return;
+    const next = !!on;
+    if (next && isZHeatmapHidden()) {
+      setPaneCollapsed('zHeatmapPane', false);
+      saveSetting(LS.zHeatmapHidden, '');
+      syncPaneCollapseUi();
+    }
+    pane.classList.toggle('is-fullscreen', next);
+    document.body.classList.toggle('z-heatmap-fs-open', next);
+    if (btn) {
+      btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+      btn.title = next ? 'Свернуть с экрана (Esc)' : 'На весь экран';
+      btn.textContent = next ? '✕' : '⛶';
+    }
+    if (next) {
+      scheduleZHeatmapUpdate(null, { immediate: true });
+      requestAnimationFrame(() => {
+        applyZHeatmapScrollTop(zHeatmapScrollRestored ? $('tradesZHeatmap')?.scrollTop : readSavedZHeatmapScrollTop());
+      });
+    }
+  }
+
+  function bindZHeatmapFullscreen() {
+    $('btnExpandZHeatmap')?.addEventListener('click', () => {
+      setZHeatmapFullscreen(!isZHeatmapFullscreen());
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !isZHeatmapFullscreen()) return;
+      setZHeatmapFullscreen(false);
+    });
   }
 
   function bindChartVerticalSplit() {
@@ -923,6 +1141,85 @@
     return Math.min(idx, allPoints.length - 1);
   }
 
+  /** YYYY-MM-DD в календаре Europe/Moscow. */
+  function mskTodayYmd(date = new Date()) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Moscow',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  }
+
+  function ymdAddCalendarMonths(ymd, deltaMonths) {
+    const [y0, m0, d0] = ymd.split('-').map((x) => parseInt(x, 10));
+    let monthIndex = m0 - 1 + deltaMonths;
+    const y = y0 + Math.floor(monthIndex / 12);
+    monthIndex = ((monthIndex % 12) + 12) % 12;
+    const lastDay = new Date(Date.UTC(y, monthIndex + 1, 0)).getUTCDate();
+    const d = Math.min(d0, lastDay);
+    return `${y}-${String(monthIndex + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+
+  function ymdAddCalendarYears(ymd, deltaYears) {
+    return ymdAddCalendarMonths(ymd, deltaYears * 12);
+  }
+
+  /** Понедельник недели, содержащей ymd (МСК), как первый рабочий день. */
+  function firstWorkdayOfWeekYmd(ymd) {
+    const noon = new Date(`${ymd}T12:00:00+03:00`);
+    const utcDay = noon.getUTCDay(); // 0=Sun … 6=Sat (дата совпадает с МСК в полдень)
+    const toMonday = utcDay === 0 ? -6 : 1 - utcDay;
+    const mon = new Date(noon.getTime() + toMonday * 86400000);
+    return mskTodayYmd(mon);
+  }
+
+  function startDateForPreset(preset) {
+    const today = mskTodayYmd();
+    switch (preset) {
+      case '1d':
+        return today;
+      case '1w':
+        return firstWorkdayOfWeekYmd(today);
+      case '1m':
+        return ymdAddCalendarMonths(today, -1);
+      case '3m':
+        return ymdAddCalendarMonths(today, -3);
+      case '6m':
+        return ymdAddCalendarMonths(today, -6);
+      case '1y':
+        return ymdAddCalendarYears(today, -1);
+      case '3y':
+        return ymdAddCalendarYears(today, -3);
+      default:
+        return today;
+    }
+  }
+
+  async function applyStartDateAndReload(ymd) {
+    if (!ymd || !$('startDate')) return;
+    $('startDate').value = ymd;
+    saveSetting(LS.startDate, ymd);
+    document.querySelectorAll('#startPresetChips .chip[data-start-preset]').forEach((b) => {
+      b.classList.toggle('active', startDateForPreset(b.dataset.startPreset) === ymd);
+    });
+    $('loading').classList.remove('hidden');
+    $('app').classList.add('hidden');
+    scrollRestored = false;
+    summaryScrollRestored = false;
+    riskCompareScrollRestored = false;
+    monthlyPnlScrollRestored = false;
+    zHeatmapScrollRestored = false;
+    await bootstrap($('csvSel').value);
+  }
+
+  function syncStartPresetChips() {
+    const ymd = $('startDate')?.value;
+    document.querySelectorAll('#startPresetChips .chip[data-start-preset]').forEach((b) => {
+      b.classList.toggle('active', !!ymd && startDateForPreset(b.dataset.startPreset) === ymd);
+    });
+  }
+
   function setVisibleDaysPeriod(days, { fitFull = false } = {}) {
     visibleDays = days;
     saveSetting(LS.period, visibleDays);
@@ -959,6 +1256,8 @@
     engine.manualEdges = savedManual;
     engine.manualSeq = savedSeq;
     riskCompareCache = { key: '', html: '' };
+    zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+    zHeatmapJobId += 1;
     uiSeriesCache = {
       cursor: -1,
       edgesLen: -1,
@@ -997,6 +1296,7 @@
     deferRiskCompareOnce = true;
     skipTradeExtrasOnce = true;
     if (enrichAfterParamsTimer) clearTimeout(enrichAfterParamsTimer);
+    syncHmStrategyControlsFromToolbar();
     refreshUi({ afterParams: true });
     enrichAfterParamsTimer = setTimeout(() => {
       enrichAfterParamsTimer = null;
@@ -1007,6 +1307,10 @@
     }, 120);
   }
 
+  function persistTradeColumns() {
+    saveSetting(LS.tradeColumns, encodeTradeColumns(visibleTradeColumns));
+  }
+
   function renderColumnPicker() {
     const picker = $('columnPicker');
     picker.innerHTML = '';
@@ -1014,30 +1318,38 @@
     allBtn.type = 'button';
     allBtn.className = 'chip col-chip';
     allBtn.textContent = 'Все';
+    allBtn.title = 'Сбросить порядок и показать все столбцы';
     allBtn.addEventListener('click', () => {
       visibleTradeColumns = [...TRADE_COLUMNS_DEFAULT];
-      saveSetting(LS.tradeColumns, encodeTradeColumns(visibleTradeColumns));
+      persistTradeColumns();
       renderColumnPicker();
       refreshTradesTable();
     });
     picker.appendChild(allBtn);
 
-    TRADE_COLUMNS.forEach((col) => {
+    const pickerCols = [
+      ...resolveVisibleTradeColumns(visibleTradeColumns),
+      ...TRADE_COLUMNS.filter((c) => !visibleTradeColumns.includes(c.key)),
+    ];
+    pickerCols.forEach((col) => {
+      const active = visibleTradeColumns.includes(col.key);
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'chip col-chip' + (visibleTradeColumns.includes(col.key) ? ' active' : '');
+      btn.className = 'chip col-chip' + (active ? ' active' : '');
+      btn.dataset.col = col.key;
       btn.textContent = col.title;
-      btn.title = col.key;
+      btn.title = (col.hint || col.key) + (active ? ' · перетащите для порядка' : '');
+      if (active) {
+        bindColumnChipDrag(
+          btn,
+          () => visibleTradeColumns,
+          (keys) => { visibleTradeColumns = keys; persistTradeColumns(); },
+          () => { renderColumnPicker(); refreshTradesTable(); },
+        );
+      }
       btn.addEventListener('click', () => {
-        const set = new Set(visibleTradeColumns);
-        if (set.has(col.key)) {
-          if (set.size <= 1) return;
-          set.delete(col.key);
-        } else {
-          set.add(col.key);
-        }
-        visibleTradeColumns = TRADE_COLUMN_KEYS.filter((k) => set.has(k));
-        saveSetting(LS.tradeColumns, encodeTradeColumns(visibleTradeColumns));
+        visibleTradeColumns = toggleTradeColumnKey(visibleTradeColumns, col.key);
+        persistTradeColumns();
         renderColumnPicker();
         refreshTradesTable();
       });
@@ -1160,6 +1472,11 @@
     return Number.isNaN(saved) ? 0 : Math.max(0, saved);
   }
 
+  function readSavedZHeatmapScrollTop() {
+    const saved = parseInt(localStorage.getItem(LS.zHeatmapScrollTop) || '0', 10);
+    return Number.isNaN(saved) ? 0 : Math.max(0, saved);
+  }
+
   function readSavedTradesScrollTop() {
     const saved = parseInt(localStorage.getItem(LS.tradesScrollTop) || '0', 10);
     return Number.isNaN(saved) ? 0 : Math.max(0, saved);
@@ -1199,6 +1516,7 @@
     if (!isTradesTableHidden()) applyTradesScrollHeight(loadTradesScrollHeight());
     if (!isRiskCompareHidden()) applyRiskCompareHeight(loadRiskCompareHeight());
     if (!isMonthlyPnlHidden()) applyMonthlyPnlHeight(loadMonthlyPnlHeight());
+    if (!isZHeatmapHidden()) applyZHeatmapHeight(loadZHeatmapHeight());
     if (!isDeltaPaneHidden()) applyDeltaChartHeight(loadDeltaChartHeight());
     if (!isPnlPaneHidden()) applyPnlChartHeight(loadPnlChartHeight());
   }
@@ -1234,17 +1552,29 @@
     }
   }
 
+  function applyZHeatmapScrollTop(preferredTop) {
+    const scrollEl = $('tradesZHeatmap');
+    if (!scrollEl) return;
+    const top = preferredTop == null ? readSavedZHeatmapScrollTop() : preferredTop;
+    withSuppressedScrollSave(() => { scrollEl.scrollTop = top; });
+    if (!zHeatmapScrollRestored && scrollEl.clientHeight > 0 && scrollOffsetFit(scrollEl, 'top', top)) {
+      zHeatmapScrollRestored = true;
+    }
+  }
+
   function restoreTradesSummaryScrollAfterVisible() {
-    if (summaryScrollRestored && riskCompareScrollRestored && monthlyPnlScrollRestored) return;
+    if (summaryScrollRestored && riskCompareScrollRestored && monthlyPnlScrollRestored && zHeatmapScrollRestored) return;
     requestAnimationFrame(() => {
       applyTradesSummaryScrollTop(readSavedTradesSummaryScrollTop());
       applyRiskCompareScrollTop(readSavedRiskCompareScrollTop());
       applyMonthlyPnlScrollTop(readSavedMonthlyPnlScrollTop());
-      if (!summaryScrollRestored || !riskCompareScrollRestored || !monthlyPnlScrollRestored) {
+      applyZHeatmapScrollTop(readSavedZHeatmapScrollTop());
+      if (!summaryScrollRestored || !riskCompareScrollRestored || !monthlyPnlScrollRestored || !zHeatmapScrollRestored) {
         requestAnimationFrame(() => {
           applyTradesSummaryScrollTop(readSavedTradesSummaryScrollTop());
           applyRiskCompareScrollTop(readSavedRiskCompareScrollTop());
           applyMonthlyPnlScrollTop(readSavedMonthlyPnlScrollTop());
+          applyZHeatmapScrollTop(readSavedZHeatmapScrollTop());
         });
       }
     });
@@ -1265,6 +1595,321 @@
   let enrichAfterParamsTimer = null;
   let deferRiskCompareOnce = false;
   let skipTradeExtrasOnce = false;
+
+  function roundZ(v) {
+    return Math.round(Number(v) * 100) / 100;
+  }
+
+  function readZHeatmapGridParams() {
+    const entryMin = roundZ(parseFloat($('hmEntryMin')?.value ?? '0.5'));
+    const entryMax = roundZ(parseFloat($('hmEntryMax')?.value ?? '2.5'));
+    const exitMin = roundZ(parseFloat($('hmExitMin')?.value ?? '0.3'));
+    let step = roundZ(parseFloat($('hmStep')?.value ?? '0.1'));
+    if (!Number.isFinite(step) || step < 0.05) step = 0.1;
+    if (step > 0.5) step = 0.5;
+    const lo = Number.isFinite(entryMin) ? Math.max(0.3, entryMin) : 0.5;
+    const hi = Number.isFinite(entryMax) ? Math.min(5, Math.max(lo, entryMax)) : 2.5;
+    const xLo = Number.isFinite(exitMin) ? Math.max(0.1, exitMin) : 0.3;
+    return { entryMin: lo, entryMax: hi, exitMin: xLo, step };
+  }
+
+  function buildZHeatmapAxes(grid) {
+    const entries = [];
+    for (let e = grid.entryMin; e <= grid.entryMax + 1e-9; e = roundZ(e + grid.step)) {
+      entries.push(roundZ(e));
+    }
+    const exits = [];
+    for (let x = grid.exitMin; x <= grid.entryMax - grid.step + 1e-9; x = roundZ(x + grid.step)) {
+      exits.push(roundZ(x));
+    }
+    const pairs = [];
+    for (const entry of entries) {
+      for (const exit of exits) {
+        if (exit < entry - 1e-9) pairs.push({ entry, exit });
+      }
+    }
+    return { entries, exits, pairs };
+  }
+
+  /** End bar for heatmap sweep: full loaded series (not replay cursor). */
+  function zHeatmapSimEndIndex() {
+    if (!allPoints.length) return -1;
+    return allPoints.length - 1;
+  }
+
+  function zHeatmapCacheKey(grid) {
+    const t = thresholds();
+    const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
+    return [
+      grid.entryMin, grid.entryMax, grid.exitMin, grid.step,
+      getSimNotionalRub(), getSimCompound() ? 1 : 0, slip,
+      t.takeProfitPct || 0, riskExitSelectionKey(),
+      computeMinCursor(), zHeatmapSimEndIndex(), allPoints.length,
+    ].join('|');
+  }
+
+  /** Relative red→yellow→green: worst cell = red, best = green (even if all PnL > 0). */
+  function zHeatmapColor(pnl, pnlMin, pnlMax) {
+    const red = [220, 38, 38];      // яркий красный
+    const yellow = [250, 204, 21];
+    const green = [22, 163, 74];    // яркий зелёный
+    if (!Number.isFinite(pnl) || !Number.isFinite(pnlMin) || !Number.isFinite(pnlMax)) {
+      return `rgba(${yellow[0]}, ${yellow[1]}, ${yellow[2]}, 0.45)`;
+    }
+    const span = pnlMax - pnlMin;
+    if (span < 1e-6) {
+      // все клетки одинаковые — нейтральный жёлтый
+      return `rgba(${yellow[0]}, ${yellow[1]}, ${yellow[2]}, 0.55)`;
+    }
+    // 0 = худшая (красн.), 1 = лучшая (зел.); степень <1 → сильнее контраст у середины
+    let u = (pnl - pnlMin) / span;
+    u = Math.max(0, Math.min(1, u));
+    const t = Math.pow(u, 0.65);
+    let rgb;
+    if (t <= 0.5) {
+      const w = t / 0.5;
+      rgb = [
+        Math.round(red[0] + (yellow[0] - red[0]) * w),
+        Math.round(red[1] + (yellow[1] - red[1]) * w),
+        Math.round(red[2] + (yellow[2] - red[2]) * w),
+      ];
+    } else {
+      const w = (t - 0.5) / 0.5;
+      rgb = [
+        Math.round(yellow[0] + (green[0] - yellow[0]) * w),
+        Math.round(yellow[1] + (green[1] - yellow[1]) * w),
+        Math.round(yellow[2] + (green[2] - yellow[2]) * w),
+      ];
+    }
+    // почти непрозрачные — визуально ярче при малом разбросе PnL
+    const edge = Math.abs(u - 0.5) * 2; // 0 центр, 1 края
+    const a = 0.72 + 0.26 * edge;
+    return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a.toFixed(3)})`;
+  }
+
+  function formatZHeatmapCell(pnl) {
+    if (!Number.isFinite(pnl)) return '—';
+    if (Math.abs(pnl) < 0.5) return '0';
+    const sign = pnl > 0 ? '+' : '−';
+    const abs = Math.abs(pnl);
+    if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1000) {
+      return `${sign}${abs >= 10000 ? Math.round(abs / 1000) : (abs / 1000).toFixed(1)}k`;
+    }
+    return `${sign}${Math.round(abs)}`;
+  }
+
+  /** Min/max PnL клетки сетки (при ничьей — первая по обходу entry↑ exit↑). */
+  function findZHeatmapExtremes(cells) {
+    let minC = null;
+    let maxC = null;
+    for (const c of cells || []) {
+      if (!Number.isFinite(c?.pnl)) continue;
+      if (!minC || c.pnl < minC.pnl - 1e-9
+        || (Math.abs(c.pnl - minC.pnl) < 1e-9
+          && (c.entry < minC.entry - 1e-9
+            || (Math.abs(c.entry - minC.entry) < 1e-9 && c.exit < minC.exit - 1e-9)))) {
+        minC = c;
+      }
+      if (!maxC || c.pnl > maxC.pnl + 1e-9
+        || (Math.abs(c.pnl - maxC.pnl) < 1e-9
+          && (c.entry < maxC.entry - 1e-9
+            || (Math.abs(c.entry - maxC.entry) < 1e-9 && c.exit < maxC.exit - 1e-9)))) {
+        maxC = c;
+      }
+    }
+    return { min: minC, max: maxC };
+  }
+
+  function setZHeatmapExtremes(cells) {
+    const el = $('zHeatmapExtremes');
+    if (!el) return;
+    const { min, max } = findZHeatmapExtremes(cells);
+    if (!min || !max) {
+      el.innerHTML = '';
+      return;
+    }
+    const fmtPair = (c) => `±${Number(c.entry).toFixed(1)} / ±${Number(c.exit).toFixed(1)}`;
+    el.innerHTML = [
+      `<span class="zh-ext zh-ext-max" title="Лучшая клетка сетки (макс. PnL)">`
+        + `макс <b>${formatZHeatmapCell(max.pnl)}</b>`
+        + ` <span class="zh-ext-pair">${fmtPair(max)}</span>`
+        + `</span>`,
+      `<span class="zh-ext zh-ext-min" title="Худшая клетка сетки (мин. PnL)">`
+        + `мин <b>${formatZHeatmapCell(min.pnl)}</b>`
+        + ` <span class="zh-ext-pair">${fmtPair(min)}</span>`
+        + `</span>`,
+    ].join('');
+  }
+
+  function renderZHeatmapHtml(cells, grid, curEntry, curExit) {
+    const { entries, exits } = buildZHeatmapAxes(grid);
+    const map = new Map();
+    let pnlMin = Infinity;
+    let pnlMax = -Infinity;
+    for (const c of cells) {
+      map.set(`${c.entry}|${c.exit}`, c);
+      if (Number.isFinite(c.pnl)) {
+        if (c.pnl < pnlMin) pnlMin = c.pnl;
+        if (c.pnl > pnlMax) pnlMax = c.pnl;
+      }
+    }
+    if (!Number.isFinite(pnlMin)) {
+      pnlMin = 0;
+      pnlMax = 0;
+    }
+    const { min: extMin, max: extMax } = findZHeatmapExtremes(cells);
+    const head = exits.map((x) => `<th title="выход ±${x}">${x.toFixed(1)}</th>`).join('');
+    const body = entries.map((entry) => {
+      const cellsHtml = exits.map((exit) => {
+        if (exit >= entry - 1e-9) {
+          return '<td class="zh-na">·</td>';
+        }
+        const c = map.get(`${entry}|${exit}`);
+        const pnl = c?.pnl ?? 0;
+        const n = c?.n ?? 0;
+        const isCur = Math.abs(entry - curEntry) < 1e-6 && Math.abs(exit - curExit) < 1e-6;
+        const isMax = extMax && Math.abs(entry - extMax.entry) < 1e-6 && Math.abs(exit - extMax.exit) < 1e-6;
+        const isMin = extMin && Math.abs(entry - extMin.entry) < 1e-6 && Math.abs(exit - extMin.exit) < 1e-6;
+        const title = `вход ±${entry} · выход ±${exit} · PnL ${formatRub(pnl)} · N=${n}`
+          + (isMax ? ' · МАКС' : '')
+          + (isMin ? ' · МИН' : '')
+          + (isCur ? ' · текущие пороги' : ' · клик — применить');
+        const cls = [
+          'zh-cell',
+          isCur ? 'is-current' : '',
+          isMax ? 'is-hm-max' : '',
+          isMin ? 'is-hm-min' : '',
+        ].filter(Boolean).join(' ');
+        return (
+          `<td class="${cls}"`
+          + ` data-entry="${entry}" data-exit="${exit}"`
+          + ` style="background:${zHeatmapColor(pnl, pnlMin, pnlMax)}"`
+          + ` title="${title}">${formatZHeatmapCell(pnl)}</td>`
+        );
+      }).join('');
+      return `<tr><th class="zh-y" title="вход ±${entry}">${entry.toFixed(1)}</th>${cellsHtml}</tr>`;
+    }).join('');
+    return (
+      `<table class="z-heatmap-table">`
+      + `<thead><tr><th class="zh-corner" title="строки = вход Z, столбцы = выход Z">в\\вых</th>${head}</tr></thead>`
+      + `<tbody>${body}</tbody></table>`
+    );
+  }
+
+  function setZHeatmapStatus(text) {
+    const el = $('zHeatmapStatus');
+    if (el) el.textContent = text || '';
+  }
+
+  function scheduleZHeatmapUpdate(_cursorIndexIgnored, { immediate = false } = {}) {
+    if (zHeatmapTimer) clearTimeout(zHeatmapTimer);
+    const delay = immediate ? 0 : 320;
+    zHeatmapTimer = setTimeout(() => {
+      zHeatmapTimer = null;
+      updateZHeatmap();
+    }, delay);
+  }
+
+  async function updateZHeatmap() {
+    const host = $('tradesZHeatmap');
+    const scrollEl = $('tradesZHeatmap');
+    if (!host) return;
+    const prevScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+    if (isZHeatmapHidden()) return;
+    const endIdx = zHeatmapSimEndIndex();
+    if (!allPoints.length || endIdx < 0) {
+      host.innerHTML = '<div class="z-heatmap-empty">Нет данных</div>';
+      setZHeatmapStatus('');
+      setZHeatmapExtremes(null);
+      return;
+    }
+    const grid = readZHeatmapGridParams();
+    const key = zHeatmapCacheKey(grid);
+    const cur = thresholds();
+    if (key === zHeatmapCache.key && zHeatmapCache.cells) {
+      host.innerHTML = renderZHeatmapHtml(zHeatmapCache.cells, grid, cur.entry, cur.exit);
+      applyZHeatmapScrollTop(zHeatmapScrollRestored ? prevScrollTop : readSavedZHeatmapScrollTop());
+      setZHeatmapExtremes(zHeatmapCache.cells);
+      const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
+      setZHeatmapStatus(
+        `${zHeatmapCache.cells.length} клеток · весь период · slip ${slip}`
+        + ` · кап. ${getSimNotionalRub()}₽`,
+      );
+      return;
+    }
+    if (playing && zHeatmapCache.cells) {
+      host.innerHTML = renderZHeatmapHtml(zHeatmapCache.cells, zHeatmapCache.grid || grid, cur.entry, cur.exit);
+      applyZHeatmapScrollTop(zHeatmapScrollRestored ? prevScrollTop : readSavedZHeatmapScrollTop());
+      setZHeatmapExtremes(zHeatmapCache.cells);
+      return;
+    }
+    // Same key already computing — don't cancel/restart (refreshUi would otherwise leave zeros).
+    if (key === zHeatmapCache.inFlightKey) return;
+
+    const axes = buildZHeatmapAxes(grid);
+    if (!axes.pairs.length) {
+      host.innerHTML = '<div class="z-heatmap-empty">Пустая сетка (нужно exit &lt; entry)</div>';
+      setZHeatmapStatus('');
+      setZHeatmapExtremes(null);
+      return;
+    }
+
+    const jobId = ++zHeatmapJobId;
+    zHeatmapCache = { ...zHeatmapCache, inFlightKey: key };
+    // Risk opts use end-of-data (same window as heatmap), not replay cursor.
+    const simOpts = buildActiveSimOpts(endIdx);
+    const useFast = typeof prepareHeatmapSeries === 'function' && typeof simOptsAreHeatmapFast === 'function'
+      && simOptsAreHeatmapFast(simOpts);
+    const prepared = useFast ? prepareHeatmapSeries(allPoints, endIdx) : null;
+    const slowWhy = (!prepared && typeof heatmapSlowReason === 'function')
+      ? heatmapSlowReason(simOpts)
+      : '';
+    const tpOn = !!(simOpts && simOpts.takeProfitPct);
+    setZHeatmapStatus(
+      prepared
+        ? `Считаю ${axes.pairs.length} клеток (быстро${tpOn ? '+TP' : ''})…`
+        : `Считаю ${axes.pairs.length} клеток (медленно${slowWhy ? `: ${slowWhy}` : ''})…`,
+    );
+    const cells = [];
+    // Быстрый путь: крупные чанки / почти без пауз
+    const CHUNK = prepared ? 200 : 3;
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    for (let i = 0; i < axes.pairs.length; i++) {
+      if (jobId !== zHeatmapJobId) return;
+      const { entry, exit } = axes.pairs[i];
+      const sum = typeof heatmapCellNetPnl === 'function'
+        ? heatmapCellNetPnl(allPoints, entry, exit, endIdx, simOpts, prepared)
+        : (() => {
+          const eng = new BarReplayEngine(allPoints, entry, exit, endIdx, simOpts);
+          return sumClosedNetFromEdges(eng.edges);
+        })();
+      cells.push({ entry, exit, pnl: sum.totalPnl, n: sum.closedCount });
+      if (i % CHUNK === CHUNK - 1) {
+        setZHeatmapStatus(
+          prepared
+            ? `Считаю ${i + 1}/${axes.pairs.length}…`
+            : `Считаю ${i + 1}/${axes.pairs.length} (медленно${slowWhy ? `: ${slowWhy}` : ''})…`,
+        );
+        await Promise.resolve();
+      }
+    }
+    if (jobId !== zHeatmapJobId) return;
+    zHeatmapCache = { key, cells, grid, inFlightKey: '' };
+    host.innerHTML = renderZHeatmapHtml(cells, grid, cur.entry, cur.exit);
+    applyZHeatmapScrollTop(zHeatmapScrollRestored ? prevScrollTop : readSavedZHeatmapScrollTop());
+    setZHeatmapExtremes(cells);
+    const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
+    const nMax = cells.reduce((m, c) => Math.max(m, c.n || 0), 0);
+    const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const sec = Math.max(0.01, (t1 - t0) / 1000);
+    setZHeatmapStatus(
+      `${cells.length} клеток · весь период · ${sec < 1 ? sec.toFixed(2) : sec.toFixed(1)}с`
+      + (prepared ? ` · быстро${tpOn ? '+TP' : ''}` : (slowWhy ? ` · медленно (${slowWhy})` : ' · медленно'))
+      + ` · slip ${slip} · кап. ${getSimNotionalRub()}₽`
+      + (nMax > 0 ? ' · клик по клетке = пороги теста' : ' · N=0 — проверьте дату старта / данные'),
+    );
+  }
 
   function resolveMergedSimOpts(rawOpts, moneyStopDynamic) {
     const raw = { ...rawOpts };
@@ -1470,17 +2115,41 @@
     }
     renderMonthlyPnl(visibleRows);
     if (engine) updateRiskCompare(engine.cursor);
+    // Не перезапускать heatmap на каждый refreshUi, если ключ уже посчитан
+    if (engine && !playing && !isZHeatmapHidden()) {
+      const g = readZHeatmapGridParams();
+      const hk = zHeatmapCacheKey(g);
+      if (hk === zHeatmapCache.key && zHeatmapCache.cells) {
+        const host = $('tradesZHeatmap');
+        if (host && !host.querySelector('.z-heatmap-table')) {
+          const cur = thresholds();
+          host.innerHTML = renderZHeatmapHtml(zHeatmapCache.cells, g, cur.entry, cur.exit);
+          setZHeatmapExtremes(zHeatmapCache.cells);
+        } else if (host) {
+          // только подсветка текущих порогов
+          const cur = thresholds();
+          host.querySelectorAll('td.zh-cell.is-current').forEach((el) => el.classList.remove('is-current'));
+          const cell = host.querySelector(
+            `td.zh-cell[data-entry="${cur.entry}"][data-exit="${cur.exit}"]`,
+          );
+          if (cell) cell.classList.add('is-current');
+        }
+      } else {
+        scheduleZHeatmapUpdate(engine.cursor);
+      }
+    }
     // Prefer in-session position after risk-filter / table rebuild; LS only until first visible restore.
     applyTradesSummaryScrollTop(summaryScrollRestored ? prevScrollTop : readSavedTradesSummaryScrollTop());
   }
 
-  /** Monthly hist % — same deposit basis as «Доходность» (`getSimNotionalRub`). */
-  function monthlyPnlPct(rub, notional) {
-    return notional > 0 ? (rub / notional) * 100 : 0;
-  }
-
-  function formatMonthlyHistPct(rub, notional) {
-    const pct = monthlyPnlPct(rub, notional);
+  /**
+   * Monthly hist %:
+   * - Кап. OFF → PnL / initial notional
+   * - Кап. ON  → PnL / equity at month start (compound)
+   * Plot scale uses monthly % so Y-axis matches bar labels; ₽ stay on footers / «ср.».
+   */
+  function formatMonthlyHistPctValue(pct) {
+    if (!Number.isFinite(pct)) return '—%';
     return `${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(0)}%`;
   }
 
@@ -1500,16 +2169,22 @@
     return `${sign}${Math.round(abs)}`;
   }
 
-  function formatMonthlyYTick(pct, notional) {
+  /** Y tick: always %; with fixed notional also show matching ₽ (compound has no single ₽↔% map). */
+  function formatMonthlyYTick(pct, notional, compound) {
     if (!Number.isFinite(pct) || Math.abs(pct) < 1e-9) return '0%';
     const rounded = Math.round(pct);
-    const rub = notional > 0 ? (rounded / 100) * notional : 0;
     const pctText = `${rounded >= 0 ? '+' : '−'}${Math.abs(rounded)}%`;
+    if (compound || !(notional > 0)) return pctText;
+    const rub = (rounded / 100) * notional;
     return `${pctText} (${formatMonthlyYAbs(rub)})`;
   }
 
-  function formatMonthlyMeanLabel(meanRub, notional) {
-    const pctText = formatMonthlyHistPct(meanRub, notional);
+  /**
+   * «ср.» = arithmetic mean of monthly % (same basis as bars / Y),
+   * plus mean monthly ₽ in parentheses.
+   */
+  function formatMonthlyMeanLabel(meanPct, meanRub) {
+    const pctText = formatMonthlyHistPctValue(meanPct);
     return `ср. ${pctText} ${formatMonthlyHistAbs(meanRub)}`;
   }
 
@@ -1547,8 +2222,10 @@
     const scrollEl = $('tradesMonthlyPnlScroll');
     if (!el) return;
     const prevScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+    const notional = getSimNotionalRub();
+    const compound = getSimCompound();
     const months = typeof buildMonthlyPnl === 'function'
-      ? buildMonthlyPnl(visibleRows)
+      ? buildMonthlyPnl(visibleRows, { notional, compound })
       : [];
     if (!months.length) {
       el.innerHTML = (
@@ -1558,56 +2235,59 @@
       applyMonthlyPnlScrollTop(monthlyPnlScrollRestored ? prevScrollTop : readSavedMonthlyPnlScrollTop());
       return;
     }
-    const notional = getSimNotionalRub();
     const dense = months.length > 8;
     const histCls = `trades-monthly-hist${dense ? ' dense' : ''}`;
 
-    let minPnl = 0;
-    let maxPnl = 0;
+    let minPct = 0;
+    let maxPct = 0;
+    let sumPct = 0;
     let sumPnl = 0;
     for (const m of months) {
-      if (m.pnl < minPnl) minPnl = m.pnl;
-      if (m.pnl > maxPnl) maxPnl = m.pnl;
+      const pct = Number.isFinite(m.pct) ? m.pct : 0;
+      if (pct < minPct) minPct = pct;
+      if (pct > maxPct) maxPct = pct;
+      sumPct += pct;
       sumPnl += m.pnl;
     }
+    const meanPct = sumPct / months.length;
     const meanPnl = sumPnl / months.length;
-    const yMin = Math.min(0, minPnl);
-    const yMax = Math.max(0, maxPnl);
+    const yMin = Math.min(0, minPct);
+    const yMax = Math.max(0, maxPct);
 
-    const minPct = monthlyPnlPct(yMin, notional);
-    const maxPct = monthlyPnlPct(yMax, notional);
-    const yTicks = monthlyPnlYTicks(minPct, maxPct);
+    const yTicks = monthlyPnlYTicks(yMin, yMax);
     // Expand plot range to nice tick extents so top/bottom ticks sit on edges.
     const tickMinPct = Math.min(...yTicks, 0);
     const tickMaxPct = Math.max(...yTicks, 0);
-    const tickMinRub = notional > 0 ? (tickMinPct / 100) * notional : yMin;
-    const tickMaxRub = notional > 0 ? (tickMaxPct / 100) * notional : yMax;
-    const plotMin = Math.min(yMin, tickMinRub);
-    const plotMax = Math.max(yMax, tickMaxRub);
+    const plotMin = Math.min(yMin, tickMinPct);
+    const plotMax = Math.max(yMax, tickMaxPct);
     const plotRange = plotMax - plotMin || 1;
     const zeroBottomPlot = ((0 - plotMin) / plotRange) * 100;
-    const meanBottomPlot = ((meanPnl - plotMin) / plotRange) * 100;
+    const meanBottomPlot = ((meanPct - plotMin) / plotRange) * 100;
 
     const yLabelsHtml = yTicks.map((t) => {
-      const rub = notional > 0 ? (t / 100) * notional : 0;
-      const bottom = ((rub - plotMin) / plotRange) * 100;
-      return `<span class="tm-y-label" style="bottom:${bottom.toFixed(2)}%">${formatMonthlyYTick(t, notional)}</span>`;
+      const bottom = ((t - plotMin) / plotRange) * 100;
+      return `<span class="tm-y-label" style="bottom:${bottom.toFixed(2)}%">${formatMonthlyYTick(t, notional, compound)}</span>`;
     }).join('');
     const gridHtml = yTicks.map((t) => {
-      const rub = notional > 0 ? (t / 100) * notional : 0;
-      const bottom = ((rub - plotMin) / plotRange) * 100;
+      const bottom = ((t - plotMin) / plotRange) * 100;
       const isZero = Math.abs(t) < 1e-9;
       return `<span class="tm-grid-line${isZero ? ' tm-grid-zero' : ''}" style="bottom:${bottom.toFixed(2)}%"></span>`;
     }).join('');
 
-    const meanCls = meanPnl > 0 ? 'pos' : meanPnl < 0 ? 'neg' : '';
+    const meanCls = meanPct > 0 ? 'pos' : meanPct < 0 ? 'neg' : '';
     /* Mean text lives in the title (outside bar hover / native title tip zone) */
-    const meanLabel = formatMonthlyMeanLabel(meanPnl, notional);
+    const meanLabel = formatMonthlyMeanLabel(meanPct, meanPnl);
+    const meanTitle = compound
+      ? 'Среднее месячных %: PnL месяца / эквити на начало месяца; ₽ — среднее месячных PnL'
+      : 'Среднее месячных %: PnL месяца / начальный капитал; ₽ — среднее месячных PnL';
+    const titleHint = compound
+      ? 'PnL по месяцам · % от эквити на начало месяца (капит.)'
+      : 'PnL по месяцам · % от начального капитала';
 
     el.innerHTML = (
-      `<div class="trades-monthly-title">`
+      `<div class="trades-monthly-title" title="${titleHint}">`
       + `<span class="tm-title-text">PnL по месяцам</span>`
-      + `<span class="tm-mean-badge ${meanCls}">${meanLabel}</span>`
+      + `<span class="tm-mean-badge ${meanCls}" title="${meanTitle}">${meanLabel}</span>`
       + `</div>`
       + `<div class="${histCls}">`
       + `<div class="tm-hist-scale">`
@@ -1622,21 +2302,25 @@
       + `</div>`
       + `<div class="tm-hist-bars">`
       + months.map((m) => {
-        const barCls = m.pnl > 0 ? 'pos' : m.pnl < 0 ? 'neg' : 'flat';
-        const barH = Math.max(0, (Math.abs(m.pnl) / plotRange) * 100);
+        const pct = Number.isFinite(m.pct) ? m.pct : 0;
+        const barCls = pct > 0 ? 'pos' : pct < 0 ? 'neg' : 'flat';
+        const barH = Math.max(0, (Math.abs(pct) / plotRange) * 100);
         let barStyle;
-        if (m.pnl >= 0) {
+        if (pct >= 0) {
           barStyle = `bottom:${zeroBottomPlot.toFixed(2)}%;height:${barH.toFixed(2)}%`;
         } else {
           barStyle = `bottom:${(zeroBottomPlot - barH).toFixed(2)}%;height:${barH.toFixed(2)}%`;
         }
-        const pctLabel = formatMonthlyHistPct(m.pnl, notional);
+        const pctLabel = formatMonthlyHistPctValue(pct);
         const absLabel = formatMonthlyHistAbs(m.pnl);
+        const basisHint = compound
+          ? `эквити ${formatRub(m.equityStart)}`
+          : `кап. ${formatRub(notional)}`;
         const monthLabel = dense
           ? String(m.label || '').replace(/\s+\d+$/, '')
           : m.label;
         return (
-          `<div class="tm-col" title="${m.label} · ${pctLabel} ${absLabel} · ${m.count} сд.">`
+          `<div class="tm-col" title="${m.label} · ${pctLabel} ${absLabel} · ${basisHint} · ${m.count} сд.">`
           + `<span class="tm-bar-track">`
           + `<span class="tm-bar ${barCls}" style="${barStyle}"></span>`
           + `</span>`
@@ -1810,7 +2494,7 @@
 
     const head = $('tradesHead');
     head.innerHTML = '';
-    const visibleCols = TRADE_COLUMNS.filter((c) => visibleTradeColumns.includes(c.key));
+    const visibleCols = resolveVisibleTradeColumns(visibleTradeColumns);
     tradeMetricDists = buildTradeMetricDistributions(sortedRows, visibleCols.map((c) => c.key));
     for (const col of visibleCols) {
       const th = document.createElement('th');
@@ -1829,18 +2513,25 @@
       }
       th.title = col.hint ? `${col.hint} · сортировка` : 'Сортировка';
       th.style.minWidth = `${col.width}px`;
-      th.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (tradeSortColumn === col.key) {
-          tradeSortDir = tradeSortDir === 'asc' ? 'desc' : 'asc';
-        } else {
-          tradeSortColumn = col.key;
-          tradeSortDir = ['Index', 'Entry', 'Exit', 'EntryZ', 'ExitZ', 'Duration', 'Hit1', 'Hit2', 'Hit3'].includes(col.key) ? 'asc' : 'desc';
-        }
-        saveSetting(LS.tradeSortCol, tradeSortColumn);
-        saveSetting(LS.tradeSortDir, tradeSortDir);
-        refreshTradesTable();
-      });
+      bindTableHeaderDrag(
+        th,
+        col.key,
+        () => visibleTradeColumns,
+        (keys) => { visibleTradeColumns = keys; persistTradeColumns(); },
+        () => { renderColumnPicker(); refreshTradesTable(); },
+        (e) => {
+          e.stopPropagation();
+          if (tradeSortColumn === col.key) {
+            tradeSortDir = tradeSortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            tradeSortColumn = col.key;
+            tradeSortDir = ['Index', 'Entry', 'Exit', 'EntryZ', 'ExitZ', 'Duration', 'Hit1', 'Hit2', 'Hit3'].includes(col.key) ? 'asc' : 'desc';
+          }
+          saveSetting(LS.tradeSortCol, tradeSortColumn);
+          saveSetting(LS.tradeSortDir, tradeSortDir);
+          refreshTradesTable();
+        },
+      );
       head.appendChild(th);
     }
 
@@ -2117,6 +2808,7 @@
         if (sub) sub.textContent = `${data.count} баров`;
       }
       allPoints = data.bars;
+      updateMoexLastBarHint(data.last);
       if (!opts.keepSelection) {
         chartFocusIndex = null;
         selectedTradeId = null;
@@ -2171,6 +2863,19 @@
     }
   }
 
+  function formatMoexLastBarLabel(tradeDate) {
+    if (!tradeDate) return '';
+    return String(tradeDate).replace('T', ' ').trim().slice(0, 16);
+  }
+
+  function updateMoexLastBarHint(tradeDate) {
+    const el = $('moexLastBarTs');
+    if (!el) return;
+    const last = tradeDate
+      || (allPoints.length ? allPoints[allPoints.length - 1]?.tradeDate : null);
+    el.textContent = formatMoexLastBarLabel(last);
+  }
+
   function setMoexRefreshStatus(text, kind) {
     const el = $('moexRefreshStatus');
     if (!el) return;
@@ -2200,10 +2905,9 @@
       if (!data) throw new Error('Не удалось перезагрузить бары');
       const count = data.count ?? allPoints.length;
       const last = data.last || (allPoints.length ? allPoints[allPoints.length - 1]?.tradeDate : null);
-      setMoexRefreshStatus(
-        last ? `ОК · ${count} бар. · ${last}` : `ОК · ${count} бар.`,
-        'ok',
-      );
+      updateMoexLastBarHint(last);
+      setMoexRefreshStatus(count ? `ОК · ${count} бар.` : 'ОК', 'ok');
+      setTimeout(() => setMoexRefreshStatus('', null), 2500);
     } catch (e) {
       console.error(e);
       setMoexRefreshStatus(`Ошибка: ${e.message || e}`, 'err');
@@ -2490,21 +3194,131 @@
       if (typeof setSimSlippageSpreadPts !== 'function') return;
       const v = setSimSlippageSpreadPts($('slipSel')?.value ?? 0.05);
       if ($('slipSel')) $('slipSel').value = String(v);
+      if ($('hmSlip')) $('hmSlip').value = String(v);
       saveSetting(LS.slippageSpreadPts, v);
       applyStrategyParamsChange();
     };
     $('slipSel')?.addEventListener('change', applySlipFromUi);
     $('slipSel')?.addEventListener('blur', applySlipFromUi);
 
+    const persistHmGrid = () => {
+      const g = readZHeatmapGridParams();
+      if ($('hmEntryMin')) $('hmEntryMin').value = String(g.entryMin);
+      if ($('hmEntryMax')) $('hmEntryMax').value = String(g.entryMax);
+      if ($('hmExitMin')) $('hmExitMin').value = String(g.exitMin);
+      if ($('hmStep')) $('hmStep').value = String(g.step);
+      saveSetting(LS.hmEntryMin, g.entryMin);
+      saveSetting(LS.hmEntryMax, g.entryMax);
+      saveSetting(LS.hmExitMin, g.exitMin);
+      saveSetting(LS.hmStep, g.step);
+      zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+      zHeatmapJobId += 1;
+      scheduleZHeatmapUpdate(null, { immediate: true });
+    };
+    ['hmEntryMin', 'hmEntryMax', 'hmExitMin', 'hmStep'].forEach((id) => {
+      $(id)?.addEventListener('change', persistHmGrid);
+      $(id)?.addEventListener('blur', persistHmGrid);
+    });
+    $('btnHmRecompute')?.addEventListener('click', () => {
+      zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+      // Bump jobId so a stale in-flight run cannot overwrite the new result.
+      zHeatmapJobId += 1;
+      scheduleZHeatmapUpdate(null, { immediate: true });
+    });
+
+    const applyHmSlip = () => {
+      if (hmStrategySyncLock) return;
+      if (typeof setSimSlippageSpreadPts !== 'function') return;
+      const v = setSimSlippageSpreadPts($('hmSlip')?.value ?? 0.12);
+      if ($('hmSlip')) $('hmSlip').value = String(v);
+      if ($('slipSel')) $('slipSel').value = String(v);
+      saveSetting(LS.slippageSpreadPts, v);
+      applyStrategyParamsChange();
+    };
+    $('hmSlip')?.addEventListener('change', applyHmSlip);
+    $('hmSlip')?.addEventListener('blur', applyHmSlip);
+
+    $('hmEntrySel')?.addEventListener('change', () => {
+      if (hmStrategySyncLock) return;
+      const v = $('hmEntrySel').value;
+      populateThresholdSelect($('entrySel'), 0.5, v);
+      saveSetting(LS.entry, v);
+      applyStrategyParamsChange();
+    });
+    $('hmExitSel')?.addEventListener('change', () => {
+      if (hmStrategySyncLock) return;
+      const v = $('hmExitSel').value;
+      populateThresholdSelect($('exitSel'), 0.3, v);
+      saveSetting(LS.exit, v);
+      applyStrategyParamsChange();
+    });
+    $('hmTpSel')?.addEventListener('change', () => {
+      if (hmStrategySyncLock) return;
+      if ($('tpSel')) $('tpSel').value = $('hmTpSel').value;
+      saveSetting(LS.takeProfit, $('hmTpSel').value);
+      applyStrategyParamsChange();
+    });
+    $('btnHmCopyLive')?.addEventListener('click', () => copyThresholdsFromLive());
+
+    if (typeof RISK_EXIT_GROUPS !== 'undefined') {
+      for (const g of RISK_EXIT_GROUPS) {
+        const hmSel = $(`hm_${g.selId}`);
+        if (!hmSel) continue;
+        hmSel.addEventListener('change', () => {
+          if (hmStrategySyncLock) return;
+          const primary = $(g.selId);
+          if (primary) primary.value = hmSel.value;
+          saveSetting(g.lsKey, hmSel.value);
+          riskCompareCache = { key: '', html: '' };
+          applyStrategyParamsChange();
+        });
+      }
+    }
+
+    const applyHmNotional = () => {
+      if (hmStrategySyncLock) return;
+      const v = setSimNotionalRub($('hmNotionalSel')?.value ?? $('notionalSel')?.value);
+      if ($('hmNotionalSel')) $('hmNotionalSel').value = String(v);
+      if ($('notionalSel')) $('notionalSel').value = String(v);
+      saveSetting(LS.notionalRub, v);
+      applyStrategyParamsChange();
+    };
+    $('hmNotionalSel')?.addEventListener('change', applyHmNotional);
+    $('hmNotionalSel')?.addEventListener('blur', applyHmNotional);
+
+    $('hmCompoundChk')?.addEventListener('change', () => {
+      if (hmStrategySyncLock) return;
+      const on = !!$('hmCompoundChk').checked;
+      if ($('compoundChk')) $('compoundChk').checked = on;
+      setSimCompound(on);
+      saveSetting(LS.compound, on ? '1' : '');
+      applyStrategyParamsChange();
+    });
+
+    syncHmStrategyControlsFromToolbar();
+
+    $('tradesZHeatmap')?.addEventListener('click', (e) => {
+      const cell = e.target.closest('td.zh-cell[data-entry][data-exit]');
+      if (!cell || !$('tradesZHeatmap').contains(cell)) return;
+      const entry = cell.dataset.entry;
+      const exit = cell.dataset.exit;
+      if (entry == null || exit == null) return;
+      populateThresholdSelect($('entrySel'), 0.5, entry);
+      populateThresholdSelect($('exitSel'), 0.3, exit);
+      saveSetting(LS.entry, entry);
+      saveSetting(LS.exit, exit);
+      applyStrategyParamsChange();
+    });
+
     $('startDate').addEventListener('change', async () => {
-      saveSetting(LS.startDate, $('startDate').value);
-      $('loading').classList.remove('hidden');
-      $('app').classList.add('hidden');
-      scrollRestored = false;
-      summaryScrollRestored = false;
-      riskCompareScrollRestored = false;
-      monthlyPnlScrollRestored = false;
-      await bootstrap($('csvSel').value);
+      await applyStartDateAndReload($('startDate').value);
+    });
+
+    document.querySelectorAll('#startPresetChips .chip[data-start-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const ymd = startDateForPreset(btn.dataset.startPreset);
+        applyStartDateAndReload(ymd).catch(() => {});
+      });
     });
 
     $('csvSel').addEventListener('change', async () => {
@@ -2515,6 +3329,7 @@
       summaryScrollRestored = false;
       riskCompareScrollRestored = false;
       monthlyPnlScrollRestored = false;
+      zHeatmapScrollRestored = false;
       await bootstrap($('csvSel').value);
     });
 
@@ -2651,6 +3466,22 @@
       });
     }
 
+    let zHeatmapScrollSaveTimer = null;
+    const heatmapScroll = $('tradesZHeatmap');
+    if (heatmapScroll) {
+      heatmapScroll.addEventListener('scroll', () => {
+        if (suppressScrollSave || !zHeatmapScrollRestored) return;
+        if (zHeatmapScrollSaveTimer) clearTimeout(zHeatmapScrollSaveTimer);
+        zHeatmapScrollSaveTimer = setTimeout(() => {
+          zHeatmapScrollSaveTimer = null;
+          if (suppressScrollSave) return;
+          const el = $('tradesZHeatmap');
+          if (!el) return;
+          saveSetting(LS.zHeatmapScrollTop, el.scrollTop);
+        }, 80);
+      });
+    }
+
     const speedContainer = $('speedChips');
     BAR_REPLAY_SPEEDS.forEach((s) => {
       const btn = document.createElement('button');
@@ -2669,6 +3500,7 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
+    syncStartPresetChips();
     renderColumnPicker();
     bindSplitDivider();
     bindChartVerticalSplit();

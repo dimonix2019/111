@@ -4,7 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MOEX · Торговля / История / Счёт / Тестирование</title>
-  <link rel="stylesheet" href="/static/replay.css?v=20260721m3" />
+  <link rel="stylesheet" href="/static/css-shell.css?v=20260724a1" />
+  <link rel="stylesheet" href="/static/css-testing.css?v=20260724a1" />
+  <link rel="stylesheet" href="/static/css-replay-ui.css?v=20260723a12" />
+  <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260723a12" />
+  <link rel="stylesheet" href="/static/css-mobile.css?v=20260723a12" />
 </head>
 <body>
   <div id="loading" class="loading">
@@ -44,6 +48,15 @@
       <label class="meta">Старт
         <input type="date" id="startDate" />
       </label>
+      <div class="chip-group start-preset-chips" id="startPresetChips" role="group" aria-label="Быстрый выбор старта">
+        <button type="button" class="chip" data-start-preset="1d" title="Сегодня (МСК)">1 день</button>
+        <button type="button" class="chip" data-start-preset="1w" title="Понедельник текущей недели (МСК)">1 неделя</button>
+        <button type="button" class="chip" data-start-preset="1m" title="Сегодня минус 1 месяц">1 мес</button>
+        <button type="button" class="chip" data-start-preset="3m" title="Сегодня минус 3 месяца">3 мес</button>
+        <button type="button" class="chip" data-start-preset="6m" title="Сегодня минус 6 месяцев">6 мес</button>
+        <button type="button" class="chip" data-start-preset="1y" title="Сегодня минус 1 год">год</button>
+        <button type="button" class="chip" data-start-preset="3y" title="Сегодня минус 3 года">3 года</button>
+      </div>
       <span class="meta">Период:</span>
       <div class="chip-group" id="periodChips">
         <button type="button" class="chip active" data-days="30">30д</button>
@@ -90,6 +103,7 @@
         </select>
       </label>
       <button type="button" class="btn btn-sm btn-primary" id="btnRefreshMoex" title="Дотянуть хвост с MOEX ISS и обновить бары теста">Обновить MOEX</button>
+      <span class="moex-last-bar" id="moexLastBarTs" title="Последний бар в данных теста (M15)"></span>
       <span class="meta" id="moexRefreshStatus" aria-live="polite"></span>
       </div>
     </header>
@@ -120,7 +134,10 @@
               <div class="pnl-label">Z-score · 15м</div>
               <span class="meta" id="tradeThreshLabel">пороги ±1.3 / ±1.2</span>
             </div>
-            <div id="tradeZChart" class="trade-pane-z"></div>
+            <div class="trade-z-body">
+              <div id="tradeOpenTradeOverlay" class="open-trade-overlay hidden"></div>
+              <div id="tradeZChart" class="trade-pane-z"></div>
+            </div>
           </div>
           <div class="split-divider-h" id="tradeSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота графиков Z / Спред" title="Перетащите · двойной клик — сброс"></div>
           <div class="trade-pane-spread-wrap">
@@ -130,17 +147,119 @@
             <div id="tradeSpreadChart" class="trade-pane-spread"></div>
           </div>
         </div>
+        <section class="live-card trade-open-stats hidden" id="tradeOpenStats" aria-label="Статистика по истории">
+          <div class="tos-head">
+            <h2 class="tos-title">Ориентиры по истории</h2>
+            <span class="meta" id="tradeOpenStatsMeta"></span>
+          </div>
+          <div class="tos-kpis" id="tradeOpenStatsKpis"></div>
+          <div class="chip-group tos-tabs" id="tradeOpenStatsTabs" role="tablist">
+            <button type="button" class="chip active" data-tos-tab="mtm" role="tab" aria-selected="true">MTM</button>
+            <button type="button" class="chip" data-tos-tab="risk" role="tab" aria-selected="false">Риски</button>
+            <button type="button" class="chip" data-tos-tab="costs" role="tab" aria-selected="false">Издержки</button>
+            <button type="button" class="chip" data-tos-tab="hits" role="tab" aria-selected="false">Hits</button>
+          </div>
+          <div class="tos-body" id="tradeOpenStatsBody">
+            <div class="tos-tab-pane active" data-tos-pane="mtm" role="tabpanel">
+              <div class="tos-charts">
+                <div class="tos-panel">
+                  <div class="tos-panel-title">1. Типичный MTM через…</div>
+                  <div class="tos-panel-sub">медиана благоприятного сдвига спреда после входа · ₽ при депозите×плечо</div>
+                  <div class="tos-hbar" id="tradeStatsHbar"></div>
+                </div>
+                <div class="tos-panel">
+                  <div class="tos-panel-title">2. |Δ| спреда по горизонтам</div>
+                  <div class="tos-panel-sub">медиана и редко (p90) · п.п.</div>
+                  <div class="tos-vbar" id="tradeStatsVbar"></div>
+                  <div class="tos-legend">
+                    <span class="tos-leg tos-leg-med">медиана |Δ|</span>
+                    <span class="tos-leg tos-leg-p90">редко (p90)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="tos-tab-pane" data-tos-pane="risk" role="tabpanel" hidden>
+              <div class="tos-charts">
+                <div class="tos-panel">
+                  <div class="tos-panel-title">3. P(в плюсе) к горизонту</div>
+                  <div class="tos-panel-sub">доля входов с MTM &gt; 0 через N (1ч / 1д выделены)</div>
+                  <div class="tos-vbar tos-vbar-pct" id="tradeStatsPProfit"></div>
+                </div>
+                <div class="tos-panel">
+                  <div class="tos-panel-title">4. MAE до выхода</div>
+                  <div class="tos-panel-sub">медиана и редко (p10) минимального MTM по пути</div>
+                  <div class="tos-kpi-row" id="tradeStatsMae"></div>
+                </div>
+              </div>
+            </div>
+            <div class="tos-tab-pane" data-tos-pane="costs" role="tabpanel" hidden>
+              <div class="tos-charts">
+                <div class="tos-panel">
+                  <div class="tos-panel-title">5. Доля overnight в издержках</div>
+                  <div class="tos-panel-sub">overnight / (overnight+комиссия) · по длительности</div>
+                  <div class="tos-hbar" id="tradeStatsOvn"></div>
+                </div>
+                <div class="tos-panel">
+                  <div class="tos-panel-title">6. Slip 0 / 0.12 / 0.15</div>
+                  <div class="tos-panel-sub">чувствительность: WR и ср. PnL</div>
+                  <div class="tos-slip" id="tradeStatsSlip"></div>
+                </div>
+              </div>
+            </div>
+            <div class="tos-tab-pane" data-tos-pane="hits" role="tabpanel" hidden>
+              <div class="tos-charts">
+                <div class="tos-panel">
+                  <div class="tos-panel-title">7. Время до hit +1%</div>
+                  <div class="tos-panel-sub">распределение · % от депозита</div>
+                  <div class="tos-hbar" id="tradeStatsHit1"></div>
+                  <div class="meta" id="tradeStatsHit1Meta"></div>
+                </div>
+                <div class="tos-panel">
+                  <div class="tos-panel-title">8. Время до hit +2%</div>
+                  <div class="tos-panel-sub">распределение · % от депозита</div>
+                  <div class="tos-hbar" id="tradeStatsHit2"></div>
+                  <div class="meta" id="tradeStatsHit2Meta"></div>
+                </div>
+              </div>
+            </div>
+            <div class="tos-hint meta" id="tradeOpenStatsHint"></div>
+          </div>
+        </section>
       </div>
+
+      <aside class="trade-side trade-checklist live-card" id="tradeChecklistPanel">
+        <h2>Чеклист</h2>
+        <div class="trade-check-hint" id="tradeCheckHint">ожидание данных…</div>
+        <div class="trade-check-section">
+          <div class="trade-check-title">Общее</div>
+          <ul class="trade-check-list" id="tradeCheckGeneral"></ul>
+        </div>
+        <div class="trade-check-section">
+          <div class="trade-check-title">Открытие</div>
+          <ul class="trade-check-list" id="tradeCheckOpen"></ul>
+        </div>
+        <div class="trade-check-section">
+          <div class="trade-check-title">Закрытие</div>
+          <ul class="trade-check-list" id="tradeCheckClose"></ul>
+        </div>
+      </aside>
 
       <aside class="trade-side live-card" id="tradeSidePanel">
         <h2>Сделка</h2>
-        <div class="trade-side-status" id="tradeSideStatus">FLAT · монитор — · auto —</div>
+        <div class="trade-side-status" id="tradeSideStatus"><span class="badge-pos-flat">FLAT</span></div>
         <div class="account-funds" id="tradeFundsBox" title="Средства на подключённом счёте T‑Invest">
           <div class="account-funds-label">Средства на счёте</div>
           <div class="account-funds-total" id="tradeFundsTotal">—</div>
           <div class="account-funds-cash" id="tradeFundsCash">cash —</div>
         </div>
 
+        <div class="trade-deposit-row">
+          <label class="trade-deposit-label" title="Депозит, от которого считаются лоты на вход (не больше cash на счёте)">Депозит на вход ₽
+            <input type="number" id="tradeEntryDeposit" min="1000" max="10000000" step="1000" value="10000" />
+          </label>
+          <button type="button" class="btn btn-sm btn-primary" id="tradeBtnSaveDeposit" title="Сохранить депозит на вход">Сохранить</button>
+          <span class="trade-params-status" id="tradeDepositStatus" aria-live="polite"></span>
+        </div>
         <div class="trade-params">
           <label>Вх \|Z\|
             <input type="number" id="tradeEntryZ" min="0.05" max="8" step="0.05" value="1.3" />
@@ -169,32 +288,47 @@
           <button type="button" class="btn btn-trade btn-close-all" id="tradeBtnClose" disabled>Закрыть сделку</button>
         </div>
 
-        <div class="trade-broker" id="tradeBrokerBox">Брокер: —</div>
-        <div class="trade-mon-msg" id="tradeMonMsg"></div>
+        <div class="trade-broker" id="tradeBrokerBox" hidden></div>
       </aside>
     </main>
 
     <!-- —— История —— -->
     <main class="tab-view history-only" id="historyView">
-      <section class="live-card">
-        <div class="live-row history-toolbar-row" style="justify-content:space-between;align-items:center">
-          <h2 style="margin:0">Закрытые сделки</h2>
-          <div class="chip-group" id="historyDepthChips">
-            <button type="button" class="chip" data-days="1">1д</button>
-            <button type="button" class="chip" data-days="3">3д</button>
-            <button type="button" class="chip active" data-days="7">7д</button>
-            <button type="button" class="chip" data-days="30">30д</button>
+      <section class="live-card history-trades-card">
+        <div class="trades-panel-head">
+          <h2>Закрытые сделки</h2>
+          <div class="trades-panel-head-right">
+            <button type="button" class="btn btn-sm" id="historyBtnColumns" title="Столбцы">☰</button>
+          </div>
+        </div>
+        <div class="history-date-filters" id="historyDateFilters">
+          <label class="history-date-label">
+            <span>С</span>
+            <input type="date" id="historyDateFrom" />
+          </label>
+          <label class="history-date-label">
+            <span>По</span>
+            <input type="date" id="historyDateTo" />
+          </label>
+          <div class="chip-group history-period-chips" id="historyPeriodChips">
+            <button type="button" class="chip" data-preset="today">Сегодня</button>
+            <button type="button" class="chip" data-preset="week">Неделя</button>
+            <button type="button" class="chip" data-preset="month">Месяц</button>
+            <button type="button" class="chip" data-preset="3m">3 мес</button>
+            <button type="button" class="chip" data-preset="6m">6 мес</button>
+            <button type="button" class="chip" data-preset="year">Год</button>
+            <button type="button" class="chip" data-preset="all">Всё</button>
           </div>
         </div>
         <div class="meta" id="historyCount"></div>
-        <div class="live-table-wrap history-table-wrap" style="max-height:480px;margin-top:8px">
+        <div class="column-picker hidden" id="historyColumnPicker"></div>
+        <div class="live-table-wrap history-table-wrap trades-scroll" id="historyScroll">
           <table class="trades-table" id="historyClosedTable">
             <thead>
-              <tr>
-                <th>#</th><th>Dir</th><th>Вход</th><th>Выход</th><th>Лоты</th><th>Z вх</th><th>Z вых</th><th>Source</th>
-              </tr>
+              <tr id="historyClosedHead"></tr>
             </thead>
             <tbody id="historyClosedBody"></tbody>
+            <tfoot id="historyClosedFoot"></tfoot>
           </table>
         </div>
       </section>
@@ -350,13 +484,71 @@
             </div>
           </div>
           <div class="split-divider-h" id="monthlyPnlSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота PnL по месяцам" title="Вверх — больше · вниз — меньше · двойной клик — сброс"></div>
-          <div class="trades-collapsible" id="monthlyPnlPane">
+          <div class="trades-collapsible trades-collapsible-grow" id="monthlyPnlPane">
             <div class="trades-section-head">
               <div class="trades-section-label">PnL по месяцам</div>
               <button type="button" class="pane-collapse-btn" id="btnCollapseMonthlyPnl" aria-expanded="true" aria-controls="tradesMonthlyPnlScroll" title="Скрыть">−</button>
             </div>
             <div class="trades-collapsible-body trades-monthly-pnl-scroll" id="tradesMonthlyPnlScroll">
               <div class="trades-monthly-pnl" id="tradesMonthlyPnl"></div>
+            </div>
+          </div>
+          <div class="split-divider-h" id="zHeatmapSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота heatmap PnL" title="Вверх — больше · вниз — меньше · двойной клик — сброс"></div>
+          <div class="trades-collapsible trades-collapsible-grow" id="zHeatmapPane">
+            <div class="trades-section-head">
+              <div class="trades-section-label">PnL · вход Z × выход Z</div>
+              <div class="trades-section-head-actions">
+                <button type="button" class="pane-collapse-btn" id="btnExpandZHeatmap" aria-pressed="false" title="На весь экран">⛶</button>
+                <button type="button" class="pane-collapse-btn" id="btnCollapseZHeatmap" aria-expanded="true" aria-controls="tradesZHeatmapScroll" title="Скрыть">−</button>
+              </div>
+            </div>
+            <div class="trades-collapsible-body trades-z-heatmap-scroll" id="tradesZHeatmapScroll">
+              <div class="z-heatmap-controls" id="zHeatmapControls">
+                <label class="meta" title="Минимальный порог входа Z для сетки">Вх min
+                  <input type="number" id="hmEntryMin" min="0.3" max="5" step="0.1" value="0.5" />
+                </label>
+                <label class="meta" title="Максимальный порог входа Z для сетки">Вх max
+                  <input type="number" id="hmEntryMax" min="0.5" max="5" step="0.1" value="2.5" />
+                </label>
+                <label class="meta" title="Минимальный порог выхода Z (только клетки exit &lt; entry)">Вых min
+                  <input type="number" id="hmExitMin" min="0.1" max="4" step="0.1" value="0.3" />
+                </label>
+                <label class="meta" title="Шаг сетки по Z">Шаг
+                  <input type="number" id="hmStep" min="0.05" max="0.5" step="0.05" value="0.1" />
+                </label>
+                <button type="button" class="chip" id="btnHmRecompute" title="Пересчитать heatmap">↻</button>
+              </div>
+              <div class="z-heatmap-controls z-heatmap-strategy" id="zHeatmapStrategyControls">
+                <label class="meta" title="Порог входа теста (как в тулбаре)">Вх ±
+                  <select id="hmEntrySel"></select>
+                </label>
+                <label class="meta" title="Порог выхода теста (как в тулбаре)">Вых ±
+                  <select id="hmExitSel"></select>
+                </label>
+                <button type="button" class="chip" id="btnHmCopyLive" title="Скопировать пороги с вкладки Торговля в этот тест">из Торговли</button>
+                <label class="meta" title="Take-profit % от номинала">TP
+                  <select id="hmTpSel">
+                    <option value="0" selected>выкл</option>
+                    <option value="1">1%</option>
+                    <option value="2">2%</option>
+                    <option value="3">3%</option>
+                  </select>
+                </label>
+                <div class="risk-exit-groups hm-risk-exit-groups" id="hmRiskExitGroups" role="group" aria-label="Risk exit heatmap"></div>
+                <label class="meta" title="Номинал сделки">Капитал ₽
+                  <input type="number" id="hmNotionalSel" min="1000" max="10000000" step="1000" value="10000" />
+                </label>
+                <label class="meta" title="Adverse slip (п.п.) — меняет и тест, и heatmap">Slip
+                  <input type="number" id="hmSlip" min="0" max="0.5" step="0.01" value="0.12" />
+                </label>
+                <label class="meta replay-compound" title="Реинвестировать PnL">
+                  <input type="checkbox" id="hmCompoundChk" />
+                  Кап.
+                </label>
+              </div>
+              <div class="z-heatmap-extremes meta" id="zHeatmapExtremes" aria-live="polite"></div>
+              <div class="z-heatmap-status meta" id="zHeatmapStatus" aria-live="polite"></div>
+              <div class="z-heatmap" id="tradesZHeatmap"></div>
             </div>
           </div>
         </div>
@@ -389,12 +581,16 @@
     </footer>
   </div>
 
-  <script src="/static/lightweight-charts.standalone.production.js?v=20260721m2"></script>
-  <script src="/static/replay-engine.js?v=20260721m2"></script>
-  <script src="/static/chart.js?v=20260721m2"></script>
-  <script src="/static/trade.js?v=20260721m2"></script>
-  <script src="/static/history.js?v=20260721m2"></script>
-  <script src="/static/live.js?v=20260721m2"></script>
-  <script src="/static/app.js?v=20260721m2"></script>
+  <script src="/static/lightweight-charts.standalone.production.js?v=20260723a12"></script>
+  <!-- replay engine split (load order matters) -->
+  <script src="/static/replay-sim.js?v=20260724a2"></script>
+  <script src="/static/replay-equity.js?v=20260723a12"></script>
+  <script src="/static/replay-signals.js?v=20260723a12"></script>
+  <script src="/static/replay-engine-core.js?v=20260723a12"></script>
+  <script src="/static/chart.js?v=20260724a1"></script>
+  <script src="/static/trade.js?v=20260723a13"></script>
+  <script src="/static/history.js?v=20260723a12"></script>
+  <script src="/static/live.js?v=20260723a12"></script>
+  <script src="/static/app.js?v=20260724a2"></script>
 </body>
 </html>

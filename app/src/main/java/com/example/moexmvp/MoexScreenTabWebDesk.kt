@@ -39,7 +39,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.CoroutineScope
 
 /** Cache-bust so phone WebView picks up latest strategy-web mobile CSS/JS. */
-private const val WEB_DESK_UI_CACHE = "apk=1.7.306&v=20260721m3"
+private const val WEB_DESK_UI_CACHE = "apk=1.7.307&v=20260722a1"
 
 /** Full-screen strategy-web desk over Tailscale/LAN — phone-first layout. */
 @SuppressLint("SetJavaScriptEnabled")
@@ -169,8 +169,13 @@ internal fun MoexScreenTabWebDesk(
                                 error: WebResourceError?,
                             ) {
                                 if (request?.isForMainFrame == true) {
-                                    loadError = error?.description?.toString()
-                                        ?: "Ошибка загрузки $base"
+                                    val desc = error?.description?.toString().orEmpty()
+                                    loadError = when {
+                                        desc.contains("ERR_NAME_NOT_RESOLVED", ignoreCase = true) ||
+                                            desc.contains("NAME_NOT_RESOLVED", ignoreCase = true) ->
+                                            "$desc\n\nИмя хоста не резолвится. В «Песочница» → Web desk URL укажите IP Tailscale ПК, напр. http://100.119.122.31:8765 (не имя note-ai)."
+                                        else -> desc.ifBlank { "Ошибка загрузки $base" }
+                                    }
                                 }
                             }
                         }

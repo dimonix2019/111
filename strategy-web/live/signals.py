@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from enum import Enum
 
+M15_MS = 15 * 60 * 1000
+
 
 class Position(str, Enum):
     FLAT = "FLAT"
@@ -49,7 +51,22 @@ def determine_z_signal(
 def is_consecutive_m15(prev_ms: int, cur_ms: int) -> bool:
     if prev_ms <= 0 or cur_ms <= 0:
         return False
-    return (cur_ms - prev_ms) == 15 * 60 * 1000
+    return (cur_ms - prev_ms) == M15_MS
+
+
+def is_implausible_spread_jump(
+    prev_spread: float | None,
+    cur_spread: float | None,
+    *,
+    max_abs_pp: float = 1.5,
+) -> bool:
+    """Защита от битого LAST/tip: скачок спреда > max_abs_pp за один M15 — не AUTO-вход."""
+    try:
+        if prev_spread is None or cur_spread is None:
+            return False
+        return abs(float(cur_spread) - float(prev_spread)) > float(max_abs_pp)
+    except (TypeError, ValueError):
+        return False
 
 
 def is_moex_equity_session_bar(trade_date: str | None) -> bool:
@@ -69,18 +86,83 @@ def is_moex_equity_session_bar(trade_date: str | None) -> bool:
     return (7 * 60) <= mins < (23 * 60 + 50)
 
 
+def is_bar_settled(
+    bar_ms: int,
+    now_ms: int,
+    *,
+    has_next_bar: bool,
+    settle_sec: float = 45.0,
+) -> bool:
+    """
+    Бар с меткой T = слот [T, T+15м). AUTO только после закрытия слота (+settle)
+    либо когда в серии уже есть следующий бар (T+15).
+    """
+    if bar_ms <= 0 or now_ms <= 0:
+        return False
+    if has_next_bar:
+        return True
+    return now_ms >= bar_ms + M15_MS + int(settle_sec * 1000)
+
+
+def bar_has_next(bars: list[dict], index: int) -> bool:
+    if index < 0 or index >= len(bars) - 1:
+        return False
+    cur_ms = int(bars[index].get("timestampMs") or 0)
+    next_ms = int(bars[index + 1].get("timestampMs") or 0)
+    return is_consecutive_m15(cur_ms, next_ms)
+
+
+def is_bar_settled_in_series(
+    bars: list[dict],
+    index: int,
+    now_ms: int,
+    *,
+    settle_sec: float = 45.0,
+) -> bool:
+    if index < 0 or index >= len(bars):
+        return False
+    bar_ms = int(bars[index].get("timestampMs") or 0)
+    return is_bar_settled(
+        bar_ms,
+        now_ms,
+        has_next_bar=bar_has_next(bars, index),
+        settle_sec=settle_sec,
+    )
+
+
+def last_settled_bar_index(
+    bars: list[dict],
+    now_ms: int,
+    *,
+    settle_sec: float = 45.0,
+) -> int | None:
+    for i in range(len(bars) - 1, -1, -1):
+        if is_bar_settled_in_series(bars, i, now_ms, settle_sec=settle_sec):
+            return i
+    return None
+
+
+def find_bar_index(bars: list[dict], bar_ms: int) -> int | None:
+    for i, b in enumerate(bars):
+        if int(b.get("timestampMs") or 0) == bar_ms:
+            return i
+    return None
+
+
 def plan_monitor_catchup(
     bars: list[dict],
     last_proc_ms: int,
     *,
     max_edges: int = 64,
+    now_ms: int | None = None,
+    settle_sec: float = 45.0,
 ) -> tuple[str, list[tuple[dict, dict]]]:
     """
     Живой монитор с догоном consecutive-рёбер (parity APK collectZStrategy15m…SinceProcessedBar).
 
     Returns:
       ("bootstrap", []) — якорь на хвост, без сигналов
-      ("up_to_date", []) — новых баров нет
+      ("up_to_date", []) — новых баров нет / tip ещё не settled
       ("live", [(prev, cur), ...]) — 1..max_edges consecutive рёбер после last_proc (AUTO)
       ("skip_gap", [...]) — дыра относительно last_proc: якорь вперёд без AUTO
     """
@@ -113,6 +195,11 @@ def plan_monitor_catchup(
                 # Сразу дыра — без AUTO (как раньше skip_gap).
                 return "skip_gap", [(prev, cur)]
             break
+        # Tip mid-bar: не отдаём в AUTO, ждём settle (как закрытый бар в Тесте).
+        if now_ms is not None and not is_bar_settled_in_series(
+            bars, i, now_ms, settle_sec=settle_sec
+        ):
+            break
         pending.append((prev, cur))
         expected_prev_ms = cur_ms
         if len(pending) >= max_edges:
@@ -122,3 +209,21 @@ def plan_monitor_catchup(
         return "up_to_date", []
     # Несколько баров подряд после лага / рестарта — догоняем, не пропускаем вход.
     return "live", pending
+
+
+def should_revise_none_to_signal(
+    *,
+    old_signal: str,
+    new_signal: Signal,
+    old_z: float,
+    new_z: float,
+    min_delta: float,
+) -> bool:
+    """Один late-revise: только NONE → ENTER/EXIT при существенном уточнении Z."""
+    if old_signal != Signal.NONE.value:
+        return False
+    if new_signal == Signal.NONE:
+        return False
+    if not (new_z == new_z and old_z == old_z):  # NaN check
+        return False
+    return abs(new_z - old_z) >= min_delta

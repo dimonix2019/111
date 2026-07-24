@@ -1,0 +1,494 @@
+/* mobile overrides — load last */
+/* —— Phone / narrow: one-thumb trading desk —— */
+@media (max-width: 900px) {
+  html, body {
+    height: auto;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-only {
+    display: inline-flex !important;
+  }
+
+  .toolbar-desk-meta {
+    display: none !important;
+  }
+
+  .btn-label-full {
+    display: none;
+  }
+
+  .btn-label-short {
+    display: inline;
+  }
+
+  .app {
+    height: auto;
+    min-height: 100dvh;
+    min-height: 100svh;
+  }
+
+  /* Replay: fixed shell so chart + sticky transport stay usable */
+  .app[data-view="replay"] {
+    height: 100dvh;
+    height: 100svh;
+    max-height: 100dvh;
+    overflow: hidden;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+
+  .toolbar {
+    gap: 8px;
+    padding: 8px 10px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+
+  .toolbar-nav {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .toolbar h1 {
+    font-size: 13px;
+    margin-right: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .view-mode-chips {
+    margin-right: 0;
+    gap: 4px;
+    flex: 1 1 auto;
+    justify-content: flex-start;
+  }
+
+  .view-mode-chips .chip-view {
+    padding: 8px 9px;
+    font-size: 11px;
+    min-height: 36px;
+    gap: 4px;
+  }
+
+  .view-mode-chips .chip-view span {
+    display: none;
+  }
+
+  .view-mode-chips .chip-view .chip-icon {
+    width: 16px;
+    height: 16px;
+    opacity: 1;
+  }
+
+  #btnMobileReplayParams {
+    min-height: 36px;
+    padding: 8px 12px;
+    font-weight: 600;
+  }
+
+  .toolbar.is-replay-params-open #btnMobileReplayParams {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: #93c5fd;
+  }
+
+  .replay-toolbar-extras {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    max-height: min(42vh, 360px);
+    overflow: auto;
+    padding: 8px 2px 4px;
+    border-top: 1px solid var(--border);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .toolbar.is-replay-params-open .replay-toolbar-extras {
+    display: flex;
+  }
+
+  .replay-toolbar-extras .chip-group,
+  .replay-toolbar-extras .replay-opt-group,
+  .replay-toolbar-extras .risk-exit-groups {
+    width: 100%;
+  }
+
+  .replay-toolbar-extras .replay-opt-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .replay-toolbar-extras .meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    font-size: 13px;
+  }
+
+  .replay-toolbar-extras select,
+  .replay-toolbar-extras input[type="number"],
+  .replay-toolbar-extras input[type="date"] {
+    min-height: 40px;
+    font-size: 16px; /* avoid iOS zoom */
+    flex: 1 1 auto;
+  }
+
+  #notionalSel,
+  #slipSel {
+    width: auto;
+    min-width: 0;
+  }
+
+  .status-bar {
+    padding: 6px 10px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .live-view {
+    grid-template-columns: 1fr;
+    padding: 10px;
+    gap: 10px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .live-split { grid-template-columns: 1fr; }
+
+  .live-card {
+    padding: 12px;
+  }
+
+  .live-card h2 {
+    font-size: 14px;
+  }
+
+  .live-row {
+    gap: 8px;
+  }
+
+  .live-row label {
+    font-size: 12px;
+    width: 100%;
+  }
+
+  .live-row input[type="text"],
+  .live-row input[type="password"],
+  .live-row input[type="number"],
+  .live-row select {
+    min-height: 44px;
+    font-size: 16px;
+    width: 100%;
+  }
+
+  .live-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .live-actions .btn,
+  .live-actions .btn-trade {
+    width: 100%;
+    min-height: 48px;
+    font-size: 15px;
+  }
+
+  .live-row.live-actions {
+    display: grid;
+  }
+
+  #liveAccountCard .live-row:last-of-type {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  #liveAccountCard .live-row:last-of-type .btn {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  #liveMonitorCard .live-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  #liveMonitorCard .btn {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .account-funds-total {
+    font-size: 28px;
+    word-break: break-word;
+  }
+
+  .tab-view {
+    padding: 10px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .history-toolbar-row {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px;
+  }
+
+  .history-toolbar-row h2 {
+    font-size: 15px;
+  }
+
+  #historyPeriodChips {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+
+  #historyPeriodChips .chip {
+    min-height: 36px;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .history-date-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .history-date-label {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .history-date-label input[type="date"] {
+    flex: 1;
+    min-height: 40px;
+  }
+
+  .history-table-wrap {
+    max-height: none !important;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .history-table-wrap .trades-table {
+    font-size: 12px;
+  }
+
+  .history-table-wrap th,
+  .history-table-wrap td {
+    padding: 10px 8px;
+    white-space: nowrap;
+  }
+
+  .trade-desk {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    overflow: auto;
+    height: auto;
+    min-height: 100%;
+    padding: 10px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Otherwise height:100% collapses to ~0 and charts are clipped by overflow:hidden */
+  .trade-charts {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    flex: none;
+  }
+
+  .trade-chart-stack {
+    flex: none;
+    height: min(52vh, 400px);
+    min-height: 260px;
+  }
+
+  .trade-pane-z-wrap {
+    min-height: 160px;
+  }
+
+  .trade-pane-z {
+    min-height: 160px;
+  }
+
+  .trade-pane-spread {
+    flex-basis: 90px;
+    height: 90px;
+    min-height: 72px;
+  }
+
+  .trade-side {
+    overflow: visible;
+    max-height: none;
+  }
+
+  .trade-checklist {
+    order: 2;
+  }
+
+  #tradeSidePanel {
+    order: 3;
+  }
+
+  .trade-charts {
+    order: 1;
+  }
+
+  .trade-side .btn,
+  .trade-side .btn-trade {
+    min-height: 44px;
+  }
+
+  #tradePeriodChips {
+    flex: 1 1 auto;
+  }
+
+  #tradePeriodChips .chip {
+    min-height: 36px;
+    padding: 8px 10px;
+  }
+
+  #tradeBtnRefresh {
+    min-height: 40px;
+  }
+
+  /* —— Testing (replay) —— */
+  .app[data-view="replay"] .main {
+    flex-direction: column;
+    overflow: auto;
+    min-height: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app[data-view="replay"] .split-divider {
+    display: none;
+  }
+
+  .app[data-view="replay"] .chart-wrap {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    overflow: visible;
+  }
+
+  .app[data-view="replay"] .chart-stack {
+    flex: none;
+    height: auto;
+    min-height: 0;
+  }
+
+  .app[data-view="replay"] .chart-pane-z-wrap {
+    flex: none;
+    height: min(46vh, 360px);
+    min-height: 240px;
+  }
+
+  .app[data-view="replay"] .split-divider-h {
+    display: none;
+  }
+
+  .app[data-view="replay"] .delta-wrap.is-collapsed,
+  .app[data-view="replay"] .pnl-wrap.is-collapsed {
+    display: none;
+  }
+
+  .app[data-view="replay"] .delta-wrap:not(.is-collapsed) .chart-pane-delta,
+  .app[data-view="replay"] .pnl-wrap:not(.is-collapsed) .chart-pane-pnl {
+    height: 88px;
+    min-height: 72px;
+  }
+
+  .app[data-view="replay"] .trades-panel {
+    flex: none;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: none;
+    border-top: 1px solid var(--border);
+    border-left: none;
+  }
+
+  .app[data-view="replay"] .trades-scroll {
+    max-height: 220px;
+  }
+
+  .app[data-view="replay"] .controls {
+    position: sticky;
+    bottom: 0;
+    z-index: 40;
+    padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+  }
+
+  .app[data-view="replay"] .controls-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .app[data-view="replay"] .trade-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+
+  .app[data-view="replay"] .trade-actions .btn-trade {
+    min-width: 0;
+    min-height: 44px;
+    padding: 10px 6px;
+    font-size: 13px;
+  }
+
+  .app[data-view="replay"] .transport {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    justify-content: stretch;
+  }
+
+  .app[data-view="replay"] .transport .btn {
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 4px;
+    font-size: 16px;
+  }
+
+  .app[data-view="replay"] .speeds {
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .app[data-view="replay"] .speeds .chip {
+    min-height: 36px;
+    padding: 6px 12px;
+  }
+
+  .app[data-view="replay"] .scrub-row {
+    gap: 8px;
+  }
+
+  .app[data-view="replay"] .scrub-row input[type="range"] {
+    min-height: 28px;
+  }
+}

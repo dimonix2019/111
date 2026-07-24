@@ -536,11 +536,18 @@ class TInvestClient:
 
         def leg(ticker: str, iid: str, direction: str, buy_leg: bool) -> dict[str, Any]:
             order = self.post_market_order(account_id, iid, direction, qty)
+            pf = None
+            try:
+                pf = self.get_portfolio(account_id)
+            except Exception:
+                pass
             return {
                 "ticker": ticker,
                 "side": "buy" if buy_leg else "sell",
                 "side_ru": f"{'покупка' if buy_leg else 'продажа'} {qty} лот",
                 "order": order,
+                "portfolio_cash_rub": self.portfolio_cash_rub(pf) if pf else None,
+                "portfolio_total_rub": self.portfolio_total_rub(pf) if pf else None,
             }
 
         if opened_with in ("ENTER_LONG", "EnterLong", "LONG"):

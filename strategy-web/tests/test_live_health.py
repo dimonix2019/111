@@ -30,6 +30,7 @@ def test_health_live_stale_when_tick_old(monkeypatch):
     assert h["stale"] is True
     assert h["last_tick_age_sec"] is not None
     assert h["last_tick_age_sec"] >= 240
+    assert h["stale_after_sec"] == MONITOR_STALE_SEC
 
 
 def test_health_live_not_stale_when_monitor_off(monkeypatch):

@@ -1,0 +1,172 @@
+/* replay view modes + transport controls */
+/* —— View mode: Торговля | История | Счёт | Replay —— */
+.app[data-view="trade"] .history-only,
+.app[data-view="trade"] .account-only,
+.app[data-view="trade"] .replay-only,
+.app[data-view="trade"] .live-only,
+.app[data-view="trade"] .markets-only,
+.app[data-view="trade"] .portfolio-only { display: none !important; }
+
+.app[data-view="history"] .trade-only,
+.app[data-view="history"] .account-only,
+.app[data-view="history"] .replay-only,
+.app[data-view="history"] .live-only,
+.app[data-view="history"] .markets-only,
+.app[data-view="history"] .portfolio-only { display: none !important; }
+
+.app[data-view="account"] .trade-only,
+.app[data-view="account"] .history-only,
+.app[data-view="account"] .replay-only,
+.app[data-view="account"] .markets-only,
+.app[data-view="account"] .portfolio-only { display: none !important; }
+
+.app[data-view="replay"] .trade-only,
+.app[data-view="replay"] .history-only,
+.app[data-view="replay"] .account-only,
+.app[data-view="replay"] .live-only,
+.app[data-view="replay"] .markets-only,
+.app[data-view="replay"] .portfolio-only { display: none !important; }
+
+.app[data-view="trade"],
+.app[data-view="history"],
+.app[data-view="account"] {
+  grid-template-rows: auto auto 1fr;
+}
+
+.view-mode-chips {
+  margin-right: 8px;
+  gap: 6px;
+}
+
+.view-mode-chips .chip-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, #2c3140 0%, #232733 100%);
+  color: #b0b3bc;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 2px 4px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.view-mode-chips .chip-view .chip-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.view-mode-chips .chip-view:hover {
+  color: #e0e3eb;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, #343948 0%, #2a2e39 100%);
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+.view-mode-chips .chip-view:active {
+  transform: translateY(0);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.view-mode-chips .chip-view.active {
+  color: #fff;
+  font-weight: 600;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.14) inset,
+    0 3px 8px rgba(0, 0, 0, 0.45);
+}
+
+.view-mode-chips .chip-view.active .chip-icon {
+  opacity: 1;
+}
+
+/* Trade — blue */
+.view-mode-chips .chip-view[data-view="trade"].active {
+  background: linear-gradient(180deg, #3b6ef5 0%, #2962ff 55%, #1e4fd6 100%);
+  border-color: #5b8aff;
+  color: #e8f0ff;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 0 0 1px rgba(41, 98, 255, 0.35),
+    0 3px 10px rgba(41, 98, 255, 0.35);
+}
+
+.view-mode-chips .chip-view[data-view="trade"]:hover:not(.active) {
+  border-color: rgba(91, 138, 255, 0.45);
+  color: #9db7ff;
+}
+
+/* History — amber */
+.view-mode-chips .chip-view[data-view="history"].active {
+  background: linear-gradient(180deg, #d4a017 0%, #b8860b 55%, #9a7209 100%);
+  border-color: #e0b84a;
+  color: #fff8e7;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 0 0 1px rgba(184, 134, 11, 0.35),
+    0 3px 10px rgba(184, 134, 11, 0.35);
+}
+
+.view-mode-chips .chip-view[data-view="history"]:hover:not(.active) {
+  border-color: rgba(224, 184, 74, 0.45);
+  color: #e0c070;
+}
+
+/* Account — teal */
+.view-mode-chips .chip-view[data-view="account"].active {
+  background: linear-gradient(180deg, #1aad96 0%, #089981 55%, #067a68 100%);
+  border-color: #2ec4a8;
+  color: #e6fff9;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 0 0 1px rgba(8, 153, 129, 0.35),
+    0 3px 10px rgba(8, 153, 129, 0.35);
+}
+
+.view-mode-chips .chip-view[data-view="account"]:hover:not(.active) {
+  border-color: rgba(46, 196, 168, 0.45);
+  color: #7ad9c4;
+}
+
+/* Replay — violet */
+.view-mode-chips .chip-view[data-view="replay"].active {
+  background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 55%, #6d28d9 100%);
+  border-color: #a78bfa;
+  color: #f3e8ff;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 0 0 1px rgba(124, 58, 237, 0.35),
+    0 3px 10px rgba(124, 58, 237, 0.35);
+}
+
+.view-mode-chips .chip-view[data-view="replay"]:hover:not(.active) {
+  border-color: rgba(167, 139, 250, 0.45);
+  color: #c4b5fd;
+}
+
+.tab-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  overflow: auto;
+  min-height: 0;
+}
+

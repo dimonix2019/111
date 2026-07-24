@@ -23,19 +23,45 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 _sync_lock = threading.Lock()
+_seed_lock = threading.Lock()
 _sync_running = False
 _last_sync_ok_ms = 0
 _MIN_SYNC_GAP_SEC = 20.0
+_SCHEMA_READY = False
 
 
-def _connect() -> sqlite3.Connection:
+def _is_db_locked(exc: BaseException) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and "locked" in str(exc).lower()
+
+
+def _connect(*, busy_timeout_ms: int = 5000) -> sqlite3.Connection:
+    global _SCHEMA_READY
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = sqlite3.connect(DB_PATH, timeout=max(1.0, busy_timeout_ms / 1000.0), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
-    _init_schema(conn)
+    conn.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    if not _SCHEMA_READY:
+        _init_schema(conn)
+        _SCHEMA_READY = True
     return conn
+
+
+def db_retry(fn, *, retries: int = 8, delay_sec: float = 0.03):
+    wait = delay_sec
+    last: BaseException | None = None
+    for attempt in range(retries):
+        try:
+            return fn()
+        except sqlite3.OperationalError as exc:
+            last = exc
+            if not _is_db_locked(exc) or attempt >= retries - 1:
+                raise
+            time.sleep(wait)
+            wait = min(wait * 1.7, 0.6)
+    assert last is not None
+    raise last
 
 
 def _init_schema(conn: sqlite3.Connection) -> None:
@@ -130,11 +156,22 @@ def _upsert_bars(conn: sqlite3.Connection, bars: list[dict[str, Any]], source_cs
 
 
 def seed_from_csv(csv_path: Path, source_name: str) -> int:
-    bars = apply_rolling_z_to_bars(load_bars_from_csv(csv_path))
-    with _connect() as conn:
-        n = _upsert_bars(conn, bars, source_name)
-        _meta_set(conn, "z_mode", "rolling30")
-        return n
+    """Single-flight upsert — параллельные desk-polls не должны долбить один CSV."""
+    if not _seed_lock.acquire(blocking=False):
+        log.info("seed_from_csv skipped (already running): %s", source_name)
+        return 0
+    try:
+        bars = apply_rolling_z_to_bars(load_bars_from_csv(csv_path))
+        conn = _connect(busy_timeout_ms=15000)
+        try:
+            n = _upsert_bars(conn, bars, source_name)
+            _meta_set(conn, "z_mode", "rolling30")
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            return n
+        finally:
+            conn.close()
+    finally:
+        _seed_lock.release()
 
 
 def _migrate_rolling_z_if_needed() -> None:
@@ -162,29 +199,55 @@ def _migrate_rolling_z_if_needed() -> None:
     log.info("SQLite Z migrated to rolling30 (%s bars)", len(bars))
 
 
-def load_bars_from_db(start_date: str | None = None) -> list[dict[str, Any]]:
-    with _connect() as conn:
-        if start_date:
+def load_last_bars(n: int = 2) -> list[dict[str, Any]]:
+    """Хвост ряда без полной выгрузки (desk/summary)."""
+    n = max(1, min(int(n), 50))
+
+    def _op() -> list[dict[str, Any]]:
+        with _connect() as conn:
             cur = conn.execute(
                 """
                 SELECT timestamp_ms, trade_date, z_score, spread_percent,
                        tatn_close, tatnp_close
                 FROM m15_bars
-                WHERE trade_date >= ?
-                ORDER BY timestamp_ms
+                ORDER BY timestamp_ms DESC
+                LIMIT ?
                 """,
-                (start_date,),
+                (n,),
             )
-        else:
-            cur = conn.execute(
-                """
-                SELECT timestamp_ms, trade_date, z_score, spread_percent,
-                       tatn_close, tatnp_close
-                FROM m15_bars
-                ORDER BY timestamp_ms
-                """
-            )
-        return [bar_row_to_dict(tuple(r)) for r in cur.fetchall()]
+            rows = [bar_row_to_dict(tuple(r)) for r in cur.fetchall()]
+        rows.reverse()
+        return rows
+
+    return db_retry(_op)
+
+
+def load_bars_from_db(start_date: str | None = None) -> list[dict[str, Any]]:
+    def _op() -> list[dict[str, Any]]:
+        with _connect() as conn:
+            if start_date:
+                cur = conn.execute(
+                    """
+                    SELECT timestamp_ms, trade_date, z_score, spread_percent,
+                           tatn_close, tatnp_close
+                    FROM m15_bars
+                    WHERE trade_date >= ?
+                    ORDER BY timestamp_ms
+                    """,
+                    (start_date,),
+                )
+            else:
+                cur = conn.execute(
+                    """
+                    SELECT timestamp_ms, trade_date, z_score, spread_percent,
+                           tatn_close, tatnp_close
+                    FROM m15_bars
+                    ORDER BY timestamp_ms
+                    """
+                )
+            return [bar_row_to_dict(tuple(r)) for r in cur.fetchall()]
+
+    return db_retry(_op)
 
 
 def db_bar_count() -> int:
@@ -306,19 +369,26 @@ def _moex_tail_sync_inner(csv_path: Path) -> bool:
     return bool(refreshed or tip)
 
 def _try_moex_tail_sync(csv_path: Path, *, timeout_sec: float = 25.0) -> bool:
-    """Догрузка хвоста MOEX — с таймаутом, чтобы не блокировать UI минутами."""
+    """Догрузка хвоста MOEX — с таймаутом, чтобы не блокировать UI минутами.
+
+    Важно: не использовать ``with ThreadPoolExecutor`` — при TimeoutError
+    ``shutdown(wait=True)`` всё равно ждёт ISS и подвешивает desk/markets.
+    """
     import concurrent.futures
 
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    fut = pool.submit(_moex_tail_sync_inner, csv_path)
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            fut = pool.submit(_moex_tail_sync_inner, csv_path)
-            return bool(fut.result(timeout=timeout_sec))
+        return bool(fut.result(timeout=timeout_sec))
     except concurrent.futures.TimeoutError:
         log.warning("MOEX tail sync timed out after %.0fs — отдаём кэш", timeout_sec)
         return False
     except Exception as exc:
         log.warning("MOEX tail sync skipped: %s", exc)
         return False
+    finally:
+        # orphaned download may finish later; do not block the request thread
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _load_cached_bars(

@@ -21,19 +21,20 @@ def test_collect_sim_edges_enter_long():
     step = 15 * 60 * 1000
     t0 = 1_700_000_000_000
     bars = [
-        _bar(t0, -1.2, "2026-07-19 10:00"),
-        _bar(t0 + step, -1.4, "2026-07-19 10:15"),
+        _bar(t0, -1.2, "2026-07-21 10:00"),  # вторник TQBR
+        _bar(t0 + step, -1.4, "2026-07-21 10:15"),
     ]
     edges = collect_sim_edges(bars, entry=1.3, exit_z=1.2)
     assert len(edges) == 1
     assert edges[0]["signal"] == Signal.ENTER_LONG.value
-    assert edges[0]["bar_ts"] == "2026-07-19 10:15"
+    assert edges[0]["bar_ts"] == "2026-07-21 10:15"
 
 
 def test_find_matching_within_tolerance():
     sim = [{"bar_ts": "2026-07-19 10:15", "signal": "ENTER_LONG", "z": -1.4}]
     assert find_matching_sim_edge("2026-07-19 10:15", "ENTER_LONG", sim) is not None
     assert find_matching_sim_edge("2026-07-19 10:30", "ENTER_LONG", sim) is not None
+    assert find_matching_sim_edge("2026-07-19 10:45", "ENTER_LONG", sim) is not None  # ±2 бара
     assert find_matching_sim_edge("2026-07-19 12:00", "ENTER_LONG", sim) is None
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from live import engine, store
@@ -33,8 +33,25 @@ class ManualTradeBody(BaseModel):
 
 
 @router.get("/status")
-def live_status() -> dict[str, Any]:
+def live_status(
+    lite: bool = Query(
+        False,
+        description="settings+monitor only — skip market snapshot and TInvest",
+    ),
+) -> dict[str, Any]:
     try:
+        if lite:
+            return {
+                "settings": store.get_settings_bundle(),
+                "monitor": engine.monitor_status(),
+                "open": store.get_open_trade(),
+                "market": None,
+                "broker": None,
+                "events": [],
+                "parity": store.parity_summary(),
+                "lite": True,
+            }
+
         market = None
         try:
             market = engine.market_snapshot()
@@ -216,7 +233,7 @@ def parity_status() -> dict[str, Any]:
 
 @router.post("/parity/check")
 def parity_check_now() -> dict[str, Any]:
-    """Принудительно прогнать все pending parity-сверки."""
+    """Принудительно прогнать pending parity + open PnL + поля закрытых сделок."""
     from live import parity as parity_mod
 
     n = store.force_parity_due()
@@ -228,3 +245,49 @@ def parity_check_now() -> dict[str, Any]:
         "results": results,
         "summary": store.parity_summary(),
     }
+
+
+@router.post("/parity/hourly")
+def parity_hourly_digest(
+    force: bool = Query(True, description="Игнорировать часовой интервал и записать дайджест сейчас"),
+) -> dict[str, Any]:
+    """Почасовой дайджест Test↔Prod → data/parity-hourly.log (+ latest.json). Независим от Cursor."""
+    from live import parity as parity_mod
+
+    try:
+        digest = parity_mod.maybe_run_hourly_parity_digest(force=force, run_checks=True)
+        return {
+            "ok": True,
+            "written": digest is not None,
+            "digest": digest,
+            "summary": store.parity_summary(),
+        }
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/parity/trades")
+def parity_trades_status() -> dict[str, Any]:
+    """Последний снимок сверки полей закрытых сделок (без пересчёта)."""
+    summary = store.parity_summary()
+    return {
+        "ok": True,
+        "trades": summary.get("trades"),
+        "trades_ok": summary.get("trades_ok"),
+        "trades_hard_mismatches": summary.get("trades_hard_mismatches"),
+    }
+
+
+@router.post("/parity/trades")
+def parity_trades_reconcile(
+    days: int = Query(7, ge=1, le=90),
+    fix: bool = Query(True, description="Автоправка метаданных Z/времён"),
+) -> dict[str, Any]:
+    """Сверить все поля закрытых Prod ↔ Test и при fix=1 поправить безопасные расхождения."""
+    from live import parity as parity_mod
+
+    try:
+        result = parity_mod.reconcile_closed_trades_parity(days=days, fix=fix)
+        return {"ok": True, "result": result, "summary": store.parity_summary()}
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc

@@ -185,6 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.307 — «Стол web»: понятнее ERR_NAME_NOT_RESOLVED — нужен Tailscale IP (http://100.x.x.x:8765), не имя хоста.
 1.7.306 — «Стол web»: полноэкранный телефонный UI стола (Тест/История/Счёт), cache-bust, кнопка Обновить; mobile CSS на сервере.
 1.7.305 — Fix: web снимает ghost-OPEN когда брокер flat; APK в режиме «ордера только на web» не шлёт локальные Z-push входа/выхода.
 1.7.304 — Мониторинг web через Tailscale: URL стола, вкладка «Стол web», push по опросу API; AUTO на телефоне выкл. при «ордера только на web».

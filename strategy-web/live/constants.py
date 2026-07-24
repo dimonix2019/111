@@ -57,5 +57,11 @@ MONITOR_SYNC_TIMEOUT_SEC = 12.0
 # Heartbeat в live_events, чтобы видеть «дыры».
 MONITOR_HEARTBEAT_SEC = 300.0
 # Watchdog soft: тик старше N сек при monitor_wanted → stale (probe каждые 60 с).
-MONITOR_STALE_SEC = 90.0
+# Запас ≥3× INTERVAL: медленный ISS/SQLite ночью не должен ронять монитор.
+MONITOR_STALE_SEC = 180.0
+# Не AUTO по mid-bar tip: бар T считается закрытым после T+15м + settle,
+# либо когда в серии уже есть следующий бар.
+MONITOR_BAR_SETTLE_SEC = 45.0
+# Late revise: если после обработки Z бара уточнился сильнее порога — один раз.
+MONITOR_Z_REVISE_MIN_DELTA = 0.08
 USER_AGENT = "MOEX-MVP-Web-Replay"

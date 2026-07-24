@@ -39,7 +39,9 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
-        live_engine.stop_monitor()
+        # Не сбрасываем monitor_running — иначе после рестарта сервиса/watchdog
+        # флаг «выкл» и внешний watchdog не поднимает монитор.
+        live_engine.stop_monitor(clear_wanted=False)
 
 
 app = FastAPI(title="MOEX Bar Replay", version="1.4.0", lifespan=lifespan)

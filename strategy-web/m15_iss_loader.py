@@ -549,7 +549,10 @@ def ensure_m15_data(
     stale_hours: float = STALE_HOURS,
     moex_live: bool = False,
 ) -> tuple[Path, bool]:
-    """Обновить CSV: полная загрузка или догрузка хвоста. Возвращает (path, refreshed)."""
+    """Обновить CSV: полная загрузка или догрузка хвоста. Возвращает (path, refreshed).
+
+    Сеть ISS — вне ``_download_lock``, иначе таймаут sync + overlay блокируют desk.
+    """
     path = Path(path)
     lookback = days if days is not None else lookback_days_for_path(path)
     with _download_lock:
@@ -568,43 +571,48 @@ def ensure_m15_data(
             and path.is_file()
             and (status.get("is_stale", False) or live_tail)
         )
+        last_ts_raw = status.get("last_ts") if incremental else None
 
-        if needs_download:
-            log.info("MOEX full download (%sd) → %s", lookback, path)
-            data = fetch_m15_from_iss(days=lookback)
+    if needs_download:
+        log.info("MOEX full download (%sd) → %s", lookback, path)
+        data = fetch_m15_from_iss(days=lookback)
+        with _download_lock:
             save_m15_csv(data, path)
-            return path, True
+        return path, True
 
-        if incremental:
-            last_ts = pd.to_datetime(status["last_ts"])
-            from_d = (last_ts - timedelta(days=3)).strftime("%Y-%m-%d")
-            till_d = datetime.now().strftime("%Y-%m-%d")
-            reason = "live-tail" if live_tail else "stale"
-            log.info("MOEX incremental (%s) %s … %s → %s", reason, from_d, till_d, path)
-            new_rows = fetch_m15_from_iss(date_from=from_d, date_till=till_d)
+    if incremental:
+        last_ts = pd.to_datetime(last_ts_raw)
+        from_d = (last_ts - timedelta(days=3)).strftime("%Y-%m-%d")
+        till_d = datetime.now().strftime("%Y-%m-%d")
+        reason = "live-tail" if live_tail else "stale"
+        log.info("MOEX incremental (%s) %s … %s → %s", reason, from_d, till_d, path)
+        new_rows = fetch_m15_from_iss(date_from=from_d, date_till=till_d)
+        with _download_lock:
             _merge_m15_csv(path, new_rows, keep_days=lookback)
-            return path, True
+        return path, True
 
-        # Свечи свежие, но LAST внутри слота мог уйти — лёгкий tip.
-        if moex_live and apply_live_last_overlay(path):
-            return path, True
+    # Свечи свежие, но LAST внутри слота мог уйти — лёгкий tip.
+    if moex_live and apply_live_last_overlay(path):
+        return path, True
 
-        return path, False
+    return path, False
 
 
 def merge_live_intraday(path: Path = DEFAULT_M15_CSV) -> bool:
     """Каждый live-тик: MOEX за 2 дня → merge + формирующийся 15м бар (как TradingView)."""
-    with _download_lock:
-        till_d = datetime.now().strftime("%Y-%m-%d")
-        from_d = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
-        try:
-            if not path.is_file():
-                save_m15_csv(fetch_m15_from_iss(days=30), path)
-                return True
-            rows = fetch_m15_from_iss(date_from=from_d, date_till=till_d)
-            _merge_m15_csv(path, rows, keep_days=lookback_days_for_path(path))
-            # fetch_m15_from_iss уже кладёт LAST-tip в rows; force не нужен
+    till_d = datetime.now().strftime("%Y-%m-%d")
+    from_d = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
+    try:
+        if not path.is_file():
+            data = fetch_m15_from_iss(days=30)
+            with _download_lock:
+                save_m15_csv(data, path)
             return True
-        except Exception as exc:
-            log.warning("merge_live_intraday failed: %s", exc)
-            return path.is_file()
+        rows = fetch_m15_from_iss(date_from=from_d, date_till=till_d)
+        with _download_lock:
+            _merge_m15_csv(path, rows, keep_days=lookback_days_for_path(path))
+        # fetch_m15_from_iss уже кладёт LAST-tip в rows; force не нужен
+        return True
+    except Exception as exc:
+        log.warning("merge_live_intraday failed: %s", exc)
+        return path.is_file()

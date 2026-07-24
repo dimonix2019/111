@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import threading
@@ -12,11 +13,13 @@ from typing import Any
 from live.constants import (
     DEFAULT_Z_ENTRY,
     DEFAULT_Z_EXIT,
+    MONITOR_BAR_SETTLE_SEC,
     MONITOR_CATCHUP_MAX_EDGES,
     MONITOR_HEARTBEAT_SEC,
     MONITOR_INTERVAL_SEC,
     MONITOR_STALE_SEC,
     MONITOR_SYNC_TIMEOUT_SEC,
+    MONITOR_Z_REVISE_MIN_DELTA,
     SPREAD_LOT_MIN_LOTS,
     SPREAD_LOT_PROD_DEFAULT_LEVERAGE,
 )
@@ -25,9 +28,12 @@ from live.signals import (
     Position,
     Signal,
     determine_z_signal,
+    find_bar_index,
     is_consecutive_m15,
     is_moex_equity_session_bar,
+    last_settled_bar_index,
     plan_monitor_catchup,
+    should_revise_none_to_signal,
 )
 from live import store
 from live.tinvest import TInvestClient
@@ -87,10 +93,10 @@ def market_snapshot(
 ) -> dict[str, Any]:
     """M15 bars from replay SQLite (or CSV seed).
 
-    wait_sync=True — дождаться MOEX tail (monitor tick), иначе фон + кэш.
-    После кэша всегда пробуем быстрый LAST-tip (утро без свечей / тик внутри слота).
+    wait_sync=True — дождаться MOEX tail (monitor tick), полный ряд для сигнала.
+    UI-путь: только хвост (2 бара) + LAST-tip без полного seed.
     """
-    from replay.replay_db import ensure_replay_bars, seed_from_csv
+    from replay.replay_db import ensure_replay_bars, load_last_bars, seed_from_csv, db_bar_count
     from m15_iss_loader import apply_live_last_overlay
 
     data_dir = Path(__file__).resolve().parent.parent / "data"
@@ -98,35 +104,74 @@ def market_snapshot(
     timeout = sync_timeout_sec
     if timeout is None:
         timeout = 30.0 if wait_sync else 25.0
-    payload = ensure_replay_bars(
-        csv_path,
-        "m15_tatn_255d.csv",
-        online=True,
-        start_date=None,
-        wait_sync=wait_sync,
-        sync_timeout_sec=timeout,
-    )
-    # Desk/UI без wait_sync: не ждать полный ISS, но подтянуть LAST (~0.5с).
-    if not wait_sync and apply_live_last_overlay(csv_path):
-        seed_from_csv(csv_path, "m15_tatn_255d.csv")
+
+    tip_refreshed = False
+    if wait_sync:
+        # Сигнальный ряд — только официальные M15 из ISS/кэша.
+        # LAST-overlay НЕ сидим в SQLite: утренний mid может дать ложный Z (сегодня 07:00
+        # кратко Z≈−4 при spread≈2%, затем пересчёт до Z≈−0.56) → ложный AUTO.
         payload = ensure_replay_bars(
             csv_path,
             "m15_tatn_255d.csv",
-            online=False,
+            online=True,
             start_date=None,
+            wait_sync=True,
+            sync_timeout_sec=timeout,
         )
-        payload = {**payload, "refreshed": True, "online": True}
+        bars = payload.get("bars") or []
+        source = payload.get("source")
+        online = payload.get("online")
+        refreshed = bool(payload.get("refreshed"))
+    else:
+        # Фон: лёгкий sync без блокировки ответа
+        ensure_replay_bars(
+            csv_path,
+            "m15_tatn_255d.csv",
+            online=True,
+            start_date=None,
+            wait_sync=False,
+        )
+        tip_refreshed = bool(apply_live_last_overlay(csv_path))
+        bars = load_last_bars(2)
+        if len(bars) < 1 and csv_path.is_file():
+            # холодный старт — один раз полный кэш
+            payload = ensure_replay_bars(
+                csv_path, "m15_tatn_255d.csv", online=False, start_date=None
+            )
+            bars = (payload.get("bars") or [])[-2:]
+        source = "sqlite" if db_bar_count() > 0 else "csv"
+        online = True
+        refreshed = tip_refreshed
 
-    bars = payload.get("bars") or []
     if not bars:
         raise RuntimeError("Нет баров M15 — сначала откройте Replay или скачайте CSV")
-    last = bars[-1]
+    last = dict(bars[-1])
     prev = bars[-2] if len(bars) >= 2 else None
+    if tip_refreshed and not wait_sync:
+        try:
+            from m15_iss_loader import _csv_last_timestamp
+            import pandas as pd
+
+            tip_ts = _csv_last_timestamp(csv_path)
+            if tip_ts:
+                row = pd.read_csv(csv_path).iloc[-1]
+                last = {
+                    **last,
+                    "tradeDate": str(tip_ts),
+                    "tatnClose": float(row["tatn_close"]),
+                    "tatnpClose": float(row["tatnp_close"]),
+                    "spreadPercent": float(
+                        row.get("spread_percent") or last.get("spreadPercent") or 0
+                    ),
+                    "zScore": float(row.get("z_score") or last.get("zScore") or 0),
+                }
+        except Exception:
+            pass
     return {
-        "count": len(bars),
-        "source": payload.get("source"),
-        "online": payload.get("online"),
-        "refreshed": payload.get("refreshed"),
+        "count": db_bar_count() if not wait_sync else len(bars),
+        "source": source,
+        "online": online,
+        "refreshed": refreshed,
         "bars": bars,
         "bar": last,
         "prev": prev,
@@ -149,22 +194,32 @@ def resolve_lots(client: TInvestClient, account_id: str) -> dict[str, Any]:
     cash = client.portfolio_cash_rub(pf)
     if cash is None:
         raise RuntimeError("Не удалось прочитать деньги на счёте (totalAmountCurrencies)")
+    try:
+        deposit = float(store.get_setting("entry_deposit_rub", "10000") or "10000")
+    except ValueError:
+        deposit = 10000.0
+    deposit = max(1000.0, min(10_000_000.0, deposit))
+    cash_for_entry = min(float(cash), deposit)
     margin = client.get_margin_attributes(account_id) if client.mode == "prod" else None
     leverage = None
+    liquid = margin["liquid_portfolio_rub"] if margin else None
     if client.mode == "prod":
         leverage = float(store.get_setting("leverage", str(SPREAD_LOT_PROD_DEFAULT_LEVERAGE)) or SPREAD_LOT_PROD_DEFAULT_LEVERAGE)
+        # Плечо тоже ограничиваем выбранным депозитом на вход
+        if liquid is not None and liquid > 0:
+            liquid = min(float(liquid), deposit)
     sizing = compute_spread_quantity_lots(
-        cash_rub=cash,
+        cash_rub=cash_for_entry,
         price_tatn=tatn,
         price_tatnp=tatnp,
-        liquid_portfolio_rub=margin["liquid_portfolio_rub"] if margin else None,
+        liquid_portfolio_rub=liquid,
         corrected_margin_rub=margin["corrected_margin_rub"] if margin else None,
         leverage_for_notional=leverage,
     )
     if sizing.quantity_lots < SPREAD_LOT_MIN_LOTS:
         raise RuntimeError(
-            f"Недостаточно средств: cash={cash:.0f} ₽, после резерва {sizing.available_rub:.0f} ₽, "
-            f"нужно ≈{sizing.go_per_lot_rub:.0f} ₽ на 1 лот"
+            f"Недостаточно средств: cash={cash:.0f} ₽, депозит на вход {deposit:.0f} ₽ "
+            f"(в расчёте {cash_for_entry:.0f} ₽), нужно ≈{sizing.go_per_lot_rub:.0f} ₽ на 1 лот"
         )
     return {
         "quantity_lots": sizing.quantity_lots,
@@ -178,7 +233,12 @@ def resolve_lots(client: TInvestClient, account_id: str) -> dict[str, Any]:
     }
 
 
-def open_position(position: Position, *, source: str = "MANUAL") -> dict[str, Any]:
+def open_position(
+    position: Position,
+    *,
+    source: str = "MANUAL",
+    signal_bar: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if position not in (Position.LONG, Position.SHORT):
         raise RuntimeError("position must be LONG or SHORT")
     mode, token, account = store.get_credentials()
@@ -192,6 +252,44 @@ def open_position(position: Position, *, source: str = "MANUAL") -> dict[str, An
     signal = Signal.ENTER_LONG if position == Position.LONG else Signal.ENTER_SHORT
     legs = client.execute_spread_entry(account, signal.value, sizing["quantity_lots"])
     snap = sizing["market"]
+    from live.open_mark import (
+        adverse_entry_slip_pts,
+        fill_prices_from_legs,
+        pick_iss_spread_for_slip,
+    )
+
+    # Edge-бар сигнала (не live tip): late settle/revise часто исполняется уже на следующем слоте
+    sig = signal_bar if isinstance(signal_bar, dict) else {}
+    entry_time = str(sig.get("tradeDate") or snap.get("trade_date") or "")
+    entry_z = sig.get("zScore") if sig.get("zScore") is not None else snap.get("z")
+    try:
+        entry_z = float(entry_z) if entry_z is not None else None
+    except (TypeError, ValueError):
+        entry_z = snap.get("z")
+
+    entry_tatn = snap.get("tatn")
+    entry_tatnp = snap.get("tatnp")
+    prev = snap.get("prev") if isinstance(snap.get("prev"), dict) else {}
+    entry_spread_iss = snap.get("spread")
+    entry_spread = entry_spread_iss
+    entry_slip_pts = None
+    # Канон для PnL/сверки — цены исполнения, не ISS mid
+    fill_tatn, fill_tatnp = fill_prices_from_legs({"legs_json": json.dumps(legs, ensure_ascii=False)})
+    if fill_tatn and fill_tatnp and fill_tatnp > 0:
+        entry_tatn = fill_tatn
+        entry_tatnp = fill_tatnp
+        entry_spread = (fill_tatn - fill_tatnp) / fill_tatnp * 100.0
+        entry_spread_iss = pick_iss_spread_for_slip(
+            snap_spread=snap.get("spread"),
+            snap_tatn=snap.get("tatn"),
+            snap_tatnp=snap.get("tatnp"),
+            prev_spread=prev.get("spreadPercent"),
+            prev_tatn=prev.get("tatnClose"),
+            prev_tatnp=prev.get("tatnpClose"),
+            fill_tatn=fill_tatn,
+            fill_tatnp=fill_tatnp,
+        )
+        entry_slip_pts = adverse_entry_slip_pts(position.value, entry_spread_iss, entry_spread)
     trade_id = store.insert_open_trade(
         {
             "mode": mode,
@@ -199,24 +297,55 @@ def open_position(position: Position, *, source: str = "MANUAL") -> dict[str, An
             "direction": position.value,
             "entry_signal": signal.value,
             "quantity_lots": sizing["quantity_lots"],
-            "entry_time": snap.get("trade_date") or "",
-            "entry_z": snap.get("z"),
-            "entry_spread": snap.get("spread"),
-            "entry_tatn": snap.get("tatn"),
-            "entry_tatnp": snap.get("tatnp"),
+            "entry_time": entry_time,
+            "entry_z": entry_z,
+            "entry_spread": entry_spread,
+            "entry_spread_iss": entry_spread_iss,
+            "entry_slip_pts": entry_slip_pts,
+            "entry_tatn": entry_tatn,
+            "entry_tatnp": entry_tatnp,
             "execution_notional_rub": sizing["execution_notional_rub"],
             "source": source,
             "legs": legs,
         }
     )
     store.log_event(
-        f"{source} вход {position.value} · {sizing['quantity_lots']}+{sizing['quantity_lots']} лот · Z={snap.get('z')}",
+        f"{source} вход {position.value} · {sizing['quantity_lots']}+{sizing['quantity_lots']} лот · "
+        f"Z={entry_z} · бар {entry_time[:16] if entry_time else '—'}",
         "info",
     )
     return {"ok": True, "trade_id": trade_id, "sizing": sizing, "legs": legs}
 
 
-def close_position(*, source: str = "MANUAL") -> dict[str, Any]:
+def _closed_metrics_for_open(
+    open_t: dict[str, Any],
+    *,
+    exit_time: str,
+    exit_spread: float | None,
+) -> dict[str, Any]:
+    from live.closed_metrics import enrich_closed_trade, load_bars_for_window
+
+    settings = store.get_settings_bundle()
+    draft = {
+        **open_t,
+        "exit_time": exit_time,
+        "exit_spread": exit_spread if exit_spread is not None else open_t.get("entry_spread"),
+        "execution_notional_rub": open_t.get("execution_notional_rub"),
+    }
+    bars = load_bars_for_window(open_t.get("entry_time"), exit_time)
+    return enrich_closed_trade(
+        draft,
+        deposit_rub=float(settings.get("entry_deposit_rub") or 10_000),
+        leverage=float(settings.get("leverage") or 7),
+        bars=bars,
+    )
+
+
+def close_position(
+    *,
+    source: str = "MANUAL",
+    signal_bar: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     mode, token, account = store.get_credentials()
     if not token or not account:
         raise RuntimeError("Нужны токен и accountId")
@@ -230,14 +359,53 @@ def close_position(*, source: str = "MANUAL") -> dict[str, Any]:
         int(open_t["quantity_lots"]),
     )
     snap = market_snapshot()
+    sig = signal_bar if isinstance(signal_bar, dict) else {}
+    exit_time = str(sig.get("tradeDate") or snap.get("trade_date") or "")
+    exit_z = sig.get("zScore") if sig.get("zScore") is not None else snap.get("z")
+    try:
+        exit_z = float(exit_z) if exit_z is not None else None
+    except (TypeError, ValueError):
+        exit_z = snap.get("z")
+    # Спред для PnL — с live tip (цены ближе к фактическому fill), время/Z — с бара сигнала
+    exit_spread = snap.get("spread")
+    metrics = _closed_metrics_for_open(open_t, exit_time=exit_time, exit_spread=exit_spread)
+    # Сумма на счету после выхода (total, иначе cash) — из последней ноги или свежий портфель
+    account_after = None
+    for leg in reversed(legs or []):
+        if not isinstance(leg, dict):
+            continue
+        for key in ("portfolio_total_rub", "portfolio_cash_rub"):
+            v = leg.get(key)
+            if v is not None:
+                try:
+                    account_after = float(v)
+                    break
+                except (TypeError, ValueError):
+                    pass
+        if account_after is not None:
+            break
+    if account_after is None:
+        try:
+            pf = client.get_portfolio(account)
+            account_after = client.portfolio_total_rub(pf)
+            if account_after is None:
+                account_after = client.portfolio_cash_rub(pf)
+        except Exception:
+            pass
+    if account_after is not None:
+        metrics["account_after_rub"] = account_after
     closed = store.close_open_trade(
-        exit_time=snap.get("trade_date") or "",
-        exit_z=snap.get("z"),
-        exit_spread=snap.get("spread"),
-        pnl_rub=None,
+        exit_time=exit_time,
+        exit_z=exit_z,
+        exit_spread=exit_spread,
+        pnl_rub=metrics.get("pnl_rub"),
         legs=legs,
+        metrics=metrics,
     )
-    store.log_event(f"{source} выход {open_t['direction']} · Z={snap.get('z')}", "info")
+    store.log_event(
+        f"{source} выход {open_t['direction']} · Z={exit_z} · бар {exit_time[:16] if exit_time else '—'}",
+        "info",
+    )
     return {"ok": True, "closed": closed, "legs": legs, "market": snap}
 
 
@@ -280,12 +448,16 @@ def reconcile_broker_open_trade(
     if local and not spread:
         if snap is None:
             snap = market_snapshot()
+        exit_time = str(snap.get("trade_date") or "")
+        exit_spread = snap.get("spread")
+        metrics = _closed_metrics_for_open(local, exit_time=exit_time, exit_spread=exit_spread)
         closed = store.close_open_trade(
-            exit_time=str(snap.get("trade_date") or ""),
+            exit_time=exit_time,
             exit_z=snap.get("z"),
-            exit_spread=snap.get("spread"),
-            pnl_rub=None,
+            exit_spread=exit_spread,
+            pnl_rub=metrics.get("pnl_rub"),
             legs=[{"note": "broker flat — local open cleared"}],
+            metrics=metrics,
         )
         store.log_event(
             f"BROKER sync: закрыт локальный {local.get('direction')} "
@@ -313,6 +485,8 @@ def reconcile_broker_open_trade(
                 "entry_time": snap.get("trade_date") or "",
                 "entry_z": snap.get("z"),
                 "entry_spread": snap.get("spread"),
+                "entry_spread_iss": snap.get("spread"),
+                "entry_slip_pts": 0.0,  # adopt без fill → mid=ISS, slip 0
                 "entry_tatn": snap.get("tatn"),
                 "entry_tatnp": snap.get("tatnp"),
                 "execution_notional_rub": None,
@@ -384,17 +558,35 @@ def _auto_execute_signal(
     z: float,
     entry: float,
     exit_z: float,
+    prev_bar: dict[str, Any] | None = None,
 ) -> str:
     """Execute AUTO trade for one edge; returns status suffix for last_message."""
+    from live.signals import is_implausible_spread_jump
+
+    if signal in (Signal.ENTER_LONG, Signal.ENTER_SHORT) and prev_bar is not None:
+        prev_sp = prev_bar.get("spreadPercent")
+        if prev_sp is None:
+            prev_sp = prev_bar.get("spread")
+        cur_sp = bar.get("spreadPercent")
+        if cur_sp is None:
+            cur_sp = bar.get("spread")
+        if is_implausible_spread_jump(prev_sp, cur_sp):
+            store.log_event(
+                f"AUTO пропуск {signal.value} @ {str(bar.get('tradeDate') or '')[:16]}: "
+                f"скачок спреда {prev_sp}→{cur_sp} (подозрение на LAST/tip)",
+                "warn",
+            )
+            return f" · skip {signal.value} (spread jump)"
+
     trade_id = None
     if signal == Signal.ENTER_LONG:
-        opened = open_position(Position.LONG, source="AUTO")
+        opened = open_position(Position.LONG, source="AUTO", signal_bar=bar)
         trade_id = opened.get("trade_id")
     elif signal == Signal.ENTER_SHORT:
-        opened = open_position(Position.SHORT, source="AUTO")
+        opened = open_position(Position.SHORT, source="AUTO", signal_bar=bar)
         trade_id = opened.get("trade_id")
     elif signal in (Signal.EXIT_LONG, Signal.EXIT_SHORT):
-        close_position(source="AUTO")
+        close_position(source="AUTO", signal_bar=bar)
     else:
         return ""
     try:
@@ -414,12 +606,98 @@ def _auto_execute_signal(
     return f" · AUTO {signal.value}"
 
 
+def _record_edge_snapshot(bar_ms: int, z: float, signal: Signal) -> None:
+    store.set_setting("last_edge_bar_ms", str(bar_ms))
+    store.set_setting("last_edge_z", f"{z:.6f}")
+    store.set_setting("last_edge_signal", signal.value)
+    # Actionable already fired — no late revise. NONE may be upgraded once.
+    store.set_setting("last_edge_revised", "0" if signal == Signal.NONE else "1")
+
+
+def _maybe_late_z_revise(
+    bars: list[dict[str, Any]],
+    *,
+    entry: float,
+    exit_z: float,
+    auto: bool,
+    msg: str,
+    result: dict[str, Any],
+) -> str:
+    """If last processed bar was NONE and Z later strengthens into an edge — fire once."""
+    last_proc = int(store.get_setting("last_processed_bar_ms", "0") or "0")
+    edge_ms = int(store.get_setting("last_edge_bar_ms", "0") or "0")
+    if last_proc <= 0 or edge_ms != last_proc:
+        return msg
+    if store.get_setting("last_edge_revised", "0") == "1":
+        return msg
+
+    idx = find_bar_index(bars, last_proc)
+    if idx is None or idx < 1:
+        return msg
+
+    prev = bars[idx - 1]
+    cur = bars[idx]
+    try:
+        old_z = float(store.get_setting("last_edge_z", "nan") or "nan")
+    except ValueError:
+        return msg
+    new_z = float(cur["zScore"])
+    old_sig = store.get_setting("last_edge_signal", Signal.NONE.value) or Signal.NONE.value
+    pos = current_position()
+    new_sig = determine_z_signal(float(prev["zScore"]), new_z, pos, entry, exit_z)
+
+    if not should_revise_none_to_signal(
+        old_signal=old_sig,
+        new_signal=new_sig,
+        old_z=old_z,
+        new_z=new_z,
+        min_delta=MONITOR_Z_REVISE_MIN_DELTA,
+    ):
+        # Keep snapshot Z fresh so small drifts don't accumulate forever.
+        if new_z == new_z and abs(new_z - old_z) >= 1e-9:
+            store.set_setting("last_edge_z", f"{new_z:.6f}")
+        return msg
+
+    cur_td = str(cur.get("tradeDate") or "")
+    cur_ms = int(cur.get("timestampMs") or 0)
+    store.set_setting("last_edge_revised", "1")
+    store.set_setting("last_edge_z", f"{new_z:.6f}")
+    store.set_setting("last_edge_signal", new_sig.value)
+    result["signal"] = new_sig.value
+    result.setdefault("signals", []).append(f"{new_sig.value}@{cur_td}:revise")
+    store.log_event(
+        f"Сигнал {new_sig.value} @ {cur_td} Z={new_z:.2f} "
+        f"(Z revise, было {old_z:.2f} / {old_sig})",
+        "signal",
+    )
+    if auto:
+        try:
+            msg += _auto_execute_signal(
+                new_sig,
+                bar=cur,
+                cur_ms=cur_ms,
+                z=new_z,
+                entry=entry,
+                exit_z=exit_z,
+                prev_bar=prev,
+            )
+            msg += " · revise"
+        except Exception as exc:
+            store.log_event(f"AUTO fail {new_sig.value} (revise): {exc}", "error")
+            msg += f" · AUTO revise err: {exc}"
+    else:
+        msg += f" · сигнал {new_sig.value} revise (auto выкл)"
+    return msg
+
+
 def monitor_tick() -> dict[str, Any]:
     """One monitor cycle: sync tip bar, AUTO on consecutive edges since last_proc (APK-like catchup)."""
     global _last_status
     settings = store.get_settings_bundle()
     entry = float(settings.get("entry_z") or DEFAULT_Z_ENTRY)
     exit_z = float(settings.get("exit_z") or DEFAULT_Z_EXIT)
+    auto = bool(settings.get("auto_execute"))
+    now_ms = int(time.time() * 1000)
     # Короткий sync — не зависать на ISS.
     snap = market_snapshot(wait_sync=True, sync_timeout_sec=MONITOR_SYNC_TIMEOUT_SEC)
     try:
@@ -442,7 +720,7 @@ def monitor_tick() -> dict[str, Any]:
     if len(bars) < 2:
         _last_status.update(
             {
-                "last_tick_ms": int(time.time() * 1000),
+                "last_tick_ms": now_ms,
                 "last_message": msg + " · нет prev",
                 "last_z": z,
                 "last_bar": bar.get("tradeDate"),
@@ -455,19 +733,25 @@ def monitor_tick() -> dict[str, Any]:
         bars,
         last_proc,
         max_edges=MONITOR_CATCHUP_MAX_EDGES,
+        now_ms=now_ms,
+        settle_sec=MONITOR_BAR_SETTLE_SEC,
     )
 
     if mode == "bootstrap":
-        anchor_ms = int(bar.get("timestampMs") or 0)
+        # Якорь на последний settled бар — не на mid-bar tip.
+        si = last_settled_bar_index(bars, now_ms, settle_sec=MONITOR_BAR_SETTLE_SEC)
+        anchor = bars[si] if si is not None else bar
+        anchor_ms = int(anchor.get("timestampMs") or 0)
         store.set_setting("last_processed_bar_ms", str(anchor_ms))
+        _record_edge_snapshot(anchor_ms, float(anchor.get("zScore") or z), Signal.NONE)
         store.log_event(
-            f"Монитор: якорь на {bar.get('tradeDate')} (без реплея истории)",
+            f"Монитор: якорь на {anchor.get('tradeDate')} (без реплея истории)",
             "info",
         )
         _maybe_monitor_heartbeat(bar, z)
         _last_status.update(
             {
-                "last_tick_ms": int(time.time() * 1000),
+                "last_tick_ms": now_ms,
                 "last_message": msg + " · якорь",
                 "last_z": z,
                 "last_bar": bar.get("tradeDate"),
@@ -476,11 +760,14 @@ def monitor_tick() -> dict[str, Any]:
         return result
 
     if mode == "up_to_date":
+        msg = _maybe_late_z_revise(
+            bars, entry=entry, exit_z=exit_z, auto=auto, msg=msg, result=result
+        )
         _maybe_monitor_heartbeat(bar, z)
         _last_status.update(
             {
-                "last_tick_ms": int(time.time() * 1000),
-                "last_message": msg + " · уже обработан",
+                "last_tick_ms": now_ms,
+                "last_message": msg + (" · уже обработан" if "revise" not in msg else ""),
                 "last_z": z,
                 "last_bar": bar.get("tradeDate"),
             }
@@ -488,18 +775,21 @@ def monitor_tick() -> dict[str, Any]:
         return result
 
     if mode == "skip_gap":
-        # Пропуски не догоняем сделками — только якорь на хвост + предупреждение.
-        tip_ms = int(bar.get("timestampMs") or 0)
+        # Пропуски не догоняем сделками — только якорь на settled хвост + предупреждение.
+        si = last_settled_bar_index(bars, now_ms, settle_sec=MONITOR_BAR_SETTLE_SEC)
+        tip = bars[si] if si is not None else bar
+        tip_ms = int(tip.get("timestampMs") or 0)
         n_miss = max(0, len(edges))
         store.set_setting("last_processed_bar_ms", str(tip_ms))
+        _record_edge_snapshot(tip_ms, float(tip.get("zScore") or z), Signal.NONE)
         store.log_event(
-            f"Монитор: пропуск {n_miss} бар(ов) без AUTO-догона → якорь {bar.get('tradeDate')}",
+            f"Монитор: пропуск {n_miss} бар(ов) без AUTO-догона → якорь {tip.get('tradeDate')}",
             "warn",
         )
         _maybe_monitor_heartbeat(bar, z)
         _last_status.update(
             {
-                "last_tick_ms": int(time.time() * 1000),
+                "last_tick_ms": now_ms,
                 "last_message": msg + f" · skip×{n_miss}",
                 "last_z": z,
                 "last_bar": bar.get("tradeDate"),
@@ -508,7 +798,6 @@ def monitor_tick() -> dict[str, Any]:
         return result
 
     # mode == "live": consecutive рёбра после last_proc (догон как APK, до max_edges)
-    auto = bool(settings.get("auto_execute"))
     n_edges = 0
     for prev, cur in edges:
         prev_ms = int(prev.get("timestampMs") or 0)
@@ -522,6 +811,7 @@ def monitor_tick() -> dict[str, Any]:
                 "warn",
             )
             store.set_setting("last_processed_bar_ms", str(cur_ms))
+            _record_edge_snapshot(cur_ms, cur_z, Signal.NONE)
             continue
 
         if not is_moex_equity_session_bar(cur_td):
@@ -530,11 +820,13 @@ def monitor_tick() -> dict[str, Any]:
                 "info",
             )
             store.set_setting("last_processed_bar_ms", str(cur_ms))
+            _record_edge_snapshot(cur_ms, cur_z, Signal.NONE)
             continue
 
         pos = current_position()
         signal = determine_z_signal(float(prev["zScore"]), cur_z, pos, entry, exit_z)
         store.set_setting("last_processed_bar_ms", str(cur_ms))
+        _record_edge_snapshot(cur_ms, cur_z, signal)
         n_edges += 1
         result["catchup_edges"] = n_edges
 
@@ -554,6 +846,7 @@ def monitor_tick() -> dict[str, Any]:
                     z=cur_z,
                     entry=entry,
                     exit_z=exit_z,
+                    prev_bar=prev,
                 )
             except Exception as exc:
                 store.log_event(f"AUTO fail {signal.value}: {exc}", "error")
@@ -561,17 +854,24 @@ def monitor_tick() -> dict[str, Any]:
         else:
             msg += f" · сигнал {signal.value} (auto выкл)"
 
+    # Если после live всё ещё tip на last_proc — дать late revise на том же тике.
+    msg = _maybe_late_z_revise(
+        bars, entry=entry, exit_z=exit_z, auto=auto, msg=msg, result=result
+    )
+
     try:
-        from live.parity import process_due_parity_checks
+        from live.parity import maybe_run_hourly_parity_digest, process_due_parity_checks
 
         process_due_parity_checks()
+        # Durable hourly digest (parity-hourly.log) — survives Cursor chat death.
+        maybe_run_hourly_parity_digest(run_checks=False)
     except Exception as parity_exc:
         log.warning("parity process failed: %s", parity_exc)
 
     _maybe_monitor_heartbeat(bar, z)
     _last_status.update(
         {
-            "last_tick_ms": int(time.time() * 1000),
+            "last_tick_ms": now_ms,
             "last_message": msg,
             "last_z": z,
             "last_bar": bar.get("tradeDate"),
@@ -587,7 +887,19 @@ def _monitor_loop() -> None:
     try:
         while not _monitor_stop.is_set():
             try:
-                monitor_tick()
+                # Bar-close races: ISS sync + UI polls can briefly lock SQLite.
+                # Retry before logging — a single lock must not skip the AUTO edge.
+                attempts = 4
+                for i in range(attempts):
+                    try:
+                        monitor_tick()
+                        break
+                    except Exception as exc:
+                        locked = "locked" in str(exc).lower()
+                        if locked and i < attempts - 1:
+                            _monitor_stop.wait(0.15 * (i + 1))
+                            continue
+                        raise
             except Exception as exc:
                 store.log_event(f"Монитор: {exc}", "error")
                 _last_status["last_message"] = str(exc)
@@ -605,6 +917,7 @@ def start_monitor() -> dict[str, Any]:
     global _monitor_thread, _monitor_started_ms
     with _monitor_lock:
         if _monitor_thread and _monitor_thread.is_alive():
+            store.set_setting("monitor_running", "1")
             return {"ok": True, "running": True, "message": "уже запущен"}
         _monitor_stop.clear()
         store.set_setting("monitor_running", "1")
@@ -615,10 +928,16 @@ def start_monitor() -> dict[str, Any]:
     return {"ok": True, "running": True}
 
 
-def stop_monitor() -> dict[str, Any]:
+def stop_monitor(*, clear_wanted: bool = True) -> dict[str, Any]:
+    """
+    Останавливает поток монитора.
+    clear_wanted=True — пользователь/API «Стоп»: не поднимать снова до явного Старт.
+    clear_wanted=False — рестарт процесса/watchdog: флаг «нужен монитор» сохраняем.
+    """
     with _monitor_lock:
         _monitor_stop.set()
-        store.set_setting("monitor_running", "0")
+        if clear_wanted:
+            store.set_setting("monitor_running", "0")
         _last_status["running"] = False
         thread = _monitor_thread
     if thread and thread.is_alive() and thread is not threading.current_thread():
@@ -629,7 +948,7 @@ def stop_monitor() -> dict[str, Any]:
 
 def restart_monitor() -> dict[str, Any]:
     """Stop+start — для watchdog, когда поток жив, но last_tick протух."""
-    stop_monitor()
+    stop_monitor(clear_wanted=False)
     return start_monitor()
 
 
