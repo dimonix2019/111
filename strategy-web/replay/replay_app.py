@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -104,6 +104,8 @@ def index() -> FileResponse:
 def api_bars(
     csv: str = Query("m15_tatn_255d.csv", description="CSV в strategy-web/data"),
     start: str | None = Query(None, description="Старт replay YYYY-MM-DD или YYYY-MM-DD HH:MM"),
+    as_live: int = Query(0, description="1 = overlay decision_bars (как Прод)"),
+    source: str | None = Query(None, description="decision = то же что as_live=1"),
 ) -> dict[str, Any]:
     name = Path(csv).name
     if name not in ALLOWED_CSV:
@@ -113,9 +115,24 @@ def api_bars(
         raise HTTPException(404, f"Файл не найден: {path}")
 
     start_key = start.strip() if start else None
-    online = _is_online()
-    payload = ensure_replay_bars(path, name, online=online, start_date=start_key)
-    bars = payload["bars"]
+    # Testing historical load (esp. 3y): never block on MOEX ISS / full CSV rewrite.
+    # Live tip stays on monitor + 255d; explicit Refresh uses /api/markets/refresh.
+    online_hint = _is_online()
+    payload = ensure_replay_bars(path, name, online=False, start_date=start_key)
+    bars = list(payload["bars"] or [])
+    want_live = bool(as_live) or (str(source or "").strip().lower() in ("decision", "live", "as_live"))
+    live_meta: dict[str, Any] = {
+        "as_live": False,
+        "locked_count": 0,
+        "bars_count": len(bars),
+        "coverage": 0.0,
+        "locked_from": None,
+        "locked_to": None,
+    }
+    if want_live:
+        from live import store as live_store
+
+        live_meta = live_store.overlay_decision_bars_on_series(bars)
     return {
         "csv": name,
         "count": len(bars),
@@ -124,10 +141,110 @@ def api_bars(
         "last": bars[-1]["tradeDate"] if bars else None,
         "source": payload["source"],
         "dbCount": payload["db_count"],
-        "online": payload["online"],
+        "online": bool(online_hint),
         "refreshed": payload["refreshed"],
         "start": start_key,
+        **live_meta,
     }
+
+
+@app.get("/api/bars1m")
+def api_bars1m(
+    csv: str | None = Query(None, description="CSV lookback; if set — return tip-Z bars for chart"),
+    start: str | None = Query(None, description="Старт YYYY-MM-DD"),
+    chartDays: int | None = Query(
+        None,
+        description="Окно графика (календ. дни с хвоста). По умолчанию 90. 0 = без усечения",
+    ),
+    metaOnly: int = Query(0, description="1 = только meta parquet, без баров"),
+) -> dict[str, Any]:
+    """1m tip-Z bars for Testing chart («касание 1м»), or parquet meta if metaOnly/no csv."""
+    from replay import tip_touch
+
+    if metaOnly or not csv:
+        return tip_touch.bars1m_meta()
+    name = Path(str(csv)).name
+    if name not in ALLOWED_CSV:
+        raise HTTPException(400, f"CSV не разрешён: {name}")
+    days = tip_touch.DEFAULT_CHART_DAYS if chartDays is None else int(chartDays)
+    try:
+        return tip_touch.bars1m_chart(csv=name, start=start, chart_days=days)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:
+        raise HTTPException(500, f"bars1m failed: {e}") from e
+
+
+@app.post("/api/sim/tip1m")
+def api_sim_tip1m(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """Server-side Mode B: enter/exit on first 1m tip-Z touch."""
+    from replay import tip_touch
+
+    csv = Path(str(body.get("csv") or "m15_tatn_255d.csv")).name
+    if csv not in ALLOWED_CSV:
+        raise HTTPException(400, f"CSV не разрешён: {csv}")
+    try:
+        entry = float(body.get("entry", 1.6))
+        exit_z = float(body.get("exit", body.get("exitZ", 1.3)))
+        slip = float(body.get("slip", tip_touch.DEFAULT_SLIP))
+        notional = float(body.get("notional", body.get("capital", tip_touch.DEFAULT_NOTIONAL)))
+        compound = bool(body.get("compound", False))
+        tp = float(body.get("takeProfitPct", body.get("tp", 0)) or 0)
+        start = body.get("start")
+        start_s = str(start).strip() if start else None
+        return tip_touch.sim_tip1m(
+            csv=csv,
+            entry=entry,
+            exit_z=exit_z,
+            slip=slip,
+            notional=notional,
+            compound=compound,
+            take_profit_pct=tp,
+            start=start_s,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:
+        raise HTTPException(500, f"tip1m sim failed: {e}") from e
+
+
+@app.post("/api/sim/tip1m/heatmap")
+def api_sim_tip1m_heatmap(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """Server-side E/X grid for 1m tip-touch (Testing heatmap)."""
+    from replay import tip_touch
+
+    csv = Path(str(body.get("csv") or "m15_tatn_255d.csv")).name
+    if csv not in ALLOWED_CSV:
+        raise HTTPException(400, f"CSV не разрешён: {csv}")
+    try:
+        slip = float(body.get("slip", tip_touch.DEFAULT_SLIP))
+        notional = float(body.get("notional", body.get("capital", tip_touch.DEFAULT_NOTIONAL)))
+        compound = bool(body.get("compound", False))
+        tp = float(body.get("takeProfitPct", body.get("tp", 0)) or 0)
+        start = body.get("start")
+        start_s = str(start).strip() if start else None
+        return tip_touch.heatmap_tip1m(
+            csv=csv,
+            entry_min=float(body.get("entryMin", 0.5)),
+            entry_max=float(body.get("entryMax", 2.7)),
+            exit_min=float(body.get("exitMin", 0.5)),
+            step=float(body.get("step", 0.1)),
+            slip=slip,
+            notional=notional,
+            compound=compound,
+            take_profit_pct=tp,
+            start=start_s,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:
+        raise HTTPException(500, f"tip1m heatmap failed: {e}") from e
 
 
 @app.get("/api/health")

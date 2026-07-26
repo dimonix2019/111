@@ -6,11 +6,16 @@
   const LS_SIDE_SCROLL = 'moexReplay.tradeSideScrollTop';
   const LS_CHECK_SCROLL = 'moexReplay.tradeCheckScrollTop';
   const LS_DESK_SCROLL = 'moexReplay.tradeDeskScrollTop';
+  const LS_OPEN_STATS_HIDDEN = 'moexReplay.tradeOpenStatsHidden';
   const MSK = 'Europe/Moscow';
   /** to ближе к концу данных, чем N баров → считаем «у live» */
   const LIVE_EDGE_BARS = 5;
   const M15_MS = 15 * 60 * 1000;
-  const BAR_SETTLE_MS = 45 * 1000;
+  const M1_MS = 60 * 1000;
+  const BAR_SETTLE_MS = 90 * 1000;
+  /** Match zsim / tip1m rolling window for display-only dealer Z */
+  const Z_ROLL_LOOKBACK_DAYS = 30;
+  const Z_ROLL_MIN_BARS = 48;
   /** Z ближе порога на столько → «подготовка» (не шум далеко от края) */
   const PHASE_NEAR_Z = 0.30;
 
@@ -43,6 +48,12 @@
 
   let days = 7;
   let pollTimer = null;
+  let pollMs = 12000;
+  const POLL_MS_DEFAULT = 12000;
+  const POLL_MS_DEALER_1M = 5000;
+  /** Full desk (broker) every N lite polls — avoid wedging uvicorn on weekend TInvest. */
+  const POLL_FULL_EVERY = 6;
+  let pollTick = 0;
   /** Inputs filled from server once; polls must not clobber while typing */
   let formHydrated = false;
   /** User edited params since last successful hydrate/save */
@@ -50,8 +61,14 @@
   let saveStatusTimer = 0;
   /** Ignore late desk responses that would re-hydrate over newer edits */
   let deskFetchSeq = 0;
+  /** Last good dealer/ISS chart bars — keep on timeout / empty weekend partial. */
+  let lastGoodChartBars = [];
+  let lastGoodDeskMeta = null;
+  let lastPartialBanner = '';
   let zChart = null;
   let zSeries = null;
+  /** Z pane: CandlestickSeries (dealer + tip1m). Line only as last-resort fallback. */
+  let zSeriesIsLine = false;
   let spreadChart = null;
   let spreadSeries = null;
   let priceLines = [];
@@ -59,6 +76,8 @@
   let openHighlightSeries = null;
   let openMarkersPlugin = null;
   let lastOpenTradeFp = '';
+  /** Режим счёта с последнего desk refresh (prod|sandbox) — для confirm ручного входа. */
+  let lastTradeMode = '';
   /** Полные маркеры + сделки для hit-test / yellow highlight (как chart.js). */
   let lastDeskMarkers = [];
   let lastDeskTrades = [];
@@ -72,6 +91,10 @@
   /** Глушим save/sync на время setData / apply / resize — LC шлёт range-change асинхронно */
   let suppressRangeEvents = false;
   let rangeSyncBound = false;
+  let crosshairSyncBound = false;
+  /** price @ UTC sec — для sync кроссхейра Z↔спред */
+  let zPriceByTime = new Map();
+  let spPriceByTime = new Map();
   let lastBarCount = 0;
   let lastDataEnd = null;
   /** Точный logical range, который пользователь выставил руками */
@@ -87,8 +110,49 @@
   /** true только во время/сразу после реального pan/zoom пользователя */
   let userGestureActive = false;
   let userGestureTimer = 0;
+  /** Выходные: Spread = дилер 1м; Z = tip1m если есть, иначе display-only Z дилер 1м (не AUTO) */
+  let chartDealer1m = false;
+  /** Одинаковая ширина правой шкалы → одинаковая plot-area → вертикальный кроссхейр */
+  const PRICE_SCALE_MIN_WIDTH = 64;
 
   const $ = (id) => document.getElementById(id);
+
+  function setZEmptyMessage(text) {
+    const el = $('tradeZEmptyMsg');
+    if (!el) return;
+    if (text) {
+      el.textContent = text;
+      el.classList.remove('hidden');
+    } else {
+      el.textContent = '';
+      el.classList.add('hidden');
+    }
+  }
+
+  function updateChartPaneLabels(dealer1m, { zEmpty = false, zMonitor = false } = {}) {
+    const zLab = $('tradeZChartLabel');
+    const spLab = $('tradeSpreadChartLabel');
+    const thLab = $('tradeThreshLabel');
+    if (zLab) {
+      if (dealer1m && zMonitor && !zEmpty) {
+        zLab.textContent = 'Z-score · дилер 1м (монитор · не AUTO)';
+      } else if (dealer1m && zEmpty) {
+        zLab.textContent = 'Z-score · нет tip1m в выходные';
+      } else {
+        zLab.textContent = 'Z-score · tip1m';
+      }
+      zLab.classList.toggle('pnl-label-dealer', !!dealer1m);
+    }
+    if (spLab) {
+      spLab.textContent = dealer1m
+        ? 'Спред % · дилер 1м'
+        : 'Спред % · tip1m';
+      spLab.classList.toggle('pnl-label-dealer', !!dealer1m);
+    }
+    if (thLab) {
+      thLab.classList.toggle('pnl-label-dealer', !!dealer1m);
+    }
+  }
 
   function markUserGesture() {
     userGestureActive = true;
@@ -173,10 +237,12 @@
     userPinnedAwayFromLive = !!saved.pinnedAway;
   }
 
+  /** Z и Spread = одинаковые time keys → один logical range (пиксель в пиксель). */
   function applyVisibleRange(range) {
     if (!range || !zChart) return;
     suppressRangeEvents = true;
     try {
+      equalizePriceScales();
       zChart.timeScale().setVisibleLogicalRange(range);
       spreadChart?.timeScale().setVisibleLogicalRange(range);
     } catch (_) { /* ignore */ }
@@ -194,11 +260,48 @@
     });
   }
 
+  function equalizePriceScales() {
+    try {
+      const opts = { minimumWidth: PRICE_SCALE_MIN_WIDTH };
+      zChart?.priceScale('right')?.applyOptions?.(opts);
+      spreadChart?.priceScale('right')?.applyOptions?.(opts);
+    } catch (_) { /* ignore */ }
+  }
+
+  /** После paint ещё раз навязать общий logical range (setData/fit асинхронно съезжают). */
+  function forceSyncAfterPaint() {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!pinnedRange || !zChart || !spreadChart) return;
+        equalizePriceScales();
+        reassertPinnedRange();
+        try {
+          const zr = zChart.timeScale().getVisibleLogicalRange();
+          const sr = spreadChart.timeScale().getVisibleLogicalRange();
+          if (zr && sr) {
+            const mid = {
+              from: (zr.from + sr.from) / 2,
+              to: (zr.to + sr.to) / 2,
+            };
+            // Если разошлись >0.05 бара — взять Z как источник истины
+            if (Math.abs(zr.from - sr.from) > 0.05 || Math.abs(zr.to - sr.to) > 0.05) {
+              setPinnedRange(zr, { fromUser: false });
+              applyVisibleRange(zr);
+            } else if (!pinnedRange) {
+              setPinnedRange(mid, { fromUser: false });
+            }
+          }
+        } catch (_) { /* ignore */ }
+      });
+    });
+  }
+
   /** Повторно навязать pin после асинхронного сброса timescale от setData/resize */
   function reassertPinnedRange() {
-    if (!pinnedRange || !zChart) return;
+    if (!zChart || !pinnedRange) return;
     suppressRangeEvents = true;
     try {
+      equalizePriceScales();
       zChart.timeScale().setVisibleLogicalRange(pinnedRange);
       spreadChart?.timeScale().setVisibleLogicalRange(pinnedRange);
     } catch (_) { /* ignore */ }
@@ -236,7 +339,7 @@
         return;
       }
 
-      // Реальный жест пользователя — единственный путь смены pin/follow
+      // Реальный жест — общий logical range на оба графика (Z↔Spread)
       setPinnedRange(range, { fromUser: true });
       suppressRangeEvents = true;
       try {
@@ -249,17 +352,60 @@
     spreadChart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange('spread'));
   }
 
+  function bindCrosshairSync() {
+    if (crosshairSyncBound || !zChart || !spreadChart) return;
+    crosshairSyncBound = true;
+    let syncing = false;
+    const clearOther = (dst) => {
+      if (typeof dst.clearCrosshairPosition !== 'function') return;
+      syncing = true;
+      try { dst.clearCrosshairPosition(); } catch (_) { /* ignore */ }
+      syncing = false;
+    };
+    const onMove = (src) => (param) => {
+      if (syncing) return;
+      const dst = src === 'z' ? spreadChart : zChart;
+      const dstSeries = src === 'z' ? spreadSeries : zSeries;
+      if (!dst || !dstSeries || !param || param.time == null || !param.point) {
+        clearOther(dst);
+        return;
+      }
+      const price = (src === 'z' ? spPriceByTime : zPriceByTime).get(param.time);
+      if (price == null || typeof dst.setCrosshairPosition !== 'function') {
+        clearOther(dst);
+        return;
+      }
+      syncing = true;
+      try { dst.setCrosshairPosition(price, param.time, dstSeries); } catch (_) { /* ignore */ }
+      syncing = false;
+    };
+    zChart.subscribeCrosshairMove(onMove('z'));
+    spreadChart.subscribeCrosshairMove(onMove('spread'));
+  }
+
   function fitAndRemember() {
     try {
-      zChart?.timeScale().fitContent();
-      const range = zChart?.timeScale().getVisibleLogicalRange();
+      // Один fit → общий logical range. Независимый fitContent на обоих давал разный viewport.
+      suppressRangeEvents = true;
+      equalizePriceScales();
+      let range = null;
+      try {
+        zChart?.timeScale().fitContent();
+        range = zChart?.timeScale().getVisibleLogicalRange();
+      } catch (_) { /* ignore */ }
+      if (!range) {
+        try {
+          spreadChart?.timeScale().fitContent();
+          range = spreadChart?.timeScale().getVisibleLogicalRange();
+        } catch (_) { /* ignore */ }
+      }
       if (range) {
         userPinnedAwayFromLive = false;
         setPinnedRange(range, { fromUser: false });
         applyVisibleRange(range);
-      } else {
-        spreadChart?.timeScale().fitContent();
       }
+      scheduleEndSuppress();
+      forceSyncAfterPaint();
     } catch (_) {
       try { spreadChart?.timeScale().fitContent(); } catch (__) {}
     }
@@ -270,9 +416,14 @@
    * - userPinnedAwayFromLive → ВСЕГДА точный restore, never follow
    * - иначе у live-края → сдвинуть окно к новому концу
    * - иначе → точный restore
+   * @param {number} zCount
+   * @param {number} [spreadCount]
    */
-  function restoreOrFitVisibleRange(barCount) {
-    const n = Math.max(0, barCount | 0);
+  function restoreOrFitVisibleRange(zCount, spreadCount) {
+    // Z и Spread 1:1 по времени — длина берём по минимуму (должны совпадать)
+    const zN = Math.max(0, zCount | 0);
+    const spN = spreadCount != null ? Math.max(0, spreadCount | 0) : zN;
+    const n = Math.min(zN, spN) || zN || spN;
     const dataEnd = dataEndIndex(n);
     lastBarCount = n;
     lastDataEnd = dataEnd;
@@ -295,10 +446,7 @@
     if (userPinnedAwayFromLive) {
       applyVisibleRange(pinnedRange);
       persistViewport();
-      // Ещё раз после paint — setData часто сбрасывает range асинхронно
-      requestAnimationFrame(() => {
-        requestAnimationFrame(reassertPinnedRange);
-      });
+      forceSyncAfterPaint();
       return;
     }
 
@@ -307,6 +455,7 @@
       const next = { from: dataEnd - span, to: dataEnd };
       setPinnedRange(next, { fromUser: false });
       applyVisibleRange(next);
+      forceSyncAfterPaint();
       return;
     }
 
@@ -314,24 +463,39 @@
     userPinnedAwayFromLive = true;
     applyVisibleRange(pinnedRange);
     persistViewport();
-    requestAnimationFrame(() => {
-      requestAnimationFrame(reassertPinnedRange);
-    });
+    forceSyncAfterPaint();
   }
 
   async function api(path, opts) {
-    const res = await fetch(path, {
-      headers: { 'Content-Type': 'application/json', ...(opts && opts.headers) },
-      ...opts,
-    });
-    const text = await res.text();
-    let data;
-    try { data = text ? JSON.parse(text) : {}; } catch { data = { detail: text }; }
-    if (!res.ok) {
-      const msg = data.detail || data.message || text || res.statusText;
-      throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    const timeoutMs = (opts && opts.timeoutMs != null) ? Number(opts.timeoutMs) : 0;
+    const { timeoutMs: _tm, ...fetchOpts } = opts || {};
+    const ctrl = (timeoutMs > 0 && typeof AbortController !== 'undefined')
+      ? new AbortController()
+      : null;
+    let timer = null;
+    if (ctrl) timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(path, {
+        headers: { 'Content-Type': 'application/json', ...(fetchOpts && fetchOpts.headers) },
+        ...fetchOpts,
+        signal: ctrl ? ctrl.signal : (fetchOpts && fetchOpts.signal),
+      });
+      const text = await res.text();
+      let data;
+      try { data = text ? JSON.parse(text) : {}; } catch { data = { detail: text }; }
+      if (!res.ok) {
+        const msg = data.detail || data.message || text || res.statusText;
+        throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      }
+      return data;
+    } catch (e) {
+      if (e && (e.name === 'AbortError' || /aborted/i.test(String(e.message || '')))) {
+        throw new Error(`Таймаут ${timeoutMs}мс: ${path}`);
+      }
+      throw e;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    return data;
   }
 
   function fmt(n, d = 2) {
@@ -339,10 +503,21 @@
     return Number(n).toLocaleString('ru-RU', { maximumFractionDigits: d });
   }
 
-  /** % до порога входа: need/entry×100 (100% у Z≈0, 0% у порога). */
-  function entryNeedPctSuffix(need, entryTh) {
-    if (need == null || !(entryTh > 0)) return '';
-    return ` (${Math.round((need / entryTh) * 100)}%)`;
+  /** % до порога входа/выхода: need/th×100 (100% у дальнего края, 0% у порога). */
+  function needPctSuffix(need, th) {
+    if (need == null || !(th > 0)) return '';
+    return ` (${Math.round((need / th) * 100)}%)`;
+  }
+
+  /** Текст «до Long/Short ещё … (N%)» для плашки чеклиста. */
+  function openEntryProgressText(dir, needLong, needShort, entryTh) {
+    if (dir === 'long' && needLong != null && Number.isFinite(needLong)) {
+      return `до Long ещё −${fmt(needLong, 2)}${needPctSuffix(needLong, entryTh)}`;
+    }
+    if (dir === 'short' && needShort != null && Number.isFinite(needShort)) {
+      return `до Short ещё +${fmt(needShort, 2)}${needPctSuffix(needShort, entryTh)}`;
+    }
+    return '';
   }
 
   function fmtRub(n) {
@@ -378,6 +553,17 @@
       : '<span class="badge-offline">offline</span>';
   }
 
+  function dealerBadge(dealer) {
+    if (!dealer) return '';
+    if (dealer.error && !dealer.ok) {
+      return `<span class="badge-dealer-off" title="${escapeHtml(String(dealer.error))}">дилер ?</span>`;
+    }
+    if (dealer.manual_ok || dealer.quotes_ok) {
+      return `<span class="badge-dealer-on" title="Котировки дилера · ручной Long/Short OK · не в Z/AUTO">${escapeHtml(dealer.label || 'дилер / выходные')}</span>`;
+    }
+    return `<span class="badge-dealer-off" title="Нет дилерских цен">дилер · нет цен</span>`;
+  }
+
   function monBadge(running) {
     return running
       ? '<span class="badge-mon-on"><span class="badge-quiet">монитор</span> ON</span>'
@@ -394,6 +580,15 @@
     return mode === 'prod'
       ? '<span class="badge-mode-prod">Prod</span>'
       : '<span class="badge-mode-sandbox">Sandbox</span>';
+  }
+
+  /** Prod signal path badge — tip1m Mode B (Testing «касание 1м»). */
+  function strategyBadge(signalMode) {
+    const tip = String(signalMode || 'tip1m') === 'tip1m';
+    if (tip) {
+      return '<span class="badge-strat-tip1m" title="Mode B: tip-Z касание на 1м · fill сразу, не ждём M15 close · дилер не в Z/AUTO">касание tip1m</span>';
+    }
+    return '<span class="badge-strat-m15" title="Legacy: вход/выход на закрытии M15">M15 close</span>';
   }
 
   /** Как маркеры Z на Тесте: Long #69F0AE, Short #FF8A80; FLAT — серый pill */
@@ -422,6 +617,13 @@
   let metricTipEl = null;
   let metricTipHideTimer = null;
   let barMetricDists = { z: null, spread: null };
+  /** @type {{ source: string, n: number, degraded: boolean, sampleLabel: string }} */
+  let metricDistMeta = {
+    source: 'none',
+    n: 0,
+    degraded: true,
+    sampleLabel: 'окно графика',
+  };
 
   function ensureMetricTip() {
     if (metricTipEl) return metricTipEl;
@@ -460,24 +662,69 @@
     tip.style.top = `${Math.round(top)}px`;
   }
 
-  function rebuildBarMetricDists(bars) {
-    lastDeskBars = Array.isArray(bars) ? bars : [];
+  function distsFromBars(bars) {
     if (typeof computeNumericDistribution !== 'function') {
-      barMetricDists = { z: null, spread: null };
-      return;
+      return { z: null, spread: null };
     }
     const zs = [];
     const sps = [];
-    for (const b of lastDeskBars) {
+    for (const b of bars || []) {
       const z = b.z != null ? Number(b.z) : (b.zScore != null ? Number(b.zScore) : NaN);
       const sp = b.spread != null ? Number(b.spread)
         : (b.spreadPercent != null ? Number(b.spreadPercent) : NaN);
       if (Number.isFinite(z)) zs.push(z);
       if (Number.isFinite(sp)) sps.push(sp);
     }
-    barMetricDists = {
+    return {
       z: computeNumericDistribution(zs),
       spread: computeNumericDistribution(sps),
+    };
+  }
+
+  function hydrateServerDist(raw) {
+    if (!raw || !Array.isArray(raw.bins) || !(raw.n > 0)) return null;
+    return {
+      n: Number(raw.n) || 0,
+      min: Number(raw.min),
+      max: Number(raw.max),
+      mean: Number(raw.mean),
+      stdev: Number(raw.stdev),
+      bins: raw.bins.map((c) => Number(c) || 0),
+      lo: Number(raw.lo),
+      hi: Number(raw.hi),
+      width: Number(raw.width),
+      binCount: Number(raw.binCount) || raw.bins.length,
+      sorted: [],
+    };
+  }
+
+  /**
+   * Prefer server ≈3y compact dists for tips / «в хвосте»; chart window stays for display.
+   * Fallback: window bars (degraded).
+   */
+  function rebuildBarMetricDists(bars, serverDists) {
+    lastDeskBars = Array.isArray(bars) ? bars : [];
+    const windowDists = distsFromBars(lastDeskBars);
+    const z3 = hydrateServerDist(serverDists && serverDists.z);
+    const sp3 = hydrateServerDist(serverDists && serverDists.spread);
+    const use3y = !!(serverDists && serverDists.ok && z3 && sp3);
+    if (use3y) {
+      barMetricDists = { z: z3, spread: sp3 };
+      metricDistMeta = {
+        source: String(serverDists.source || '3y'),
+        n: Number(serverDists.n) || z3.n,
+        degraded: false,
+        sampleLabel: '3 года',
+      };
+      return;
+    }
+    barMetricDists = windowDists;
+    const nWin = Math.max(windowDists.z?.n || 0, windowDists.spread?.n || 0);
+    metricDistMeta = {
+      source: 'window',
+      n: nWin,
+      degraded: true,
+      sampleLabel: nWin > 0 ? 'окно графика' : 'нет данных',
     };
   }
 
@@ -507,6 +754,8 @@
       value,
       dist,
       formatStat: (v) => formatBarMetricStat(metric, v),
+      sampleLabel: metricDistMeta.sampleLabel,
+      spreadWidthRegime: metric === 'spread',
     });
     tip.classList.remove('hidden');
     positionMetricTip(tip, anchor);
@@ -522,9 +771,22 @@
     );
   }
 
-  /** Подпись «ближе к среднему» / «в хвосте» … по распределению окна. */
+  /**
+   * Подпись под метрикой: для спреда — узкий/переход/широкий;
+   * для Z — «ближе к среднему» / «в хвосте» … по распределению ≈3г.
+   */
   function metricPlaceCaption(metric, value) {
     if (value == null || !Number.isFinite(Number(value))) return '';
+    if (metric === 'spread') {
+      if (typeof classifySpreadWidthRegime !== 'function') return '';
+      const reg = classifySpreadWidthRegime(Number(value));
+      if (!reg || !reg.key || reg.key === 'na') return '';
+      const title = reg.title ? ` title="${escapeHtml(reg.title)}"` : '';
+      return (
+        `<span class="metric-place metric-place-${escapeHtml(reg.key)}"${title}>`
+        + `${escapeHtml(reg.label)}</span>`
+      );
+    }
     if (typeof classifyTradeMetricPlacement !== 'function') return '';
     const dist = barMetricDists[metric];
     if (!dist) return '';
@@ -611,6 +873,83 @@
     return null;
   }
 
+  function makeZCandleSeries(chart) {
+    return addSeries(chart, 'CandlestickSeries', {
+      upColor: '#089981', downColor: '#f23645',
+      borderUpColor: '#089981', borderDownColor: '#f23645',
+      wickUpColor: '#089981', wickDownColor: '#f23645',
+    });
+  }
+
+  function makeZLineSeries(chart) {
+    return addSeries(chart, 'LineSeries', {
+      color: '#089981',
+      lineWidth: 2,
+      lastValueVisible: true,
+      priceLineVisible: false,
+    });
+  }
+
+  function publishChartDebug(extra) {
+    try {
+      let zRange = null;
+      let spRange = null;
+      try { zRange = zChart?.timeScale()?.getVisibleLogicalRange() || null; } catch (_) {}
+      try { spRange = spreadChart?.timeScale()?.getVisibleLogicalRange() || null; } catch (_) {}
+      window.__tradeChartDebug = {
+        zSeriesIsLine,
+        chartDealer1m,
+        zPts: (extra && extra.zPts) || 0,
+        spPts: (extra && extra.spPts) || 0,
+        bodyN: (extra && extra.bodyN) || 0,
+        sample: (extra && extra.sample) || null,
+        sync: (extra && extra.sync) || null,
+        zRange,
+        spRange,
+        err: (extra && extra.err) || null,
+        ts: Date.now(),
+      };
+    } catch (_) { /* ignore */ }
+  }
+
+  /**
+   * Prefer CandlestickSeries. LineSeries only if candles unavailable.
+   * @returns {boolean} true if series was (re)created
+   */
+  function ensureZSeriesKind(wantLine) {
+    if (!zChart) return false;
+    const asLine = !!wantLine;
+    if (zSeries && zSeriesIsLine === asLine) return false;
+    priceLines.forEach((pl) => {
+      try { if (zSeries) zSeries.removePriceLine(pl); } catch (_) {}
+    });
+    priceLines = [];
+    openMarkersPlugin = null;
+    if (zSeries) {
+      try {
+        if (typeof zChart.removeSeries === 'function') zChart.removeSeries(zSeries);
+      } catch (_) {}
+      zSeries = null;
+    }
+    if (asLine) {
+      zSeries = makeZLineSeries(zChart);
+      zSeriesIsLine = !!zSeries;
+    } else {
+      const candle = makeZCandleSeries(zChart);
+      if (candle) {
+        zSeries = candle;
+        zSeriesIsLine = false;
+      } else {
+        zSeries = makeZLineSeries(zChart);
+        zSeriesIsLine = !!zSeries;
+      }
+    }
+    lastBarsFingerprint = '';
+    forceFitContent = true;
+    publishChartDebug({ zPts: 0, spPts: 0 });
+    return true;
+  }
+
   function ensureCharts() {
     if (typeof LightweightCharts === 'undefined') return;
     const zEl = $('tradeZChart');
@@ -620,17 +959,21 @@
       zChart = LightweightCharts.createChart(zEl, {
         layout: { background: { color: '#161a25' }, textColor: '#d1d4dc' },
         grid: { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
-        rightPriceScale: { borderColor: '#2a2e39' },
+        rightPriceScale: { borderColor: '#2a2e39', minimumWidth: PRICE_SCALE_MIN_WIDTH },
         width: zEl.clientWidth,
         height: zEl.clientHeight || 300,
         ...chartTimeOpts(),
         ...CHART_SCROLL_SCALE,
       });
-      zSeries = addSeries(zChart, 'CandlestickSeries', {
-        upColor: '#089981', downColor: '#f23645',
-        borderUpColor: '#089981', borderDownColor: '#f23645',
-        wickUpColor: '#089981', wickDownColor: '#f23645',
-      }) || addSeries(zChart, 'LineSeries', { color: '#2962ff', lineWidth: 2 });
+      // Candles by default (dealer + tip1m). Line only if candle API missing.
+      const candle = makeZCandleSeries(zChart);
+      if (candle) {
+        zSeries = candle;
+        zSeriesIsLine = false;
+      } else {
+        zSeries = makeZLineSeries(zChart);
+        zSeriesIsLine = !!zSeries;
+      }
       openHighlightSeries = addSeries(zChart, 'LineSeries', {
         color: TRADE_HIGHLIGHT_COLOR,
         lineWidth: 2,
@@ -653,7 +996,7 @@
       spreadChart = LightweightCharts.createChart(sEl, {
         layout: { background: { color: '#161a25' }, textColor: '#d1d4dc' },
         grid: { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
-        rightPriceScale: { borderColor: '#2a2e39' },
+        rightPriceScale: { borderColor: '#2a2e39', minimumWidth: PRICE_SCALE_MIN_WIDTH },
         width: sEl.clientWidth,
         height: sEl.clientHeight || 150,
         ...chartTimeOpts(),
@@ -661,7 +1004,9 @@
       });
       spreadSeries = addSeries(spreadChart, 'LineSeries', { color: '#f0b90b', lineWidth: 2 });
     }
+    equalizePriceScales();
     bindRangeSync();
+    bindCrosshairSync();
     bindMarkerHover();
   }
 
@@ -1077,70 +1422,387 @@
     ].join('');
   }
 
-  function renderCharts(bars, entry, exitZ, openTrade = null, closedTrades = []) {
-    ensureCharts();
-    if (!zSeries || !spreadSeries) return;
-    const zCandles = [];
-    const spreadPts = [];
+  /**
+   * Display-only tip-style Z: rolling μ/σ on ISS M15 + dealer 1m tip as last obs.
+   * Never feeds AUTO — UI chart only (for_z stays false / z_kind=dealer_monitor).
+   */
+  function attachDealerMonitorZClient(dealerBars, m15Bars) {
+    const src = Array.isArray(dealerBars) ? dealerBars : [];
+    if (!src.length) return src;
+    if (src.some((b) => b && b.z != null && Number.isFinite(Number(b.z))
+      && (b.z_kind === 'dealer_monitor' || (b.source && String(b.source).includes('dealer'))))) {
+      return src;
+    }
+    const m15 = [];
+    for (const b of m15Bars || []) {
+      if (!b) continue;
+      const sp = b.spread != null ? Number(b.spread)
+        : (b.spreadPercent != null ? Number(b.spreadPercent) : NaN);
+      const ms = Number(b.timestampMs || 0);
+      if (!Number.isFinite(sp) || !(ms > 0)) continue;
+      m15.push({ ms, sp });
+    }
+    m15.sort((a, b) => a.ms - b.ms);
+    let completedEnd = 0;
+    let winStart = 0;
+    let total = 0;
+    let totalSq = 0;
+    const out = [];
+    const dayMs = 86_400_000;
+    for (const b of src) {
+      const row = { ...b, for_z: false, z_kind: 'dealer_monitor' };
+      const tipSp = b && b.spread != null ? Number(b.spread) : NaN;
+      const tipMs = b ? Number(b.timestampMs || 0) : 0;
+      if (!Number.isFinite(tipSp) || !(tipMs > 0)) {
+        row.z = null;
+        out.push(row);
+        continue;
+      }
+      if (!m15.length) {
+        row.z = null;
+        out.push(row);
+        continue;
+      }
+      const slotMs = Math.floor(tipMs / M15_MS) * M15_MS;
+      while (completedEnd < m15.length && m15[completedEnd].ms < slotMs) {
+        const s = m15[completedEnd].sp;
+        total += s;
+        totalSq += s * s;
+        completedEnd += 1;
+      }
+      const fromMs = tipMs - Z_ROLL_LOOKBACK_DAYS * dayMs;
+      while (winStart < completedEnd && m15[winStart].ms < fromMs) {
+        const s = m15[winStart].sp;
+        total -= s;
+        totalSq -= s * s;
+        winStart += 1;
+      }
+      const count = completedEnd - winStart;
+      const n = count + 1;
+      if (n < Z_ROLL_MIN_BARS) {
+        row.z = 0;
+      } else {
+        const t = total + tipSp;
+        const tsq = totalSq + tipSp * tipSp;
+        const mean = t / n;
+        let std = Math.sqrt(Math.max((tsq / n) - mean * mean, 0));
+        if (std <= 1e-12) std = 1;
+        row.z = (tipSp - mean) / std;
+      }
+      out.push(row);
+    }
+    // Fallback: rolling on dealer spreads alone if M15 window was empty.
+    if (out.length && out.every((r) => r.z == null) && out.length >= Z_ROLL_MIN_BARS) {
+      for (let i = 0; i < out.length; i += 1) {
+        const from = Math.max(0, i - Z_ROLL_MIN_BARS + 1);
+        let sum = 0;
+        let sumSq = 0;
+        let c = 0;
+        for (let j = from; j <= i; j += 1) {
+          const sp = Number(out[j].spread);
+          if (!Number.isFinite(sp)) continue;
+          sum += sp;
+          sumSq += sp * sp;
+          c += 1;
+        }
+        if (c < 2) {
+          out[i].z = 0;
+          continue;
+        }
+        const mean = sum / c;
+        let std = Math.sqrt(Math.max((sumSq / c) - mean * mean, 0));
+        if (std <= 1e-12) std = 1;
+        out[i].z = (Number(out[i].spread) - mean) / std;
+      }
+    }
+    return out;
+  }
+
+  /** Build one Z OHLC candle: prefer server z_open/high/low when they vary; else prevZ→currZ. */
+  function zCandleFromBar(b, zClose, prevZ) {
+    const z = Number(zClose);
+    const zo = b && b.z_open != null ? Number(b.z_open) : NaN;
+    const zh = b && b.z_high != null ? Number(b.z_high) : NaN;
+    const zl = b && b.z_low != null ? Number(b.z_low) : NaN;
+    const serverOk = Number.isFinite(zo) && Number.isFinite(zh) && Number.isFinite(zl);
+    const serverVaries = serverOk && (
+      Math.abs(zo - z) > 1e-9
+      || Math.abs(zh - zl) > 1e-9
+    );
+    if (serverVaries) {
+      return {
+        open: zo,
+        high: Math.max(zo, zh, zl, z),
+        low: Math.min(zo, zh, zl, z),
+        close: z,
+      };
+    }
+    const open = prevZ == null || !Number.isFinite(prevZ) ? z : prevZ;
+    return {
+      open,
+      high: Math.max(open, z),
+      low: Math.min(open, z),
+      close: z,
+    };
+  }
+
+  /**
+   * Z candles from tip1m bars with z (~1m step) — never M15, never TATN mid.
+   * Returns [] if series is empty or looks like M15 (≥10m median step).
+   * Prefer server z_open/high/low; else open=prevZ, close=currZ (visible bodies).
+   */
+  function buildTip1mZCandles(bars) {
+    const pts = [];
     let prevZ = null;
     const seen = new Set();
-    for (const b of bars) {
+    const times = [];
+    for (const b of bars || []) {
       const t = toChartTime(b.time, b.timestampMs);
-      if (t == null || b.z == null || seen.has(t)) continue;
+      if (t == null || b.z == null || Number.isNaN(Number(b.z)) || seen.has(t)) continue;
+      // Dealer mid rows without display Z — skipped. Never use TATN price as Z.
+      if (b.interval === '1m' && b.source && String(b.source).includes('dealer') && b.z == null) continue;
       seen.add(t);
+      times.push(t);
       const z = Number(b.z);
-      const open = prevZ == null ? z : prevZ;
-      zCandles.push({ time: t, open, high: Math.max(open, z), low: Math.min(open, z), close: z });
-      if (b.spread != null) spreadPts.push({ time: t, value: Number(b.spread) });
+      const candle = zCandleFromBar(b, z, prevZ);
+      pts.push({ time: t, ...candle });
       prevZ = z;
     }
+    if (pts.length < 2) return pts;
+    const diffs = [];
+    for (let i = 1; i < Math.min(times.length, 40); i += 1) {
+      diffs.push(times[i] - times[i - 1]);
+    }
+    diffs.sort((a, b) => a - b);
+    const med = diffs[Math.floor(diffs.length / 2)] || 0;
+    // M15 masquerading as tip1m → reject (HARD RULE)
+    if (med >= 600) return [];
+    return pts;
+  }
 
-    const fp = barsFingerprint(bars) + '|c' + (closedTrades || []).length + '|o' + (openTrade ? openTrade.id : '');
+  /**
+   * Dealer 1m monitor: Z candles + Spread line, identical timestamps (1:1).
+   * Z never for AUTO / for_z. Prefer z_open/high/low; else prevZ→currZ bodies.
+   */
+  function buildDealer1mChartSeries(bars) {
+    const zPts = [];
+    const spreadPts = [];
+    const seen = new Set();
+    let prevZ = null;
+    for (const b of bars || []) {
+      if (!b) continue;
+      const t = toChartTime(b.time, b.timestampMs);
+      if (t == null || seen.has(t)) continue;
+      const sp = b.spread != null ? Number(b.spread) : NaN;
+      const z = b.z != null ? Number(b.z) : NaN;
+      if (!Number.isFinite(sp) || !Number.isFinite(z)) continue;
+      seen.add(t);
+      spreadPts.push({ time: t, value: sp });
+      const candle = zCandleFromBar(b, z, prevZ);
+      zPts.push({ time: t, ...candle });
+      prevZ = z;
+    }
+    return { zPts, spreadPts };
+  }
+
+  function renderCharts(bars, entry, exitZ, openTrade = null, closedTrades = [], {
+    dealer1m = false,
+    weekendMonitor = false,
+    zBars = null,
+  } = {}) {
+    ensureCharts();
+    const monMode = !!(dealer1m || weekendMonitor);
+    // Always prefer candles (dealer + tip1m). Line only if candle series missing.
+    if (zSeriesIsLine || !zSeries) {
+      ensureZSeriesKind(false);
+    }
+    if (!zSeries || !spreadSeries) return;
+
+    // lite M15 → full dealer_1m: сбросить pin M15 и переfit, иначе спред выглядит как 15м
+    if (monMode !== chartDealer1m) {
+      chartDealer1m = monMode;
+      forceFitContent = true;
+      clearPinState();
+    }
+
+    let zData = [];
+    let spreadPts = [];
+
+    // TOP = Z-score candles, BOTTOM = spread % — identical UTC keys (1:1).
+    // monMode: dealer 1m monitor Z; else tip1m/ISS bars with both z+spread.
+    // Never mix M15 Z with 1m spread (that broke crosshair / tick density).
+    {
+      const built = buildDealer1mChartSeries(bars);
+      zData = built.zPts;
+      spreadPts = built.spreadPts;
+    }
+
+    zPriceByTime = new Map(zData.map((c) => [c.time, c.close != null ? c.close : c.value]));
+    spPriceByTime = new Map(spreadPts.map((p) => [p.time, p.value]));
+
+    const zEmpty = monMode && zData.length === 0;
+    const zMonitor = monMode && !zEmpty && (bars || []).some((b) => b
+      && b.z != null
+      && (b.z_kind === 'dealer_monitor'
+        || (b.source && String(b.source).includes('dealer'))));
+    updateChartPaneLabels(monMode, { zEmpty, zMonitor });
+    setZEmptyMessage(zEmpty
+      ? 'Нет tip1m Z и нет дилерского display-Z · ISS M15 не рисуем · спред внизу = дилер 1м'
+      : '');
+
+    // Bodies with open≠close (or real wick) count as visible candles.
+    let bodyN = 0;
+    for (const c of zData) {
+      if (!c || c.open == null || c.close == null) continue;
+      if (Math.abs(Number(c.open) - Number(c.close)) > 1e-9
+        || (c.high != null && c.low != null && Math.abs(Number(c.high) - Number(c.low)) > 1e-9)) {
+        bodyN += 1;
+      }
+    }
+    const timesEqual = zData.length === spreadPts.length
+      && (zData.length === 0 || (
+        zData[0].time === spreadPts[0].time
+        && zData[zData.length - 1].time === spreadPts[spreadPts.length - 1].time
+      ));
+    publishChartDebug({
+      zPts: zData.length,
+      spPts: spreadPts.length,
+      bodyN,
+      sample: zData.length ? [zData[0], zData[zData.length - 1]] : null,
+      sync: { timesEqual, zN: zData.length, spN: spreadPts.length },
+    });
+
+    const fp = barsFingerprint(bars) + '|zc' + zData.length + '|sp' + spreadPts.length
+      + '|c' + (closedTrades || []).length + '|o' + (openTrade ? openTrade.id : '')
+      + (monMode ? '|d1m' : '')
+      + (zSeriesIsLine ? '|zl' : '|zcndl')
+      + (zMonitor ? '|zm' : '')
+      + (zEmpty ? '|ze' : '')
+      + (Array.isArray(zBars) ? `|iss${zBars.length}` : '');
     const dataChanged = fp !== lastBarsFingerprint;
     lastBarsFingerprint = fp;
 
     // Типичный poll без новых баров: не трогаем timescale вообще
     if (!dataChanged && !forceFitContent && pinnedRange) {
       setThresholdLines(entry, exitZ);
-      updateOpenTradeOnChart(openTrade, bars, closedTrades);
+      if (monMode) {
+        clearAllTradeMarkers();
+      } else {
+        updateOpenTradeOnChart(openTrade, bars, closedTrades);
+      }
       if (userPinnedAwayFromLive) reassertPinnedRange();
       return;
     }
 
     try {
       suppressRangeEvents = true;
+      equalizePriceScales();
       try {
-        try { zSeries.setData(zCandles); }
-        catch { zSeries.setData(zCandles.map((c) => ({ time: c.time, value: c.close }))); }
+        if (zSeriesIsLine) {
+          const linePts = zData.map((c) => (
+            c && c.value != null
+              ? { time: c.time, value: Number(c.value) }
+              : { time: c.time, value: Number(c.close) }
+          )).filter((p) => p.time != null && Number.isFinite(p.value));
+          zSeries.setData(linePts);
+        } else {
+          try { zSeries.setData(zData); }
+          catch {
+            ensureZSeriesKind(true);
+            zSeries.setData(zData.map((c) => ({ time: c.time, value: c.close })));
+            zSeriesIsLine = true;
+          }
+        }
         spreadSeries.setData(spreadPts);
       } catch (e) {
         suppressRangeEvents = false;
+        publishChartDebug({
+          zPts: zData.length,
+          spPts: spreadPts.length,
+          err: String(e && e.message || e),
+          sync: { timesEqual, zN: zData.length, spN: spreadPts.length },
+        });
         throw e;
       }
       setThresholdLines(entry, exitZ);
-      updateOpenTradeOnChart(openTrade, bars, closedTrades);
-      restoreOrFitVisibleRange(zCandles.length);
+      // Weekday markers on dealer-only spread window look like M15 — hide in monitor mode.
+      if (monMode) {
+        clearAllTradeMarkers();
+      } else {
+        updateOpenTradeOnChart(openTrade, bars, closedTrades);
+      }
+      // Dealer monitor / series swap: always refit once after first paint.
+      if (monMode && (dataChanged || forceFitContent)) {
+        forceFitContent = true;
+      }
+      restoreOrFitVisibleRange(zData.length, spreadPts.length);
+      forceSyncAfterPaint();
+      publishChartDebug({
+        zPts: zData.length,
+        spPts: spreadPts.length,
+        bodyN,
+        sample: zData.length ? [zData[0], zData[zData.length - 1]] : null,
+        sync: { timesEqual, zN: zData.length, spN: spreadPts.length },
+      });
     } catch (e) {
       suppressRangeEvents = false;
       console.warn('trade chart', e);
     }
   }
+  function syncTradeActionButtons(data) {
+    const open = data && data.open;
+    const flat = !open;
+    const dealer = data && data.dealer;
+    const dealer1m = String(data?.bars_mode || '') === 'dealer_1m'
+      || String(data?.bars_mode || '') === 'dealer_weekend';
+    const weekend = !!(data?.weekend_monitor || dealer1m || nowMskParts().weekend);
+    const dealerPresent = !!(dealer && (dealer.ok || dealer.quotes_ok || dealer.manual_ok != null || dealer.error));
+    // Weekend / OTC dealer: enable when quotes present (not only DEALER_NORMAL).
+    // Weekday TQBR session: allow if flat. Close always when position open.
+    const dealerQuotesOk = !!(dealer && (dealer.manual_ok || dealer.quotes_ok || (dealer.ok && dealer.tatn != null && dealer.tatnp != null)));
+    const manualGate = (weekend || dealerPresent) ? dealerQuotesOk : true;
+    const canOpen = flat && manualGate;
+    const btnLong = $('tradeBtnLong');
+    const btnShort = $('tradeBtnShort');
+    const btnClose = $('tradeBtnClose');
+    if (btnLong) {
+      btnLong.disabled = !canOpen;
+      btnLong.title = !flat
+        ? 'Уже есть открытая позиция'
+        : (!manualGate
+          ? 'Ручной вход недоступен (нет дилерских котировок)'
+          : 'Ручной вход Long (выходные/OTC или TQBR)');
+    }
+    if (btnShort) {
+      btnShort.disabled = !canOpen;
+      btnShort.title = !flat
+        ? 'Уже есть открытая позиция'
+        : (!manualGate
+          ? 'Ручной вход недоступен (нет дилерских котировок)'
+          : 'Ручной вход Short (выходные/OTC или TQBR)');
+    }
+    if (btnClose) {
+      btnClose.disabled = flat;
+      btnClose.title = flat
+        ? 'Нет открытой позиции'
+        : 'Закрыть открытый спрэд на брокере (OTC/TQBR)';
+    }
+  }
 
-  function renderOpen(open) {
+  function renderOpen(open, { barsMode = '' } = {}) {
     const box = $('tradeOpenBox');
-    const btn = $('tradeBtnClose');
     if (!open) {
       box.innerHTML = '<div class="trade-open-empty">Нет открытой позиции</div>';
-      if (btn) btn.disabled = true;
       return;
     }
-    if (btn) btn.disabled = false;
     const m = open.mark || {};
     const pnlCls = (m.unrealized_pnl_rub || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
     const riskCls = m.risk_red ? 'risk-red' : (m.risk_level === 'Elevated' ? 'risk-warn' : 'risk-ok');
     const spreadEntry = m.fill_spread != null ? m.fill_spread : open.entry_spread;
     const spreadLabel = m.pnl_source === 'broker_fills' ? 'Спред (fill→сейч)' : 'Спред';
-    const pnlNote = m.pnl_source === 'broker_fills' ? 'по ценам Тинькофф' : 'по спреду ISS';
+    const pnlNote = m.pnl_source === 'broker_fills'
+      ? 'по ценам Тинькофф'
+      : (String(barsMode) === 'dealer_1m' ? 'по спреду дилер 1м' : 'по спреду ISS');
     box.innerHTML =
       `<div class="trade-open-dir">${open.direction} · ${open.quantity_lots}+${open.quantity_lots} лот · ${open.source || ''}</div>` +
       `<div class="trade-open-grid">` +
@@ -1197,6 +1859,33 @@
       });
       const body = $('tradeOpenStatsBody');
       if (body) body.scrollTop = 0;
+    });
+  }
+
+  let openStatsCollapseBound = false;
+  function isOpenStatsCollapsed() {
+    return !!$('tradeOpenStats')?.classList.contains('is-collapsed');
+  }
+  function setOpenStatsCollapsed(collapsed) {
+    const root = $('tradeOpenStats');
+    if (!root) return;
+    root.classList.toggle('is-collapsed', !!collapsed);
+    const btn = $('btnCollapseTradeOpenStats');
+    if (!btn) return;
+    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    btn.textContent = collapsed ? '+' : '−';
+    btn.title = collapsed ? 'Показать' : 'Скрыть';
+  }
+  function bindOpenStatsCollapse() {
+    if (openStatsCollapseBound) return;
+    openStatsCollapseBound = true;
+    let saved = false;
+    try { saved = localStorage.getItem(LS_OPEN_STATS_HIDDEN) === '1'; } catch (_) {}
+    setOpenStatsCollapsed(saved);
+    $('btnCollapseTradeOpenStats')?.addEventListener('click', () => {
+      const next = !isOpenStatsCollapsed();
+      setOpenStatsCollapsed(next);
+      try { localStorage.setItem(LS_OPEN_STATS_HIDDEN, next ? '1' : ''); } catch (_) {}
     });
   }
 
@@ -1436,10 +2125,67 @@
     }
   }
 
+  function fmtRubPlain(n, digits = 0) {
+    if (n == null || !Number.isFinite(Number(n))) return '—';
+    return `${fmt(Number(n), digits)} ₽`;
+  }
+
+  /** Last good close forecast — lite polls must not wipe full-desk number. */
+  let lastCloseForecast = null;
+
+  function renderCloseForecast(fc, { hasOpen = false } = {}) {
+    const root = $('tradeCloseForecast');
+    const main = $('tradeCloseForecastMain');
+    const sub = $('tradeCloseForecastSub');
+    if (!root || !main || !sub) return;
+
+    if (!hasOpen) {
+      lastCloseForecast = null;
+      root.hidden = true;
+      main.textContent = 'Прогноз после закрытия ≈ —';
+      sub.textContent = '';
+      return;
+    }
+
+    const incomingOk = fc
+      && fc.forecast_total_rub != null
+      && Number.isFinite(Number(fc.forecast_total_rub));
+    if (incomingOk) {
+      lastCloseForecast = fc;
+    } else if (lastCloseForecast && lastCloseForecast.forecast_total_rub != null) {
+      fc = lastCloseForecast;
+    }
+
+    root.hidden = false;
+    const total = fc && fc.forecast_total_rub != null ? Number(fc.forecast_total_rub) : null;
+    if (total != null && Number.isFinite(total)) {
+      main.textContent = `Прогноз после закрытия ≈ ${fmt(total, 0)} ₽`;
+    } else {
+      main.textContent = 'Прогноз после закрытия ≈ —';
+    }
+
+    const bits = [];
+    if (fc && fc.exit_commission_rub != null) {
+      bits.push(`комиссии ≈ ${fmtRubPlain(fc.exit_commission_rub, 0)}`);
+    }
+    if (fc && fc.overnight_rub != null) {
+      const d = fc.overnight_days != null ? ` · ${fc.overnight_days}д` : '';
+      bits.push(`overnight ≈ ${fmtRubPlain(fc.overnight_rub, 0)}${d}`);
+    }
+    if (fc && fc.vs_mid_rub != null) {
+      const v = Number(fc.vs_mid_rub);
+      const sign = v > 0 ? '+' : '';
+      bits.push(`vs mid ${sign}${fmt(v, 0)} ₽`);
+    }
+    if (fc && fc.note) bits.push(fc.note);
+    sub.textContent = bits.join(' · ');
+  }
+
   function paramsFocused() {
     const ae = document.activeElement;
     return !!(ae && (ae.id === 'tradeEntryZ' || ae.id === 'tradeExitZ'
       || ae.id === 'tradeLeverage' || ae.id === 'tradeAutoExec'
+      || ae.id === 'tradeTpSel'
       || ae.id === 'tradeEntryDeposit'));
   }
 
@@ -1478,10 +2224,14 @@
     const entry = parseFloat(String($('tradeEntryZ')?.value || '').replace(',', '.'));
     const exitZ = parseFloat(String($('tradeExitZ')?.value || '').replace(',', '.'));
     const leverage = parseFloat(String($('tradeLeverage')?.value || '').replace(',', '.'));
+    const tpRaw = parseFloat(String($('tradeTpSel')?.value || '0').replace(',', '.'));
+    const tpAllowed = [0, 1, 2, 3];
+    const takeProfit = tpAllowed.includes(tpRaw) ? tpRaw : 0;
     return {
       entry_z: Number.isFinite(entry) ? entry : null,
       exit_z: Number.isFinite(exitZ) ? exitZ : null,
       leverage: Number.isFinite(leverage) ? leverage : null,
+      take_profit_pct: takeProfit,
       auto_execute: !!$('tradeAutoExec')?.checked,
       entry_deposit_rub: readEntryDeposit(),
     };
@@ -1494,6 +2244,7 @@
         entry_z: settings.entry_z,
         exit_z: settings.exit_z,
         leverage: settings.leverage,
+        take_profit_pct: settings.take_profit_pct != null ? settings.take_profit_pct : 0,
         auto_execute: !!settings.auto_execute,
         entry_deposit_rub: settings.entry_deposit_rub != null ? settings.entry_deposit_rub : 10000,
       }));
@@ -1507,6 +2258,7 @@
       const o = JSON.parse(raw);
       if (!o || o.entry_z == null || o.exit_z == null) return null;
       if (o.entry_deposit_rub == null) o.entry_deposit_rub = 10000;
+      if (o.take_profit_pct == null) o.take_profit_pct = 0;
       return o;
     } catch (_) {
       return null;
@@ -1523,6 +2275,11 @@
     }
     if (settings.leverage != null && $('tradeLeverage')) {
       $('tradeLeverage').value = String(settings.leverage);
+    }
+    if ($('tradeTpSel')) {
+      const tp = settings.take_profit_pct != null ? Number(settings.take_profit_pct) : 0;
+      const v = [0, 1, 2, 3].includes(tp) ? String(tp) : '0';
+      $('tradeTpSel').value = v;
     }
     if ($('tradeEntryDeposit')) {
       const dep = settings.entry_deposit_rub != null ? settings.entry_deposit_rub : 10000;
@@ -1560,13 +2317,24 @@
     return cached;
   }
 
-  function applyThresholdVisuals(entry, exitZ) {
+  function applyThresholdVisuals(entry, exitZ, { dealer1m = false, zEmpty = false, zMonitor = false } = {}) {
     const e = Number(entry);
     const x = Number(exitZ);
     const entryN = Number.isFinite(e) && e > 0 ? e : 1.3;
     const exitN = Number.isFinite(x) && x > 0 ? x : 1.2;
     const label = $('tradeThreshLabel');
-    if (label) label.textContent = `пороги ±${fmt(entryN, 2)} / ±${fmt(exitN, 2)}`;
+    if (label) {
+      if (dealer1m && zMonitor && !zEmpty) {
+        label.textContent = `пороги ±${fmt(entryN, 2)} / ±${fmt(exitN, 2)} · гиды · дилер Z монитор (не AUTO)`;
+        label.classList.add('pnl-label-dealer');
+      } else if (dealer1m && zEmpty) {
+        label.textContent = `пороги ±${fmt(entryN, 2)} / ±${fmt(exitN, 2)} · нет tip1m · ISS M15 не рисуем`;
+        label.classList.add('pnl-label-dealer');
+      } else {
+        label.textContent = `пороги ±${fmt(entryN, 2)} / ±${fmt(exitN, 2)}`;
+        label.classList.remove('pnl-label-dealer');
+      }
+    }
     setThresholdLines(entryN, exitN);
     return { entry: entryN, exitZ: exitN };
   }
@@ -1680,12 +2448,61 @@
 
   function checkItem(state, text) {
     const mark = state === 'ok' ? '✓' : state === 'wait' ? '…' : state === 'block' ? '!' : '–';
-    return `<li class="trade-check-item is-${state}"><span class="trade-check-mark">${mark}</span><span class="trade-check-text">${text}</span></li>`;
+    return {
+      state,
+      html: `<li class="trade-check-item is-${state}"><span class="trade-check-mark">${mark}</span><span class="trade-check-text">${text}</span></li>`,
+    };
   }
 
-  function renderCheckList(el, items) {
-    if (!el) return;
-    el.innerHTML = items.join('');
+  /** Visible by default: ! / … ; ✓ (+ N/A) go into collapsed spoiler. Hide section if only N/A or empty. */
+  function renderCheckList(listEl, items) {
+    if (!listEl) return;
+    const section = listEl.closest('.trade-check-section');
+    const active = [];
+    const done = [];
+    const na = [];
+    for (const it of items || []) {
+      if (!it) continue;
+      const state = it.state || 'wait';
+      const html = it.html || String(it);
+      if (state === 'ok') done.push(html);
+      else if (state === 'na') na.push(html);
+      else active.push(html);
+    }
+
+    // Only N/A or empty → hide whole section (e.g. Закрытие while FLAT)
+    if (!active.length && !done.length) {
+      listEl.innerHTML = '';
+      listEl.hidden = true;
+      const spoilRm = section && section.querySelector(':scope > details.trade-check-done');
+      if (spoilRm) spoilRm.remove();
+      if (section) section.hidden = true;
+      return;
+    }
+    if (section) section.hidden = false;
+
+    listEl.innerHTML = active.join('');
+    listEl.hidden = active.length === 0;
+
+    const spoilItems = done.concat(na);
+    let spoilEl = section && section.querySelector(':scope > details.trade-check-done');
+    if (spoilItems.length && section) {
+      const wasOpen = !!spoilEl?.open;
+      if (!spoilEl) {
+        spoilEl = document.createElement('details');
+        spoilEl.className = 'trade-check-done';
+        section.appendChild(spoilEl);
+      }
+      const label = done.length
+        ? (na.length ? `OK · ${done.length}` : `Выполнено (${done.length})`)
+        : `N/A · ${na.length}`;
+      spoilEl.innerHTML =
+        `<summary>${label}</summary>` +
+        `<ul class="trade-check-list">${spoilItems.join('')}</ul>`;
+      spoilEl.open = wasOpen;
+    } else if (spoilEl) {
+      spoilEl.remove();
+    }
   }
 
   /**
@@ -1695,14 +2512,20 @@
     pos, curZ, entryN, exitN, signal,
     monOn, autoOn, settled, consecutive, sessionOk, brokerOk, ghost,
     needLong, needShort, needExitLong, needExitShort, settleLeftSec,
+    tip1mMode,
   }) {
     const hardOk = monOn && sessionOk && consecutive && brokerOk && !ghost;
     const softWait = [];
     if (!autoOn) softWait.push('авто');
-    if (!settled) softWait.push(settleLeftSec > 0 ? `закрытие бара (~${settleLeftSec}с)` : 'закрытие бара');
+    if (!settled) {
+      softWait.push(tip1mMode
+        ? 'закрытие минутки tip'
+        : (settleLeftSec > 0 ? `закрытие бара (~${settleLeftSec}с)` : 'закрытие бара'));
+    }
 
     const waitingText = (extra) => {
-      const all = [...softWait, ...(extra || [])].filter(Boolean);
+      const extras = Array.isArray(extra) ? extra : (extra ? [extra] : []);
+      const all = [...softWait, ...extras].filter(Boolean);
       return all.length ? `ждём: ${all.join(', ')}` : '';
     };
 
@@ -1830,10 +2653,14 @@
     const prev = bars.length >= 2 ? bars[bars.length - 2] : null;
     const lastMs = last ? Number(last.timestampMs || 0) : 0;
     const prevMs = prev ? Number(prev.timestampMs || 0) : 0;
-    const consecutive = prevMs > 0 && lastMs - prevMs === M15_MS;
+    // Prod tip1m: consecutive 1m tips; chart may still show M15 — treat either step as OK for prep.
+    const consecutive = prevMs > 0 && (lastMs - prevMs === M1_MS || lastMs - prevMs === M15_MS);
+    const tip1mMode = String(settings.signal_mode || 'tip1m') === 'tip1m';
     const hasNext = false;
-    const settled = lastMs > 0 && (hasNext || nowMs >= lastMs + M15_MS + BAR_SETTLE_MS);
-    const settleLeftSec = lastMs > 0
+    const settled = tip1mMode
+      ? (lastMs > 0 && (Date.now() >= lastMs + M1_MS || consecutive))
+      : (lastMs > 0 && (hasNext || nowMs >= lastMs + M15_MS + BAR_SETTLE_MS));
+    const settleLeftSec = (!tip1mMode && lastMs > 0)
       ? Math.max(0, Math.ceil((lastMs + M15_MS + BAR_SETTLE_MS - nowMs) / 1000))
       : 0;
     const curZ = barZ(last);
@@ -1844,23 +2671,88 @@
     const signal = consecutive
       ? determineZSignalJs(prevZ, curZ, pos, entryN, exitN)
       : 'NONE';
+    const tpPct = Number(settings.take_profit_pct);
+    const tpOn = Number.isFinite(tpPct) && tpPct > 0;
 
     const brokerOk = !!(broker && !broker.error);
     const ghost = !!(!open && bs && !bs.error && bs.direction);
+    const dealer = data.dealer;
+    const dealerManualOk = !!(dealer && (dealer.manual_ok || dealer.quotes_ok
+      || (dealer.ok && dealer.tatn != null && dealer.tatnp != null)));
 
     const general = [];
     general.push(checkItem(monOn ? 'ok' : 'block', monOn ? 'Монитор ON' : 'Монитор OFF — старт на вкладке Счёт'));
     general.push(checkItem(autoOn ? 'ok' : 'wait', autoOn ? 'Авто ON (ордера)' : 'Авто OFF — сигналы без ордеров'));
-    general.push(checkItem(msk.inSession ? 'ok' : 'block',
-      msk.inSession ? `Сессия TQBR сейчас (${msk.label} МСК)` : `Вне сессии TQBR (${msk.label} МСК)`));
-    general.push(checkItem(barInSession ? 'ok' : (last ? 'block' : 'wait'),
-      last ? (barInSession ? `Бар в сессии · ${escapeHtml(fmtTickLabel(barTd))}` : `Бар вне сессии · ${escapeHtml(fmtTickLabel(barTd))}`) : 'Нет бара'));
-    general.push(checkItem(settled ? 'ok' : 'wait',
-      settled
-        ? `Бар закрыт (+45с)`
-        : `Ждём закрытие бара${settleLeftSec > 0 ? ` · ещё ~${settleLeftSec}с` : ''}`));
-    general.push(checkItem(consecutive ? 'ok' : (bars.length >= 2 ? 'block' : 'wait'),
-      consecutive ? 'Ряд баров без дыры (15м)' : (bars.length >= 2 ? 'Дыра в барах — AUTO пропустит' : 'Мало баров')));
+    general.push(checkItem('ok', tip1mMode
+      ? 'Стратегия: касание tip1m (Mode B)'
+      : 'Стратегия: M15 close (legacy)'));
+    general.push(checkItem('ok',
+      `Пороги Z: вход ±${fmt(entryN, 2)} · выход ±${fmt(exitN, 2)}`));
+    general.push(checkItem(tpOn ? 'ok' : 'wait',
+      tpOn ? `ТП ${tpPct}% (MTM % депозита, как tip1m)` : 'ТП выкл'));
+    if (msk.weekend || dealer) {
+      const stShort = escapeHtml(String(dealer?.status_tatn || '—').replace('SECURITY_TRADING_STATUS_', ''));
+      general.push(checkItem(dealerManualOk ? 'ok' : (dealer && dealer.error ? 'block' : 'wait'),
+        dealerManualOk
+          ? `Дилер OK · ${escapeHtml(dealer.label || 'выходные · 1м')} · ручной Long/Short · статус ${stShort}`
+          : (dealer && dealer.error
+            ? `Дилер: ${escapeHtml(String(dealer.error))}`
+            : `Дилер: нет котировок (${msk.label} МСК)`)));
+      general.push(checkItem(
+        (dealer && dealer.bars_count > 0) || String(data.bars_mode || '') === 'dealer_1m'
+          ? 'ok' : 'wait',
+        (dealer && dealer.bars_count > 0) || String(data.bars_mode || '') === 'dealer_1m'
+          ? `Спред: дилер 1м (${dealer?.bars_count || bars.length} бар) · не в AUTO`
+          : 'Спред: ждём 1м дилерские свечи'
+      ));
+      general.push(checkItem('wait',
+        `TQBR закрыта (${msk.label} МСК) — AUTO tip1m только в сессии · дилер = монитор/ручной`));
+      const hasMonZ = (bars || []).some((b) => b && b.z != null
+        && (b.z_kind === 'dealer_monitor' || (b.source && String(b.source).includes('dealer'))));
+      general.push(checkItem(hasMonZ ? 'ok' : 'wait',
+        hasMonZ
+          ? 'Z сверху: дилер 1м display-Z (монитор · не AUTO) · ISS M15 / TATN mid не рисуем'
+          : 'Z сверху: ждём display-Z по дилеру · ISS M15 / TATN mid не рисуем'));
+    } else {
+      general.push(checkItem(msk.inSession ? 'ok' : 'block',
+        msk.inSession ? `Сессия TQBR сейчас (${msk.label} МСК)` : `Вне сессии TQBR (${msk.label} МСК)`));
+    }
+    const dealerUi = String(data.bars_mode || '') === 'dealer_1m' || !!(msk.weekend && dealer);
+    if (dealerUi) {
+      general.push(checkItem(last ? 'ok' : 'wait',
+        last
+          ? `Дилер 1м бар · ${escapeHtml(fmtTickLabel(barTd))} · не tip1m-сигнал`
+          : 'Нет дилерского 1м бара'));
+      const dGapOk = prevMs > 0 && lastMs > 0 && (lastMs - prevMs) <= 5 * M1_MS;
+      general.push(checkItem(dGapOk ? 'ok' : (bars.length >= 2 ? 'wait' : 'wait'),
+        dGapOk
+          ? 'Ряд дилер 1м достаточно плотный'
+          : (bars.length >= 2 ? 'Дилер 1м с пропусками (нормально вне сессии)' : 'Мало дилерских баров')));
+    } else {
+      general.push(checkItem(barInSession ? 'ok' : (last ? 'block' : 'wait'),
+        last
+          ? (barInSession
+            ? (tip1mMode
+              ? `Tip-бар в сессии · ${escapeHtml(fmtTickLabel(barTd))}`
+              : `Бар в сессии · ${escapeHtml(fmtTickLabel(barTd))}`)
+            : `Бар вне сессии · ${escapeHtml(fmtTickLabel(barTd))}`)
+          : (tip1mMode ? 'Нет tip-бара' : 'Нет бара')));
+      if (tip1mMode) {
+        general.push(checkItem(settled ? 'ok' : 'wait',
+          settled ? 'Минутка tip закрыта (касание без ожидания M15)' : 'Ждём закрытие минутки tip'));
+        general.push(checkItem(consecutive ? 'ok' : 'wait',
+          consecutive
+            ? 'Ряд tip1m без дыры'
+            : (bars.length >= 2 ? 'Дыра в UI-барах (сигнал считает сервер по 1м tip)' : 'Мало баров')));
+      } else {
+        general.push(checkItem(settled ? 'ok' : 'wait',
+          settled
+            ? `Бар закрыт (+90с)`
+            : `Ждём закрытие бара${settleLeftSec > 0 ? ` · ещё ~${settleLeftSec}с` : ''}`));
+        general.push(checkItem(consecutive ? 'ok' : (bars.length >= 2 ? 'block' : 'wait'),
+          consecutive ? 'Ряд баров без дыры (15м)' : (bars.length >= 2 ? 'Дыра в барах — AUTO пропустит' : 'Мало баров')));
+      }
+    }
     general.push(checkItem(brokerOk ? 'ok' : 'block',
       brokerOk ? `Брокер OK · ${escapeHtml(String(settings.mode || '—'))}` : `Брокер: ${escapeHtml(broker?.error || 'нет данных')}`));
     if (ghost) {
@@ -1879,7 +2771,16 @@
       pos, curZ, entryN, exitN, signal,
       monOn, autoOn, settled, consecutive, sessionOk, brokerOk, ghost,
       needLong, needShort, needExitLong, needExitShort, settleLeftSec,
+      tip1mMode,
     });
+
+    const settleBlocker = tip1mMode ? 'закрытие минутки tip' : 'закрытие бара (+90с)';
+    const edgeOpenHint = tip1mMode
+      ? 'Нужен edge: касание порога входа на tip1m'
+      : 'Нужен edge: пересечение порога входа на закрытом баре';
+    const edgeCloseHint = tip1mMode
+      ? 'Нужен edge: касание порога выхода на tip1m'
+      : 'Нужен edge: пересечение порога выхода на закрытом баре';
 
     if (pos === 'FLAT') {
       openItems.push(checkItem('ok', 'Позиция FLAT — можно открыть'));
@@ -1890,33 +2791,34 @@
         curZ != null && curZ <= -entryN ? 'ok' : 'wait',
         curZ != null && curZ <= -entryN
           ? `Z ≤ −${fmt(entryN, 2)} для Long · сейчас ${zTxt}`
-          : `До Long: Z ≤ −${fmt(entryN, 2)} · сейчас ${zTxt}${needLong != null && needLong > 0 ? ` · ещё −${fmt(needLong, 2)}${entryNeedPctSuffix(needLong, entryN)}` : ''}`
+          : `До Long: Z ≤ −${fmt(entryN, 2)} · сейчас ${zTxt}${needLong != null && needLong > 0 ? ` · ещё −${fmt(needLong, 2)}${needPctSuffix(needLong, entryN)}` : ''}`
       ));
       openItems.push(checkItem(
         curZ != null && curZ >= entryN ? 'ok' : 'wait',
         curZ != null && curZ >= entryN
           ? `Z ≥ +${fmt(entryN, 2)} для Short · сейчас ${zTxt}`
-          : `До Short: Z ≥ +${fmt(entryN, 2)} · сейчас ${zTxt}${needShort != null && needShort > 0 ? ` · ещё +${fmt(needShort, 2)}${entryNeedPctSuffix(needShort, entryN)}` : ''}`
+          : `До Short: Z ≥ +${fmt(entryN, 2)} · сейчас ${zTxt}${needShort != null && needShort > 0 ? ` · ещё +${fmt(needShort, 2)}${needPctSuffix(needShort, entryN)}` : ''}`
       ));
       openItems.push(checkItem(
         signal.startsWith('ENTER') ? 'ok' : 'wait',
         signal.startsWith('ENTER')
           ? `Edge готов: ${signal}`
-          : 'Нужен edge: пересечение порога входа на закрытом баре'
+          : edgeOpenHint
       ));
       if (phase.kind === 'prep' || phase.kind === 'signal') {
         openItems.push(checkItem('wait', phase.title || phase.label));
       } else if (phase.kind === 'ready') {
-        openItems.push(checkItem('ok', autoOn ? 'AUTO откроет на следующем тике' : 'Сигнал готов — включите Авто'));
+        openItems.push(checkItem('ok', autoOn ? 'AUTO откроет на следующем тике tip1m' : 'Сигнал готов — включите Авто'));
       }
       const blockers = [];
       if (!monOn) blockers.push('монитор');
       if (!autoOn) blockers.push('авто');
       if (!sessionOk) blockers.push('сессия');
-      if (!settled) blockers.push('закрытие бара (+45с)');
+      if (!settled) blockers.push(settleBlocker);
       if (!consecutive) blockers.push('дыра');
       if (!brokerOk) blockers.push('брокер');
       if (ghost) blockers.push('призрак');
+      if (msk.weekend || dealer) blockers.push('дилер/выходные (нет AUTO tip)');
       if (phase.kind !== 'ready' && blockers.length && !(phase.kind === 'prep' || phase.kind === 'signal')) {
         openItems.push(checkItem('block', `Блокируют: ${blockers.join(', ')}`));
       } else if (phase.kind === 'signal' && blockers.length) {
@@ -1929,36 +2831,45 @@
 
       closeItems.push(checkItem('ok', `Открыто: ${escapeHtml(pos)}${open?.source ? ` · ${escapeHtml(open.source)}` : ''}`));
       if (pos === 'LONG') {
+        const exitLongProg = needExitLong != null && Number.isFinite(needExitLong)
+          ? ` · ещё +${fmt(needExitLong, 2)}${needPctSuffix(needExitLong, exitN)}`
+          : '';
         closeItems.push(checkItem(
           curZ != null && curZ >= -exitN ? 'ok' : 'wait',
           curZ != null && curZ >= -exitN
-            ? `Z ≥ −${fmt(exitN, 2)} для EXIT_LONG · сейчас ${zTxt}`
-            : `До EXIT_LONG: Z ≥ −${fmt(exitN, 2)} · сейчас ${zTxt}${needExitLong != null && needExitLong > 0 ? ` · ещё +${fmt(needExitLong, 2)}` : ''}`
+            ? `Z ≥ −${fmt(exitN, 2)} для EXIT_LONG · сейчас ${zTxt}${exitLongProg}`
+            : `До EXIT_LONG: Z ≥ −${fmt(exitN, 2)} · сейчас ${zTxt}${exitLongProg}`
         ));
       } else {
+        const exitShortProg = needExitShort != null && Number.isFinite(needExitShort)
+          ? ` · ещё −${fmt(needExitShort, 2)}${needPctSuffix(needExitShort, exitN)}`
+          : '';
         closeItems.push(checkItem(
           curZ != null && curZ <= exitN ? 'ok' : 'wait',
           curZ != null && curZ <= exitN
-            ? `Z ≤ +${fmt(exitN, 2)} для EXIT_SHORT · сейчас ${zTxt}`
-            : `До EXIT_SHORT: Z ≤ +${fmt(exitN, 2)} · сейчас ${zTxt}${needExitShort != null && needExitShort > 0 ? ` · ещё −${fmt(needExitShort, 2)}` : ''}`
+            ? `Z ≤ +${fmt(exitN, 2)} для EXIT_SHORT · сейчас ${zTxt}${exitShortProg}`
+            : `До EXIT_SHORT: Z ≤ +${fmt(exitN, 2)} · сейчас ${zTxt}${exitShortProg}`
         ));
       }
       closeItems.push(checkItem(
         signal.startsWith('EXIT') ? 'ok' : 'wait',
         signal.startsWith('EXIT')
           ? `Edge готов: ${signal}`
-          : 'Нужен edge: пересечение порога выхода на закрытом баре'
+          : edgeCloseHint
       ));
+      if (tpOn) {
+        closeItems.push(checkItem('ok', `ТП ${tpPct}% — выход по MTM без ожидания M15`));
+      }
       if (phase.kind === 'prep' || phase.kind === 'signal') {
         closeItems.push(checkItem('wait', phase.title || phase.label));
       } else if (phase.kind === 'ready') {
-        closeItems.push(checkItem('ok', autoOn ? 'AUTO закроет на следующем тике' : 'Сигнал готов — Авто или «Закрыть сделку»'));
+        closeItems.push(checkItem('ok', autoOn ? 'AUTO закроет на следующем тике tip1m' : 'Сигнал готов — Авто или «Закрыть сделку»'));
       }
       const blockers = [];
       if (!monOn) blockers.push('монитор');
       if (!autoOn) blockers.push('авто');
       if (!sessionOk) blockers.push('сессия');
-      if (!settled) blockers.push('закрытие бара (+45с)');
+      if (!settled) blockers.push(settleBlocker);
       if (!consecutive) blockers.push('дыра');
       if (!brokerOk) blockers.push('брокер');
       if (phase.kind === 'signal' && blockers.length) {
@@ -1974,33 +2885,67 @@
 
     let hint = '';
     let hintCls = 'trade-check-hint';
+    let hintIco = '';
+    const openDir = (() => {
+      const d = `${phase.detail || ''} ${phase.title || ''} ${signal || ''}`;
+      if (/ENTER_LONG|\bLong\b/i.test(d)) return 'long';
+      if (/ENTER_SHORT|\bShort\b/i.test(d)) return 'short';
+      return null;
+    })();
     if (phase.kind === 'ready') {
-      hint = `${phase.title} · Z ${zTxt}`;
+      const prog = phase.side === 'open'
+        ? openEntryProgressText(openDir, needLong, needShort, entryN)
+        : '';
+      hint = prog ? `${phase.title} · ${prog} · Z ${zTxt}` : `${phase.title} · Z ${zTxt}`;
       hintCls += ' is-ready';
+      hintIco = phase.side === 'close' ? '↘' : '↗';
     } else if (phase.kind === 'signal') {
-      hint = `${phase.title} · Z ${zTxt}`;
+      const prog = phase.side === 'open'
+        ? openEntryProgressText(openDir, needLong, needShort, entryN)
+        : '';
+      hint = prog ? `${phase.title} · ${prog} · Z ${zTxt}` : `${phase.title} · Z ${zTxt}`;
       hintCls += ' is-block';
+      hintIco = phase.side === 'close' ? '↘' : '↗';
     } else if (phase.kind === 'prep') {
-      hint = `${phase.title} · Z ${zTxt}`;
-      hintCls += ' is-prep';
+      const prog = phase.side === 'open'
+        ? openEntryProgressText(openDir, needLong, needShort, entryN)
+        : '';
+      hint = prog ? `${phase.title} · ${prog} · Z ${zTxt}` : `${phase.title} · Z ${zTxt}`;
+      if (phase.side === 'close') {
+        hintCls += ' is-prep-close';
+        hintIco = '↘';
+      } else if (openDir === 'short') {
+        hintCls += ' is-prep-open-short';
+        hintIco = '↗';
+      } else if (openDir === 'long') {
+        hintCls += ' is-prep-open-long';
+        hintIco = '↗';
+      } else {
+        hintCls += ' is-prep-open';
+        hintIco = '↗';
+      }
     } else if (pos === 'FLAT') {
       const nearer = (needLong == null || needShort == null)
         ? null
         : (needLong <= needShort
-          ? `до Long ещё −${fmt(needLong, 2)}${entryNeedPctSuffix(needLong, entryN)} по Z`
-          : `до Short ещё +${fmt(needShort, 2)}${entryNeedPctSuffix(needShort, entryN)} по Z`);
+          ? `до Long ещё −${fmt(needLong, 2)}${needPctSuffix(needLong, entryN)} по Z`
+          : `до Short ещё +${fmt(needShort, 2)}${needPctSuffix(needShort, entryN)} по Z`);
       hint = nearer ? `Ожидание входа · ${nearer} · Z ${zTxt}` : `Ожидание входа · Z ${zTxt}`;
     } else if (pos === 'LONG') {
-      hint = needExitLong != null && needExitLong > 0
-        ? `В позиции Long · до выхода ещё +${fmt(needExitLong, 2)} по Z · Z ${zTxt}`
-        : `В позиции Long · у порога выхода · Z ${zTxt}`;
+      hint = needExitLong != null && Number.isFinite(needExitLong)
+        ? `В позиции Long · до выхода ещё +${fmt(needExitLong, 2)}${needPctSuffix(needExitLong, exitN)} по Z · Z ${zTxt}`
+        : `В позиции Long · Z ${zTxt}`;
     } else {
-      hint = needExitShort != null && needExitShort > 0
-        ? `В позиции Short · до выхода ещё −${fmt(needExitShort, 2)} по Z · Z ${zTxt}`
-        : `В позиции Short · у порога выхода · Z ${zTxt}`;
+      hint = needExitShort != null && Number.isFinite(needExitShort)
+        ? `В позиции Short · до выхода ещё −${fmt(needExitShort, 2)}${needPctSuffix(needExitShort, exitN)} по Z · Z ${zTxt}`
+        : `В позиции Short · Z ${zTxt}`;
     }
     hintEl.className = hintCls;
-    hintEl.textContent = hint;
+    if (hintIco) {
+      hintEl.innerHTML = `<span class="trade-check-hint-ico" aria-hidden="true">${hintIco}</span>${escapeHtml(hint)}`;
+    } else {
+      hintEl.textContent = hint;
+    }
 
     const sideStatus = $('tradeSideStatus');
     if (sideStatus) {
@@ -2014,35 +2959,93 @@
     const settings = data.settings || {};
     const mon = data.monitor || {};
     const pos = data.position || 'FLAT';
+    lastTradeMode = String(settings.mode || lastTradeMode || '').toLowerCase();
     const monHtml = monBadge(!!mon.running);
     const autoHtml = autoBadge(!!settings.auto_execute);
     const modeHtml = modeBadge(settings.mode);
+    const stratHtml = strategyBadge(settings.signal_mode);
+
+    const dealer1mMode = String(data.bars_mode || '') === 'dealer_1m'
+      || String(data.bars_mode || '') === 'dealer_weekend';
+    const weekendMonitor = !!(data.weekend_monitor || dealer1mMode || nowMskParts().weekend);
+
+    // Weekend display-only Z (server or client tip-style) — never into AUTO.
+    // Prefer dealer bars whenever payload looks like dealer_1m / has dealer z_kind,
+    // even if bars_mode lagged behind on a lite race.
+    const barsLookDealer = (data.bars || []).some((b) => b && (
+      b.z_kind === 'dealer_monitor'
+      || (b.source && String(b.source).includes('dealer'))
+    ));
+    let chartBars = (dealer1mMode || barsLookDealer)
+      ? (data.bars || [])
+      : (weekendMonitor ? [] : (data.bars || []));
+    if ((dealer1mMode || weekendMonitor || barsLookDealer) && chartBars.length) {
+      chartBars = attachDealerMonitorZClient(chartBars, data.bars_iss || []);
+      data = { ...data, bars: chartBars };
+      const lastMon = [...chartBars].reverse().find((b) => b && b.z != null);
+      if (lastMon) {
+        s.z = lastMon.z;
+        s.z_kind = 'dealer_monitor';
+      }
+    }
 
     const bars = data.bars || [];
-    rebuildBarMetricDists(bars);
+    const barsForDist = (dealer1mMode && (data.bars_iss || []).length)
+      ? data.bars_iss
+      : bars;
+    rebuildBarMetricDists(barsForDist, data.metric_dists);
     const regimeHtml = regimeBadge(bars);
+    const dealer = data.dealer;
+    const useDealerPx = !!(dealer && (dealer.ok || dealer.quotes_ok) && dealer.tatn != null && dealer.tatnp != null);
     const zDisp = fmt(s.z);
-    const spDisp = `${fmt(s.spread)}%`;
+    const spVal = useDealerPx ? dealer.spread : s.spread;
+    const spDisp = `${fmt(spVal)}%`;
+    const tatnDisp = useDealerPx ? dealer.tatn : s.tatn;
+    const tatnpDisp = useDealerPx ? dealer.tatnp : s.tatnp;
+    const dealerHtml = dealerBadge(dealer);
+    const monZUi = String(s.z_kind || '') === 'dealer_monitor'
+      || (bars || []).some((b) => b && b.z_kind === 'dealer_monitor');
 
     // Данные / связь — только в шапке
+    const distHint = metricDistMeta.degraded
+      ? ` · dist:окно`
+      : ` · dist:3г n=${metricDistMeta.n || '—'}`;
     $('tradeMeta').innerHTML =
-      `${s.window_count || 0} баров · ${escapeHtml(s.source || '—')} · ${onlineBadge(!!s.online)}`;
+      `${s.window_count || 0} баров · ${escapeHtml(s.source || '—')} · ${onlineBadge(!!s.online)}`
+      + (dealerHtml ? ` · ${dealerHtml}` : '')
+      + (dealer1mMode || data.weekend_monitor
+        ? (monZUi
+          ? ' · <span class="badge-quiet">спред 1м дилер · Z монитор дилер</span>'
+          : ' · <span class="badge-quiet">спред 1м дилер · Z без M15</span>')
+        : '')
+      + distHint;
 
     // Исполнение — один раз в статус-баре (без рынка и без баланса)
+    const partialBanner = applyPartialBanner(data);
     $('tradeStatus').innerHTML =
-      `${monHtml} · ${autoHtml} · ${modeHtml}` +
+      `${monHtml} · ${autoHtml} · ${modeHtml} · ${stratHtml}` +
+      (dealerHtml ? ` · ${dealerHtml}` : '') +
+      (partialBanner ? ` · <span class="badge-quiet">${escapeHtml(partialBanner)}</span>` : '') +
       (s.trade_date ? ` · ${tickBadge(s.trade_date)}` : '');
 
-    // Рынок — у графиков
+    // Рынок — у графиков (выходные: Z = дилер monitor display; цены/спред — дилер)
+    const stripSpLabel = useDealerPx
+      ? (dealer1mMode ? 'Спред · дилер 1м' : 'Спред · дилер')
+      : 'Спред';
+    const stripZLabel = monZUi ? 'Z · дилер монитор' : 'Z';
     $('tradeStrip').innerHTML = [
-      metricStripBlock('Z', 'z', s.z, zDisp),
-      metricStripBlock('Спред', 'spread', s.spread, spDisp),
+      metricStripBlock(stripZLabel, 'z', s.z, zDisp),
+      metricStripBlock(stripSpLabel, 'spread', spVal, spDisp),
       regimeHtml ? `<span><b>Режим</b> ${regimeHtml}</span>` : '',
-      `<span><b>TATN</b> ${fmt(s.tatn)}</span>`,
-      `<span><b>TATNP</b> ${fmt(s.tatnp)}</span>`,
+      `<span><b>TATN</b> ${fmt(tatnDisp)}${useDealerPx ? ' <span class="badge-quiet">дилер</span>' : ''}</span>`,
+      `<span><b>TATNP</b> ${fmt(tatnpDisp)}${useDealerPx ? ' <span class="badge-quiet">дилер</span>' : ''}</span>`,
+      useDealerPx && dealer.tatn_bid != null
+        ? `<span class="trade-dealer-ba"><b>bid/ask</b> ${fmt(dealer.tatn_bid)}/${fmt(dealer.tatn_ask)} · ${fmt(dealer.tatnp_bid)}/${fmt(dealer.tatnp_ask)}</span>`
+        : '',
+      (dealer && dealer.bars_count != null)
+        ? `<span class="badge-quiet">${dealer.bars_count}×1м</span>`
+        : '',
     ].filter(Boolean).join(' ');
-
-    // Позиция + фаза — в renderChecklist (после poll данных)
 
     // Hydrate once from server; never while user is editing (poll / late desk).
     const shouldHydrate = (hydrateForm || !formHydrated) && !formDirty && !paramsFocused();
@@ -2059,14 +3062,30 @@
     const exitZ = formHydrated && (formDirty || paramsFocused())
       ? (readFormParams().exit_z ?? settings.exit_z)
       : settings.exit_z;
-    const th = applyThresholdVisuals(entry, exitZ);
+    const hasDealerMonZ = (bars || []).some((b) => b && b.z != null
+      && (b.z_kind === 'dealer_monitor'
+        || (b.source && String(b.source).includes('dealer'))));
+    const hasTip1mZ = (bars || []).some((b) => b && b.z != null
+      && !(b.source && String(b.source).includes('dealer')));
+    const zEmptyWeekend = weekendMonitor && !hasTip1mZ && !hasDealerMonZ;
+    const th = applyThresholdVisuals(entry, exitZ, {
+      dealer1m: dealer1mMode || weekendMonitor,
+      zEmpty: zEmptyWeekend,
+      zMonitor: weekendMonitor && hasDealerMonZ && !hasTip1mZ,
+    });
 
-    renderOpen(data.open);
+    renderOpen(data.open, { barsMode: data.bars_mode || '' });
+    syncTradeActionButtons(data);
     renderOpenStats(data.open_stats, data.open);
     renderFunds(data.broker, { pending: !!data.lite && !data.broker });
+    renderCloseForecast(data.close_forecast, { hasOpen: !!data.open });
     renderChecklist(data);
 
-    renderCharts(data.bars || [], th.entry, th.exitZ, data.open || null, data.closed || []);
+    renderCharts(chartBars, th.entry, th.exitZ, data.open || null, data.closed || [], {
+      dealer1m: dealer1mMode || barsLookDealer,
+      weekendMonitor,
+      zBars: data.bars_iss || null,
+    });
   }
 
   async function ensureMonitorRunning(data) {
@@ -2081,22 +3100,88 @@
     return false;
   }
 
+  function dealerHistBarCount(bars) {
+    let n = 0;
+    for (const b of bars || []) {
+      if (b && String(b.source || '') === 'tinvest_dealer_1m') n += 1;
+    }
+    return n;
+  }
+
+  function rememberGoodChartBars(bars, data) {
+    const n = dealerHistBarCount(bars);
+    const total = Array.isArray(bars) ? bars.length : 0;
+    if (n >= 5 || (total >= 5 && !(data && data.weekend_monitor))) {
+      lastGoodChartBars = bars.slice();
+      lastGoodDeskMeta = {
+        bars_mode: data && data.bars_mode,
+        weekend_monitor: !!(data && data.weekend_monitor),
+        partial: !!(data && data.partial),
+      };
+    }
+  }
+
+  function applyPartialBanner(data, extraMsg) {
+    const parts = [];
+    if (data && (data.partial || data.dealer_warming || (data.dealer && data.dealer.warming))) {
+      parts.push('кэш / частичные данные');
+    }
+    if (data && data.dealer && data.dealer.from_cache) parts.push('дилер из кэша');
+    if (extraMsg) parts.push(extraMsg);
+    lastPartialBanner = parts.filter(Boolean).join(' · ');
+    return lastPartialBanner;
+  }
+
   async function refresh({ hydrateForm = false, forceMoex = false, lite = false } = {}) {
     if (forceMoex) {
-      await api(`/api/markets/refresh?days=${days}`, { method: 'POST' });
+      await api(`/api/markets/refresh?days=${days}`, { method: 'POST', timeoutMs: 20000 });
     }
     const seq = ++deskFetchSeq;
     const liteQ = lite ? '&lite=1' : '';
-    let data = await api(`/api/trade/desk?days=${days}${liteQ}`);
+    // Lite must stay snappy; full desk capped so UI never hangs forever.
+    const timeoutMs = lite ? 8000 : 28000;
+    const fetchDesk = () => api(`/api/trade/desk?days=${days}${liteQ}`, { timeoutMs });
+    let data;
+    try {
+      data = await fetchDesk();
+    } catch (e) {
+      const msg = String((e && e.message) || e || '');
+      if (/Таймаут|timeout|Failed to fetch|NetworkError/i.test(msg)) {
+        await new Promise((r) => setTimeout(r, 900));
+        if (seq !== deskFetchSeq) return null;
+        try {
+          data = await fetchDesk();
+        } catch (e2) {
+          if (seq !== deskFetchSeq) return null;
+          // Keep last good charts — never wipe to empty nonsense on timeout.
+          if (lastGoodChartBars.length) {
+            const el = $('tradeStatus');
+            const banner = applyPartialBanner(
+              { partial: true, dealer_warming: true },
+              msg.replace(/^Таймаут \d+мс: /, 'таймаут '),
+            );
+            if (el) {
+              el.textContent = `${el.textContent || 'Торговля'} · ${banner}`;
+            }
+            // Keep existing chart series — do not wipe to empty.
+            return lastGoodDeskMeta;
+          }
+          throw e2;
+        }
+      } else {
+        throw e;
+      }
+    }
     if (seq !== deskFetchSeq) return data;
     // Monitor start only on full desk (lite is first-paint charts)
     if (!lite && await ensureMonitorRunning(data)) {
-      data = await api(`/api/trade/desk?days=${days}`);
+      data = await api(`/api/trade/desk?days=${days}`, { timeoutMs: 20000 });
       if (seq !== deskFetchSeq) return data;
     }
     // Late responses: never force-hydrate over newer in-flight work
     const hydrate = hydrateForm && seq === deskFetchSeq;
     renderDesk(data, { hydrateForm: hydrate });
+    ensurePollInterval(data);
     return data;
   }
 
@@ -2168,15 +3253,17 @@
     try {
       if (zChart && zEl) zChart.applyOptions({ width: zEl.clientWidth, height: zEl.clientHeight || 300 });
       if (spreadChart && sEl) spreadChart.applyOptions({ width: sEl.clientWidth, height: sEl.clientHeight || 150 });
+      equalizePriceScales();
     } finally {
       scheduleEndSuppress();
     }
-    if (userPinnedAwayFromLive && pinnedRange) {
+    if (pinnedRange) {
       requestAnimationFrame(() => {
-        requestAnimationFrame(reassertPinnedRange);
+        requestAnimationFrame(() => {
+          reassertPinnedRange();
+          forceSyncAfterPaint();
+        });
       });
-    } else if (pinnedRange) {
-      reassertPinnedRange();
     }
   }
 
@@ -2272,13 +3359,29 @@
     });
   }
 
-  function startPoll() {
+  function startPoll(ms) {
     stopPoll();
-    pollTimer = setInterval(() => { refresh().catch(() => {}); }, 12000);
+    if (ms != null && Number.isFinite(ms) && ms >= 2000) pollMs = ms;
+    pollTimer = setInterval(() => {
+      pollTick += 1;
+      const doFull = (pollTick % POLL_FULL_EVERY) === 0;
+      refresh({ lite: !doFull }).catch(() => {});
+    }, pollMs);
   }
 
   function stopPoll() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function ensurePollInterval(data) {
+    const want = (
+      String(data?.bars_mode || '').startsWith('dealer')
+      || data?.weekend_monitor
+      || (data?.dealer && data.dealer.ok)
+    )
+      ? POLL_MS_DEALER_1M
+      : POLL_MS_DEFAULT;
+    if (want !== pollMs) startPoll(want);
   }
 
   function onShow() {
@@ -2293,16 +3396,38 @@
     if (cached && !formDirty) hydrateParams(cached, { force: true });
     // Do NOT wait on /status → desk (was ~10s waterfall via TInvest×2).
     // 1) lite desk: bars/markers/settings without broker (~markets time)
-    // 2) full desk: broker/funds in background (cached 20s on server)
+    // 2) full desk: broker/funds + dealer in background (never block lite paint)
     hydrateParamsFromServer().catch(() => {});
-    refresh({ hydrateForm: !formDirty, lite: true })
-      .then(() => refresh({ hydrateForm: false, lite: false }))
+    const bootLite = () => refresh({ hydrateForm: !formDirty, lite: true });
+    bootLite()
+      .catch((e) => {
+        // Watchdog hard-restart mid-fetch → native "Failed to fetch"; one retry.
+        const msg = String((e && e.message) || e || '');
+        if (/Failed to fetch|NetworkError|fetch|Таймаут|timeout/i.test(msg)) {
+          if (lastGoodChartBars.length) {
+            const el = $('tradeStatus');
+            if (el) {
+              el.textContent = `Ошибка: ${msg} · кэш / частичные данные`;
+            }
+          }
+          return new Promise((r) => setTimeout(r, 1200)).then(() => bootLite());
+        }
+        throw e;
+      })
       .then(() => {
         restoreTradeScrolls();
         startPoll();
+        // Full desk is best-effort; lite already painted charts/checklist.
+        return refresh({ hydrateForm: false, lite: false }).catch((e) => {
+          const el = $('tradeStatus');
+          if (el && /Таймаут|timeout|Failed to fetch/i.test(String(e && e.message))) {
+            el.textContent = (el.textContent || '') + ' · дилер/брокер: таймаут (частичные данные)';
+          }
+        });
       })
       .catch((e) => {
-        $('tradeStatus').textContent = `Ошибка: ${e.message}`;
+        $('tradeStatus').textContent = `Ошибка: ${e.message}`
+          + (lastGoodChartBars.length ? ' · кэш / частичные данные' : '');
         startPoll();
       });
     requestAnimationFrame(() => {
@@ -2343,7 +3468,7 @@
         saveEntryDeposit().catch((e) => alert(e.message));
       }
     });
-    ['tradeEntryZ', 'tradeExitZ', 'tradeLeverage'].forEach((id) => {
+    ['tradeEntryZ', 'tradeExitZ', 'tradeLeverage', 'tradeTpSel'].forEach((id) => {
       const el = $(id);
       if (!el) return;
       el.addEventListener('input', markParamsDirty);
@@ -2372,6 +3497,20 @@
         alert(e.message);
       });
     });
+    const manualTrade = async (side) => {
+      const warn = lastTradeMode === 'prod'
+        ? `Боевой счёт: открыть ${side}?`
+        : `Открыть ${side} (ручной вход)?`;
+      if (!window.confirm(warn)) return;
+      await api('/api/live/trade', { method: 'POST', body: JSON.stringify({ side }) });
+      await refresh();
+    };
+    $('tradeBtnLong')?.addEventListener('click', () => {
+      manualTrade('LONG').catch((e) => alert(e.message));
+    });
+    $('tradeBtnShort')?.addEventListener('click', () => {
+      manualTrade('SHORT').catch((e) => alert(e.message));
+    });
     $('tradeBtnClose')?.addEventListener('click', async () => {
       if (!window.confirm('Закрыть открытый спрэд на брокере?')) return;
       try {
@@ -2386,6 +3525,7 @@
     });
     bindTradeChartVerticalSplit();
     bindTradeScrolls();
+    bindOpenStatsCollapse();
     const tipRoots = [$('tradeStrip')].filter(Boolean);
     tipRoots.forEach((root) => {
       root.addEventListener('pointerover', (e) => {

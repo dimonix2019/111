@@ -87,11 +87,75 @@
 .trade-side {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   overflow: auto;
   min-height: 0;
   scrollbar-width: thin;
   scrollbar-color: #5b8cff rgba(26, 30, 41, 0.95);
+}
+
+.trade-side.live-card {
+  padding: 10px 12px;
+}
+
+.trade-side.live-card h2 {
+  margin-bottom: 0;
+}
+
+.trade-side .account-funds {
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.trade-side .trade-deposit-row {
+  margin-bottom: 0;
+  gap: 6px;
+}
+
+.trade-side .trade-deposit-label {
+  gap: 2px;
+}
+
+.trade-side .trade-deposit-label input,
+.trade-side .trade-params input,
+.trade-side .trade-params select,
+.trade-side .trade-tp-inline select {
+  padding: 4px 6px;
+}
+
+.trade-side .trade-params {
+  gap: 6px;
+}
+
+.trade-side .trade-params label {
+  gap: 2px;
+}
+
+.trade-side .live-row {
+  margin-bottom: 0;
+  gap: 6px;
+}
+
+.trade-side .trade-params-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.trade-side .trade-params-actions.live-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+}
+
+.trade-side .trade-params-actions .btn,
+.trade-side .trade-params-actions .btn-sm {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 5px 10px;
+  font-size: 12px;
 }
 
 .trade-side::-webkit-scrollbar {
@@ -114,26 +178,75 @@
 }
 
 .trade-check-hint {
+  position: relative;
   font-size: 12px;
   line-height: 1.35;
-  color: #93c5fd;
+  color: #e5e7eb;
   font-family: ui-monospace, Consolas, monospace;
-  padding: 8px 10px;
+  padding: 8px 10px 8px 14px;
   border-radius: 6px;
-  background: rgba(41, 98, 255, 0.12);
-  border: 1px solid rgba(91, 138, 255, 0.25);
+  background: rgba(41, 98, 255, 0.08);
+  border: 1px solid rgba(91, 138, 255, 0.2);
+}
+
+.trade-check-hint::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 6px 0 0 6px;
+  background: rgba(147, 197, 253, 0.55);
+}
+
+.trade-check-hint-ico {
+  display: inline-block;
+  margin-right: 5px;
+  font-weight: 700;
+  opacity: 0.95;
 }
 
 .trade-check-hint.is-ready {
-  color: #6ee7b7;
+  color: #a7f3d0;
   background: rgba(8, 153, 129, 0.12);
   border-color: rgba(8, 153, 129, 0.35);
 }
 
-.trade-check-hint.is-prep {
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.14);
-  border-color: rgba(147, 197, 253, 0.45);
+.trade-check-hint.is-ready::before {
+  background: #34d399;
+}
+
+.trade-check-hint.is-prep-open,
+.trade-check-hint.is-prep-open-long {
+  color: #a7f3d0;
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(52, 211, 153, 0.35);
+}
+
+.trade-check-hint.is-prep-open::before,
+.trade-check-hint.is-prep-open-long::before {
+  background: #34d399;
+}
+
+.trade-check-hint.is-prep-open-short {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.trade-check-hint.is-prep-open-short::before {
+  background: #f87171;
+}
+
+.trade-check-hint.is-prep-close {
+  color: #d1d5db;
+  background: rgba(107, 114, 128, 0.14);
+  border-color: rgba(156, 163, 175, 0.35);
+}
+
+.trade-check-hint.is-prep-close::before {
+  background: #9ca3af;
 }
 
 .trade-check-hint.is-block {
@@ -142,10 +255,18 @@
   border-color: rgba(245, 158, 11, 0.35);
 }
 
+.trade-check-hint.is-block::before {
+  background: #fbbf24;
+}
+
 .trade-check-section {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.trade-check-section[hidden] {
+  display: none;
 }
 
 .trade-check-title {
@@ -164,6 +285,48 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+
+.trade-check-list[hidden] {
+  display: none;
+}
+
+.trade-check-done {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.trade-check-done > summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: var(--muted);
+  list-style: none;
+}
+
+.trade-check-done > summary::-webkit-details-marker {
+  display: none;
+}
+
+.trade-check-done > summary::before {
+  content: '▸ ';
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.trade-check-done[open] > summary::before {
+  content: '▾ ';
+}
+
+.trade-check-done > summary:hover {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+}
+
+.trade-check-done .trade-check-list {
+  margin-top: 2px;
 }
 
 .trade-check-item {
@@ -265,8 +428,43 @@
 }
 
 .trade-params-actions {
+  display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+}
+
+.trade-tp-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.trade-tp-inline select {
+  background: #2a2e39;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  min-width: 64px;
+}
+
+.trade-params-actions .live-check {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.trade-params-actions .trade-params-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .trade-params-status {
@@ -305,7 +503,35 @@
   padding: 10px;
   font-size: 12px;
   flex: 1 1 auto;
-  min-height: 120px;
+  min-height: 160px;
+  overflow: auto;
+}
+
+.trade-side-close-row {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  margin-top: 2px;
+  margin-bottom: 0;
+  gap: 6px;
+}
+
+/* Keep Long/Short/Close on ONE row (right-aligned); avoid Close wrapping under */
+.trade-side .trade-side-close-row.live-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 5px;
+}
+
+.trade-side .trade-side-close-row .btn,
+.trade-side .trade-side-close-row .btn-trade {
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 7px 8px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .trade-open-empty { color: var(--muted); }
@@ -381,6 +607,28 @@
   font-variant-numeric: tabular-nums;
 }
 
+.account-funds-forecast {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #2a3548;
+}
+
+.account-funds-forecast-main {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c7d2fe;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+.account-funds-forecast-sub {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
 .account-funds.is-prod .account-funds-label {
   color: #fbbf24;
 }
@@ -442,6 +690,9 @@
 .markets-strip .metric-place-outside { color: #f87171; }
 .markets-strip .metric-place-flat,
 .markets-strip .metric-place-sparse { color: var(--muted); }
+.markets-strip .metric-place-narrow { color: #6ee7b7; }
+.markets-strip .metric-place-transition { color: #fbbf24; }
+.markets-strip .metric-place-wide { color: #93c5fd; }
 
 .markets-strip .metric-hover,
 .status-bar .metric-hover {
@@ -475,6 +726,40 @@
 
 .trade-chart-stack .pnl-head {
   padding: 6px 10px 0;
+}
+
+.pnl-label-dealer {
+  color: #f0b90b !important;
+  font-weight: 600;
+}
+
+.meta.pnl-label-dealer {
+  color: #f0b90b;
+  font-weight: 500;
+}
+
+.trade-z-body {
+  position: relative;
+}
+
+.trade-z-empty-msg {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 20px;
+  text-align: center;
+  color: #d1d4dc;
+  background: rgba(22, 26, 37, 0.72);
+  font-size: 13px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.trade-z-empty-msg.hidden {
+  display: none;
 }
 
 .live-view {
@@ -626,15 +911,38 @@
 
 .tos-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   flex: 0 0 auto;
+  min-width: 0;
 }
 .tos-title {
   margin: 0;
   font-size: 12px;
   font-weight: 600;
+  flex: 0 0 auto;
+}
+.tos-head > .meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tos-head .pane-collapse-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.trade-open-stats.is-collapsed .tos-collapsible-body {
+  display: none;
+}
+.tos-collapsible-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  min-width: 0;
 }
 .tos-kpis,
 .tos-kpis-6 {

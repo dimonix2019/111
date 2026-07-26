@@ -514,6 +514,7 @@ function prepareHeatmapSeries(points, endIdx) {
   const consec = new Uint8Array(len);
   const dayNum = new Int32Array(len);
   const ts = new Float64Array(len);
+  const liveNone = new Uint8Array(len);
   for (let i = 0; i < len; i++) {
     const p = points[i];
     const zs = p?.zScore;
@@ -524,6 +525,7 @@ function prepareHeatmapSeries(points, endIdx) {
     dayNum[i] = dayMs != null ? (dayMs / 86400000) | 0 : 0;
     const tsm = p?.timestampMs;
     ts[i] = tsm != null && Number.isFinite(Number(tsm)) ? Number(tsm) : NaN;
+    liveNone[i] = String(p?.liveSignal || '').toUpperCase() === 'NONE' ? 1 : 0;
     // session inline (без Date на каждый бар): пн–пт 07:00–23:50
     let sess = 0;
     if (td.length >= 16) {
@@ -540,7 +542,7 @@ function prepareHeatmapSeries(points, endIdx) {
     consec[i] = (i > 0 && Number.isFinite(ts[i]) && Number.isFinite(ts[i - 1])
       && (ts[i] - ts[i - 1]) === 15 * 60 * 1000) ? 1 : 0;
   }
-  return { z, spread, session, consec, dayNum, len };
+  return { z, spread, session, consec, dayNum, liveNone, len };
 }
 
 /**
@@ -548,7 +550,7 @@ function prepareHeatmapSeries(points, endIdx) {
  * Protective risk (Z±/DD/Time/Money) — не здесь.
  */
 function heatmapFastNetFromSeries(series, entry, exit, simOpts) {
-  const { z, spread, session, consec, dayNum, len } = series;
+  const { z, spread, session, consec, dayNum, liveNone, len } = series;
   const opts = typeof normalizeSimExitOpts === 'function'
     ? normalizeSimExitOpts(simOpts || {})
     : (simOpts || {});
@@ -612,6 +614,8 @@ function heatmapFastNetFromSeries(series, entry, exit, simOpts) {
     } else if (pos === 2) {
       if (prevZ > exit && curZ <= exit) signal = 4;
     }
+    // decision_bars.signal=NONE → не открывать по geometric cross
+    if (liveNone && liveNone[i] && (signal === 1 || signal === 2)) signal = 0;
     if (!signal) continue;
 
     const sp = spread[i];
@@ -1626,12 +1630,23 @@ function tradeMetricBinIndex(dist, value) {
 }
 
 function tradeMetricPercentile(dist, value) {
-  if (!dist || !dist.sorted.length || value == null || !Number.isFinite(value)) return null;
-  let count = 0;
-  for (const v of dist.sorted) {
-    if (v <= value) count += 1;
+  if (!dist || value == null || !Number.isFinite(value)) return null;
+  // Exact path when full sample is present (trades table).
+  if (Array.isArray(dist.sorted) && dist.sorted.length) {
+    let count = 0;
+    for (const v of dist.sorted) {
+      if (v <= value) count += 1;
+    }
+    return (count / dist.sorted.length) * 100;
   }
-  return (count / dist.sorted.length) * 100;
+  // Compact server dist (desk 3y): approximate via cumulative bins.
+  if (!Array.isArray(dist.bins) || !(dist.n > 0)) return null;
+  const idx = tradeMetricBinIndex(dist, value);
+  if (idx < 0) return null;
+  let count = 0;
+  for (let i = 0; i < idx; i += 1) count += dist.bins[i] || 0;
+  count += (dist.bins[idx] || 0) * 0.5;
+  return (count / dist.n) * 100;
 }
 
 /**
@@ -1656,6 +1671,43 @@ function classifyTradeMetricPlacement(value, dist) {
   return { key: 'outside', label: 'вне типичного диапазона', z };
 }
 
+/** Absolute spread % cuts: узкий / переход (valley) / широкий. */
+const SPREAD_WIDTH_NARROW_MAX = 3.5;
+const SPREAD_WIDTH_WIDE_MIN = 5.5;
+
+/**
+ * Режим ширины спреда по абсолютному %.
+ * A узкий: &lt;3.5 · T переход: 3.5–5.5 · B широкий: &gt;5.5
+ */
+function classifySpreadWidthRegime(spreadPct) {
+  const sp = Number(spreadPct);
+  if (!Number.isFinite(sp)) {
+    return { key: 'na', label: '—', shortLabel: '—', title: '' };
+  }
+  if (sp < SPREAD_WIDTH_NARROW_MAX) {
+    return {
+      key: 'narrow',
+      label: 'узкий режим',
+      shortLabel: 'узкий',
+      title: `спред < ${SPREAD_WIDTH_NARROW_MAX}%`,
+    };
+  }
+  if (sp > SPREAD_WIDTH_WIDE_MIN) {
+    return {
+      key: 'wide',
+      label: 'широкий режим',
+      shortLabel: 'широкий',
+      title: `спред > ${SPREAD_WIDTH_WIDE_MIN}%`,
+    };
+  }
+  return {
+    key: 'transition',
+    label: 'переход',
+    shortLabel: 'переход',
+    title: `${SPREAD_WIDTH_NARROW_MAX}% ≤ спред ≤ ${SPREAD_WIDTH_WIDE_MIN}%`,
+  };
+}
+
 /** Y ticks 0 … maxBin for metric histogram tip. */
 function metricDistCountTicks(maxCount) {
   const max = Math.max(1, Math.round(Number(maxCount) || 1));
@@ -1667,13 +1719,15 @@ function metricDistCountTicks(maxCount) {
 
 /**
  * HTML гистограммы распределения (как tip в таблице сделок).
- * @param {{ title: string, display: string, value: number, dist: object, formatStat?: (v:number)=>string }} opts
+ * @param {{ title: string, display: string, value: number, dist: object, formatStat?: (v:number)=>string, spreadWidthRegime?: boolean }} opts
  */
 function buildMetricDistTipHtml(opts) {
   const { title, display, value, dist } = opts;
   const formatStat = opts.formatStat || ((v) => (Number.isFinite(v) ? String(Math.round(v * 100) / 100) : '—'));
+  const sampleLabel = opts.sampleLabel ? String(opts.sampleLabel) : '';
   if (!dist || value == null || !Number.isFinite(value)) return '';
   const place = classifyTradeMetricPlacement(value, dist);
+  const widthReg = opts.spreadWidthRegime ? classifySpreadWidthRegime(value) : null;
   const pct = tradeMetricPercentile(dist, value);
   const activeBin = tradeMetricBinIndex(dist, value);
   const maxBin = Math.max(1, ...dist.bins);
@@ -1694,6 +1748,11 @@ function buildMetricDistTipHtml(opts) {
     return `<span class="tm-grid-line" style="bottom:${p}%"></span>`;
   }).join('');
   const pctText = pct != null ? ` · p${Math.round(pct)}` : '';
+  const sampleText = sampleLabel ? ` · ${sampleLabel}` : '';
+  let footerHtml = `<div class="tm-place tm-place-${place.key}">${place.label}</div>`;
+  if (widthReg && widthReg.key !== 'na') {
+    footerHtml = `<div class="tm-regime tm-regime-${widthReg.key}" title="${widthReg.title}">режим: ${widthReg.shortLabel}</div>`;
+  }
   return (
     `<div class="tm-title">${title} · <strong>${display}</strong></div>`
     + `<div class="tm-hist-wrap" aria-hidden="true">`
@@ -1705,8 +1764,8 @@ function buildMetricDistTipHtml(opts) {
     + `</div></div>`
     + `<div class="tm-hist-x"><span>${formatStat(dist.min)}</span><span>${meanLabel}</span><span>${formatStat(dist.max)}</span></div>`
     + `</div>`
-    + `<div class="tm-meta">ср. ${meanLabel} · σ ${sigmaLabel} · n=${dist.n}${pctText}</div>`
-    + `<div class="tm-place tm-place-${place.key}">${place.label}</div>`
+    + `<div class="tm-meta">ср. ${meanLabel} · σ ${sigmaLabel} · n=${dist.n}${pctText}${sampleText}</div>`
+    + footerHtml
   );
 }
 

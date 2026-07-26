@@ -129,8 +129,27 @@
     if (m.error) {
       $('liveMarketBox').textContent = `Рынок: ${m.error}`;
     } else {
+      const d = data.dealer;
+      let dealerLine = '';
+      if (d && (d.ok || d.error || d.trading_ok != null)) {
+        if (d.error && !d.ok) {
+          dealerLine = `\nДилер: ${d.label || 'дилер'} · ${d.error}`;
+        } else {
+          const st = (d.manual_ok || d.quotes_ok)
+            ? 'OK (ручной Long/Short)'
+            : (d.trading_ok ? 'статус OK' : 'нет котировок');
+          dealerLine =
+            `\nДилер (${d.label || 'выходные'}): ${st}` +
+            ` · TATN ${fmt(d.tatn)} / TATNP ${fmt(d.tatnp)}` +
+            ` · спред ${fmt(d.spread)}%` +
+            (d.bars_count != null ? ` · ${d.bars_count}×1м` : '') +
+            (d.tatn_bid != null ? ` · bid/ask ${fmt(d.tatn_bid)}/${fmt(d.tatn_ask)}` : '') +
+            ' · не в Z/AUTO';
+        }
+      }
       $('liveMarketBox').textContent =
-        `Рынок: ${m.trade_date || '—'} · Z ${fmt(m.z)} · спред ${fmt(m.spread)}%` +
+        `Рынок ISS: ${m.trade_date || '—'} · Z ${fmt(m.z)} · спред ${fmt(m.spread)}%` +
+        dealerLine +
         (mon.last_message ? `\nМонитор: ${mon.last_message}` : '');
     }
 

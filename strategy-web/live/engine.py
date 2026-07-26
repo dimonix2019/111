@@ -13,13 +13,14 @@ from typing import Any
 from live.constants import (
     DEFAULT_Z_ENTRY,
     DEFAULT_Z_EXIT,
-    MONITOR_BAR_SETTLE_SEC,
     MONITOR_CATCHUP_MAX_EDGES,
     MONITOR_HEARTBEAT_SEC,
     MONITOR_INTERVAL_SEC,
     MONITOR_STALE_SEC,
     MONITOR_SYNC_TIMEOUT_SEC,
+    MONITOR_TIP1M_HOURS,
     MONITOR_Z_REVISE_MIN_DELTA,
+    SIGNAL_MODE_TIP1M,
     SPREAD_LOT_MIN_LOTS,
     SPREAD_LOT_PROD_DEFAULT_LEVERAGE,
 )
@@ -29,11 +30,14 @@ from live.signals import (
     Signal,
     determine_z_signal,
     find_bar_index,
-    is_consecutive_m15,
     is_moex_equity_session_bar,
-    last_settled_bar_index,
-    plan_monitor_catchup,
     should_revise_none_to_signal,
+)
+from live.tip_touch_signals import (
+    is_consecutive_1m,
+    load_tip_bars_for_live,
+    plan_tip1m_catchup,
+    should_exit_take_profit,
 )
 from live import store
 from live.tinvest import TInvestClient
@@ -186,6 +190,19 @@ def market_snapshot(
 
 def resolve_lots(client: TInvestClient, account_id: str) -> dict[str, Any]:
     snap = market_snapshot()
+    # Вне TQBR: цены для лотов с дилера (не в Z / tip1m / overlay).
+    try:
+        from live.dealer_quotes import (
+            apply_dealer_to_sizing_snap,
+            fetch_dealer_quotes,
+            want_dealer_quotes,
+        )
+
+        if want_dealer_quotes():
+            dealer = fetch_dealer_quotes(client, include_candles=False)
+            snap = apply_dealer_to_sizing_snap(snap, dealer)
+    except Exception:
+        pass
     tatn = float(snap["tatn"] or 0)
     tatnp = float(snap["tatnp"] or 0)
     if tatn <= 0 or tatnp <= 0:
@@ -606,12 +623,28 @@ def _auto_execute_signal(
     return f" · AUTO {signal.value}"
 
 
-def _record_edge_snapshot(bar_ms: int, z: float, signal: Signal) -> None:
+def _record_edge_snapshot(
+    bar_ms: int,
+    z: float,
+    signal: Signal,
+    *,
+    bar: dict[str, Any] | None = None,
+    revised: int = 0,
+) -> None:
     store.set_setting("last_edge_bar_ms", str(bar_ms))
     store.set_setting("last_edge_z", f"{z:.6f}")
     store.set_setting("last_edge_signal", signal.value)
     # Actionable already fired — no late revise. NONE may be upgraded once.
-    store.set_setting("last_edge_revised", "0" if signal == Signal.NONE else "1")
+    store.set_setting("last_edge_revised", "0" if signal == Signal.NONE and not revised else "1")
+    try:
+        store.upsert_decision_bar_from_series(
+            bar,
+            z_score=z,
+            signal=signal.value,
+            revised=int(revised),
+        )
+    except Exception as exc:
+        log.warning("decision_bars upsert failed: %s", exc)
 
 
 def _maybe_late_z_revise(
@@ -663,6 +696,12 @@ def _maybe_late_z_revise(
     store.set_setting("last_edge_revised", "1")
     store.set_setting("last_edge_z", f"{new_z:.6f}")
     store.set_setting("last_edge_signal", new_sig.value)
+    try:
+        store.upsert_decision_bar_from_series(
+            cur, z_score=new_z, signal=new_sig.value, revised=1
+        )
+    except Exception as exc:
+        log.warning("decision_bars revise upsert failed: %s", exc)
     result["signal"] = new_sig.value
     result.setdefault("signals", []).append(f"{new_sig.value}@{cur_td}:revise")
     store.log_event(
@@ -690,101 +729,235 @@ def _maybe_late_z_revise(
     return msg
 
 
+def _ensure_tip1m_signal_mode() -> None:
+    """One-shot migrate last_proc from M15 settle era → tip1m bootstrap."""
+    mode = store.get_setting("signal_mode", "") or ""
+    if mode == SIGNAL_MODE_TIP1M:
+        return
+    store.set_setting("signal_mode", SIGNAL_MODE_TIP1M)
+    store.set_setting("last_processed_bar_ms", "0")
+    store.log_event(
+        "Монитор: режим tip1m (касание 1м) — якорь сброшен, без реплея M15-истории",
+        "info",
+    )
+
+
+def _tp_deposit_leverage(settings: dict[str, Any], open_t: dict[str, Any] | None) -> tuple[float, float]:
+    try:
+        dep = float(
+            (open_t or {}).get("entry_deposit_rub")
+            or settings.get("entry_deposit_rub")
+            or 10_000
+        )
+    except (TypeError, ValueError):
+        dep = 10_000.0
+    try:
+        lev = float(settings.get("leverage") or SPREAD_LOT_PROD_DEFAULT_LEVERAGE)
+    except (TypeError, ValueError):
+        lev = SPREAD_LOT_PROD_DEFAULT_LEVERAGE
+    return max(1.0, dep), max(1.0, lev)
+
+
+def _maybe_tp_exit_on_tip(
+    *,
+    tip: dict[str, Any],
+    settings: dict[str, Any],
+    auto: bool,
+    entry: float,
+    exit_z: float,
+    msg: str,
+    result: dict[str, Any],
+) -> tuple[str, bool]:
+    """If open and MTM% ≥ TP — EXIT like Testing tip1m. Returns (msg, fired)."""
+    try:
+        tp = float(settings.get("take_profit_pct") or 0)
+    except (TypeError, ValueError):
+        tp = 0.0
+    if tp <= 0:
+        return msg, False
+    open_t = store.get_open_trade()
+    pos = current_position()
+    if not open_t or pos not in (Position.LONG, Position.SHORT):
+        return msg, False
+    cur_sp = tip.get("spreadPercent")
+    if cur_sp is None:
+        cur_sp = tip.get("spread")
+    dep, lev = _tp_deposit_leverage(settings, open_t)
+    if not should_exit_take_profit(
+        position=pos,
+        entry_spread=open_t.get("entry_spread"),
+        cur_spread=cur_sp,
+        take_profit_pct=tp,
+        deposit_rub=dep,
+        leverage=lev,
+    ):
+        return msg, False
+
+    signal = Signal.EXIT_LONG if pos == Position.LONG else Signal.EXIT_SHORT
+    cur_ms = int(tip.get("timestampMs") or 0)
+    cur_z = float(tip.get("zScore") or 0)
+    cur_td = str(tip.get("tradeDate") or "")
+    result["signal"] = signal.value
+    result.setdefault("signals", []).append(f"{signal.value}@{cur_td}:tp")
+    store.log_event(
+        f"Сигнал {signal.value} @ {cur_td} Z={cur_z:.2f} (TP {tp:g}%)",
+        "signal",
+    )
+    if auto:
+        try:
+            # close via AUTO path; tag source through signal_bar
+            close_position(source="AUTO_TP", signal_bar=tip)
+            try:
+                from live.parity import schedule_parity_for_auto
+
+                schedule_parity_for_auto(
+                    bar_ts=cur_td,
+                    bar_ms=cur_ms,
+                    signal=signal.value,
+                    z_score=cur_z,
+                    entry_z=entry,
+                    exit_z=exit_z,
+                    trade_id=None,
+                )
+            except Exception as parity_exc:
+                log.warning("parity schedule failed (TP): %s", parity_exc)
+            msg += f" · AUTO {signal.value} TP{tp:g}%"
+        except Exception as exc:
+            store.log_event(f"AUTO fail TP {signal.value}: {exc}", "error")
+            msg += f" · AUTO TP err: {exc}"
+    else:
+        msg += f" · сигнал {signal.value} TP (auto выкл)"
+    return msg, True
+
+
 def monitor_tick() -> dict[str, Any]:
-    """One monitor cycle: sync tip bar, AUTO on consecutive edges since last_proc (APK-like catchup)."""
+    """One monitor cycle: tip1m edges (Testing «касание 1м») + optional TP exit."""
     global _last_status
+    _ensure_tip1m_signal_mode()
     settings = store.get_settings_bundle()
     entry = float(settings.get("entry_z") or DEFAULT_Z_ENTRY)
     exit_z = float(settings.get("exit_z") or DEFAULT_Z_EXIT)
     auto = bool(settings.get("auto_execute"))
     now_ms = int(time.time() * 1000)
-    # Короткий sync — не зависать на ISS.
+    # Keep M15 SQLite fresh (μ/σ base); signals come from 1m tip-Z.
     snap = market_snapshot(wait_sync=True, sync_timeout_sec=MONITOR_SYNC_TIMEOUT_SEC)
     try:
         reconcile_broker_open_trade()
     except Exception as sync_exc:
         log.warning("broker reconcile failed: %s", sync_exc)
 
-    bars = list(snap.get("bars") or [])
-    bar = snap["bar"]
-    z = float(bar["zScore"])
-    msg = f"{bar.get('tradeDate')} · Z {z:.2f}"
+    m15_bars = list(snap.get("bars") or [])
+    tip_bars = load_tip_bars_for_live(
+        m15_bars, now_ms=now_ms, hours=MONITOR_TIP1M_HOURS
+    )
+    if tip_bars:
+        bar = tip_bars[-1]
+        z = float(bar.get("zScore") or 0)
+        display_td = bar.get("tradeDate")
+    else:
+        bar = snap["bar"]
+        z = float(bar.get("zScore") or 0)
+        display_td = bar.get("tradeDate")
+    msg = f"{display_td} · tip1m Z {z:.2f}"
     result: dict[str, Any] = {
         "z": z,
-        "bar": bar.get("tradeDate"),
+        "bar": display_td,
         "signal": Signal.NONE.value,
         "catchup_edges": 0,
         "signals": [],
+        "signal_mode": SIGNAL_MODE_TIP1M,
     }
 
-    if len(bars) < 2:
+    if len(tip_bars) < 2:
         _last_status.update(
             {
                 "last_tick_ms": now_ms,
-                "last_message": msg + " · нет prev",
+                "last_message": msg + " · нет 1м tip",
                 "last_z": z,
-                "last_bar": bar.get("tradeDate"),
+                "last_bar": display_td,
             }
         )
         return result
 
     last_proc = int(store.get_setting("last_processed_bar_ms", "0") or "0")
-    mode, edges = plan_monitor_catchup(
-        bars,
+    mode, edges = plan_tip1m_catchup(
+        tip_bars,
         last_proc,
         max_edges=MONITOR_CATCHUP_MAX_EDGES,
-        now_ms=now_ms,
-        settle_sec=MONITOR_BAR_SETTLE_SEC,
     )
 
     if mode == "bootstrap":
-        # Якорь на последний settled бар — не на mid-bar tip.
-        si = last_settled_bar_index(bars, now_ms, settle_sec=MONITOR_BAR_SETTLE_SEC)
-        anchor = bars[si] if si is not None else bar
+        anchor = tip_bars[-1]
         anchor_ms = int(anchor.get("timestampMs") or 0)
         store.set_setting("last_processed_bar_ms", str(anchor_ms))
-        _record_edge_snapshot(anchor_ms, float(anchor.get("zScore") or z), Signal.NONE)
+        _record_edge_snapshot(
+            anchor_ms, float(anchor.get("zScore") or z), Signal.NONE, bar=anchor
+        )
         store.log_event(
-            f"Монитор: якорь на {anchor.get('tradeDate')} (без реплея истории)",
+            f"Монитор tip1m: якорь на {anchor.get('tradeDate')} (без реплея истории)",
             "info",
+        )
+        # TP still checked on latest tip while holding.
+        msg, _ = _maybe_tp_exit_on_tip(
+            tip=anchor,
+            settings=settings,
+            auto=auto,
+            entry=entry,
+            exit_z=exit_z,
+            msg=msg,
+            result=result,
         )
         _maybe_monitor_heartbeat(bar, z)
         _last_status.update(
             {
                 "last_tick_ms": now_ms,
-                "last_message": msg + " · якорь",
+                "last_message": msg + " · якорь tip1m",
                 "last_z": z,
-                "last_bar": bar.get("tradeDate"),
+                "last_bar": display_td,
             }
         )
         return result
 
     if mode == "up_to_date":
-        msg = _maybe_late_z_revise(
-            bars, entry=entry, exit_z=exit_z, auto=auto, msg=msg, result=result
+        tip = tip_bars[-1]
+        msg, _ = _maybe_tp_exit_on_tip(
+            tip=tip,
+            settings=settings,
+            auto=auto,
+            entry=entry,
+            exit_z=exit_z,
+            msg=msg,
+            result=result,
         )
         _maybe_monitor_heartbeat(bar, z)
         _last_status.update(
             {
                 "last_tick_ms": now_ms,
-                "last_message": msg + (" · уже обработан" if "revise" not in msg else ""),
+                "last_message": msg + " · уже обработан",
                 "last_z": z,
-                "last_bar": bar.get("tradeDate"),
+                "last_bar": display_td,
             }
         )
         return result
 
     if mode == "skip_gap":
-        # Пропуски не догоняем сделками — только якорь на settled хвост + предупреждение.
-        si = last_settled_bar_index(bars, now_ms, settle_sec=MONITOR_BAR_SETTLE_SEC)
-        tip = bars[si] if si is not None else bar
+        tip = tip_bars[-1]
         tip_ms = int(tip.get("timestampMs") or 0)
         n_miss = max(0, len(edges))
         store.set_setting("last_processed_bar_ms", str(tip_ms))
-        _record_edge_snapshot(tip_ms, float(tip.get("zScore") or z), Signal.NONE)
+        _record_edge_snapshot(tip_ms, float(tip.get("zScore") or z), Signal.NONE, bar=tip)
         store.log_event(
-            f"Монитор: пропуск {n_miss} бар(ов) без AUTO-догона → якорь {tip.get('tradeDate')}",
+            f"Монитор tip1m: пропуск без AUTO-догона → якорь {tip.get('tradeDate')}",
             "warn",
+        )
+        msg, _ = _maybe_tp_exit_on_tip(
+            tip=tip,
+            settings=settings,
+            auto=auto,
+            entry=entry,
+            exit_z=exit_z,
+            msg=msg,
+            result=result,
         )
         _maybe_monitor_heartbeat(bar, z)
         _last_status.update(
@@ -792,12 +965,12 @@ def monitor_tick() -> dict[str, Any]:
                 "last_tick_ms": now_ms,
                 "last_message": msg + f" · skip×{n_miss}",
                 "last_z": z,
-                "last_bar": bar.get("tradeDate"),
+                "last_bar": display_td,
             }
         )
         return result
 
-    # mode == "live": consecutive рёбра после last_proc (догон как APK, до max_edges)
+    # mode == "live": consecutive 1m tip edges after last_proc
     n_edges = 0
     for prev, cur in edges:
         prev_ms = int(prev.get("timestampMs") or 0)
@@ -805,28 +978,49 @@ def monitor_tick() -> dict[str, Any]:
         cur_z = float(cur["zScore"])
         cur_td = str(cur.get("tradeDate") or "")
 
-        if not is_consecutive_m15(prev_ms, cur_ms):
+        if not is_consecutive_1m(prev_ms, cur_ms):
             store.log_event(
-                f"Монитор: дыра в барах {prev.get('tradeDate')} → {cur_td} (сигнал пропущен)",
+                f"Монитор tip1m: дыра {prev.get('tradeDate')} → {cur_td} (сигнал пропущен)",
                 "warn",
             )
             store.set_setting("last_processed_bar_ms", str(cur_ms))
-            _record_edge_snapshot(cur_ms, cur_z, Signal.NONE)
+            _record_edge_snapshot(cur_ms, cur_z, Signal.NONE, bar=cur)
             continue
 
         if not is_moex_equity_session_bar(cur_td):
             store.log_event(
-                f"Монитор: вне сессии TQBR {cur_td} (сигнал пропущен)",
+                f"Монитор tip1m: вне сессии TQBR {cur_td} (сигнал пропущен)",
                 "info",
             )
             store.set_setting("last_processed_bar_ms", str(cur_ms))
-            _record_edge_snapshot(cur_ms, cur_z, Signal.NONE)
+            _record_edge_snapshot(cur_ms, cur_z, Signal.NONE, bar=cur)
+            continue
+
+        # TP before Z exit/entry on this tip (Testing order).
+        pos = current_position()
+        msg, tp_fired = _maybe_tp_exit_on_tip(
+            tip=cur,
+            settings=settings,
+            auto=auto,
+            entry=entry,
+            exit_z=exit_z,
+            msg=msg,
+            result=result,
+        )
+        if tp_fired:
+            store.set_setting("last_processed_bar_ms", str(cur_ms))
+            tp_sig = (
+                Signal.EXIT_LONG if pos == Position.LONG else Signal.EXIT_SHORT
+            )
+            _record_edge_snapshot(cur_ms, cur_z, tp_sig, bar=cur)
+            n_edges += 1
+            result["catchup_edges"] = n_edges
             continue
 
         pos = current_position()
         signal = determine_z_signal(float(prev["zScore"]), cur_z, pos, entry, exit_z)
         store.set_setting("last_processed_bar_ms", str(cur_ms))
-        _record_edge_snapshot(cur_ms, cur_z, signal)
+        _record_edge_snapshot(cur_ms, cur_z, signal, bar=cur)
         n_edges += 1
         result["catchup_edges"] = n_edges
 
@@ -835,7 +1029,7 @@ def monitor_tick() -> dict[str, Any]:
 
         result["signal"] = signal.value
         result.setdefault("signals", []).append(f"{signal.value}@{cur_td}")
-        store.log_event(f"Сигнал {signal.value} @ {cur_td} Z={cur_z:.2f}", "signal")
+        store.log_event(f"Сигнал {signal.value} @ {cur_td} Z={cur_z:.2f} (tip1m)", "signal")
 
         if auto:
             try:
@@ -854,16 +1048,10 @@ def monitor_tick() -> dict[str, Any]:
         else:
             msg += f" · сигнал {signal.value} (auto выкл)"
 
-    # Если после live всё ещё tip на last_proc — дать late revise на том же тике.
-    msg = _maybe_late_z_revise(
-        bars, entry=entry, exit_z=exit_z, auto=auto, msg=msg, result=result
-    )
-
     try:
         from live.parity import maybe_run_hourly_parity_digest, process_due_parity_checks
 
         process_due_parity_checks()
-        # Durable hourly digest (parity-hourly.log) — survives Cursor chat death.
         maybe_run_hourly_parity_digest(run_checks=False)
     except Exception as parity_exc:
         log.warning("parity process failed: %s", parity_exc)
@@ -874,7 +1062,7 @@ def monitor_tick() -> dict[str, Any]:
             "last_tick_ms": now_ms,
             "last_message": msg,
             "last_z": z,
-            "last_bar": bar.get("tradeDate"),
+            "last_bar": display_td,
         }
     )
     return result

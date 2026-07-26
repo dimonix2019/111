@@ -190,6 +190,32 @@ def _build_m15_frame(
     return merged[["timestamp", "z_score", "spread_percent", "tatn_close", "tatnp_close"]]
 
 
+def fetch_1m_spread_frame(
+    *,
+    hours: float = LIVE_TIP_1M_HOURS,
+    till: str | None = None,
+) -> pd.DataFrame:
+    """1m TATN/TATNP closes + spread for tip1m Mode B (Prod + Testing parity).
+
+    Columns: timestamp (tz-aware), tatn, tatnp, spread.
+    """
+    end = moex_now()
+    tip_from = (end - timedelta(hours=max(1.0, float(hours)))).strftime("%Y-%m-%d")
+    till_s = till or end.strftime("%Y-%m-%d")
+    tatn1 = _fetch_candles("TATN", tip_from, till_s, interval=INTERVAL_1)
+    tatnp1 = _fetch_candles("TATNP", tip_from, till_s, interval=INTERVAL_1)
+    if tatn1.empty or tatnp1.empty:
+        return pd.DataFrame(columns=["timestamp", "tatn", "tatnp", "spread"])
+    a = tatn1.rename(columns={"close": "tatn"})
+    b = tatnp1.rename(columns={"close": "tatnp"})
+    merged = pd.merge(a, b, on="timestamp", how="inner")
+    if merged.empty:
+        return pd.DataFrame(columns=["timestamp", "tatn", "tatnp", "spread"])
+    merged = merged.sort_values("timestamp").drop_duplicates(subset=["timestamp"], keep="last")
+    merged["spread"] = (merged["tatn"] / merged["tatnp"] - 1.0) * 100.0
+    return merged[["timestamp", "tatn", "tatnp", "spread"]].reset_index(drop=True)
+
+
 def _overlay_1m_tip(frame: pd.DataFrame, *, till: str) -> pd.DataFrame:
     """Перекрыть хвост 15м рядом из 1м свечей — ISS 10м часто отстаёт на слот+."""
     if frame.empty:
@@ -232,8 +258,8 @@ def _live_tip_session_ok(now: datetime | None = None) -> bool:
     return (6 * 60 + 30) <= mins <= (23 * 60 + 50)
 
 
-def _fetch_last_price(secid: str) -> float | None:
-    """LAST из ISS marketdata (тик без свечи)."""
+def fetch_live_quote_row(secid: str) -> dict | None:
+    """Одна строка ISS marketdata (LAST/BID/OFFER/…) или None."""
     resp = requests.get(
         _iss_security_url(secid),
         params={"iss.meta": "off", "iss.only": "marketdata"},
@@ -245,7 +271,12 @@ def _fetch_last_price(secid: str) -> float | None:
     rows = block.get("data") or []
     if not cols or not rows:
         return None
-    row = dict(zip(cols, rows[0]))
+    return dict(zip(cols, rows[0]))
+
+
+def _fetch_last_price(secid: str) -> float | None:
+    """LAST из ISS marketdata (тик без свечи)."""
+    row = fetch_live_quote_row(secid) or {}
     last = row.get("LAST")
     if last is None:
         last = row.get("LCURRENTPRICE") or row.get("MARKETPRICE")
@@ -315,6 +346,10 @@ def apply_live_last_overlay(path: Path = DEFAULT_M15_CSV, *, force: bool = False
     import time as _time
 
     if not path.is_file():
+        return False
+    # Historical 3y dumps: full read/rewrite under lock freezes the replay HTTP server.
+    # Live tip belongs on m15_tatn_255d.csv (monitor / desk).
+    if lookback_days_for_path(path) >= 900:
         return False
     now_ms = _time.time() * 1000.0
     if not force and _last_overlay_ok_ms and (now_ms - _last_overlay_ok_ms) < _LAST_OVERLAY_GAP_SEC * 1000:

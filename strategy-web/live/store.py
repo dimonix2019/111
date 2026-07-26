@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 import time
@@ -125,8 +126,22 @@ def _init(conn: sqlite3.Connection) -> None:
             status TEXT NOT NULL DEFAULT 'pending',
             result_json TEXT
         );
+        CREATE TABLE IF NOT EXISTS decision_bars (
+            bar_ts TEXT PRIMARY KEY,
+            open REAL,
+            high REAL,
+            low REAL,
+            close REAL,
+            spread_percent REAL,
+            z_score REAL,
+            signal TEXT,
+            decided_at_msk TEXT,
+            revised INTEGER NOT NULL DEFAULT 0
+        );
         """
     )
+    _ensure_column(conn, "decision_bars", "tatn_close", "REAL")
+    _ensure_column(conn, "decision_bars", "tatnp_close", "REAL")
     # Default: monitor ON (APK always-on intent); only seed if unset
     row = conn.execute(
         "SELECT 1 FROM live_settings WHERE key = 'monitor_running'"
@@ -187,6 +202,13 @@ def get_settings_bundle() -> dict[str, Any]:
     mode = get_setting("execution_mode", "sandbox") or "sandbox"
     token = get_setting(f"token_{mode}", "") or ""
     account = get_setting(f"account_{mode}", "") or ""
+    try:
+        tp = float(get_setting("take_profit_pct", "0") or "0")
+    except ValueError:
+        tp = 0.0
+    if tp not in (0.0, 1.0, 2.0, 3.0):
+        # snap to nearest allowed
+        tp = min((0.0, 1.0, 2.0, 3.0), key=lambda x: abs(x - tp))
     return {
         "mode": mode,
         "has_token": bool(token.strip()),
@@ -198,6 +220,8 @@ def get_settings_bundle() -> dict[str, Any]:
         "exit_z": float(get_setting("exit_z", "1.2") or "1.2"),
         "leverage": float(get_setting("leverage", "7") or "7"),
         "entry_deposit_rub": float(get_setting("entry_deposit_rub", "10000") or "10000"),
+        "take_profit_pct": tp,
+        "signal_mode": get_setting("signal_mode", "tip1m") or "tip1m",
         "last_processed_bar_ms": int(get_setting("last_processed_bar_ms", "0") or "0"),
     }
 
@@ -526,6 +550,430 @@ def force_parity_due() -> int:
         )
         conn.commit()
         return int(cur.rowcount or 0)
+
+
+def _msk_now_label() -> str:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo("Europe/Moscow")).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def upsert_decision_bar(
+    *,
+    bar_ts: str,
+    open_: float | None = None,
+    high: float | None = None,
+    low: float | None = None,
+    close: float | None = None,
+    spread_percent: float | None = None,
+    z_score: float | None = None,
+    signal: str | None = None,
+    decided_at_msk: str | None = None,
+    revised: int = 0,
+    tatn_close: float | None = None,
+    tatnp_close: float | None = None,
+) -> None:
+    """Freeze OHLC/Z (+ legs) at decision time; UPSERT by bar_ts."""
+    ts = (bar_ts or "").strip()
+    if not ts:
+        return
+    decided = decided_at_msk or _msk_now_label()
+
+    def _op() -> None:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO decision_bars(
+                    bar_ts, open, high, low, close, spread_percent, z_score,
+                    signal, decided_at_msk, revised, tatn_close, tatnp_close
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(bar_ts) DO UPDATE SET
+                    open = COALESCE(excluded.open, decision_bars.open),
+                    high = COALESCE(excluded.high, decision_bars.high),
+                    low = COALESCE(excluded.low, decision_bars.low),
+                    close = COALESCE(excluded.close, decision_bars.close),
+                    spread_percent = COALESCE(excluded.spread_percent, decision_bars.spread_percent),
+                    z_score = COALESCE(excluded.z_score, decision_bars.z_score),
+                    signal = COALESCE(excluded.signal, decision_bars.signal),
+                    decided_at_msk = excluded.decided_at_msk,
+                    revised = MAX(decision_bars.revised, excluded.revised),
+                    tatn_close = COALESCE(excluded.tatn_close, decision_bars.tatn_close),
+                    tatnp_close = COALESCE(excluded.tatnp_close, decision_bars.tatnp_close)
+                """,
+                (
+                    ts,
+                    open_,
+                    high,
+                    low,
+                    close,
+                    spread_percent,
+                    z_score,
+                    signal,
+                    decided,
+                    int(revised),
+                    tatn_close,
+                    tatnp_close,
+                ),
+            )
+            conn.commit()
+
+    db_retry(_op)
+
+
+def upsert_decision_bar_from_series(
+    bar: dict[str, Any] | None,
+    *,
+    z_score: float | None = None,
+    signal: str | None = None,
+    revised: int = 0,
+) -> None:
+    """Capture snapshot fields from a live/replay bar dict."""
+    if not bar:
+        return
+    ts = str(bar.get("tradeDate") or "").strip()
+    if not ts:
+        return
+    try:
+        spread = float(bar["spreadPercent"]) if bar.get("spreadPercent") is not None else None
+    except (TypeError, ValueError):
+        spread = None
+    try:
+        z = float(z_score) if z_score is not None else (
+            float(bar["zScore"]) if bar.get("zScore") is not None else None
+        )
+    except (TypeError, ValueError):
+        z = None
+    try:
+        tatn = float(bar["tatnClose"]) if bar.get("tatnClose") is not None else None
+    except (TypeError, ValueError):
+        tatn = None
+    try:
+        tatnp = float(bar["tatnpClose"]) if bar.get("tatnpClose") is not None else None
+    except (TypeError, ValueError):
+        tatnp = None
+    # Point-in-time: OHLC = spread (no intra-bar candle in M15 series).
+    ohlc = spread
+    upsert_decision_bar(
+        bar_ts=ts,
+        open_=ohlc,
+        high=ohlc,
+        low=ohlc,
+        close=ohlc,
+        spread_percent=spread,
+        z_score=z,
+        signal=signal,
+        revised=revised,
+        tatn_close=tatn,
+        tatnp_close=tatnp,
+    )
+
+
+def get_decision_bars(
+    from_ts: str | None = None,
+    to_ts: str | None = None,
+) -> list[dict[str, Any]]:
+    def _op() -> list[dict[str, Any]]:
+        with _connect() as conn:
+            sql = "SELECT * FROM decision_bars"
+            args: list[Any] = []
+            clauses: list[str] = []
+            if from_ts:
+                clauses.append("bar_ts >= ?")
+                args.append(from_ts)
+            if to_ts:
+                clauses.append("bar_ts <= ?")
+                args.append(to_ts)
+            if clauses:
+                sql += " WHERE " + " AND ".join(clauses)
+            sql += " ORDER BY bar_ts"
+            rows = conn.execute(sql, args).fetchall()
+        return [dict(r) for r in rows]
+
+    try:
+        return db_retry(_op)
+    except sqlite3.OperationalError:
+        return []
+
+
+def get_decision_bar_timestamps() -> set[str]:
+    """Timestamps frozen for signal-path upsert skip."""
+    def _op() -> set[str]:
+        with _connect() as conn:
+            rows = conn.execute("SELECT bar_ts FROM decision_bars").fetchall()
+        return {str(r["bar_ts"]) for r in rows if r["bar_ts"]}
+
+    try:
+        return db_retry(_op)
+    except sqlite3.OperationalError:
+        return set()
+
+
+def backfill_decision_z_from_parity_edges() -> int:
+    """Best-effort: fill missing decision_bars Z from live_parity_edges (OHLC may stay null)."""
+    def _op() -> int:
+        with _connect() as conn:
+            edges = conn.execute(
+                """
+                SELECT bar_ts, z_score, signal
+                FROM live_parity_edges
+                WHERE z_score IS NOT NULL AND bar_ts IS NOT NULL AND bar_ts != ''
+                ORDER BY id ASC
+                """
+            ).fetchall()
+            n = 0
+            for e in edges:
+                ts = str(e["bar_ts"]).strip()
+                if not ts:
+                    continue
+                existing = conn.execute(
+                    "SELECT z_score, open, close FROM decision_bars WHERE bar_ts = ?",
+                    (ts,),
+                ).fetchone()
+                if existing is not None and existing["z_score"] is not None:
+                    # Already have a freeze with Z — skip.
+                    continue
+                try:
+                    z = float(e["z_score"])
+                except (TypeError, ValueError):
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO decision_bars(
+                        bar_ts, open, high, low, close, spread_percent, z_score,
+                        signal, decided_at_msk, revised
+                    ) VALUES (?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, 0)
+                    ON CONFLICT(bar_ts) DO UPDATE SET
+                        z_score = COALESCE(decision_bars.z_score, excluded.z_score),
+                        signal = COALESCE(decision_bars.signal, excluded.signal)
+                    """,
+                    (ts, z, e["signal"], _msk_now_label()),
+                )
+                n += 1
+            conn.commit()
+            return n
+
+    try:
+        return int(db_retry(_op) or 0)
+    except sqlite3.OperationalError:
+        return 0
+
+
+_MONITOR_OK_Z_RE = re.compile(
+    r"OK ·\s*(?P<bar>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*·\s*Z=(?P<z>-?\d+(?:\.\d+)?)"
+)
+_SIGNAL_AT_RE = re.compile(
+    r"Сигнал\s+(?P<sig>\S+)\s+@\s+(?P<bar>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s+Z=(-?\d+(?:\.\d+)?)"
+)
+
+
+def parse_tip_z_from_live_events(
+    events: list[dict[str, Any]] | None = None,
+    *,
+    limit: int = 500,
+) -> dict[str, float]:
+    """Last tip Z per bar from «Монитор OK · {bar} · Z=…» heartbeats (closest to settle)."""
+    if events is None:
+        events = list_events(limit)
+    # list_events is newest-first; walk oldest→newest so last write wins.
+    chron = list(reversed(events))
+    out: dict[str, float] = {}
+    for e in chron:
+        msg = str(e.get("message") or "")
+        m = _MONITOR_OK_Z_RE.search(msg)
+        if not m:
+            continue
+        try:
+            out[m.group("bar")] = float(m.group("z"))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def parse_live_signal_bars_from_events(
+    events: list[dict[str, Any]] | None = None,
+    *,
+    limit: int = 500,
+) -> set[str]:
+    """Bars where live logged an actionable Сигнал … @ bar (ENTER_*/EXIT_*)."""
+    if events is None:
+        events = list_events(limit)
+    out: set[str] = set()
+    for e in events:
+        msg = str(e.get("message") or "")
+        m = _SIGNAL_AT_RE.search(msg)
+        if not m:
+            continue
+        sig = (m.group("sig") or "").upper()
+        if sig and sig != "NONE":
+            out.add(m.group("bar"))
+    return out
+
+
+def backfill_decision_z_from_live_events(
+    *,
+    entry_z: float | None = None,
+    exit_z: float | None = None,
+    events_limit: int = 500,
+) -> int:
+    """Fill decision_bars Z from tip heartbeats (pre-freeze phantom killer).
+
+    Uses last tip Z per bar. Real freezes (non-backfill decided_at) are never
+    overwritten. Prior tip-backfill rows are refreshed.
+
+    Tip spikes that would ENTER without a live Сигнал event are stored with
+    signal=NONE (raw tip Z kept). as_live overlay sets liveSignal so Testing
+    sim suppresses geometric crosses Prod never took.
+    """
+    from live.signals import Position, Signal, determine_z_signal
+
+    events = list_events(events_limit)
+    tip_z = parse_tip_z_from_live_events(events)
+    if not tip_z:
+        return 0
+    confirmed = parse_live_signal_bars_from_events(events)
+    try:
+        entry = float(entry_z) if entry_z is not None else float(
+            get_setting("entry_z", "1.6") or "1.6"
+        )
+    except (TypeError, ValueError):
+        entry = 1.6
+    try:
+        exit_ = float(exit_z) if exit_z is not None else float(
+            get_setting("exit_z", "1.3") or "1.3"
+        )
+    except (TypeError, ValueError):
+        exit_ = 1.3
+
+    existing = {
+        str(r["bar_ts"]): r
+        for r in get_decision_bars()
+        if r.get("bar_ts") and r.get("z_score") is not None
+    }
+    prev_z: float | None = None
+    pos = Position.FLAT
+    n = 0
+    decided = _msk_now_label() + " backfill:live_events"
+
+    for ts in sorted(set(tip_z) | set(existing)):
+        row = existing.get(ts)
+        is_real = bool(row) and "backfill:live_events" not in str(
+            row.get("decided_at_msk") or ""
+        )
+        if is_real:
+            try:
+                prev_z = float(row["z_score"])
+            except (TypeError, ValueError):
+                prev_z = tip_z.get(ts, prev_z)
+            raw_sig = str(row.get("signal") or Signal.NONE.value)
+            if raw_sig == Signal.ENTER_LONG.value:
+                pos = Position.LONG
+            elif raw_sig == Signal.ENTER_SHORT.value:
+                pos = Position.SHORT
+            elif raw_sig in (Signal.EXIT_LONG.value, Signal.EXIT_SHORT.value):
+                pos = Position.FLAT
+            continue
+
+        if ts not in tip_z:
+            continue
+
+        z = float(tip_z[ts])
+        sig = Signal.NONE
+        if prev_z is not None:
+            sig = determine_z_signal(prev_z, z, pos, entry, exit_)
+            if sig in (Signal.ENTER_LONG, Signal.ENTER_SHORT) and ts not in confirmed:
+                sig = Signal.NONE
+        # Force replace of prior tip-backfill (upsert COALESCE would keep old Z).
+        _replace_decision_z(ts, z_score=z, signal=sig.value, decided_at_msk=decided)
+        n += 1
+        if sig == Signal.ENTER_LONG:
+            pos = Position.LONG
+        elif sig == Signal.ENTER_SHORT:
+            pos = Position.SHORT
+        elif sig in (Signal.EXIT_LONG, Signal.EXIT_SHORT):
+            pos = Position.FLAT
+        prev_z = z
+
+    return n
+
+
+def _replace_decision_z(
+    bar_ts: str,
+    *,
+    z_score: float,
+    signal: str,
+    decided_at_msk: str,
+) -> None:
+    """Upsert Z/signal even when a prior backfill row already has z_score."""
+
+    def _op() -> None:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO decision_bars(
+                    bar_ts, open, high, low, close, spread_percent, z_score,
+                    signal, decided_at_msk, revised
+                ) VALUES (?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, 0)
+                ON CONFLICT(bar_ts) DO UPDATE SET
+                    z_score = excluded.z_score,
+                    signal = excluded.signal,
+                    decided_at_msk = excluded.decided_at_msk
+                """,
+                (bar_ts, z_score, signal, decided_at_msk),
+            )
+            conn.commit()
+
+    db_retry(_op)
+
+
+def overlay_decision_bars_on_series(bars: list[dict[str, Any]]) -> dict[str, Any]:
+    """In-place overlay of frozen OHLC/Z onto replay bars. Returns coverage meta."""
+    if not bars:
+        return {
+            "as_live": True,
+            "locked_count": 0,
+            "bars_count": 0,
+            "coverage": 0.0,
+            "locked_from": None,
+            "locked_to": None,
+        }
+    from_ts = str(bars[0].get("tradeDate") or "") or None
+    to_ts = str(bars[-1].get("tradeDate") or "") or None
+    locked = {d["bar_ts"]: d for d in get_decision_bars(from_ts=from_ts, to_ts=to_ts)}
+    locked_count = 0
+    locked_from: str | None = None
+    locked_to: str | None = None
+    for b in bars:
+        ts = str(b.get("tradeDate") or "")
+        d = locked.get(ts)
+        if not d:
+            continue
+        locked_count += 1
+        locked_from = ts if locked_from is None else min(locked_from, ts)
+        locked_to = ts if locked_to is None else max(locked_to, ts)
+        if d.get("spread_percent") is not None:
+            b["spreadPercent"] = float(d["spread_percent"])
+        if d.get("z_score") is not None:
+            b["zScore"] = float(d["z_score"])
+        if d.get("tatn_close") is not None:
+            b["tatnClose"] = float(d["tatn_close"])
+        if d.get("tatnp_close") is not None:
+            b["tatnpClose"] = float(d["tatnp_close"])
+        # Prefer explicit close (spread) if present and legs missing.
+        if d.get("close") is not None and d.get("spread_percent") is None:
+            b["spreadPercent"] = float(d["close"])
+        # Frozen Prod decision — Testing sim must not invent ENTER when signal is NONE.
+        if d.get("signal") is not None:
+            b["liveSignal"] = str(d["signal"])
+    n = len(bars)
+    return {
+        "as_live": True,
+        "locked_count": locked_count,
+        "bars_count": n,
+        "coverage": (locked_count / n) if n else 0.0,
+        "locked_from": locked_from,
+        "locked_to": locked_to,
+    }
 
 
 def parity_summary() -> dict[str, Any]:

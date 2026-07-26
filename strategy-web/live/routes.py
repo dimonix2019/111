@@ -26,10 +26,22 @@ class SettingsBody(BaseModel):
     entry_z: float | None = None
     exit_z: float | None = None
     leverage: float | None = None
+    take_profit_pct: float | None = None
 
 
 class ManualTradeBody(BaseModel):
     side: str = Field(..., description="LONG | SHORT | CLOSE")
+
+
+def _normalize_take_profit_pct(v: float | None) -> float | None:
+    if v is None:
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    allowed = (0.0, 1.0, 2.0, 3.0)
+    return min(allowed, key=lambda x: abs(x - n))
 
 
 @router.get("/status")
@@ -83,12 +95,37 @@ def live_status(
             except Exception as exc:
                 broker = {"error": str(exc), "mode": mode, "account_id": account}
 
+        dealer = None
+        try:
+            from live.dealer_quotes import (
+                kick_dealer_cache_warm,
+                peek_cached_dealer_quotes,
+                want_dealer_quotes,
+            )
+
+            # Status: cache only + background warm — never sync-wait TInvest here.
+            if want_dealer_quotes():
+                dealer = peek_cached_dealer_quotes()
+                kick_dealer_cache_warm()
+                if dealer is None:
+                    dealer = {
+                        "ok": False,
+                        "label": "дилер / выходные · 1м",
+                        "error": "кэш дилера греется",
+                        "warming": True,
+                        "for_z": False,
+                        "for_auto": False,
+                    }
+        except Exception as d_exc:
+            dealer = {"ok": False, "label": "дилер / выходные", "error": str(d_exc), "for_z": False}
+
         return {
             "settings": store.get_settings_bundle(),
             "monitor": engine.monitor_status(),
             "open": store.get_open_trade(),
             "market": market,
             "broker": broker,
+            "dealer": dealer,
             "events": store.list_events(30),
             "parity": store.parity_summary(),
         }
@@ -119,6 +156,9 @@ def save_settings(body: SettingsBody) -> dict[str, Any]:
         store.set_setting("exit_z", str(body.exit_z))
     if body.leverage is not None:
         store.set_setting("leverage", str(max(1.0, min(30.0, body.leverage))))
+    tp = _normalize_take_profit_pct(body.take_profit_pct)
+    if tp is not None:
+        store.set_setting("take_profit_pct", str(tp))
     return {"ok": True, "settings": store.get_settings_bundle()}
 
 

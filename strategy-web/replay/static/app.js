@@ -40,6 +40,9 @@
     takeProfit: 'moexReplay.takeProfit',
     riskExit: 'moexReplay.riskExit', // legacy single preset
     compound: 'moexReplay.compound',
+    columnTips: 'moexReplay.columnTips',
+    barsSource: 'moexReplay.barsSource',
+    edgeMode: 'moexReplay.edgeMode',
   };
 
   const TRADES_PANEL_DEFAULT = 300;
@@ -65,6 +68,10 @@
   const TRADES_SUMMARY_MIN = 120;
 
   let allPoints = [];
+  /** Meta from last /api/bars (as_live coverage). */
+  let lastBarsMeta = { as_live: true, locked_count: 0, bars_count: 0, coverage: 0, locked_from: null, locked_to: null };
+  /** Полная серия по CSV (для быстрых пресетов start без повторного /api/bars). */
+  const barsCacheByCsv = Object.create(null);
   let engine = null;
   let chart = null;
   let playing = false;
@@ -88,11 +95,13 @@
   /** Precomputed column distributions for the filtered trades table (hover tip). */
   let tradeMetricDists = {};
   /** Distributions of visible bars for status-bar Z / Спред hover tips. */
-  let statusBarMetricDists = { z: null, spread: null };
+  let statusBarMetricDists = { z: null, spread: null, cursor: -1 };
   let tradeMetricTipEl = null;
   let tradeMetricTipHideTimer = null;
   let timer = null;
   let scrubbing = false;
+  let scrubRaf = 0;
+  let scrubPendingFrac = null;
   let visibleTradeColumns = [...TRADE_COLUMNS_DEFAULT];
   let scrollRestored = false;
   let summaryScrollRestored = false;
@@ -100,7 +109,19 @@
   let monthlyPnlScrollRestored = false;
   let zHeatmapScrollRestored = false;
   let zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+  /** Reuse typed arrays across heatmap recalcs (same bars / endIdx). */
+  let heatmapSeriesCache = { endIdx: -1, len: 0, series: null };
   let zHeatmapTimer = null;
+  /** Server tip-1m sim (Mode B) for Testing «касание 1м». */
+  let tipSimCache = { key: '', rows: null, meta: null, summary: null };
+  let tipSimJobId = 0;
+  let tipSimTimer = null;
+  /** M15 bars stash while tip1m chart is active. */
+  let m15PointsStash = null;
+  /** Last /api/bars1m meta (window limit note). */
+  let tip1mChartMeta = null;
+  let tip1mBarsCacheKey = '';
+  let tip1mChartJobId = 0;
   let zHeatmapJobId = 0;
   /** Пока true — не писать scroll в localStorage (восстановление / layout). */
   let suppressScrollSave = false;
@@ -111,6 +132,8 @@
   let tradeSortDir = 'asc';
   /** all | no-red | only-red */
   let riskFilter = 'all';
+  /** Hover histogram tips on metric columns (Длит., Чист., Min…). Default ON. */
+  let columnTipsEnabled = true;
   /** Last max drawdown from trades summary — same metric as «Макс. просадка». */
   let lastMaxDd = 0;
   let lastMaxDdPct = 0;
@@ -187,6 +210,9 @@
     const compoundChk = $('compoundChk');
     if (compoundChk) compoundChk.checked = compoundOn;
     setSimCompound(compoundOn);
+    columnTipsEnabled = localStorage.getItem(LS.columnTips) !== '0';
+    const columnTipsChk = $('columnTipsChk');
+    if (columnTipsChk) columnTipsChk.checked = columnTipsEnabled;
   }
 
   function migrateLegacyRiskExitIfNeeded() {
@@ -1196,6 +1222,115 @@
     }
   }
 
+  function startYmdToMs(ymd) {
+    if (!ymd || ymd.length < 10) return NaN;
+    return new Date(`${ymd.slice(0, 10)}T00:00:00+03:00`).getTime();
+  }
+
+  function barTimestampMs(p) {
+    const ms = p?.timestampMs;
+    if (ms != null && Number.isFinite(Number(ms))) return Number(ms);
+    const td = String(p?.tradeDate || '').replace('T', ' ').trim();
+    if (td.length >= 16) return new Date(`${td.slice(0, 16).replace(' ', 'T')}:00+03:00`).getTime();
+    if (td.length >= 10) return new Date(`${td.slice(0, 10)}T00:00:00+03:00`).getTime();
+    return NaN;
+  }
+
+  /** Кэш покрывает запрошенный start, если первый бар не позже начала дня start (МСК). */
+  function barsCacheCoversStart(bars, ymd) {
+    if (!bars?.length || !ymd) return false;
+    const startMs = startYmdToMs(ymd);
+    if (!Number.isFinite(startMs)) return false;
+    const firstMs = barTimestampMs(bars[0]);
+    return Number.isFinite(firstMs) && firstMs <= startMs;
+  }
+
+  function sliceBarsFromStart(bars, ymd) {
+    if (!bars?.length) return [];
+    const startMs = startYmdToMs(ymd);
+    if (!Number.isFinite(startMs)) return bars.slice();
+    let lo = 0;
+    let hi = bars.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const ms = barTimestampMs(bars[mid]);
+      if (Number.isFinite(ms) && ms < startMs) lo = mid + 1;
+      else hi = mid;
+    }
+    return bars.slice(lo);
+  }
+
+  function rememberBarsCache(csv, bars) {
+    if (!csv || !bars?.length) return;
+    const cur = barsCacheByCsv[csv];
+    if (!cur?.length) {
+      barsCacheByCsv[csv] = bars;
+      return;
+    }
+    const curFirst = barTimestampMs(cur[0]);
+    const curLast = barTimestampMs(cur[cur.length - 1]);
+    const newFirst = barTimestampMs(bars[0]);
+    const newLast = barTimestampMs(bars[bars.length - 1]);
+    if (
+      Number.isFinite(newFirst) && Number.isFinite(newLast)
+      && Number.isFinite(curFirst) && Number.isFinite(curLast)
+      && newFirst <= curFirst && newLast >= curLast
+    ) {
+      barsCacheByCsv[csv] = bars;
+      return;
+    }
+    if (
+      Number.isFinite(newFirst) && Number.isFinite(newLast)
+      && Number.isFinite(curFirst) && Number.isFinite(curLast)
+      && newFirst >= curFirst && newLast <= curLast
+    ) {
+      return; // подмножество — оставляем более длинный кэш
+    }
+    const map = new Map();
+    for (const b of cur) {
+      const ms = barTimestampMs(b);
+      if (Number.isFinite(ms)) map.set(ms, b);
+    }
+    for (const b of bars) {
+      const ms = barTimestampMs(b);
+      if (Number.isFinite(ms)) map.set(ms, b);
+    }
+    barsCacheByCsv[csv] = [...map.values()].sort((a, b) => barTimestampMs(a) - barTimestampMs(b));
+  }
+
+  function applyPointsLocally(points, { csv, sourceLabel } = {}) {
+    allPoints = points || [];
+    chartFocusIndex = null;
+    selectedTradeId = null;
+    updateMoexLastBarHint(allPoints.length ? allPoints[allPoints.length - 1]?.tradeDate : null);
+    const csvName = csv || $('csvSel')?.value || '';
+    const csvSafe = String(csvName).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const src = sourceLabel || 'cache';
+    if ($('meta')) {
+      $('meta').innerHTML = `TATN/TATNP · ${allPoints.length} баров · ${csvSafe} · ${src}`;
+    }
+    rebuildEngine();
+    chart?.followReplayEdge(true);
+    reapplyLayoutFromStorage();
+    if (!chart) {
+      chart = new ReplayChart($('chart'), {
+        onSelectionChange: (id) => {
+          selectedTradeId = id;
+          refreshTradesTable();
+        },
+      });
+    } else {
+      chart.resize();
+    }
+    refreshUi();
+    setTimeout(() => chart?.resize(), 100);
+    reapplyLayoutFromStorage();
+    requestAnimationFrame(() => {
+      reapplyLayoutFromStorage();
+      chart?.resize();
+    });
+  }
+
   async function applyStartDateAndReload(ymd) {
     if (!ymd || !$('startDate')) return;
     $('startDate').value = ymd;
@@ -1203,14 +1338,35 @@
     document.querySelectorAll('#startPresetChips .chip[data-start-preset]').forEach((b) => {
       b.classList.toggle('active', startDateForPreset(b.dataset.startPreset) === ymd);
     });
-    $('loading').classList.remove('hidden');
-    $('app').classList.add('hidden');
     scrollRestored = false;
     summaryScrollRestored = false;
     riskCompareScrollRestored = false;
     monthlyPnlScrollRestored = false;
     zHeatmapScrollRestored = false;
-    await bootstrap($('csvSel').value);
+
+    const csv = $('csvSel')?.value || 'm15_tatn_255d.csv';
+    // Tip1m chart cache is start-dependent — drop stash so M15 reload is clean.
+    tip1mBarsCacheKey = '';
+    tip1mChartMeta = null;
+    m15PointsStash = null;
+    const cache = barsCacheByCsv[csv];
+    if (barsCacheCoversStart(cache, ymd)) {
+      const sliced = sliceBarsFromStart(cache, ymd);
+      applyPointsLocally(sliced, { csv, sourceLabel: 'cache' });
+      if (isTip1mMode()) {
+        try {
+          await activateTip1mChart();
+        } catch (e) {
+          console.error(e);
+        }
+        scheduleTipSimFetch({ immediate: true });
+      }
+      return;
+    }
+
+    $('loading').classList.remove('hidden');
+    $('app').classList.add('hidden');
+    await bootstrap(csv);
   }
 
   function syncStartPresetChips() {
@@ -1251,12 +1407,16 @@
       entry,
       exit,
       computeMinCursor(),
-      buildActiveSimOpts(cursorForOpts),
+      {
+        ...buildActiveSimOpts(cursorForOpts),
+        disableSignals: isTip1mMode(),
+      },
     );
     engine.manualEdges = savedManual;
     engine.manualSeq = savedSeq;
     riskCompareCache = { key: '', html: '' };
     zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+    heatmapSeriesCache = { endIdx: -1, len: 0, series: null };
     zHeatmapJobId += 1;
     uiSeriesCache = {
       cursor: -1,
@@ -1297,6 +1457,13 @@
     skipTradeExtrasOnce = true;
     if (enrichAfterParamsTimer) clearTimeout(enrichAfterParamsTimer);
     syncHmStrategyControlsFromToolbar();
+    if (isTip1mMode()) {
+      tipSimCache = { key: '', rows: null, meta: null, summary: null };
+      // Debounced: slider/select spam shouldn't fire N full-year sims.
+      scheduleTipSimFetch({ immediate: false });
+      refreshUi({ afterParams: true });
+      return;
+    }
     refreshUi({ afterParams: true });
     enrichAfterParamsTimer = setTimeout(() => {
       enrichAfterParamsTimer = null;
@@ -1637,14 +1804,30 @@
     return allPoints.length - 1;
   }
 
+  /** Short CSV lookback label for heatmap status (phone vs desktop localStorage often differ). */
+  function zHeatmapCsvPeriodLabel() {
+    const sel = $('csvSel');
+    const optText = sel?.selectedOptions?.[0]?.textContent?.trim();
+    if (optText) return optText;
+    const csv = String(sel?.value || '');
+    if (csv.includes('1095')) return '3 года';
+    if (csv.includes('365')) return '365д';
+    if (csv.includes('255')) return '255д';
+    return csv || 'CSV';
+  }
+
   function zHeatmapCacheKey(grid) {
     const t = thresholds();
     const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
     return [
+      getEdgeMode(),
       grid.entryMin, grid.entryMax, grid.exitMin, grid.step,
       getSimNotionalRub(), getSimCompound() ? 1 : 0, slip,
-      t.takeProfitPct || 0, riskExitSelectionKey(),
+      t.takeProfitPct || 0,
+      isTip1mMode() ? 'risk-ignored' : riskExitSelectionKey(),
       computeMinCursor(), zHeatmapSimEndIndex(), allPoints.length,
+      $('csvSel')?.value || '',
+      $('startDate')?.value || '',
     ].join('|');
   }
 
@@ -1833,8 +2016,8 @@
       setZHeatmapExtremes(zHeatmapCache.cells);
       const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
       setZHeatmapStatus(
-        `${zHeatmapCache.cells.length} клеток · весь период · slip ${slip}`
-        + ` · кап. ${getSimNotionalRub()}₽`,
+        `${zHeatmapCache.cells.length} клеток · ${zHeatmapCsvPeriodLabel()} · весь ряд · slip ${slip}`
+        + ` · кап. ${getSimNotionalRub()}₽ · ${barsSourceLabel()}`,
       );
       return;
     }
@@ -1857,11 +2040,60 @@
 
     const jobId = ++zHeatmapJobId;
     zHeatmapCache = { ...zHeatmapCache, inFlightKey: key };
+
+    if (isTip1mMode()) {
+      setZHeatmapStatus(`Считаю heatmap касания 1м на сервере (${axes.pairs.length} клеток)…`);
+      try {
+        const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const data = await fetchTipHeatmap(grid);
+        if (jobId !== zHeatmapJobId) return;
+        const cells = (data.cells || []).map((c) => ({
+          entry: c.entry,
+          exit: c.exit,
+          pnl: c.pnl,
+          n: c.n,
+        }));
+        zHeatmapCache = { key, cells, grid, inFlightKey: '' };
+        host.innerHTML = renderZHeatmapHtml(cells, grid, cur.entry, cur.exit);
+        applyZHeatmapScrollTop(zHeatmapScrollRestored ? prevScrollTop : readSavedZHeatmapScrollTop());
+        setZHeatmapExtremes(cells);
+        const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
+        const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const sec = Math.max(0.01, (t1 - t0) / 1000);
+        const hmSec = data.meta?.heatmapSec != null ? data.meta.heatmapSec : sec.toFixed(1);
+        setZHeatmapStatus(
+          `${cells.length} клеток · касание 1м · сервер ${hmSec}с`
+          + ` · ${zHeatmapCsvPeriodLabel()} · slip ${slip}`
+          + ` · кап. ${getSimNotionalRub()}₽ · клик = пороги теста`,
+        );
+      } catch (e) {
+        if (jobId !== zHeatmapJobId) return;
+        zHeatmapCache = { ...zHeatmapCache, inFlightKey: '' };
+        const msg = (e && e.message) ? String(e.message).slice(0, 160) : String(e);
+        host.innerHTML = `<div class="z-heatmap-empty">Heatmap 1м: ${msg}</div>`;
+        setZHeatmapStatus('heatmap касания 1м — ошибка сервера');
+        setZHeatmapExtremes(null);
+      }
+      return;
+    }
+
     // Risk opts use end-of-data (same window as heatmap), not replay cursor.
     const simOpts = buildActiveSimOpts(endIdx);
     const useFast = typeof prepareHeatmapSeries === 'function' && typeof simOptsAreHeatmapFast === 'function'
       && simOptsAreHeatmapFast(simOpts);
-    const prepared = useFast ? prepareHeatmapSeries(allPoints, endIdx) : null;
+    let prepared = null;
+    if (useFast) {
+      if (
+        heatmapSeriesCache.series
+        && heatmapSeriesCache.endIdx === endIdx
+        && heatmapSeriesCache.len === allPoints.length
+      ) {
+        prepared = heatmapSeriesCache.series;
+      } else {
+        prepared = prepareHeatmapSeries(allPoints, endIdx);
+        heatmapSeriesCache = { endIdx, len: allPoints.length, series: prepared };
+      }
+    }
     const slowWhy = (!prepared && typeof heatmapSlowReason === 'function')
       ? heatmapSlowReason(simOpts)
       : '';
@@ -1904,9 +2136,9 @@
     const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     const sec = Math.max(0.01, (t1 - t0) / 1000);
     setZHeatmapStatus(
-      `${cells.length} клеток · весь период · ${sec < 1 ? sec.toFixed(2) : sec.toFixed(1)}с`
+      `${cells.length} клеток · ${zHeatmapCsvPeriodLabel()} · весь ряд · ${sec < 1 ? sec.toFixed(2) : sec.toFixed(1)}с`
       + (prepared ? ` · быстро${tpOn ? '+TP' : ''}` : (slowWhy ? ` · медленно (${slowWhy})` : ' · медленно'))
-      + ` · slip ${slip} · кап. ${getSimNotionalRub()}₽`
+      + ` · slip ${slip} · кап. ${getSimNotionalRub()}₽ · ${barsSourceLabel()}`
       + (nMax > 0 ? ' · клик по клетке = пороги теста' : ' · N=0 — проверьте дату старта / данные'),
     );
   }
@@ -2384,6 +2616,7 @@
   }
 
   function showTradeMetricTip(cell) {
+    if (!columnTipsEnabled) return;
     const colKey = cell.dataset.metric;
     if (!colKey || !isTradeMetricColumn(colKey)) return;
     const raw = Number(cell.dataset.value);
@@ -2401,27 +2634,33 @@
       value: raw,
       dist,
       formatStat: (v) => formatTradeMetricStat(colKey, v),
+      spreadWidthRegime: colKey === 'SpreadEntry' || colKey === 'SpreadExit',
     });
     tip.classList.remove('hidden');
     positionTradeMetricTip(tip, cell);
   }
 
-  function rebuildStatusBarMetricDists(points) {
-    if (typeof computeNumericDistribution !== 'function') {
-      statusBarMetricDists = { z: null, spread: null };
+  /** Lazy: только при наведении на Z/спред в статус-баре (не на каждый seek). */
+  function ensureStatusBarMetricDists(cursorIndex) {
+    if (!columnTipsEnabled || typeof computeNumericDistribution !== 'function') {
+      statusBarMetricDists = { z: null, spread: null, cursor: -1 };
       return;
     }
+    const idx = Math.max(0, Math.min(cursorIndex | 0, allPoints.length - 1));
+    if (statusBarMetricDists.cursor === idx && statusBarMetricDists.z) return;
     const zs = [];
     const sps = [];
-    for (const p of points || []) {
-      const z = p.zScore != null ? Number(p.zScore) : NaN;
-      const sp = p.spreadPercent != null ? Number(p.spreadPercent) : NaN;
+    for (let i = 0; i <= idx; i++) {
+      const p = allPoints[i];
+      const z = p?.zScore != null ? Number(p.zScore) : NaN;
+      const sp = p?.spreadPercent != null ? Number(p.spreadPercent) : NaN;
       if (Number.isFinite(z)) zs.push(z);
       if (Number.isFinite(sp)) sps.push(sp);
     }
     statusBarMetricDists = {
       z: computeNumericDistribution(zs),
       spread: computeNumericDistribution(sps),
+      cursor: idx,
     };
   }
 
@@ -2444,10 +2683,11 @@
   }
 
   function showStatusMetricTip(anchor) {
-    if (typeof buildMetricDistTipHtml !== 'function') return;
+    if (!columnTipsEnabled || typeof buildMetricDistTipHtml !== 'function') return;
     const metric = anchor.dataset.metric;
     const value = Number(anchor.dataset.value);
     if ((metric !== 'z' && metric !== 'spread') || !Number.isFinite(value)) return;
+    ensureStatusBarMetricDists(engine?.cursor ?? 0);
     const dist = statusBarMetricDists[metric];
     if (!dist) return;
     const title = metric === 'z' ? 'Z' : 'Спред';
@@ -2459,6 +2699,7 @@
       value,
       dist,
       formatStat: (v) => formatStatusBarMetricStat(metric, v),
+      spreadWidthRegime: metric === 'spread',
     });
     tip.classList.remove('hidden');
     positionTradeMetricTip(tip, anchor);
@@ -2471,22 +2712,270 @@
       : [0, Math.max(1, maxCount)];
   }
 
+  /** Compare ISO-ish tradeDate strings (T or space). */
+  function compareTradeDateStr(a, b) {
+    const na = String(a || '').replace('T', ' ').trim();
+    const nb = String(b || '').replace('T', ' ').trim();
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+    return 0;
+  }
+
+  /** Drop 1%/2%/3% hit fields that occurred after the replay cursor. */
+  function tipClipHitsToCursor(r, cursorDate) {
+    const clip = (date, ms, text, pnl) => {
+      if (!date || compareTradeDateStr(date, cursorDate) > 0) {
+        return { date: null, ms: null, text: '—', pnl: false };
+      }
+      return { date, ms: ms ?? null, text: text || '—', pnl: !!pnl };
+    };
+    const h1 = clip(r.hit1Date, r.hit1Ms, r.hit1, r.hitPnl1);
+    const h2 = clip(r.hit2Date, r.hit2Ms, r.hit2, r.hitPnl2);
+    const h3 = clip(r.hit3Date, r.hit3Ms, r.hit3, r.hitPnl3);
+    return {
+      hit1Date: h1.date,
+      hit1Ms: h1.ms,
+      hit1: h1.text,
+      hitPnl1: h1.pnl,
+      hit2Date: h2.date,
+      hit2Ms: h2.ms,
+      hit2: h2.text,
+      hitPnl2: h2.pnl,
+      hit3Date: h3.date,
+      hit3Ms: h3.ms,
+      hit3: h3.text,
+      hitPnl3: h3.pnl,
+    };
+  }
+
+  /**
+   * Tip-1m server sim is full-window; slice to M15 cursor like local M15 edgesSoFar.
+   * Trades that enter after cursor are dropped; exit after cursor → «Открыта».
+   */
+  function tipRowsUpToCursor(rows) {
+    if (!rows || !rows.length) return rows || [];
+    if (!engine || !allPoints.length) return rows;
+    const idx = Math.max(0, Math.min(engine.cursor | 0, allPoints.length - 1));
+    const cursorDate = allPoints[idx]?.tradeDate;
+    if (!cursorDate) return rows;
+    const out = [];
+    for (const r of rows) {
+      if (!r.entryDate || compareTradeDateStr(r.entryDate, cursorDate) > 0) continue;
+      const exit = r.exitDate;
+      const closedAfterCursor = !!(
+        exit
+        && exit !== '—'
+        && compareTradeDateStr(exit, cursorDate) > 0
+      );
+      if (closedAfterCursor) {
+        out.push({
+          ...r,
+          ...tipClipHitsToCursor(r, cursorDate),
+          exitDate: '—',
+          exitZ: null,
+          exitSpread: null,
+          pnlPts: null,
+          gross: null,
+          commission: null,
+          overnight: null,
+          net: null,
+          accountAfter: null,
+          status: 'Открыта',
+        });
+      } else {
+        out.push(r);
+      }
+    }
+    return out;
+  }
+
+  function tipPointForDate(td, zFallback, spFallback) {
+    if (!td || td === '—') return null;
+    const idx = findIndexByTradeDate(td);
+    if (idx >= 0) return allPoints[idx];
+    const ms = typeof labelToUnixSec === 'function'
+      ? labelToUnixSec(td) * 1000
+      : NaN;
+    return {
+      tradeDate: td,
+      timestampMs: Number.isFinite(ms) ? ms : 0,
+      zScore: zFallback != null ? Number(zFallback) : 0,
+      spreadPercent: spFallback != null ? Number(spFallback) : 0,
+    };
+  }
+
+  /** Pseudo-edges from tip-1m trade rows for markers / equity / overlay. */
+  function tipRowsToSignalEdges(rows) {
+    const edges = [];
+    if (!rows || !rows.length) return edges;
+    for (const r of rows) {
+      const isLong = r.direction === 'Long';
+      const entryBar = tipPointForDate(r.entryDate, r.entryZ, r.entrySpread);
+      if (!entryBar) continue;
+      edges.push({
+        signal: isLong ? 'EnterLong' : 'EnterShort',
+        bar: entryBar,
+        positionBefore: 'Flat',
+        positionAfter: isLong ? 'Long' : 'Short',
+        manual: false,
+      });
+      if (r.exitDate && r.exitDate !== '—' && r.status !== 'Открыта') {
+        const exitBar = tipPointForDate(r.exitDate, r.exitZ, r.exitSpread);
+        if (!exitBar) continue;
+        edges.push({
+          signal: isLong ? 'ExitLong' : 'ExitShort',
+          bar: exitBar,
+          positionBefore: isLong ? 'Long' : 'Short',
+          positionAfter: 'Flat',
+          manual: false,
+        });
+      }
+    }
+    return edges;
+  }
+
+  function tipPositionFromRows(rows) {
+    if (!rows || !rows.length) return 'Flat';
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].status === 'Открыта') return rows[i].direction || 'Flat';
+    }
+    return 'Flat';
+  }
+
+  function tip1mBarsRequestKey() {
+    return [
+      $('csvSel')?.value || '',
+      $('startDate')?.value || '',
+      '90',
+    ].join('|');
+  }
+
+  async function loadTip1mChartBars({ force = false } = {}) {
+    const key = tip1mBarsRequestKey();
+    if (!force && key === tip1mBarsCacheKey && tip1mChartMeta && allPoints.length
+      && tip1mChartMeta._active) {
+      return { bars: allPoints, meta: tip1mChartMeta, fromCache: true };
+    }
+    const jobId = ++tip1mChartJobId;
+    const csv = $('csvSel')?.value || 'm15_tatn_255d.csv';
+    const start = $('startDate')?.value || '';
+    let url = `/api/bars1m?csv=${encodeURIComponent(csv)}&chartDays=90`;
+    if (start) url += `&start=${encodeURIComponent(start)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText || res.statusText);
+    }
+    const data = await res.json();
+    if (jobId !== tip1mChartJobId) return null;
+    if (!data.ok && !(data.bars && data.bars.length)) {
+      throw new Error(data.hintRu || 'Нет 1м баров для графика');
+    }
+    tip1mBarsCacheKey = key;
+    tip1mChartMeta = {
+      count: data.count,
+      fullTipCount: data.fullTipCount,
+      chartLimited: !!data.chartLimited,
+      chartDays: data.chartDays,
+      hintRu: data.hintRu || null,
+      first: data.first,
+      last: data.last,
+      _active: true,
+    };
+    return { bars: data.bars || [], meta: tip1mChartMeta, fromCache: false };
+  }
+
+  function stashM15IfNeeded() {
+    if (m15PointsStash == null && allPoints.length && !tip1mChartMeta?._active) {
+      m15PointsStash = allPoints;
+    }
+  }
+
+  async function activateTip1mChart() {
+    stashM15IfNeeded();
+    const st = $('status');
+    if (st) st.textContent = 'касание 1м · гружу 1м свечи…';
+    const loaded = await loadTip1mChartBars({ force: true });
+    if (!loaded || !isTip1mMode()) return;
+    allPoints = loaded.bars;
+    chartFocusIndex = null;
+    selectedTradeId = null;
+    updateMoexLastBarHint(allPoints.length ? allPoints[allPoints.length - 1]?.tradeDate : null);
+    const csvSafe = String($('csvSel')?.value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const lim = tip1mChartMeta?.chartLimited
+      ? ` · <span class="badge-quiet" title="${String(tip1mChartMeta.hintRu || '').replace(/"/g, '&quot;')}">1м график ${tip1mChartMeta.chartDays}д</span>`
+      : ' · <span class="badge-online">1м tip-Z</span>';
+    if ($('meta')) {
+      $('meta').innerHTML =
+        `TATN/TATNP · ${allPoints.length} бар. 1м · ${csvSafe}${lim}`;
+    }
+    rebuildEngine();
+    chart?.followReplayEdge(true);
+    if (engine) engine.seekToEnd();
+    pendingFitFullChart = visibleDays >= 400;
+    refreshUi({ afterParams: true });
+  }
+
+  function activateM15Chart() {
+    tip1mChartMeta = tip1mChartMeta ? { ...tip1mChartMeta, _active: false } : null;
+    tip1mBarsCacheKey = '';
+    if (m15PointsStash && m15PointsStash.length) {
+      allPoints = m15PointsStash;
+      m15PointsStash = null;
+      chartFocusIndex = null;
+      selectedTradeId = null;
+      updateMoexLastBarHint(allPoints.length ? allPoints[allPoints.length - 1]?.tradeDate : null);
+      const csvSafe = String($('csvSel')?.value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      if ($('meta')) {
+        $('meta').innerHTML = `TATN/TATNP · ${allPoints.length} баров · ${csvSafe} · M15`;
+      }
+      rebuildEngine();
+      chart?.followReplayEdge(true);
+      if (engine) engine.seekToEnd();
+      refreshUi({ afterParams: true });
+      return;
+    }
+    // Fallback: reload M15 from API
+    const csv = $('csvSel')?.value || 'm15_tatn_255d.csv';
+    bootstrap(csv, { background: true, keepSelection: false }).catch(() => {});
+  }
+
   function refreshTradesTable() {
-    if (!engine) return;
+    if (!engine && !isTip1mMode()) return;
     const tradesScrollEl = $('tradesScroll');
     const prevLeft = tradesScrollEl ? tradesScrollEl.scrollLeft : 0;
     const prevTop = tradesScrollEl ? tradesScrollEl.scrollTop : 0;
-    const frame = engine.frameAtCursor();
     const { entry } = thresholds();
-    const skipExtras = skipTradeExtrasOnce;
-    if (skipTradeExtrasOnce) skipTradeExtrasOnce = false;
-    const rows = buildTradeRows(
-      frame.signalEdgesSoFar,
-      entry,
-      allPoints,
-      frame.cursorIndex,
-      { skipExtras },
-    );
+    let rows;
+    if (isTip1mMode()) {
+      if (!tipSimCache.rows) {
+        const tbody = $('tradesBody');
+        if (tbody) tbody.innerHTML = '';
+        const head = $('tradesHead');
+        if (head && !head.children.length) {
+          /* waiting for server */
+        }
+        const grid = $('tradesSummaryGrid');
+        if (grid) {
+          grid.innerHTML =
+            '<div class="trades-summary-note wide">касание 1м · считаю сделки на сервере…</div>';
+        }
+        return;
+      }
+      rows = tipRowsUpToCursor(tipSimCache.rows);
+    } else {
+      if (!engine) return;
+      const frame = engine.frameAtCursor();
+      const skipExtras = skipTradeExtrasOnce;
+      if (skipTradeExtrasOnce) skipTradeExtrasOnce = false;
+      rows = buildTradeRows(
+        frame.signalEdgesSoFar,
+        entry,
+        allPoints,
+        frame.cursorIndex,
+        { skipExtras },
+      );
+    }
     const filtered = filterRowsByRisk(rows);
     const sortedRows = [...filtered].sort(
       (a, b) => compareTradeRows(a, b, tradeSortColumn, tradeSortDir),
@@ -2495,7 +2984,9 @@
     const head = $('tradesHead');
     head.innerHTML = '';
     const visibleCols = resolveVisibleTradeColumns(visibleTradeColumns);
-    tradeMetricDists = buildTradeMetricDistributions(sortedRows, visibleCols.map((c) => c.key));
+    tradeMetricDists = columnTipsEnabled
+      ? buildTradeMetricDistributions(sortedRows, visibleCols.map((c) => c.key))
+      : {};
     for (const col of visibleCols) {
       const th = document.createElement('th');
       th.className = 'sortable';
@@ -2537,6 +3028,7 @@
 
     const tbody = $('tradesBody');
     tbody.innerHTML = '';
+    const frag = document.createDocumentFragment();
     for (const row of sortedRows) {
       const tr = document.createElement('tr');
       const badge = tradeBadgeForRow(row);
@@ -2565,8 +3057,9 @@
         }
         tr.appendChild(td);
       }
-      tbody.appendChild(tr);
+      frag.appendChild(tr);
     }
+    tbody.appendChild(frag);
 
     updateTradesSummary(rows, filtered);
     syncRiskFilterChips();
@@ -2603,7 +3096,17 @@
     const light = !!opts.light;
     const afterParams = !!opts.afterParams;
     const frame = engine.frameAtCursor();
-    const edgesLen = frame.signalEdgesSoFar.length;
+    const tipMode = isTip1mMode();
+    const tipRowsCursor = tipMode && tipSimCache.rows
+      ? tipRowsUpToCursor(tipSimCache.rows)
+      : null;
+    const chartEdges = tipMode
+      ? tipRowsToSignalEdges(tipRowsCursor || [])
+      : frame.signalEdgesSoFar;
+    const tipPos = tipMode ? tipPositionFromRows(tipRowsCursor || []) : frame.position;
+    const edgesLen = tipMode
+      ? (tipRowsCursor ? tipRowsCursor.length : -1)
+      : frame.signalEdgesSoFar.length;
     const range = barReplayVisibleIndexRange(
       allPoints,
       frame.cursorIndex,
@@ -2612,12 +3115,13 @@
     );
     const windowPoints = allPoints.slice(range.start, range.end + 1);
     const candles = buildZCandles(windowPoints);
-    const currentPoint = frame.visiblePoints.length
-      ? frame.visiblePoints[frame.visiblePoints.length - 1]
-      : null;
+    const currentPoint = frame.currentPoint
+      || (allPoints.length ? allPoints[frame.cursorIndex] : null);
 
     const edgesChanged = edgesLen !== uiSeriesCache.edgesLen;
-    const skipMilestones = (light && !edgesChanged) || afterParams;
+    const prevCursor = uiSeriesCache.cursor;
+    const cursorChanged = frame.cursorIndex !== prevCursor;
+    const skipMilestones = (light && !edgesChanged) || afterParams || tipMode;
 
     let markers;
     let markersChanged = true;
@@ -2626,10 +3130,10 @@
       markersChanged = false;
     } else {
       markers = [
-        ...buildMarkers(frame.signalEdgesSoFar, windowPoints),
+        ...buildMarkers(chartEdges, windowPoints),
         // milestones дорогие (~50ms) — на light/смене порогов пропускаем
         ...(skipMilestones ? [] : buildPnlMilestoneMarkers(
-          frame.signalEdgesSoFar,
+          chartEdges,
           allPoints,
           windowPoints,
           frame.cursorIndex,
@@ -2637,7 +3141,7 @@
       ].sort((a, b) => a.time - b.time || String(a.text).localeCompare(String(b.text)));
     }
 
-    const trades = buildTradeSegments(frame.signalEdgesSoFar, currentPoint).map((t) => ({
+    const trades = buildTradeSegments(chartEdges, currentPoint).map((t) => ({
       id: t.id,
       entryTime: t.entryTime,
       entryZ: t.entryZ,
@@ -2648,21 +3152,21 @@
 
     const equityTotal = buildEquitySeries(
       allPoints,
-      frame.signalEdgesSoFar,
+      chartEdges,
       windowPoints,
       frame.cursorIndex,
     );
     const equity = pnlMode === 'trade'
       ? buildPerTradeEquitySeries(
         allPoints,
-        frame.signalEdgesSoFar,
+        chartEdges,
         windowPoints,
         frame.cursorIndex,
       )
       : equityTotal;
     const deltaPp = buildDeltaPpSeries(
       allPoints,
-      frame.signalEdgesSoFar,
+      chartEdges,
       windowPoints,
       frame.cursorIndex,
     );
@@ -2689,7 +3193,7 @@
       trades,
       playing,
       {
-        maxVisibleBars: visibleBarsOnScreen(visibleDays),
+        maxVisibleBars: visibleBarsOnScreen(visibleDays, { tip1m: tipMode }),
         equity,
         deltaPp,
         pnlBasisRub: resolvePnlPctBasisRub(equityTotal),
@@ -2705,11 +3209,9 @@
     }
     if (selectedTradeId) chart.selectTrade(selectedTradeId);
 
-    updateOpenTradeOverlay(frame.signalEdgesSoFar, currentPoint, frame.position);
+    updateOpenTradeOverlay(chartEdges, currentPoint, tipPos);
 
-    const lastPt = frame.visiblePoints.length
-      ? frame.visiblePoints[frame.visiblePoints.length - 1]
-      : null;
+    const lastPt = currentPoint;
     const z = lastPt?.zScore ?? null;
     const spread = lastPt?.spreadPercent ?? null;
     const zText = formatStatusBarMetricStat('z', z != null && Number.isFinite(z) ? z : null);
@@ -2717,7 +3219,6 @@
       'spread',
       spread != null && Number.isFinite(spread) ? spread : null,
     );
-    rebuildStatusBarMetricDists(frame.visiblePoints);
     const zHover = statusMetricHoverValue('z', z, zText);
     const spHover = statusMetricHoverValue('spread', spread, spText);
     const tp = thresholds().takeProfitPct;
@@ -2728,8 +3229,10 @@
     })();
     const capText = getSimCompound() ? ' · капит.' : '';
     let regimeHtml = '';
-    if (typeof classifySpreadRegime === 'function' && frame.visiblePoints?.length) {
-      const r = classifySpreadRegime(frame.visiblePoints);
+    if (typeof classifySpreadRegime === 'function' && allPoints.length && frame.cursorIndex >= 0) {
+      const from = Math.max(0, frame.cursorIndex - 7);
+      const regimeBars = allPoints.slice(from, frame.cursorIndex + 1);
+      const r = classifySpreadRegime(regimeBars);
       if (r && r.key !== 'na') {
         const zPart = r.zLabel
           ? ` <span class="badge-quiet">· ${r.zLabel}</span>`
@@ -2742,17 +3245,52 @@
     }
     const slipPts = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
     const slipText = slipPts > 0 ? ` · slip ${slipPts}` : '';
+    const modeText = isTip1mMode()
+      ? ' · <span class="badge-online" title="Mode B: tip-Z на 1м">касание 1м</span>'
+      : '';
+    let tipNote = '';
+    if (isTip1mMode()) {
+      if (!tipSimCache.rows) {
+        tipNote = '   ·   tip считает…';
+      } else {
+        const tipRows = tipRowsCursor || tipRowsUpToCursor(tipSimCache.rows);
+        const tipSum = buildTradeSimSummary(tipRows, getSimNotionalRub());
+        tipNote =
+          `   ·   tip ${tipSum.closedCount} сд. / ${formatCapitalPct(tipSum.retPct)}`;
+      }
+      if (tip1mChartMeta?.chartLimited) {
+        tipNote += `   ·   график ${tip1mChartMeta.chartDays}д 1м`;
+      }
+    }
+    const sigCount = tipMode ? chartEdges.length : frame.signalEdgesSoFar.length;
     $('status').innerHTML =
-      `${frame.barLabel}   ·   Z ${zHover} · Спред ${spHover}${regimeHtml}   ·   ${frame.position}   ·   сигн. ${frame.signalEdgesSoFar.length}   ·   пороги ±${thresholds().entry} / ±${thresholds().exit}${tpText}${riskText}${capText}${slipText}`;
+      `${frame.barLabel}   ·   Z ${zHover} · Спред ${spHover}${regimeHtml}   ·   ${tipPos}   ·   сигн. ${sigCount}   ·   пороги ±${thresholds().entry} / ±${thresholds().exit}${tpText}${riskText}${capText}${slipText}${modeText}   ·   ${barsSourceLabel()}${tipNote}`;
 
     const pct = Math.round(engine.progressFraction * 100);
     $('progress').textContent = `${pct}%`;
     if (!scrubbing) $('scrub').value = Math.round(engine.progressFraction * 1000);
 
-    // Таблица сделок — самый тяжёлый DOM; на ±1 бар только при новом сигнале / открытой позиции (throttle)
-    if (!light || edgesChanged || afterParams) {
-      refreshTradesTable();
-    } else if (frame.position !== 'Flat') {
+    // Таблица: seek/параметры — всегда; light ±1 бар — сигнал / open / tip1m (срез по курсору)
+    const cursorDelta = prevCursor < 0 ? 999 : Math.abs(frame.cursorIndex - prevCursor);
+    const bigSeek = cursorChanged && !playing && cursorDelta > 1;
+    const forceTrades = !light || edgesChanged || afterParams || bigSeek
+      || (cursorChanged && !playing && isTip1mMode());
+    if (forceTrades) {
+      // Большой seek: сначала лёгкие строки (без Min/Max/Hit), extras — чуть позже
+      if (bigSeek && !afterParams && !isTip1mMode()) {
+        skipTradeExtrasOnce = true;
+        refreshTradesTable();
+        if (enrichAfterParamsTimer) clearTimeout(enrichAfterParamsTimer);
+        enrichAfterParamsTimer = setTimeout(() => {
+          enrichAfterParamsTimer = null;
+          if (!engine) return;
+          skipTradeExtrasOnce = false;
+          refreshTradesTable();
+        }, 120);
+      } else {
+        refreshTradesTable();
+      }
+    } else if (frame.position !== 'Flat' || isTip1mMode()) {
       if (tradesRefreshTimer) clearTimeout(tradesRefreshTimer);
       tradesRefreshTimer = setTimeout(() => {
         tradesRefreshTimer = null;
@@ -2761,20 +3299,274 @@
     }
   }
 
+  function getBarsSource() {
+    const v = localStorage.getItem(LS.barsSource);
+    return v === 'final' ? 'final' : 'as_live';
+  }
+
+  function setBarsSource(src) {
+    const next = src === 'final' ? 'final' : 'as_live';
+    localStorage.setItem(LS.barsSource, next);
+    syncBarsSourceChips();
+    return next;
+  }
+
+  function syncBarsSourceChips() {
+    const cur = getBarsSource();
+    document.querySelectorAll('#barsSourceChips .chip').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-bars-source') === cur);
+    });
+  }
+
+  function barsSourceLabel() {
+    return getBarsSource() === 'final' ? 'финальный CSV' : 'как Прод';
+  }
+
+  function getEdgeMode() {
+    const v = localStorage.getItem(LS.edgeMode);
+    return v === 'tip1m' ? 'tip1m' : 'm15';
+  }
+
+  function isTip1mMode() {
+    return getEdgeMode() === 'tip1m';
+  }
+
+  function setEdgeMode(mode) {
+    const next = mode === 'tip1m' ? 'tip1m' : 'm15';
+    localStorage.setItem(LS.edgeMode, next);
+    syncEdgeModeChips();
+    return next;
+  }
+
+  function syncEdgeModeChips() {
+    const cur = getEdgeMode();
+    document.querySelectorAll('#edgeModeChips .chip').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-edge-mode') === cur);
+    });
+  }
+
+  function edgeModeLabel() {
+    return isTip1mMode() ? 'касание 1м' : 'M15 закрытие';
+  }
+
+  function tipSimRequestKey() {
+    const t = thresholds();
+    const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
+    return [
+      $('csvSel')?.value || '',
+      $('startDate')?.value || '',
+      t.entry, t.exit, t.takeProfitPct || 0,
+      getSimNotionalRub(), getSimCompound() ? 1 : 0, slip,
+    ].join('|');
+  }
+
+  function tipTradeToRow(t, entryThreshold) {
+    const risk = typeof assessTradeRisk === 'function'
+      ? assessTradeRisk(t.entryDate, t.exitDate, t.entryZ, t.overnight, entryThreshold)
+      : null;
+    const pnlMin = t.pnlMin != null && Number.isFinite(Number(t.pnlMin)) ? Number(t.pnlMin) : null;
+    const pnlMax = t.pnlMax != null && Number.isFinite(Number(t.pnlMax)) ? Number(t.pnlMax) : null;
+    const accountAfter = t.accountAfter != null && Number.isFinite(Number(t.accountAfter))
+      ? Number(t.accountAfter)
+      : null;
+    const hit1Date = t.hit1Date || null;
+    const hit2Date = t.hit2Date || null;
+    const hit3Date = t.hit3Date || null;
+    const parseMs = typeof parseTradeMs === 'function' ? parseTradeMs : () => null;
+    return makeTradeRow({
+      index: t.index,
+      direction: t.direction,
+      entryDate: t.entryDate,
+      exitDate: t.exitDate,
+      entryZ: t.entryZ,
+      exitZ: t.exitZ,
+      entrySpread: t.entrySpread,
+      exitSpread: t.exitSpread,
+      entrySlip: t.entrySlip,
+      pnlPts: t.pnlPts,
+      gross: t.gross,
+      commission: t.commission,
+      overnight: t.overnight,
+      net: t.net,
+      accountAfter,
+      pnlMin,
+      pnlMax,
+      hit1Date,
+      hit2Date,
+      hit3Date,
+      hit1Ms: hit1Date ? parseMs(hit1Date) : null,
+      hit2Ms: hit2Date ? parseMs(hit2Date) : null,
+      hit3Ms: hit3Date ? parseMs(hit3Date) : null,
+      status: t.status || 'Закрыта',
+      entryThreshold,
+      _risk: risk,
+    });
+  }
+
+  function scheduleTipSimFetch({ immediate = false } = {}) {
+    if (!isTip1mMode()) return;
+    if (tipSimTimer) clearTimeout(tipSimTimer);
+    // Debounce param tweaks; seek/cursor uses tipRowsUpToCursor (no server POST).
+    const delay = immediate ? 40 : 280;
+    tipSimTimer = setTimeout(() => {
+      tipSimTimer = null;
+      fetchTipSim().catch(() => {});
+    }, delay);
+  }
+
+  async function fetchTipSim() {
+    if (!isTip1mMode()) return;
+    const key = tipSimRequestKey();
+    if (key === tipSimCache.key && tipSimCache.rows) {
+      refreshTradesTable();
+      return;
+    }
+    const jobId = ++tipSimJobId;
+    const st = $('status');
+    if (st && !tipSimCache.rows) {
+      st.textContent = 'касание 1м · считаю на сервере…';
+    }
+    const t = thresholds();
+    const body = {
+      csv: $('csvSel')?.value || 'm15_tatn_255d.csv',
+      start: $('startDate')?.value || null,
+      entry: t.entry,
+      exit: t.exit,
+      slip: typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0.02,
+      notional: getSimNotionalRub(),
+      compound: getSimCompound(),
+      takeProfitPct: t.takeProfitPct || 0,
+    };
+    try {
+      const res = await fetch('/api/sim/tip1m', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || res.statusText);
+      }
+      const data = await res.json();
+      if (jobId !== tipSimJobId) return;
+      const entryTh = t.entry;
+      const rows = (data.trades || []).map((tr) => tipTradeToRow(tr, entryTh));
+      tipSimCache = {
+        key,
+        rows,
+        meta: data.meta || null,
+        summary: data.summary || null,
+      };
+      refreshTradesTable();
+      refreshUi({ afterParams: true });
+      if (!isZHeatmapHidden()) scheduleZHeatmapUpdate(engine?.cursor, { immediate: true });
+    } catch (e) {
+      if (jobId !== tipSimJobId) return;
+      tipSimCache = { key: '', rows: null, meta: null, summary: null };
+      const msg = (e && e.message) ? String(e.message).slice(0, 180) : String(e);
+      if (st) st.textContent = `касание 1м · ошибка: ${msg}`;
+      const host = $('tradesBody');
+      if (host) {
+        // leave table; summary note via status
+      }
+      alert('Касание 1м (сервер): ' + msg);
+    }
+  }
+
+  async function fetchTipHeatmap(grid) {
+    const t = thresholds();
+    const body = {
+      csv: $('csvSel')?.value || 'm15_tatn_255d.csv',
+      start: $('startDate')?.value || null,
+      entryMin: grid.entryMin,
+      entryMax: grid.entryMax,
+      exitMin: grid.exitMin,
+      step: grid.step,
+      slip: typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0.02,
+      notional: getSimNotionalRub(),
+      compound: getSimCompound(),
+      takeProfitPct: t.takeProfitPct || 0,
+    };
+    const res = await fetch('/api/sim/tip1m/heatmap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText || res.statusText);
+    }
+    return res.json();
+  }
+
+  function updateBarsCoverageWarn(meta) {
+    const el = $('barsCoverageWarn');
+    if (!el) return;
+    if (!meta || !meta.as_live) {
+      el.textContent = '';
+      el.title = '';
+      return;
+    }
+    const cov = Number(meta.coverage) || 0;
+    const locked = Number(meta.locked_count) || 0;
+    const n = Number(meta.bars_count) || 0;
+    if (n <= 0) {
+      el.textContent = '';
+      return;
+    }
+    const fromRaw = meta.locked_from || '';
+    const fromHm = fromRaw.length >= 16 ? fromRaw.slice(11, 16) : (fromRaw || '—');
+    // Low / partial coverage: freeze only where decision_bars exist.
+    if (cov < 0.15 || (n >= 50 && locked < Math.max(5, Math.floor(n * 0.05)))) {
+      el.textContent =
+        `⚠ заморозка с ${fromHm}; сделки до этой метки на финальном CSV (${locked}/${n})`;
+      el.title =
+        `Заморозка decision_bars с ${fromRaw || '—'}. ` +
+        'Бары без freeze = финальный CSV (возможны фантомные сделки). ' +
+        'Частичный overlay всё же подменяет Z там, где freeze есть.';
+    } else if (cov < 0.85) {
+      el.textContent =
+        `⚠ заморозка с ${fromHm}; до метки — финальный CSV · 🔒 ${locked}/${n} (${(cov * 100).toFixed(0)}%)`;
+      el.title =
+        `Заморожено ${meta.locked_from || ''} … ${meta.locked_to || ''}. ` +
+        'Сделки до начала заморозки считаются по финальному CSV.';
+    } else {
+      el.textContent = `🔒 ${locked}/${n} (${(cov * 100).toFixed(0)}%)`;
+      el.title = `Заморожено decision_bars: ${meta.locked_from || ''} … ${meta.locked_to || ''}`;
+    }
+  }
+
+  function barsLoadTimeoutMs(csv) {
+    const name = String(csv || '');
+    // 3y (~50k bars / ~8MB JSON): allow longer parse; server no longer blocks on MOEX.
+    if (name.includes('1095') || /_3y/i.test(name)) return 120000;
+    if (name.includes('365')) return 75000;
+    return 45000;
+  }
+
   async function loadBars(csv) {
     const startDate = $('startDate').value;
     let url = `/api/bars?csv=${encodeURIComponent(csv)}`;
     if (startDate) url += `&start=${encodeURIComponent(startDate)}`;
+    if (getBarsSource() === 'as_live') url += '&as_live=1';
     const title = $('loadingTitle');
     const sub = $('loadingSub');
+    const timeoutMs = barsLoadTimeoutMs(csv);
+    const timeoutSec = Math.round(timeoutMs / 1000);
     if (title) title.textContent = `Загрузка ${csv}…`;
-    if (sub) sub.textContent = 'запрос /api/bars';
+    if (sub) {
+      sub.textContent =
+        `запрос /api/bars (${barsSourceLabel()}) · лимит ${timeoutSec} с`;
+    }
     const started = Date.now();
     const tick = setInterval(() => {
-      if (sub) sub.textContent = `запрос /api/bars · ${Math.round((Date.now() - started) / 1000)} с`;
+      if (sub) {
+        sub.textContent =
+          `запрос /api/bars (${barsSourceLabel()}) · ${Math.round((Date.now() - started) / 1000)} / ${timeoutSec} с`;
+      }
     }, 500);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 45000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(url, { signal: controller.signal });
       if (!res.ok) throw new Error(await res.text());
@@ -2784,7 +3576,9 @@
       return data;
     } catch (e) {
       if (e.name === 'AbortError') {
-        throw new Error('Таймаут загрузки (45 с). Перезапустите run-replay-web.bat или проверьте MOEX/сеть.');
+        throw new Error(
+          `Таймаут загрузки (${timeoutSec} с). Перезапустите run-replay-web.bat или проверьте локальный CSV/SQLite.`,
+        );
       }
       throw e;
     } finally {
@@ -2808,6 +3602,16 @@
         if (sub) sub.textContent = `${data.count} баров`;
       }
       allPoints = data.bars;
+      lastBarsMeta = {
+        as_live: !!data.as_live,
+        locked_count: Number(data.locked_count) || 0,
+        bars_count: Number(data.bars_count != null ? data.bars_count : data.count) || 0,
+        coverage: Number(data.coverage) || 0,
+        locked_from: data.locked_from || null,
+        locked_to: data.locked_to || null,
+      };
+      updateBarsCoverageWarn(lastBarsMeta);
+      rememberBarsCache(csv, data.bars);
       updateMoexLastBarHint(data.last);
       if (!opts.keepSelection) {
         chartFocusIndex = null;
@@ -2819,8 +3623,11 @@
           ? '<span class="badge-online">MOEX tail</span>'
           : '<span class="badge-online">online</span>')
         : '<span class="badge-offline">offline</span>';
+      const modeBadge = data.as_live
+        ? '<span class="badge-online" title="decision_bars overlay">как Прод</span>'
+        : '<span class="badge-quiet" title="финальный CSV/SQLite">финальный CSV</span>';
       const csvSafe = String(data.csv || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      $('meta').innerHTML = `TATN/TATNP · ${data.count} баров · ${csvSafe} · ${src} · ${netBadge}`;
+      $('meta').innerHTML = `TATN/TATNP · ${data.count} баров · ${csvSafe} · ${src} · ${modeBadge} · ${netBadge}`;
       rebuildEngine();
       chart?.followReplayEdge(true);
       reapplyLayoutFromStorage();
@@ -2837,6 +3644,15 @@
       }
       if (!background && title) title.textContent = 'Построение сделок…';
       refreshUi();
+      if (isTip1mMode()) {
+        tipSimCache = { key: '', rows: null, meta: null, summary: null };
+        try {
+          await activateTip1mChart();
+        } catch (e) {
+          console.error(e);
+        }
+        scheduleTipSimFetch({ immediate: true });
+      }
       setTimeout(() => chart?.resize(), 100);
       if (!background) {
         $('loading').classList.add('hidden');
@@ -3132,13 +3948,34 @@
       stopTimer();
       setPlayButtonLabel(false);
       snapChartsToReplayEdge();
-      const frac = $('scrub').value / 1000;
-      const minC = engine.minCursor;
-      const span = Math.max(0, engine.lastIndex - minC);
-      engine.seekTo(Math.round(minC + frac * span));
-      refreshUi();
+      scrubPendingFrac = $('scrub').value / 1000;
+      if (scrubRaf) return;
+      scrubRaf = requestAnimationFrame(() => {
+        scrubRaf = 0;
+        if (scrubPendingFrac == null || !engine) return;
+        const frac = scrubPendingFrac;
+        scrubPendingFrac = null;
+        const minC = engine.minCursor;
+        const span = Math.max(0, engine.lastIndex - minC);
+        engine.seekTo(Math.round(minC + frac * span));
+        refreshUi();
+      });
     });
-    $('scrub').addEventListener('change', () => { scrubbing = false; });
+    $('scrub').addEventListener('change', () => {
+      scrubbing = false;
+      if (scrubRaf) {
+        cancelAnimationFrame(scrubRaf);
+        scrubRaf = 0;
+      }
+      if (scrubPendingFrac != null && engine) {
+        const frac = scrubPendingFrac;
+        scrubPendingFrac = null;
+        const minC = engine.minCursor;
+        const span = Math.max(0, engine.lastIndex - minC);
+        engine.seekTo(Math.round(minC + frac * span));
+        refreshUi();
+      }
+    });
 
     $('entrySel').addEventListener('change', () => {
       saveSetting(LS.entry, $('entrySel').value);
@@ -3175,6 +4012,14 @@
         setSimCompound(compoundChk.checked);
         saveSetting(LS.compound, compoundChk.checked ? '1' : '');
         applyStrategyParamsChange();
+      });
+    }
+    const columnTipsChk = $('columnTipsChk');
+    if (columnTipsChk) {
+      columnTipsChk.addEventListener('change', () => {
+        columnTipsEnabled = !!columnTipsChk.checked;
+        saveSetting(LS.columnTips, columnTipsEnabled ? '1' : '0');
+        if (!columnTipsEnabled) hideTradeMetricTip();
       });
     }
 
@@ -3331,6 +4176,46 @@
       monthlyPnlScrollRestored = false;
       zHeatmapScrollRestored = false;
       await bootstrap($('csvSel').value);
+    });
+
+    document.querySelectorAll('#barsSourceChips .chip[data-bars-source]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const src = btn.getAttribute('data-bars-source') || 'as_live';
+        if (src === getBarsSource()) return;
+        setBarsSource(src);
+        // Different OHLC/Z — drop cached series for this CSV.
+        Object.keys(barsCacheByCsv).forEach((k) => { delete barsCacheByCsv[k]; });
+        zHeatmapCache = { key: null, cells: null, grid: null, inFlightKey: null };
+        $('loading').classList.remove('hidden');
+        $('app').classList.add('hidden');
+        await bootstrap($('csvSel').value);
+      });
+    });
+
+    document.querySelectorAll('#edgeModeChips .chip[data-edge-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-edge-mode') || 'm15';
+        if (mode === getEdgeMode()) return;
+        setEdgeMode(mode);
+        tipSimCache = { key: '', rows: null, meta: null, summary: null };
+        tipSimJobId += 1;
+        zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+        zHeatmapJobId += 1;
+        if (mode === 'tip1m') {
+          activateTip1mChart()
+            .then(() => {
+              scheduleTipSimFetch({ immediate: true });
+            })
+            .catch((e) => {
+              console.error(e);
+              const st = $('status');
+              if (st) st.textContent = `касание 1м · ошибка графика: ${e.message || e}`;
+            });
+          return;
+        }
+        activateM15Chart();
+        applyStrategyParamsChange();
+      });
     });
 
     $('btnRefreshMoex')?.addEventListener('click', () => {
@@ -3500,6 +4385,8 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
+    syncBarsSourceChips();
+    syncEdgeModeChips();
     syncStartPresetChips();
     renderColumnPicker();
     bindSplitDivider();

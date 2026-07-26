@@ -21,7 +21,19 @@ class PortfolioParamsBody(BaseModel):
     leverage: float | None = None
     auto_execute: bool | None = None
     entry_deposit_rub: float | None = None
+    take_profit_pct: float | None = None
     depth_days: int | None = Field(None, description="1|3|7|30")
+
+
+def _normalize_take_profit_pct(v: float | None) -> float | None:
+    if v is None:
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    allowed = (0.0, 1.0, 2.0, 3.0)
+    return min(allowed, key=lambda x: abs(x - n))
 
 
 def _parse_dt(s: str | None) -> datetime | None:
@@ -252,6 +264,9 @@ def save_portfolio_params(body: PortfolioParamsBody) -> dict[str, Any]:
         )
     if body.auto_execute is not None:
         store.set_setting("auto_execute", "1" if body.auto_execute else "0")
+    tp = _normalize_take_profit_pct(body.take_profit_pct)
+    if tp is not None:
+        store.set_setting("take_profit_pct", str(tp))
     if body.depth_days is not None and body.depth_days in (1, 3, 7, 30):
         store.set_setting("portfolio_depth_days", str(body.depth_days))
     store.log_event("Портфель: параметры обновлены", "info")

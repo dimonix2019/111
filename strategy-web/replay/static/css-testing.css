@@ -1,4 +1,17 @@
 /* testing: trades table, summary, risk, metric tips */
+#barsCoverageWarn {
+  color: #fbbf24;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#edgeModeChips .chip[data-edge-mode="tip1m"].active {
+  border-color: #38bdf8;
+  color: #e0f2fe;
+}
+
 .trades-table tbody tr.trade-row-selected {
   background: rgba(250, 204, 21, 0.12);
 }
@@ -459,6 +472,15 @@ tr.trade-row-red td {
 .trade-metric-tip .tm-place-outside { color: #f87171; }
 .trade-metric-tip .tm-place-flat,
 .trade-metric-tip .tm-place-sparse { color: var(--muted); }
+
+.trade-metric-tip .tm-regime {
+  font-size: 22px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+.trade-metric-tip .tm-regime-narrow { color: #6ee7b7; }
+.trade-metric-tip .tm-regime-transition { color: #fbbf24; }
+.trade-metric-tip .tm-regime-wide { color: #93c5fd; }
 
 .trades-summary {
   flex: 1 1 auto;
@@ -1405,6 +1427,12 @@ input[type="number"] {
   margin: 0;
 }
 
+.trades-panel-head-right .trades-column-tips {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .controls {
   background: var(--toolbar);
   border-top: 1px solid var(--border);
@@ -1438,53 +1466,78 @@ input[type="number"] {
   font-weight: 600;
 }
 
-.btn-long {
-  background: #089981;
-  border-color: #089981;
+/* .btn.btn-* beats later .btn gray base — semantic Long/Short/Close colors */
+.btn.btn-long {
+  background: linear-gradient(180deg, #0aad92 0%, #078a72 100%);
+  border-color: #067a65;
   color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
-.btn-long:hover { background: #0ab894; }
-
-.btn-short {
-  background: #f23645;
-  border-color: #f23645;
-  color: #fff;
+.btn.btn-long:hover:not(:disabled) {
+  background: linear-gradient(180deg, #0bc4a4 0%, #089981 100%);
+  border-color: #078a72;
 }
 
-.btn-short:hover { background: #ff4d5a; }
+.btn.btn-short {
+  background: linear-gradient(180deg, #e85a66 0%, #c92a3a 100%);
+  border-color: #b02232;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
 
-.btn-close-all {
-  background: #b45309;
-  border-color: #d97706;
+.btn.btn-short:hover:not(:disabled) {
+  background: linear-gradient(180deg, #f06b76 0%, #d93848 100%);
+  border-color: #c92a3a;
+}
+
+.btn.btn-close-all {
+  background: linear-gradient(180deg, #d97706 0%, #9a5b0a 100%);
+  border-color: #92400e;
   color: #fff;
   min-width: 108px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
-.btn-close-all:hover { background: #d97706; }
+.btn.btn-close-all:hover:not(:disabled) {
+  background: linear-gradient(180deg, #e89a2e 0%, #b45309 100%);
+  border-color: #a16207;
+}
 
 .btn {
   padding: 8px 14px;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: #2a2e39;
+  background: linear-gradient(180deg, #343a48 0%, #252a35 100%);
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
   min-width: 90px;
 }
 
-.btn:hover { background: #363a45; }
+.btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #3e4454 0%, #2c3140 100%);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: saturate(0.75);
+}
 
 .btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: linear-gradient(180deg, #3d7aff 0%, #2456e0 100%);
+  border-color: #1a4fd0;
   color: #fff;
   font-weight: 600;
   min-width: 110px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
 }
 
-.btn-primary:hover { background: #1e53e5; }
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #4d88ff 0%, #2962ff 100%);
+  border-color: #2456e0;
+}
 
 .speeds {
   display: flex;

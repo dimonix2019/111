@@ -83,6 +83,8 @@ html, body {
 .status-bar .badge-auto-off,
 .status-bar .badge-mode-prod,
 .status-bar .badge-mode-sandbox,
+.status-bar .badge-strat-tip1m,
+.status-bar .badge-strat-m15,
 .status-bar .badge-regime,
 .trade-side-status .badge-mon-on,
 .trade-side-status .badge-mon-off,
@@ -109,25 +111,63 @@ html, body {
 }
 
 .badge-online {
-  color: #052e1c;
-  background: #22c55e;
-  border: 1px solid #4ade80;
-  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35), 0 0 10px rgba(34, 197, 94, 0.45);
+  color: #ecfdf5;
+  background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
+  border: 1px solid #166534;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
 .badge-offline {
-  color: #3b1a00;
-  background: #f59e0b;
-  border: 1px solid #fbbf24;
-  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.3);
+  color: #fff7ed;
+  background: linear-gradient(180deg, #f59e0b 0%, #b45309 100%);
+  border: 1px solid #92400e;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+
+.badge-dealer-on {
+  color: #ecfeff;
+  background: linear-gradient(180deg, #22d3ee 0%, #0e7490 100%);
+  border: 1px solid #0e7490;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+
+.badge-dealer-off {
+  color: #fff7ed;
+  background: linear-gradient(180deg, #fb923c 0%, #c2410c 100%);
+  border: 1px solid #9a3412;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+
+.status-bar .badge-dealer-on,
+.status-bar .badge-dealer-off,
+.toolbar .meta .badge-dealer-on,
+.toolbar .meta .badge-dealer-off {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+}
+
+.trade-dealer-ba {
+  color: var(--muted, #94a3b8);
+  font-size: 12px;
 }
 
 .status-bar .badge-tick {
   color: #e2e8f0;
-  background: #334155;
-  border: 1px solid #64748b;
+  background: linear-gradient(180deg, #3e4454 0%, #252a35 100%);
+  border: 1px solid #475569;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  box-shadow: none;
 }
 
 .badge-quiet {
@@ -137,88 +177,111 @@ html, body {
 }
 
 .badge-mon-on {
-  color: #052e1c;
-  background: #22c55e;
-  border: 1px solid #4ade80;
-  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35), 0 0 10px rgba(34, 197, 94, 0.45);
+  color: #ecfdf5;
+  background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
+  border: 1px solid #166534;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
 .badge-mon-off {
-  color: #3b1a00;
-  background: #f59e0b;
-  border: 1px solid #fbbf24;
-  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25);
+  color: #fff7ed;
+  background: linear-gradient(180deg, #f59e0b 0%, #b45309 100%);
+  border: 1px solid #92400e;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
 .badge-auto-on {
-  color: #042f2e;
-  background: #22d3ee;
-  border: 1px solid #67e8f9;
-  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35), 0 0 10px rgba(34, 211, 238, 0.4);
+  color: #ecfeff;
+  background: linear-gradient(180deg, #22d3ee 0%, #0e7490 100%);
+  border: 1px solid #0e7490;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
 .badge-auto-off {
   color: #94a3b8;
-  background: #1e293b;
+  background: linear-gradient(180deg, #343a48 0%, #1e293b 100%);
   border: 1px solid #475569;
   box-shadow: none;
 }
 
 .badge-mode-prod {
   color: #fff7ed;
-  background: #ea580c;
-  border: 1px solid #fb923c;
-  box-shadow: 0 0 0 1px rgba(234, 88, 12, 0.35), 0 0 10px rgba(234, 88, 12, 0.4);
+  background: linear-gradient(180deg, #f59e0b 0%, #c2410c 100%);
+  border: 1px solid #9a3412;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
 .badge-mode-sandbox {
   color: #ecfeff;
-  background: #0e7490;
-  border: 1px solid #22d3ee;
-  box-shadow: 0 0 0 1px rgba(14, 116, 144, 0.35);
+  background: linear-gradient(180deg, #14b8a6 0%, #0e7490 100%);
+  border: 1px solid #0f766e;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+
+.badge-strat-tip1m {
+  color: #ecfeff;
+  background: linear-gradient(180deg, #2dd4bf 0%, #0f766e 100%);
+  border: 1px solid #0f766e;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+
+.badge-strat-m15 {
+  color: #e2e8f0;
+  background: linear-gradient(180deg, #64748b 0%, #334155 100%);
+  border: 1px solid #475569;
+  box-shadow: none;
 }
 
 .badge-pos-flat {
   color: #cbd5e1;
-  background: #334155;
-  border: 1px solid #64748b;
+  background: linear-gradient(180deg, #3e4454 0%, #252a35 100%);
+  border: 1px solid #475569;
   box-shadow: none;
 }
 
 /* Цвета как маркеры Enter Long/Short на Z в Тесте */
 .badge-pos-long {
   color: #052e1c;
-  background: #69F0AE;
-  border: 1px solid #a7f3d0;
-  box-shadow: 0 0 0 1px rgba(105, 240, 174, 0.35), 0 0 10px rgba(105, 240, 174, 0.35);
+  background: linear-gradient(180deg, #69F0AE 0%, #10b981 100%);
+  border: 1px solid #059669;
+  box-shadow: none;
 }
 
 .badge-pos-short {
   color: #3b0a0a;
-  background: #FF8A80;
-  border: 1px solid #fecaca;
-  box-shadow: 0 0 0 1px rgba(255, 138, 128, 0.35), 0 0 10px rgba(255, 138, 128, 0.35);
+  background: linear-gradient(180deg, #FF8A80 0%, #e85a66 100%);
+  border: 1px solid #c92a3a;
+  box-shadow: none;
 }
 
 .badge-phase-prep {
-  color: #1e3a5f;
-  background: #93c5fd;
-  border: 1px solid #bfdbfe;
-  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.35);
+  color: #eff6ff;
+  background: linear-gradient(180deg, #60a5fa 0%, #2563eb 100%);
+  border: 1px solid #1d4ed8;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
 .badge-phase-signal {
-  color: #3b1a00;
-  background: #fbbf24;
-  border: 1px solid #fcd34d;
-  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.35);
+  color: #fff7ed;
+  background: linear-gradient(180deg, #fbbf24 0%, #d97706 100%);
+  border: 1px solid #b45309;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
 .badge-phase-ready {
-  color: #052e1c;
-  background: #34d399;
-  border: 1px solid #6ee7b7;
-  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.35), 0 0 10px rgba(52, 211, 153, 0.35);
+  color: #ecfdf5;
+  background: linear-gradient(180deg, #34d399 0%, #059669 100%);
+  border: 1px solid #047857;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
 .badge-regime-compress {

@@ -1,4 +1,4 @@
-"""Отложенная сверка AUTO-сделок Live с бар-симуляцией (Testing ≈ Prod)."""
+"""Отложенная сверка AUTO-сделок Live с tip1m-симом (Testing ≈ Prod)."""
 
 from __future__ import annotations
 
@@ -16,12 +16,14 @@ from live.signals import (
     is_consecutive_m15,
     is_moex_equity_session_bar,
 )
+from live.tip_touch_signals import collect_tip1m_sim_edges, load_tip_bars_for_parity
 
 log = logging.getLogger(__name__)
 
 DEFAULT_PARITY_DELAY_MIN = 15
-# ±1 бар мало при утреннем пересчёте rolling Z (часто сдвиг на 1–2 слота 15м).
-TOLERANCE_BARS = 2
+# Match window in minutes (tip1m ±few min; also covers legacy M15 ±2 slots).
+TOLERANCE_BARS = 2  # legacy name kept for callers
+TOLERANCE_MIN = 30
 
 
 def _signal_to_sim_name(signal: str) -> str:
@@ -38,7 +40,15 @@ def collect_sim_edges(
     entry: float,
     exit_z: float,
 ) -> list[dict[str, Any]]:
-    """Тот же edge-проход, что live monitor (сессия TQBR + consecutive 15м + Z)."""
+    """Tip1m edge-проход (Prod Mode B). ``bars`` may be tip bars or M15 (auto-detect)."""
+    if not bars:
+        return []
+    # Heuristic: tip series has ~1m steps; M15 has 15m.
+    if len(bars) >= 2:
+        d0 = int(bars[1].get("timestampMs") or 0) - int(bars[0].get("timestampMs") or 0)
+        if 0 < d0 <= 90_000:
+            return collect_tip1m_sim_edges(bars, entry, exit_z, respect_live_signal=True)
+    # Legacy M15 path (tests / old callers)
     pos = Position.FLAT
     edges: list[dict[str, Any]] = []
     for i in range(1, len(bars)):
@@ -57,6 +67,12 @@ def collect_sim_edges(
             entry,
             exit_z,
         )
+        live_sig = str(cur.get("liveSignal") or "").upper()
+        if live_sig == Signal.NONE.value and sig in (
+            Signal.ENTER_LONG,
+            Signal.ENTER_SHORT,
+        ):
+            continue
         if sig == Signal.NONE:
             continue
         edges.append(
@@ -93,9 +109,13 @@ def find_matching_sim_edge(
     sim_edges: list[dict[str, Any]],
     *,
     tolerance_bars: int = TOLERANCE_BARS,
+    tolerance_min: int | None = None,
 ) -> dict[str, Any] | None:
     want = _signal_to_sim_name(live_signal)
-    window = 15 * tolerance_bars
+    window = int(tolerance_min) if tolerance_min is not None else TOLERANCE_MIN
+    # Legacy callers passed tolerance_bars as M15 slots — honour if explicitly > default path.
+    if tolerance_min is None and tolerance_bars != TOLERANCE_BARS:
+        window = 15 * int(tolerance_bars)
     candidates = [
         e
         for e in sim_edges
@@ -142,7 +162,7 @@ def schedule_parity_for_auto(
 
 
 def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
-    """Сверить один live edge с симом на тех же порогах и rolling Z барах."""
+    """Сверить один live tip1m edge с симом на тех же порогах."""
     entry = float(edge.get("entry_z") or 1.3)
     exit_z = float(edge.get("exit_z") or 1.2)
     live_ts = str(edge.get("bar_ts") or "")
@@ -151,8 +171,8 @@ def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
     try:
         from replay.replay_db import ensure_replay_bars, load_bars_from_db
 
-        bars = load_bars_from_db()
-        if len(bars) < 2:
+        m15 = load_bars_from_db()
+        if len(m15) < 2:
             data_dir = Path(__file__).resolve().parent.parent / "data"
             payload = ensure_replay_bars(
                 data_dir / "m15_tatn_255d.csv",
@@ -160,14 +180,20 @@ def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
                 online=True,
                 wait_sync=True,
             )
-            bars = payload.get("bars") or []
-        if len(bars) < 2:
-            raise RuntimeError("мало баров для сима")
+            m15 = payload.get("bars") or []
+        if len(m15) < 2:
+            raise RuntimeError("мало баров M15 для tip1m сима")
+        store.overlay_decision_bars_on_series(m15)
+        tips = load_tip_bars_for_parity(m15)
+        if len(tips) < 2:
+            raise RuntimeError("мало 1м tip для сима")
+        store.overlay_decision_bars_on_series(tips)
+        bars = tips
     except Exception as exc:
         result = {
             "ok": False,
             "status": "error",
-            "detail": f"не удалось загрузить бары: {exc}",
+            "detail": f"не удалось загрузить tip1m: {exc}",
             "live_bar": live_ts,
             "live_signal": live_sig,
         }
@@ -182,7 +208,7 @@ def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
         result = {
             "ok": True,
             "status": "matched",
-            "detail": f"sim {match['signal']} @ {match['bar_ts']} Z={match['z']:.2f}",
+            "detail": f"sim tip1m {match['signal']} @ {match['bar_ts']} Z={match['z']:.2f}",
             "live_bar": live_ts,
             "live_signal": live_sig,
             "sim_bar": match["bar_ts"],
@@ -190,6 +216,7 @@ def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
             "entry_z": entry,
             "exit_z": exit_z,
             "last_bar": last_bar,
+            "signal_mode": "tip1m",
         }
         store.update_parity_edge(int(edge["id"]), result)
         store.log_event(
@@ -201,14 +228,14 @@ def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
     nearby = [
         e
         for e in sim_edges
-        if abs(_bar_delta_min(e["bar_ts"], live_ts[:16])) <= 15 * 8
+        if abs(_bar_delta_min(e["bar_ts"], live_ts[:16])) <= 60
     ][:8]
     result = {
         "ok": False,
         "status": "missing",
         "detail": (
-            f"в Testing нет {live_sig} около {live_ts} "
-            f"(пороги ±{entry:.2f}/±{exit_z:.2f}, rolling Z)"
+            f"в Testing tip1m нет {live_sig} около {live_ts} "
+            f"(пороги ±{entry:.2f}/±{exit_z:.2f})"
         ),
         "live_bar": live_ts,
         "live_signal": live_sig,
@@ -216,6 +243,7 @@ def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
         "entry_z": entry,
         "exit_z": exit_z,
         "last_bar": last_bar,
+        "signal_mode": "tip1m",
     }
     store.update_parity_edge(int(edge["id"]), result)
     store.log_event(f"Parity MISSING #{edge['id']}: {result['detail']}", "parity")
@@ -915,6 +943,11 @@ def reconcile_closed_trades_parity(*, days=7, fix=True, limit=40):
             online=False,
         )
         bars = payload.get("bars") or []
+    store.overlay_decision_bars_on_series(bars)
+    tips = load_tip_bars_for_parity(bars)
+    if len(tips) >= 2:
+        store.overlay_decision_bars_on_series(tips)
+        bars = tips
 
     sim_trades = collect_sim_closed_trades(
         bars, entry, exit_z, deposit_rub=deposit, leverage=leverage

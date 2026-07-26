@@ -177,11 +177,11 @@ def markets_refresh(
         name = Path(csv).name
         csv_path = data_dir / name
         if csv_path.is_file():
-            # 1095d seed/sync может занять дольше 45с
+            # 3y CSV: sync routes to 255d live series (no 50k rewrite). Short timeout OK.
             from m15_iss_loader import lookback_days_for_path
 
             days_lookback = lookback_days_for_path(name)
-            timeout = 90.0 if days_lookback >= 900 else 45.0
+            timeout = 35.0 if days_lookback >= 900 else 45.0
             replay_db.sync_moex_tail(
                 csv_path, name, timeout_sec=timeout, force=True
             )
@@ -189,6 +189,12 @@ def markets_refresh(
         with _MKT_LOCK:
             _MKT_CACHE["key"] = None
             _MKT_CACHE["payload"] = None
+        try:
+            from live.metric_dist import invalidate_desk_metric_dists
+
+            invalidate_desk_metric_dists()
+        except Exception:
+            pass
         return build_markets_snapshot(days, live_tip=True)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc

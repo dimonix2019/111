@@ -4,6 +4,8 @@ class BarReplayEngine {
     this.points = points;
     this.entry = entry;
     this.exit = exit;
+    /** Tip-1m chart: cursor/seek only — signals come from server sim. */
+    this.disableSignals = !!opts.disableSignals;
     this.simOpts = normalizeSimExitOpts(opts);
     /** @deprecated use simOpts.takeProfitPct */
     this.takeProfitPct = this.simOpts.takeProfitPct;
@@ -48,6 +50,10 @@ class BarReplayEngine {
       return null;
     }
     const next = this.cursor + 1;
+    if (this.disableSignals) {
+      this.cursor = next;
+      return this._frame(null);
+    }
     const edgesBefore = this.edges.length;
     // Инкремент: один бар, без полного rebuildStateToCursor (O(n) → O(1))
     this._processBarAt(next);
@@ -71,8 +77,26 @@ class BarReplayEngine {
 
   seekTo(index) {
     const target = Math.min(this.lastIndex, Math.max(this.minCursor, index));
-    this.rebuildStateToCursor(target);
-    this.cursor = target;
+    if (target === this.cursor) {
+      if (this.state === 'Playing' && this.cursor >= this.lastIndex) this.state = 'Idle';
+      return this._frame(null);
+    }
+    if (this.disableSignals) {
+      this.cursor = target;
+      if (this.state === 'Playing' && this.cursor >= this.lastIndex) this.state = 'Idle';
+      return this._frame(null);
+    }
+    // Вперёд: дописать бары от текущего курсора (O(Δ)), не с нуля.
+    // Назад / сброс: полный rebuildStateToCursor (O(n)).
+    if (target > this.cursor) {
+      for (let i = this.cursor + 1; i <= target; i++) {
+        this._processBarAt(i);
+      }
+      this.cursor = target;
+    } else {
+      this.rebuildStateToCursor(target);
+      this.cursor = target;
+    }
     if (this.state === 'Playing' && this.cursor >= this.lastIndex) this.state = 'Idle';
     return this._frame(null);
   }
@@ -129,6 +153,14 @@ class BarReplayEngine {
 
     if (signal === 'None' && isConsecutiveM15Bar(prev, cur)) {
       signal = determineZSignal(prev.zScore, cur.zScore, this.position, this.entry, this.exit);
+      // как Прод: decision_bars.signal=NONE глушит фантомный geometric cross
+      const liveSig = String(cur.liveSignal || '').toUpperCase();
+      if (
+        liveSig === 'NONE'
+        && (signal === 'EnterLong' || signal === 'EnterShort')
+      ) {
+        signal = 'None';
+      }
     }
     if (signal !== 'None') this._pushEdge(signal, cur, false);
     this._applyManualEdgesAtIndex(i);
@@ -143,6 +175,7 @@ class BarReplayEngine {
     this.sizing = createSimSizingState();
     this.edges = [];
     if (this.points.length < 1 || target < 0) return;
+    if (this.disableSignals) return;
 
     const lastBar = Math.min(target, this.points.length - 1);
     this._processBarAt(0);
@@ -344,21 +377,22 @@ class BarReplayEngine {
     if (!this.points.length) {
       return {
         cursorIndex: 0,
-        visiblePoints: [],
+        currentPoint: null,
         position: 'Flat',
         newSignalThisBar: null,
         barLabel: '',
-        signalEdgesSoFar: [],
+        // read-only refs — не копировать O(n) на каждый кадр
+        signalEdgesSoFar: this.edges,
       };
     }
     const idx = Math.min(this.lastIndex, Math.max(0, this.cursor));
     return {
       cursorIndex: idx,
-      visiblePoints: this.points.slice(0, idx + 1),
+      currentPoint: this.points[idx] || null,
       position: this.position,
       newSignalThisBar: newSignal,
       barLabel: this.points[idx].tradeDate,
-      signalEdgesSoFar: [...this.edges],
+      signalEdgesSoFar: this.edges,
     };
   }
 }
@@ -385,9 +419,15 @@ function barReplayVisibleIndexRange(points, cursorIndex, visibleDays = 30, inclu
 }
 
 /** Сколько баров держать на экране (фикс. zoom); slice = visibleDays календарных дней. */
-function visibleBarsOnScreen(visibleDays) {
+function visibleBarsOnScreen(visibleDays, { tip1m = false } = {}) {
   // «Всё» — уместить весь загруженный период (zoom-out без потолка)
   if (!visibleDays || visibleDays >= 400) return 1_000_000;
+  if (tip1m) {
+    // 1м плотнее M15 (~15×): держим ~1–1.5 торговых дня на экране при периоде 30д
+    const map1m = { 30: 900, 90: 1400, 180: 2000 };
+    if (map1m[visibleDays]) return map1m[visibleDays];
+    return Math.min(2500, Math.max(600, Math.round(visibleDays * 30)));
+  }
   const map = { 30: 200, 90: 280, 180: 340 };
   if (map[visibleDays]) return map[visibleDays];
   return Math.min(500, Math.max(120, Math.round(visibleDays * 6.5)));

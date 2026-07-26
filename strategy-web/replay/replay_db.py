@@ -120,11 +120,38 @@ def apply_rolling_z_to_bars(bars: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return bars
 
 
+def _frozen_decision_timestamps() -> set[str]:
+    """Bar labels locked in live decision_bars — skip OHLC/Z overwrite on ISS sync."""
+    try:
+        # Prefer store helper (same process); fall back to direct read of live DB path.
+        from live.store import get_decision_bar_timestamps
+
+        return get_decision_bar_timestamps()
+    except Exception:
+        pass
+    try:
+        from live.store import DB_PATH as LIVE_DB
+
+        if not LIVE_DB.is_file():
+            return set()
+        conn = sqlite3.connect(f"file:{LIVE_DB}?mode=ro", uri=True, timeout=5.0)
+        try:
+            rows = conn.execute("SELECT bar_ts FROM decision_bars").fetchall()
+            return {str(r[0]) for r in rows if r[0]}
+        finally:
+            conn.close()
+    except Exception:
+        return set()
+
+
 def _upsert_bars(conn: sqlite3.Connection, bars: list[dict[str, Any]], source_csv: str) -> int:
     if not bars:
         return 0
-    rows = [
-        (
+    frozen = _frozen_decision_timestamps()
+    upsert_rows: list[tuple] = []
+    insert_only_rows: list[tuple] = []
+    for b in bars:
+        row = (
             int(b["timestampMs"]),
             b["tradeDate"],
             float(b["zScore"]),
@@ -133,26 +160,40 @@ def _upsert_bars(conn: sqlite3.Connection, bars: list[dict[str, Any]], source_cs
             float(b["tatnpClose"]),
             source_csv,
         )
-        for b in bars
-    ]
-    conn.executemany(
-        """
-        INSERT INTO m15_bars (
-            timestamp_ms, trade_date, z_score, spread_percent,
-            tatn_close, tatnp_close, source_csv
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(timestamp_ms) DO UPDATE SET
-            trade_date = excluded.trade_date,
-            z_score = excluded.z_score,
-            spread_percent = excluded.spread_percent,
-            tatn_close = excluded.tatn_close,
-            tatnp_close = excluded.tatnp_close,
-            source_csv = excluded.source_csv
-        """,
-        rows,
-    )
+        if frozen and str(b.get("tradeDate") or "") in frozen:
+            insert_only_rows.append(row)
+        else:
+            upsert_rows.append(row)
+    if upsert_rows:
+        conn.executemany(
+            """
+            INSERT INTO m15_bars (
+                timestamp_ms, trade_date, z_score, spread_percent,
+                tatn_close, tatnp_close, source_csv
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(timestamp_ms) DO UPDATE SET
+                trade_date = excluded.trade_date,
+                z_score = excluded.z_score,
+                spread_percent = excluded.spread_percent,
+                tatn_close = excluded.tatn_close,
+                tatnp_close = excluded.tatnp_close,
+                source_csv = excluded.source_csv
+            """,
+            upsert_rows,
+        )
+    if insert_only_rows:
+        # Frozen at decision time: keep existing OHLC/Z; insert only if missing.
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO m15_bars (
+                timestamp_ms, trade_date, z_score, spread_percent,
+                tatn_close, tatnp_close, source_csv
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            insert_only_rows,
+        )
     conn.commit()
-    return len(rows)
+    return len(upsert_rows) + len(insert_only_rows)
 
 
 def seed_from_csv(csv_path: Path, source_name: str) -> int:
@@ -293,8 +334,17 @@ def _csv_last_trade_date(csv_path: Path) -> str | None:
         return None
 
 
-def _seed_if_csv_ahead(csv_path: Path, source_name: str) -> bool:
-    """Seed SQLite when CSV is newer, longer, or has earlier history than DB."""
+def _csv_lookback_days(csv_path: Path) -> int:
+    try:
+        from m15_iss_loader import lookback_days_for_path
+
+        return int(lookback_days_for_path(csv_path))
+    except Exception:
+        return 255
+
+
+def _seed_needed(csv_path: Path) -> bool:
+    """True when SQLite lags CSV history (newer tip, earlier start, or much fewer rows)."""
     csv_last = _csv_last_trade_date(csv_path)
     if not csv_last or not csv_path.is_file():
         return False
@@ -304,20 +354,58 @@ def _seed_if_csv_ahead(csv_path: Path, source_name: str) -> bool:
     csv_first = _csv_first_trade_date(csv_path)
     count = db_bar_count()
 
-    need = count < 100
+    if count < 100:
+        return True
     if db_last and csv_last[:16] > db_last[:16]:
-        need = True
+        return True
     if csv_first and db_first and csv_first[:16] < db_first[:16]:
-        need = True
+        return True
     try:
         from m15_iss_loader import _csv_row_count
 
         if _csv_row_count(csv_path) > count + 100:
-            need = True
+            return True
     except Exception:
         pass
+    return False
 
-    if not need:
+
+def _background_seed_from_csv(csv_path: Path, source_name: str) -> None:
+    try:
+        n = seed_from_csv(csv_path, source_name)
+        if n:
+            log.info("Background SQLite seed from %s (%s bars)", source_name, n)
+    except Exception as exc:
+        log.warning("Background seed failed (%s): %s", source_name, exc)
+
+
+def _seed_if_csv_ahead(csv_path: Path, source_name: str) -> bool:
+    """Seed SQLite when CSV is newer, longer, or has earlier history than DB.
+
+    Large lookbacks (3y) seed in background so /api/bars is not blocked by
+    50k-row upsert + WAL checkpoint while the UI waits.
+    """
+    if not _seed_needed(csv_path):
+        return False
+
+    csv_first = _csv_first_trade_date(csv_path)
+    csv_last = _csv_last_trade_date(csv_path)
+    db_first = _db_first_trade_date()
+    db_last = _db_last_trade_date()
+
+    if _csv_lookback_days(csv_path) >= 900:
+        threading.Thread(
+            target=_background_seed_from_csv,
+            args=(csv_path, source_name),
+            daemon=True,
+        ).start()
+        log.info(
+            "SQLite seed deferred (large CSV %s…%s db=%s…%s)",
+            csv_first,
+            csv_last,
+            db_first,
+            db_last,
+        )
         return False
 
     seed_from_csv(csv_path, source_name)
@@ -363,6 +451,18 @@ def _moex_tail_sync_inner(csv_path: Path) -> bool:
     from m15_iss_loader import apply_live_last_overlay, ensure_m15_data, lookback_days_for_path
 
     days = lookback_days_for_path(csv_path)
+    # 3y CSV: never full rewrite / LAST overlay on 50k rows (GIL + lock freezes HTTP).
+    # Live tip lives on the short 255d series used by the monitor.
+    if days >= 900:
+        live = csv_path.parent / "m15_tatn_255d.csv"
+        if live.is_file():
+            _, refreshed = ensure_m15_data(live, days=255, moex_live=True)
+            tip = apply_live_last_overlay(live)
+            return bool(refreshed or tip)
+        # Avoid pd.read/write of 50k-row 1095d under download lock (freezes HTTP).
+        log.info("MOEX tail: skip heavy sync for %s (no 255d live CSV)", csv_path.name)
+        return False
+
     _, refreshed = ensure_m15_data(csv_path, days=days, moex_live=True)
     # Даже если свечи не сдвинулись (утро до первой 10м) — LAST из marketdata.
     tip = apply_live_last_overlay(csv_path)
@@ -391,14 +491,62 @@ def _try_moex_tail_sync(csv_path: Path, *, timeout_sec: float = 25.0) -> bool:
         pool.shutdown(wait=False, cancel_futures=True)
 
 
+def _db_covers_csv_history(csv_path: Path) -> bool:
+    """False when SQLite misses early CSV history (typical after using only 255d)."""
+    csv_first = _csv_first_trade_date(csv_path)
+    if not csv_first:
+        return True
+    db_first = _db_first_trade_date()
+    if not db_first:
+        return False
+    return db_first[:16] <= csv_first[:16]
+
+
+def _bars_from_csv_file(
+    csv_path: Path, start_date: str | None
+) -> list[dict[str, Any]]:
+    bars = load_bars_from_csv(csv_path)
+    if start_date:
+        bars = [b for b in bars if b["tradeDate"] >= start_date]
+    return bars
+
+
 def _load_cached_bars(
     csv_path: Path,
     source_name: str,
     start_date: str | None,
 ) -> list[dict[str, Any]]:
     count = db_bar_count()
+    large = _csv_lookback_days(csv_path) >= 900
+
     if count < 100 and csv_path.is_file():
-        seed_from_csv(csv_path, source_name)
+        if large:
+            threading.Thread(
+                target=_background_seed_from_csv,
+                args=(csv_path, source_name),
+                daemon=True,
+            ).start()
+        else:
+            seed_from_csv(csv_path, source_name)
+
+    # Prefer CSV when DB lacks early history (e.g. switch 255d → 1095d).
+    if csv_path.is_file() and not _db_covers_csv_history(csv_path):
+        bars = _bars_from_csv_file(csv_path, start_date)
+        if bars:
+            if large:
+                threading.Thread(
+                    target=_background_seed_from_csv,
+                    args=(csv_path, source_name),
+                    daemon=True,
+                ).start()
+            else:
+                seed_from_csv(csv_path, source_name)
+                db_bars = load_bars_from_db(start_date)
+                if db_bars:
+                    bars = _filter_bars_to_csv_lookback(db_bars, csv_path)
+                    if start_date:
+                        bars = [b for b in bars if b["tradeDate"] >= start_date]
+            return bars
 
     bars = load_bars_from_db(start_date)
     if bars:
@@ -410,15 +558,20 @@ def _load_cached_bars(
     if not csv_path.is_file():
         return []
 
-    bars = load_bars_from_csv(csv_path)
-    if start_date:
-        bars = [b for b in bars if b["tradeDate"] >= start_date]
+    bars = _bars_from_csv_file(csv_path, start_date)
     if bars:
-        seed_from_csv(csv_path, source_name)
-        bars = load_bars_from_db(start_date) or bars
-        bars = _filter_bars_to_csv_lookback(bars, csv_path)
-        if start_date:
-            bars = [b for b in bars if b["tradeDate"] >= start_date]
+        if large:
+            threading.Thread(
+                target=_background_seed_from_csv,
+                args=(csv_path, source_name),
+                daemon=True,
+            ).start()
+        else:
+            seed_from_csv(csv_path, source_name)
+            bars = load_bars_from_db(start_date) or bars
+            bars = _filter_bars_to_csv_lookback(bars, csv_path)
+            if start_date:
+                bars = [b for b in bars if b["tradeDate"] >= start_date]
     return bars
 
 

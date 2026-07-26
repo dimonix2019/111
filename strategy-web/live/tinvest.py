@@ -11,9 +11,11 @@ import requests
 
 from live.constants import (
     PROD_INSTRUMENTS_PREFIXES,
+    PROD_MARKETDATA_PREFIXES,
     PROD_ORDERS_PREFIXES,
     PROD_USERS_PREFIXES,
     SANDBOX_INSTRUMENTS_PREFIXES,
+    SANDBOX_MARKETDATA_PREFIXES,
     SANDBOX_PREFIXES,
     TATN_FALLBACK_ID,
     TATNP_FALLBACK_ID,
@@ -59,7 +61,14 @@ def _extract_error(http_code: int, body: str) -> str:
     return " · ".join(parts) if len(parts) > 1 else parts[0]
 
 
-def _post_raw(prefixes: list[str], token: str, method: str, body: dict[str, Any]) -> dict[str, Any]:
+def _post_raw(
+    prefixes: list[str],
+    token: str,
+    method: str,
+    body: dict[str, Any],
+    *,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
     norm = normalize_token(token)
     if not norm:
         raise RuntimeError(
@@ -78,7 +87,7 @@ def _post_raw(prefixes: list[str], token: str, method: str, body: dict[str, Any]
                     "Content-Type": "application/json; charset=utf-8",
                     "User-Agent": USER_AGENT,
                 },
-                timeout=30,
+                timeout=timeout,
             )
             text = resp.text or ""
             if not resp.ok:
@@ -139,20 +148,295 @@ class TInvestClient:
         self.mode = "prod" if mode == "prod" else "sandbox"
         self.token = token
 
-    def _sandbox(self, method: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        return _post_raw(SANDBOX_PREFIXES, self.token, method, body or {})
+    def _sandbox(
+        self, method: str, body: dict[str, Any] | None = None, *, timeout: float = 30.0
+    ) -> dict[str, Any]:
+        return _post_raw(
+            SANDBOX_PREFIXES, self.token, method, body or {}, timeout=timeout
+        )
 
     def _sbx_instr(self, method: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         return _post_raw(SANDBOX_INSTRUMENTS_PREFIXES, self.token, method, body or {})
 
-    def _prod_orders(self, method: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        return _post_raw(PROD_ORDERS_PREFIXES, self.token, method, body or {})
+    def _prod_orders(
+        self, method: str, body: dict[str, Any] | None = None, *, timeout: float = 30.0
+    ) -> dict[str, Any]:
+        return _post_raw(
+            PROD_ORDERS_PREFIXES, self.token, method, body or {}, timeout=timeout
+        )
 
     def _prod_instr(self, method: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         return _post_raw(PROD_INSTRUMENTS_PREFIXES, self.token, method, body or {})
 
     def _prod_users(self, method: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         return _post_raw(PROD_USERS_PREFIXES, self.token, method, body or {})
+
+    def _marketdata(
+        self,
+        method: str,
+        body: dict[str, Any] | None = None,
+        *,
+        timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        prefixes = (
+            SANDBOX_MARKETDATA_PREFIXES if self.mode == "sandbox" else PROD_MARKETDATA_PREFIXES
+        )
+        return _post_raw(prefixes, self.token, method, body or {}, timeout=timeout)
+
+    def get_trading_status(
+        self, instrument_id: str, *, timeout: float = 30.0
+    ) -> dict[str, Any]:
+        """MarketDataService/GetTradingStatus — weekend dealer = DEALER_NORMAL_TRADING."""
+        iid = (instrument_id or "").strip()
+        if not iid:
+            raise RuntimeError("GetTradingStatus: пустой instrumentId")
+        last: Exception | None = None
+        for body in (
+            {"instrumentId": iid},
+            {"instrument_id": iid},
+            {"figi": iid},
+        ):
+            try:
+                raw = self._marketdata("GetTradingStatus", body, timeout=float(timeout))
+                return _unwrap(
+                    raw,
+                    [
+                        "getTradingStatusResponse",
+                        "get_trading_status_response",
+                        "tradingStatus",
+                        "trading_status",
+                    ],
+                )
+            except Exception as exc:
+                last = exc
+        raise RuntimeError(str(last) if last else "GetTradingStatus failed")
+
+    def get_last_prices(
+        self,
+        instrument_ids: list[str],
+        *,
+        last_price_type: str = "LAST_PRICE_DEALER",
+        timeout: float = 30.0,
+    ) -> dict[str, float]:
+        """
+        MarketDataService/GetLastPrices.
+        Returns map instrumentId → last price float.
+        Weekend quotes: last_price_type=LAST_PRICE_DEALER.
+        """
+        ids = [str(x).strip() for x in instrument_ids if str(x).strip()]
+        if not ids:
+            return {}
+        last: Exception | None = None
+        bodies = [
+            {"instrumentId": ids, "lastPriceType": last_price_type},
+            {"instrument_id": ids, "last_price_type": last_price_type},
+            {"instrumentId": ids, "last_price_type": last_price_type},
+            {"figi": ids, "lastPriceType": last_price_type},
+        ]
+        for body in bodies:
+            try:
+                raw = self._marketdata("GetLastPrices", body, timeout=float(timeout))
+                env = _unwrap(
+                    raw,
+                    [
+                        "getLastPricesResponse",
+                        "get_last_prices_response",
+                    ],
+                )
+                rows = env.get("lastPrices") or env.get("last_prices") or env.get("LastPrices")
+                if rows is None and isinstance(env.get("prices"), list):
+                    rows = env["prices"]
+                if not isinstance(rows, list):
+                    # sometimes root is already the list wrapper
+                    rows = raw.get("lastPrices") or raw.get("last_prices") or []
+                out: dict[str, float] = {}
+                for row in rows if isinstance(rows, list) else []:
+                    if not isinstance(row, dict):
+                        continue
+                    key = (
+                        row.get("instrumentUid")
+                        or row.get("instrument_uid")
+                        or row.get("figi")
+                        or row.get("FIGI")
+                        or row.get("instrumentId")
+                        or row.get("instrument_id")
+                        or row.get("ticker")
+                    )
+                    px = quotation_to_float(row.get("price") or row.get("Price"))
+                    if key and px is not None and px > 0:
+                        out[str(key)] = px
+                # Successful HTTP with empty list — try next body shape
+                if out:
+                    return out
+                last = RuntimeError("GetLastPrices: пустой список цен")
+            except Exception as exc:
+                last = exc
+        raise RuntimeError(str(last) if last else "GetLastPrices failed")
+
+    def get_order_book(
+        self,
+        instrument_id: str,
+        *,
+        depth: int = 1,
+        order_book_type: str | None = "ORDERBOOK_TYPE_DEALER",
+        timeout: float = 30.0,
+        max_attempts: int | None = None,
+    ) -> dict[str, Any]:
+        """MarketDataService/GetOrderBook — optionally ORDERBOOK_TYPE_DEALER."""
+        iid = (instrument_id or "").strip()
+        if not iid:
+            raise RuntimeError("GetOrderBook: пустой instrumentId")
+        d = max(1, min(50, int(depth)))
+        last: Exception | None = None
+        bodies: list[dict[str, Any]] = []
+        if order_book_type:
+            bodies.extend(
+                [
+                    {"instrumentId": iid, "depth": d, "orderBookType": order_book_type},
+                    {
+                        "instrument_id": iid,
+                        "depth": d,
+                        "order_book_type": order_book_type,
+                    },
+                ]
+            )
+        bodies.extend(
+            [
+                {"instrumentId": iid, "depth": d},
+                {"instrument_id": iid, "depth": d},
+                {"figi": iid, "depth": d},
+            ]
+        )
+        if max_attempts is not None and max_attempts > 0:
+            bodies = bodies[: int(max_attempts)]
+        for body in bodies:
+            try:
+                return self._marketdata("GetOrderBook", body, timeout=float(timeout))
+            except Exception as exc:
+                last = exc
+        raise RuntimeError(str(last) if last else "GetOrderBook failed")
+
+    def get_candles(
+        self,
+        instrument_id: str,
+        *,
+        interval: str = "CANDLE_INTERVAL_1_MIN",
+        from_dt: Any = None,
+        to_dt: Any = None,
+        candle_source_type: str | None = "CANDLE_SOURCE_DEALER_WEEKEND",
+        limit: int | None = None,
+        timeout: float = 30.0,
+        max_attempts: int | None = None,
+        accept_empty: bool = False,
+    ) -> list[dict[str, Any]]:
+        """MarketDataService/GetCandles — dealer weekend uses 1m + DEALER_WEEKEND source.
+
+        Desk/monitor must pass a short timeout + capped attempts: unbounded
+        source×id retries with timeout=30 can block the uvicorn thread pool
+        for minutes and freeze Trade Desk.
+        """
+        from datetime import datetime, timezone
+
+        iid = (instrument_id or "").strip()
+        if not iid:
+            raise RuntimeError("GetCandles: пустой instrumentId")
+
+        def _ts(v: Any) -> Any:
+            if v is None:
+                return None
+            if isinstance(v, dict):
+                return v
+            if isinstance(v, datetime):
+                if v.tzinfo is None:
+                    v = v.replace(tzinfo=timezone.utc)
+                return v.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            return str(v)
+
+        fr = _ts(from_dt)
+        to = _ts(to_dt)
+        last: Exception | None = None
+        bodies: list[dict[str, Any]] = []
+        base: dict[str, Any] = {"interval": interval}
+        if fr is not None:
+            base["from"] = fr
+        if to is not None:
+            base["to"] = to
+        if limit is not None:
+            base["limit"] = int(limit)
+
+        # Prefer instrumentId; figi last. Cap attempts for dealer desk path.
+        id_variants = (
+            {"instrumentId": iid},
+            {"instrument_id": iid},
+            {"figi": iid},
+        )
+        sources = []
+        if candle_source_type:
+            sources.append(candle_source_type)
+            if candle_source_type == "CANDLE_SOURCE_DEALER_WEEKEND":
+                sources.append("CANDLE_SOURCE_INCLUDE_WEEKEND")
+            elif candle_source_type != "CANDLE_SOURCE_INCLUDE_WEEKEND":
+                sources.append("CANDLE_SOURCE_DEALER_WEEKEND")
+        sources.append(None)
+        seen_src: set[str] = set()
+        for src in sources:
+            key = src or ""
+            if key in seen_src:
+                continue
+            seen_src.add(key)
+            for idb in id_variants:
+                body = {**base, **idb}
+                if src:
+                    body["candleSourceType"] = src
+                    body["candle_source_type"] = src
+                bodies.append(body)
+
+        if max_attempts is not None and max_attempts > 0:
+            bodies = bodies[: int(max_attempts)]
+
+        for body in bodies:
+            try:
+                raw = self._marketdata("GetCandles", body, timeout=float(timeout))
+                env = _unwrap(
+                    raw,
+                    [
+                        "getCandlesResponse",
+                        "get_candles_response",
+                    ],
+                )
+                rows = env.get("candles") or env.get("Candles") or raw.get("candles") or []
+                if not isinstance(rows, list):
+                    continue
+                out: list[dict[str, Any]] = []
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    close = quotation_to_float(row.get("close") or row.get("Close"))
+                    if close is None or close <= 0:
+                        continue
+                    ts = row.get("time") or row.get("Time")
+                    out.append(
+                        {
+                            "time": ts,
+                            "open": quotation_to_float(row.get("open") or row.get("Open")),
+                            "high": quotation_to_float(row.get("high") or row.get("High")),
+                            "low": quotation_to_float(row.get("low") or row.get("Low")),
+                            "close": close,
+                            "volume": row.get("volume") or row.get("Volume"),
+                            "is_complete": row.get("isComplete", row.get("is_complete")),
+                            "candle_source": row.get("candleSource")
+                            or row.get("candle_source")
+                            or row.get("candleSourceType"),
+                        }
+                    )
+                if out:
+                    return out
+                if accept_empty:
+                    return []
+                last = RuntimeError("GetCandles: пустой список")
+            except Exception as exc:
+                last = exc
+        raise RuntimeError(str(last) if last else "GetCandles failed")
 
     def get_accounts(self) -> list[dict[str, str]]:
         if self.mode == "sandbox":
@@ -183,7 +467,7 @@ class TInvestClient:
             out.append({"id": str(aid), "name": str(name)})
         return out
 
-    def get_portfolio(self, account_id: str) -> dict[str, Any]:
+    def get_portfolio(self, account_id: str, *, timeout: float = 30.0) -> dict[str, Any]:
         """SandboxService/GetSandboxPortfolio or OperationsService/GetPortfolio."""
         from live.constants import PROD_HOST_TBANK, PROD_HOST_TINKOFF
 
@@ -193,18 +477,25 @@ class TInvestClient:
             {"accountId": account_id.strip(), "currency": "RUB"},
             {"account_id": account_id.strip(), "currency": "RUB"},
         ]
+        # Desk path passes a short timeout — don't multiply it by 4 body variants.
+        if float(timeout) <= 10.0:
+            bodies = bodies[:2]
         ops = "tinkoff.public.invest.api.contract.v1.OperationsService"
         prod_ops = [f"{PROD_HOST_TBANK}/{ops}", f"{PROD_HOST_TINKOFF}/{ops}"]
         last: Exception | None = None
         for body in bodies:
             try:
                 if self.mode == "sandbox":
-                    raw = self._sandbox("GetSandboxPortfolio", body)
+                    raw = self._sandbox("GetSandboxPortfolio", body, timeout=float(timeout))
                 else:
                     try:
-                        raw = _post_raw(prod_ops, self.token, "GetPortfolio", body)
+                        raw = _post_raw(
+                            prod_ops, self.token, "GetPortfolio", body, timeout=float(timeout)
+                        )
                     except Exception:
-                        raw = self._prod_orders("GetPortfolio", body)
+                        raw = self._prod_orders(
+                            "GetPortfolio", body, timeout=float(timeout)
+                        )
                 return _unwrap(
                     raw,
                     [
