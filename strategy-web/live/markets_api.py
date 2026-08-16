@@ -13,7 +13,7 @@ from live import engine, store
 
 router = APIRouter(prefix="/api/markets", tags=["markets"])
 
-PERIOD_DAYS = {1: 1, 7: 7, 30: 30, 90: 90}
+PERIOD_DAYS = {1: 1, 7: 7, 30: 30, 90: 90, 180: 180}
 
 # Desk/polls share the same days window — avoid MOEX LAST on every hit.
 _MKT_CACHE: dict[str, Any] = {"key": None, "ts": 0.0, "payload": None}
@@ -61,7 +61,7 @@ def build_markets_snapshot(
 
     live_tip=False — SQLite only (no MOEX LAST / market_snapshot). Fast Trade first paint.
     """
-    days = PERIOD_DAYS.get(days, days if days in (1, 7, 30, 90) else 7)
+    days = PERIOD_DAYS.get(days, days if days in (1, 7, 30, 90, 180) else 7)
     cache_key = f"{days}:{'tip' if live_tip else 'fast'}"
     now = time.time()
     with _MKT_LOCK:
@@ -79,7 +79,7 @@ def build_markets_snapshot(
     data_dir = Path(__file__).resolve().parent.parent / "data"
     csv_path = data_dir / "m15_tatn_255d.csv"
     start_date = None
-    if days in (1, 7, 30, 90):
+    if days in (1, 7, 30, 90, 180):
         start_date = (datetime.now() - timedelta(days=days + 2)).strftime("%Y-%m-%d")
 
     # Chart series from SQLite only — never block on ISS here
@@ -155,7 +155,7 @@ def build_markets_snapshot(
 
 
 @router.get("")
-def markets_snapshot(days: int = Query(7, description="1 / 7 / 30 / 90")) -> dict[str, Any]:
+def markets_snapshot(days: int = Query(7, description="1 / 7 / 30 / 90 / 180")) -> dict[str, Any]:
     try:
         return build_markets_snapshot(days, live_tip=True)
     except Exception as exc:

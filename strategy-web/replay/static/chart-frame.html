@@ -242,20 +242,42 @@
 
     function snapMarkersToCandles(markers) {
       if (!lastCandleTimes.length || !markers.length) return markers;
-      const set = new Set(lastCandleTimes);
-      return markers.map((m) => {
-        if (set.has(m.time)) return m;
-        let best = lastCandleTimes[0];
+      const times = lastCandleTimes;
+      const set = new Set(times);
+      let step = 60;
+      if (times.length >= 2) {
+        const diffs = [];
+        const start = Math.max(1, times.length - 80);
+        for (let i = start; i < times.length; i++) {
+          const d = times[i] - times[i - 1];
+          if (d > 0 && d < 7200) diffs.push(d);
+        }
+        if (diffs.length) {
+          diffs.sort((a, b) => a - b);
+          step = diffs[Math.floor(diffs.length / 2)] || 60;
+        }
+      }
+      const maxDelta = Math.max(90, Math.round(step * 1.5));
+      const out = [];
+      for (const m of markers) {
+        if (set.has(m.time)) {
+          out.push(m);
+          continue;
+        }
+        let best = times[0];
         let bestD = Math.abs(best - m.time);
-        for (const t of lastCandleTimes) {
+        for (const t of times) {
           const d = Math.abs(t - m.time);
           if (d < bestD) {
             best = t;
             bestD = d;
           }
         }
-        return { ...m, time: best };
-      });
+        // Drop far markers — do not stack off-window trades on the first candle.
+        if (bestD > maxDelta) continue;
+        out.push({ ...m, time: best });
+      }
+      return out;
     }
 
     function scheduleRefreshMarkers() {

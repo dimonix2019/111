@@ -173,8 +173,77 @@
 
 .trade-side h2 { font-size: 13px; margin: 0; }
 
+.trade-mid-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.trade-mid-tabs-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.trade-mid-tabs {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.trade-mid-tabs .chip {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.trade-mid-tab-panes {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.trade-mid-tab-pane[hidden] {
+  display: none !important;
+}
+
+.trade-mid-tab-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #5b8cff rgba(26, 30, 41, 0.95);
+}
+
 .trade-checklist {
   gap: 8px;
+}
+
+.trade-mid-tab-pane.trade-hang-panel {
+  overflow: hidden;
+}
+
+.trade-params-panel {
+  gap: 8px;
+}
+
+.trade-params-panel .trade-params-actions {
+  flex-wrap: wrap;
+}
+
+.trade-params-panel .trade-params-actions.live-actions {
+  flex-wrap: wrap;
 }
 
 .trade-check-hint {
@@ -607,6 +676,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+.account-funds-at-open {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .account-funds-forecast {
   margin-top: 10px;
   padding-top: 8px;
@@ -619,6 +695,72 @@
   color: #c7d2fe;
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
+}
+
+.trade-open-pnl-src {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.trade-profit-alert {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(34, 197, 94, 0.18);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  color: #86efac;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.trade-profit-toast {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(22, 163, 74, 0.92);
+  color: #ecfdf5;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.trade-profit-toast[hidden] {
+  display: none !important;
+}
+
+.account-funds-forecast-delta {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+.account-funds-forecast-exit {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+.account-funds-forecast-ovn {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+.account-funds-forecast-ovn.pnl-neg {
+  color: #f87171;
 }
 
 .account-funds-forecast-sub {
@@ -684,9 +826,11 @@
   white-space: normal;
 }
 
+.markets-strip .metric-place-typical,
 .markets-strip .metric-place-mean { color: #6ee7b7; }
 .markets-strip .metric-place-shoulder { color: #93c5fd; }
 .markets-strip .metric-place-tail { color: #fbbf24; }
+.markets-strip .metric-place-outlier,
 .markets-strip .metric-place-outside { color: #f87171; }
 .markets-strip .metric-place-flat,
 .markets-strip .metric-place-sparse { color: var(--muted); }
@@ -726,6 +870,60 @@
 
 .trade-chart-stack .pnl-head {
   padding: 6px 10px 0;
+}
+
+/* Fullscreen overlay for Z / Spread panes (same pattern as Testing heatmap) */
+.trade-pane-z-wrap.is-fullscreen,
+.trade-pane-spread-wrap.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border-radius: 0;
+  background: #0c0f14;
+  border: none;
+  box-shadow: none;
+  max-height: none;
+  min-height: 0;
+  flex: none !important;
+  overflow: hidden;
+}
+
+.trade-pane-z-wrap.is-fullscreen .pnl-head,
+.trade-pane-spread-wrap.is-fullscreen .pnl-head {
+  padding: 0 0 8px;
+  margin-bottom: 0;
+}
+
+.trade-pane-z-wrap.is-fullscreen .pnl-label,
+.trade-pane-spread-wrap.is-fullscreen .pnl-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.trade-pane-z-wrap.is-fullscreen .trade-z-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.trade-pane-z-wrap.is-fullscreen .trade-pane-z {
+  flex: 1 1 auto;
+  height: auto !important;
+  min-height: 0;
+}
+
+.trade-pane-spread-wrap.is-fullscreen .trade-pane-spread {
+  flex: 1 1 auto;
+  height: auto !important;
+  min-height: 0;
+  flex-basis: auto !important;
+}
+
+body.trade-chart-fs-open {
+  overflow: hidden;
 }
 
 .pnl-label-dealer {
@@ -835,6 +1033,34 @@
   color: var(--text) !important;
   font-size: 12px !important;
   cursor: pointer;
+}
+
+.badge-regime-z {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.14);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+.badge-spread-levels {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #a7f3d0;
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.tip-regime-check {
+  margin-left: 4px;
 }
 
 .live-hint {
@@ -1153,6 +1379,128 @@
 
 .tos-hint {
   display: none; /* экономия высоты; смысл в KPI/вкладках */
+}
+
+/* —— Кто завис (корзина обычка/преф) —— */
+.trade-hang-panel {
+  gap: 6px;
+  min-height: 0;
+}
+
+.trade-hang-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.trade-hang-head h2 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.trade-hang-meta {
+  font-size: 10px;
+  line-height: 1.3;
+  color: #9ca3af;
+  font-family: ui-monospace, Consolas, monospace;
+  flex: 0 0 auto;
+}
+
+.trade-hang-table-wrap {
+  overflow-x: auto;
+  flex: 1 1 auto;
+  min-height: 80px;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.trade-hang-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.trade-hang-table th,
+.trade-hang-table td {
+  padding: 3px 4px;
+  text-align: right;
+  border-bottom: 1px solid rgba(75, 85, 99, 0.45);
+  white-space: nowrap;
+}
+
+.trade-hang-table th:first-child,
+.trade-hang-table td:first-child {
+  text-align: left;
+}
+
+.trade-hang-table th {
+  color: #9ca3af;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  background: var(--panel, #1a1e29);
+  z-index: 1;
+}
+
+.trade-hang-pair {
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
+.trade-hang-name {
+  font-size: 9px;
+  font-weight: 400;
+  color: #9ca3af;
+}
+
+.trade-hang-empty,
+.trade-hang-err td {
+  text-align: left !important;
+  color: #9ca3af;
+}
+
+.trade-hang-rules {
+  font-size: 10px;
+  line-height: 1.35;
+  color: #a8b0c0;
+  flex: 0 0 auto;
+}
+
+.hang-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.hang-st-ok {
+  background: rgba(34, 197, 94, 0.18);
+  color: #86efac;
+}
+
+.hang-st-compress {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.hang-st-shelf {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+}
+
+.hang-st-edge {
+  background: rgba(168, 85, 247, 0.22);
+  color: #d8b4fe;
+}
+
+.hang-st-na {
+  background: rgba(107, 114, 128, 0.25);
+  color: #d1d5db;
 }
 
 @media (max-width: 1100px) {

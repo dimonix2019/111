@@ -6,8 +6,21 @@ import json
 from datetime import datetime
 from typing import Any
 
+from live.overnight_fee import (
+    OVERNIGHT_FEE_PERCENT_PER_DAY,
+    overnight_fee_from_open,
+    overnight_fee_per_day_rub,
+    short_leg_uncovered_rub,
+)
 
-OVERNIGHT_FEE_PERCENT_PER_DAY = 0.033  # parity MoexConstants
+# Re-export for open_stats / close_forecast importers.
+__all__ = [
+    "OVERNIGHT_FEE_PERCENT_PER_DAY",
+    "overnight_days",
+    "overnight_fee_from_open",
+    "overnight_fee_per_day_rub",
+    "short_leg_uncovered_rub",
+]
 
 
 def _parse_dt(s: str | None) -> datetime | None:
@@ -350,7 +363,21 @@ def enrich_open_trade(
             pnl_source = "spread_snap"
 
     ovn_days = overnight_days(open_t.get("entry_time"), trade_date)
-    overnight_rub = notional * (OVERNIGHT_FEE_PERCENT_PER_DAY / 100.0) * ovn_days if notional else 0.0
+    # T‑Invest: ступени на непокрытую (короткая нога), не notional×0.033%/день.
+    overnight_rub = overnight_fee_from_open(
+        open_t,
+        fill_tatn=fill_tatn or snap_tatn,
+        fill_tatnp=fill_tatnp or snap_tatnp,
+        days=ovn_days,
+    )
+    uncovered = short_leg_uncovered_rub(
+        direction=direction,
+        lots=lots,
+        fill_tatn=fill_tatn or snap_tatn,
+        fill_tatnp=fill_tatnp or snap_tatnp,
+        notional_rub=notional,
+    )
+    overnight_per_day = overnight_fee_per_day_rub(uncovered)
     net_approx = (unrealized - overnight_rub) if unrealized is not None else None
 
     flags: list[str] = []
@@ -395,6 +422,8 @@ def enrich_open_trade(
         "unrealized_pnl_rub": unrealized,
         "overnight_rub": overnight_rub,
         "overnight_days": ovn_days,
+        "overnight_per_day_rub": overnight_per_day,
+        "uncovered_rub": uncovered,
         "net_approx_rub": net_approx,
         "notional_rub": notional,
         "lots": lots,

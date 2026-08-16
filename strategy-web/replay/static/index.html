@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MOEX · Торговля / История / Счёт / Тестирование</title>
-  <link rel="stylesheet" href="/static/css-shell.css?v=20260726pill1" />
-  <link rel="stylesheet" href="/static/css-testing.css?v=20260726otc2" />
+  <link rel="stylesheet" href="/static/css-shell.css?v=20260811spread1" />
+  <link rel="stylesheet" href="/static/css-testing.css?v=20260815agg2" />
   <link rel="stylesheet" href="/static/css-replay-ui.css?v=20260723a12" />
-  <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260726tos1" />
-  <link rel="stylesheet" href="/static/css-mobile.css?v=20260726otc2" />
+  <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260815noz1" />
+  <link rel="stylesheet" href="/static/css-mobile.css?v=20260815noz1" />
 </head>
 <body>
   <div id="loading" class="loading">
@@ -45,25 +45,25 @@
       </div>
       <div class="replay-toolbar-extras replay-only" id="replayToolbarExtras">
       <span class="meta" id="meta">TATN/TATNP · 15м</span>
-      <label class="meta">Старт
+      <label class="meta" title="Окно данных: с этой даты грузятся бары и пересчитывается таблица СДЕЛКИ">Окно
         <input type="date" id="startDate" />
       </label>
-      <div class="chip-group start-preset-chips" id="startPresetChips" role="group" aria-label="Быстрый выбор старта">
-        <button type="button" class="chip" data-start-preset="1d" title="Сегодня (МСК)">1 день</button>
-        <button type="button" class="chip" data-start-preset="1w" title="Понедельник текущей недели (МСК)">1 неделя</button>
-        <button type="button" class="chip" data-start-preset="1m" title="Сегодня минус 1 месяц">1 мес</button>
-        <button type="button" class="chip" data-start-preset="3m" title="Сегодня минус 3 месяца">3 мес</button>
-        <button type="button" class="chip" data-start-preset="6m" title="Сегодня минус 6 месяцев">6 мес</button>
-        <button type="button" class="chip" data-start-preset="1y" title="Сегодня минус 1 год">год</button>
-        <button type="button" class="chip" data-start-preset="3y" title="Сегодня минус 3 года">3 года</button>
+      <div class="chip-group start-preset-chips" id="startPresetChips" role="group" aria-label="Окно данных (старт симуляции)">
+        <button type="button" class="chip" data-start-preset="1d" title="Окно данных: сегодня (МСК) → сейчас. Пересчёт баров и СДЕЛКИ.">1 день</button>
+        <button type="button" class="chip" data-start-preset="1w" title="Окно данных: пн текущей недели (МСК) → сейчас. Пересчёт баров и СДЕЛКИ.">1 неделя</button>
+        <button type="button" class="chip" data-start-preset="1m" title="Окно данных: сегодня−1 мес → сейчас. Пересчёт баров и СДЕЛКИ по финальному CSV (геометрия за всё окно).">1 мес</button>
+        <button type="button" class="chip" data-start-preset="3m" title="Окно данных: сегодня−3 мес → сейчас. Пересчёт баров и СДЕЛКИ.">3 мес</button>
+        <button type="button" class="chip" data-start-preset="6m" title="Окно данных: сегодня−6 мес → сейчас. Пересчёт баров и СДЕЛКИ.">6 мес</button>
+        <button type="button" class="chip" data-start-preset="1y" title="Окно данных: сегодня−1 год → сейчас. Пересчёт баров и СДЕЛКИ.">год</button>
+        <button type="button" class="chip" data-start-preset="3y" title="Окно данных: сегодня−3 года → сейчас. Пересчёт баров и СДЕЛКИ.">3 года</button>
       </div>
-      <span class="meta">Период:</span>
-      <div class="chip-group" id="periodChips">
-        <button type="button" class="chip active" data-days="30">30д</button>
-        <button type="button" class="chip" data-days="90">3М</button>
-        <button type="button" class="chip" data-days="180">6М</button>
-        <button type="button" class="chip" data-days="400" title="Все бары от начала до курсора симуляции">Всё</button>
-        <button type="button" class="chip" id="btnFitFullChart" title="Показать весь график симуляции (zoom out)">⤢ весь</button>
+      <span class="meta" title="Только масштаб графика — не меняет окно данных и не пересчитывает СДЕЛКИ">График:</span>
+      <div class="chip-group" id="periodChips" role="group" aria-label="Масштаб графика (не окно данных)">
+        <button type="button" class="chip active" data-days="30" title="Масштаб графика: ~30д видимых баров">30д</button>
+        <button type="button" class="chip" data-days="90" title="Масштаб графика: ~90д">3М</button>
+        <button type="button" class="chip" data-days="180" title="Масштаб графика: ~180д">6М</button>
+        <button type="button" class="chip" data-days="400" title="Масштаб: все загруженные бары до курсора (не меняет окно данных / СДЕЛКИ)">Всё</button>
+        <button type="button" class="chip" id="btnFitFullChart" title="Zoom-out: показать весь загруженный график">⤢ весь</button>
       </div>
       <div class="replay-opt-group" role="group" aria-label="Параметры стратегии">
         <span class="replay-opt-group-title">Стратегия</span>
@@ -102,19 +102,16 @@
           <option value="m15_test_3d.csv">тест 3д</option>
         </select>
       </label>
-      <div class="chip-group" id="barsSourceChips" role="group" aria-label="Источник баров Теста">
-        <button type="button" class="chip active" data-bars-source="as_live"
-          title="Ряд как решал Прод: замороженные OHLC/Z из decision_bars">как Прод</button>
-        <button type="button" class="chip" data-bars-source="final"
-          title="Финальный CSV/SQLite после всех merge ISS (для исследования)">финальный CSV</button>
-      </div>
       <div class="chip-group" id="edgeModeChips" role="group" aria-label="Режим сигнала Теста">
         <button type="button" class="chip active" data-edge-mode="m15"
           title="Вход/выход на закрытии M15 (как сейчас)">M15 закрытие</button>
-        <button type="button" class="chip" data-edge-mode="tip1m"
-          title="Касание порога на 1м tip-Z: μ/σ по completed M15 + текущий 1м спред; fill сразу, не ждём close M15. Считает сервер.">касание 1м</button>
+          <button type="button" class="chip" data-edge-mode="tip1m"
+            title="Касание порога на 1м tip: μ/σ по completed M15 + текущий 1м спред. Settle +10с как Prod tip1m AUTO (бар actionable после close+settle или следующего tip). Считает сервер.">касание 1м</button>
+          <label class="live-check tip-regime-check" title="Спред-% уровни (Prod AUTO): Short ≥6.2 / ≤5.8 · Long ≤3.2 / ≥4.0 · переход без входа · без Z">
+            <input type="checkbox" id="tipSpreadLevels" checked />
+            спред-уровни
+          </label>
       </div>
-      <span class="meta" id="barsCoverageWarn" aria-live="polite"></span>
       <button type="button" class="btn btn-sm btn-primary" id="btnRefreshMoex" title="Дотянуть хвост с MOEX ISS и обновить бары теста">Обновить MOEX</button>
       <span class="moex-last-bar" id="moexLastBarTs" title="Последний бар в данных теста (M15)"></span>
       <span class="meta" id="moexRefreshStatus" aria-live="polite"></span>
@@ -132,20 +129,24 @@
         <section class="live-card trade-chart-head">
           <div class="live-row" style="justify-content:space-between;align-items:center;margin:0">
             <div class="chip-group" id="tradePeriodChips">
-              <button type="button" class="chip" data-days="1">1Д</button>
-              <button type="button" class="chip active" data-days="7">1Н</button>
-              <button type="button" class="chip" data-days="30">1М</button>
-              <button type="button" class="chip" data-days="90">3М</button>
+              <button type="button" class="chip" data-days="1" title="Масштаб: ~1д + fit">1Д</button>
+              <button type="button" class="chip active" data-days="7" title="Масштаб: ~7д + fit">1Н</button>
+              <button type="button" class="chip" data-days="30" title="Масштаб: ~30д + fit">1М</button>
+              <button type="button" class="chip" data-days="90" title="Масштаб: ~90д + fit">3М</button>
+              <button type="button" class="chip" data-days="180" title="Масштаб: ~180д + fit">6М</button>
             </div>
             <button type="button" class="btn btn-primary" id="tradeBtnRefresh">Обновить MOEX</button>
           </div>
           <div class="markets-strip" id="tradeStrip">—</div>
         </section>
         <div class="trade-chart-stack" id="tradeChartStack">
-          <div class="trade-pane-z-wrap">
+          <div class="trade-pane-z-wrap" id="tradeZPane">
             <div class="pnl-head">
-              <div class="pnl-label" id="tradeZChartLabel">Z-score · tip1m</div>
-              <span class="meta" id="tradeThreshLabel">пороги ±1.3 / ±1.2</span>
+              <div class="pnl-label" id="tradeZChartLabel">Спред % · tip1m</div>
+              <div class="pnl-head-right">
+                <span class="meta" id="tradeThreshLabel">уровни L 3.2/4.0 · S 5.8/6.2</span>
+                <button type="button" class="pane-collapse-btn" id="btnExpandTradeZ" aria-pressed="false" title="На весь экран">⛶</button>
+              </div>
             </div>
             <div class="trade-z-body">
               <div id="tradeOpenTradeOverlay" class="open-trade-overlay hidden"></div>
@@ -153,10 +154,13 @@
               <div id="tradeZChart" class="trade-pane-z"></div>
             </div>
           </div>
-          <div class="split-divider-h" id="tradeSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота графиков Z / Спред" title="Перетащите · двойной клик — сброс"></div>
-          <div class="trade-pane-spread-wrap">
+          <div class="split-divider-h" id="tradeSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота графиков спреда" title="Перетащите · двойной клик — сброс"></div>
+          <div class="trade-pane-spread-wrap" id="tradeSpreadPane">
             <div class="pnl-head">
               <div class="pnl-label" id="tradeSpreadChartLabel">Спред % · tip1m</div>
+              <div class="pnl-head-right">
+                <button type="button" class="pane-collapse-btn" id="btnExpandTradeSpread" aria-pressed="false" title="На весь экран">⛶</button>
+              </div>
             </div>
             <div id="tradeSpreadChart" class="trade-pane-spread"></div>
           </div>
@@ -244,69 +248,110 @@
         </section>
       </div>
 
-      <aside class="trade-side trade-checklist live-card" id="tradeChecklistPanel">
-        <h2>Чеклист</h2>
-        <div class="trade-check-hint" id="tradeCheckHint">ожидание данных…</div>
-        <div class="trade-check-section">
-          <div class="trade-check-title">Общее</div>
-          <ul class="trade-check-list" id="tradeCheckGeneral"></ul>
-        </div>
-        <div class="trade-check-section">
-          <div class="trade-check-title">Открытие</div>
-          <ul class="trade-check-list" id="tradeCheckOpen"></ul>
-        </div>
-        <div class="trade-check-section">
-          <div class="trade-check-title">Закрытие</div>
-          <ul class="trade-check-list" id="tradeCheckClose"></ul>
-        </div>
-      </aside>
+      <div class="trade-mid-col">
+        <aside class="trade-side trade-mid-tabs-shell live-card" id="tradeMidTabsPanel" aria-label="Чеклист, зависания и параметры">
+          <div class="chip-group trade-mid-tabs" id="tradeMidTabs" role="tablist" aria-label="Разделы">
+            <button type="button" class="chip active" data-mid-tab="check" role="tab" aria-selected="true" aria-controls="tradeChecklistPanel" id="tradeMidTabCheck">Чеклист</button>
+            <button type="button" class="chip" data-mid-tab="hang" role="tab" aria-selected="false" aria-controls="tradeHangPanel" id="tradeMidTabHang">Кто завис</button>
+            <button type="button" class="chip" data-mid-tab="params" role="tab" aria-selected="false" aria-controls="tradeParamsPanel" id="tradeMidTabParams">Параметры</button>
+          </div>
+          <div class="trade-mid-tab-panes">
+            <div class="trade-mid-tab-pane trade-checklist active" data-mid-pane="check" id="tradeChecklistPanel" role="tabpanel" aria-labelledby="tradeMidTabCheck">
+              <div class="trade-check-hint" id="tradeCheckHint">ожидание данных…</div>
+              <div class="trade-check-section">
+                <div class="trade-check-title">Общее</div>
+                <ul class="trade-check-list" id="tradeCheckGeneral"></ul>
+              </div>
+              <div class="trade-check-section">
+                <div class="trade-check-title">Открытие</div>
+                <ul class="trade-check-list" id="tradeCheckOpen"></ul>
+              </div>
+              <div class="trade-check-section">
+                <div class="trade-check-title">Закрытие</div>
+                <ul class="trade-check-list" id="tradeCheckClose"></ul>
+              </div>
+            </div>
+
+            <div class="trade-mid-tab-pane trade-hang-panel" data-mid-pane="hang" id="tradeHangPanel" role="tabpanel" aria-labelledby="tradeMidTabHang" aria-label="Кто завис" hidden>
+              <div class="trade-hang-head">
+                <button type="button" class="btn btn-sm" id="tradeHangRefresh" title="Обновить с дневных закрытий ISS">Обновить</button>
+              </div>
+              <div class="trade-hang-meta" id="tradeHangMeta">ожидание…</div>
+              <div class="trade-hang-table-wrap">
+                <table class="trade-hang-table" id="tradeHangTable">
+                  <thead>
+                    <tr>
+                      <th>Пара</th>
+                      <th>S%</th>
+                      <th>мед.</th>
+                      <th>p10</th>
+                      <th>p90</th>
+                      <th>дней</th>
+                      <th>статус</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tradeHangBody">
+                    <tr><td colspan="7" class="trade-hang-empty">—</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="trade-hang-rules" id="tradeHangRules"></div>
+            </div>
+
+            <div class="trade-mid-tab-pane trade-params-panel" data-mid-pane="params" id="tradeParamsPanel" role="tabpanel" aria-labelledby="tradeMidTabParams" hidden>
+              <div class="trade-deposit-row">
+                <label class="trade-deposit-label" title="Депозит, от которого считаются лоты на вход (не больше cash на счёте)">Депозит на вход ₽
+                  <input type="number" id="tradeEntryDeposit" min="1000" max="10000000" step="1000" value="10000" />
+                </label>
+                <button type="button" class="btn btn-sm btn-primary" id="tradeBtnSaveDeposit" title="Сохранить депозит на вход">Сохранить</button>
+                <span class="trade-params-status" id="tradeDepositStatus" aria-live="polite"></span>
+              </div>
+              <div class="trade-params">
+                <label>Плечо
+                  <input type="number" id="tradeLeverage" min="1" max="30" step="0.5" value="7" />
+                </label>
+              </div>
+              <div class="live-row live-actions trade-params-actions">
+                <label class="trade-tp-inline" title="Take-profit: закрыть, когда MTM PnL (% от депозита×плечо) ≥ порога — как Testing tip1m">ТП
+                  <select id="tradeTpSel">
+                    <option value="0" selected>выкл</option>
+                    <option value="1">1%</option>
+                    <option value="2">2%</option>
+                    <option value="3">3%</option>
+                  </select>
+                </label>
+                <label class="live-check" title="Спред-% уровни (AUTO): Short enter≥6.2 exit≤5.8 · Long enter≤3.2 exit≥4.0 · переход без входа · без Z">
+                  <input type="checkbox" id="tradeSpreadLevels" checked />
+                  Спред-уровни
+                </label>
+                <label class="live-check">
+                  <input type="checkbox" id="tradeAutoExec" />
+                  Авто
+                </label>
+                <button type="button" class="btn btn-sm btn-primary" id="tradeBtnSaveParams" title="Сохранить ТП, плечо, спред-уровни и Авто на сервер (монитор Prod tip1m)">Сохранить</button>
+                <span class="trade-params-status" id="tradeParamsStatus" aria-live="polite"></span>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
 
       <aside class="trade-side live-card" id="tradeSidePanel">
         <h2>Сделка</h2>
+        <div id="tradeProfitToast" class="trade-profit-toast" role="status" hidden></div>
         <div class="trade-side-status" id="tradeSideStatus"><span class="badge-pos-flat">FLAT</span></div>
         <div class="account-funds" id="tradeFundsBox" title="Средства на подключённом счёте T‑Invest">
           <div class="account-funds-label">Средства на счёте</div>
           <div class="account-funds-total" id="tradeFundsTotal">—</div>
           <div class="account-funds-cash" id="tradeFundsCash">cash —</div>
+          <div class="account-funds-at-open" id="tradeFundsAtOpen" hidden></div>
           <div class="account-funds-forecast" id="tradeCloseForecast" hidden>
             <div class="account-funds-forecast-main" id="tradeCloseForecastMain">Прогноз после закрытия ≈ —</div>
+            <div class="account-funds-forecast-delta" id="tradeCloseForecastDelta" hidden></div>
+            <div class="account-funds-forecast-exit" id="tradeCloseForecastExit" hidden></div>
+            <div class="account-funds-forecast-ovn" id="tradeCloseForecastOvn" hidden></div>
             <div class="account-funds-forecast-sub" id="tradeCloseForecastSub"></div>
           </div>
-        </div>
-
-        <div class="trade-deposit-row">
-          <label class="trade-deposit-label" title="Депозит, от которого считаются лоты на вход (не больше cash на счёте)">Депозит на вход ₽
-            <input type="number" id="tradeEntryDeposit" min="1000" max="10000000" step="1000" value="10000" />
-          </label>
-          <button type="button" class="btn btn-sm btn-primary" id="tradeBtnSaveDeposit" title="Сохранить депозит на вход">Сохранить</button>
-          <span class="trade-params-status" id="tradeDepositStatus" aria-live="polite"></span>
-        </div>
-        <div class="trade-params">
-          <label>Вх \|Z\|
-            <input type="number" id="tradeEntryZ" min="0.05" max="8" step="0.05" value="1.3" />
-          </label>
-          <label>Вых \|Z\|
-            <input type="number" id="tradeExitZ" min="0.05" max="8" step="0.05" value="1.2" />
-          </label>
-          <label>Плечо
-            <input type="number" id="tradeLeverage" min="1" max="30" step="0.5" value="7" />
-          </label>
-        </div>
-        <div class="live-row live-actions trade-params-actions">
-          <label class="trade-tp-inline" title="Take-profit: закрыть, когда MTM PnL (% от депозита×плечо) ≥ порога — как Testing tip1m">ТП
-            <select id="tradeTpSel">
-              <option value="0" selected>выкл</option>
-              <option value="1">1%</option>
-              <option value="2">2%</option>
-              <option value="3">3%</option>
-            </select>
-          </label>
-          <label class="live-check">
-            <input type="checkbox" id="tradeAutoExec" />
-            Авто
-          </label>
-          <button type="button" class="btn btn-sm btn-primary" id="tradeBtnSaveParams" title="Сохранить пороги, ТП, плечо и Авто на сервер (монитор Prod tip1m)">Сохранить</button>
-          <span class="trade-params-status" id="tradeParamsStatus" aria-live="polite"></span>
         </div>
 
         <div class="trade-open-box" id="tradeOpenBox">
@@ -343,7 +388,7 @@
           </label>
           <div class="chip-group history-period-chips" id="historyPeriodChips">
             <button type="button" class="chip" data-preset="today">Сегодня</button>
-            <button type="button" class="chip" data-preset="week">Неделя</button>
+            <button type="button" class="chip" data-preset="week" title="Последние 7 календарных дней (сегодня включительно)">Неделя</button>
             <button type="button" class="chip" data-preset="month">Месяц</button>
             <button type="button" class="chip" data-preset="3m">3 мес</button>
             <button type="button" class="chip" data-preset="6m">6 мес</button>
@@ -435,6 +480,7 @@
       <div class="chart-wrap">
         <div class="chart-stack" id="chartStack">
           <div class="chart-pane-z-wrap">
+            <div class="pnl-label test-primary-chart-label" id="testPrimaryChartLabel">Z-score · M15</div>
             <div id="openTradeOverlay" class="open-trade-overlay hidden"></div>
             <div id="chart" class="chart-pane-z"></div>
           </div>
@@ -468,7 +514,7 @@
           <div class="trades-panel-head">
             <h2>Сделки</h2>
             <div class="trades-panel-head-right">
-              <label class="meta replay-compound trades-column-tips" title="Гистограммы σ / «вне типичного» при наведении на Длит., Чист., Min, Max…">
+              <label class="meta replay-compound trades-column-tips" title="Гистограммы медианы/MAD / «типично»·«выброс» при наведении на Длит., Чист., Min, Max…">
                 <input type="checkbox" id="columnTipsChk" checked />
                 подсказки столбцов
               </label>
@@ -531,24 +577,34 @@
           <div class="split-divider-h" id="zHeatmapSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота heatmap PnL" title="Вверх — больше · вниз — меньше · двойной клик — сброс"></div>
           <div class="trades-collapsible trades-collapsible-grow" id="zHeatmapPane">
             <div class="trades-section-head">
-              <div class="trades-section-label">PnL · вход Z × выход Z</div>
+              <div class="trades-section-label" id="zHeatmapTitle">PnL · вход Z × выход Z</div>
               <div class="trades-section-head-actions">
                 <button type="button" class="pane-collapse-btn" id="btnExpandZHeatmap" aria-pressed="false" title="На весь экран">⛶</button>
                 <button type="button" class="pane-collapse-btn" id="btnCollapseZHeatmap" aria-expanded="true" aria-controls="tradesZHeatmapScroll" title="Скрыть">−</button>
               </div>
             </div>
             <div class="trades-collapsible-body trades-z-heatmap-scroll" id="tradesZHeatmapScroll">
+              <div class="z-heatmap-controls" id="zHeatmapBandControls" hidden>
+                <span class="meta">полоса</span>
+                <div class="chip-group" id="hmBandChips" role="group" aria-label="Полоса S% heatmap">
+                  <button type="button" class="chip active" data-hm-band="wide" title="Широкий Short: enter&gt;exit, выше cut ~5.5">Шир. Short</button>
+                  <button type="button" class="chip" data-hm-band="narrow" title="Узкий Long: enter&lt;exit, ниже cut ~3.5">Узк. Long</button>
+                </div>
+              </div>
               <div class="z-heatmap-controls" id="zHeatmapControls">
-                <label class="meta" title="Минимальный порог входа Z для сетки">Вх min
+                <label class="meta" id="hmEntryMinLabel" title="Минимальный порог входа Z для сетки">Вх min
                   <input type="number" id="hmEntryMin" min="0.3" max="5" step="0.1" value="0.5" />
                 </label>
-                <label class="meta" title="Максимальный порог входа Z для сетки">Вх max
+                <label class="meta" id="hmEntryMaxLabel" title="Максимальный порог входа Z для сетки">Вх max
                   <input type="number" id="hmEntryMax" min="0.5" max="5" step="0.1" value="2.5" />
                 </label>
-                <label class="meta" title="Минимальный порог выхода Z (только клетки exit &lt; entry)">Вых min
+                <label class="meta" id="hmExitMinLabel" title="Минимальный порог выхода Z (только клетки exit &lt; entry)">Вых min
                   <input type="number" id="hmExitMin" min="0.1" max="4" step="0.1" value="0.3" />
                 </label>
-                <label class="meta" title="Шаг сетки по Z">Шаг
+                <label class="meta" id="hmExitMaxLabel" title="Макс. S% выхода (спред-уровни)" hidden>Вых max
+                  <input type="number" id="hmExitMax" min="0.1" max="10" step="0.1" value="6.2" />
+                </label>
+                <label class="meta" id="hmStepLabel" title="Шаг сетки по Z">Шаг
                   <input type="number" id="hmStep" min="0.05" max="0.5" step="0.05" value="0.1" />
                 </label>
                 <button type="button" class="chip" id="btnHmRecompute" title="Пересчитать heatmap">↻</button>
@@ -595,7 +651,7 @@
         <div class="trade-actions" id="tradeActions">
           <button type="button" class="btn btn-trade btn-long" id="btnLong" title="Открыть Long на текущем баре">Long</button>
           <button type="button" class="btn btn-trade btn-short" id="btnShort" title="Открыть Short на текущем баре">Short</button>
-          <button type="button" class="btn btn-trade btn-close-all" id="btnCloseAll" title="Закрыть открытую позицию"><span class="btn-label-full">Закрыть все</span><span class="btn-label-short">Закр.</span></button>
+          <button type="button" class="btn btn-trade btn-close-all" id="btnCloseAll" title="Закрыть открытую позицию на текущем баре (tip1m/M15)"><span class="btn-label-full">Закрыть все</span><span class="btn-label-short">Закр.</span></button>
         </div>
         <div class="transport">
           <button type="button" class="btn" id="btnStart" title="В начало"><span class="btn-label-full">⏮ В начало</span><span class="btn-label-short">⏮</span></button>
@@ -618,14 +674,14 @@
 
   <script src="/static/lightweight-charts.standalone.production.js?v=20260723a12"></script>
   <!-- replay engine split (load order matters) -->
-  <script src="/static/replay-sim.js?v=20260725regime1"></script>
-  <script src="/static/replay-equity.js?v=20260723a12"></script>
+  <script src="/static/replay-sim.js?v=20260815invest1"></script>
+  <script src="/static/replay-equity.js?v=20260807spread1"></script>
   <script src="/static/replay-signals.js?v=20260723a12"></script>
-  <script src="/static/replay-engine-core.js?v=20260725t1m1"></script>
-  <script src="/static/chart.js?v=20260724a1"></script>
-  <script src="/static/trade.js?v=20260726fc1"></script>
-  <script src="/static/history.js?v=20260723a12"></script>
+  <script src="/static/replay-engine-core.js?v=20260810noz1"></script>
+  <script src="/static/chart.js?v=20260807spread1"></script>
+  <script src="/static/trade.js?v=20260815bands1"></script>
+  <script src="/static/history.js?v=20260815invest1"></script>
   <script src="/static/live.js?v=20260726otc2"></script>
-  <script src="/static/app.js?v=20260726bars3y1"></script>
+  <script src="/static/app.js?v=20260815noz1"></script>
 </body>
 </html>

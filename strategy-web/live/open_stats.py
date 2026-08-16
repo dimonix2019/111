@@ -7,7 +7,6 @@ import time
 from typing import Any
 
 from zsim import (
-    OVERNIGHT_FEE_PERCENT_PER_DAY,
     Bar,
     Position,
     overnight_days,
@@ -240,12 +239,11 @@ def _path_stats_for_trades(
     leverage: float,
 ) -> dict[str, Any]:
     """MAE / hit+1%/+2% по пути entry→exit (gross MTM vs депозит)."""
+    from live.overnight_fee import overnight_fee_per_day_rub
+
     eff = max(0.0, notional_rub) * max(1.0, leverage)
-    overnight_per_day = (
-        max(0.0, notional_rub)
-        * max(0.0, leverage - 1.0)
-        * (OVERNIGHT_FEE_PERCENT_PER_DAY / 100.0)
-    )
+    # Как Test/sim: без цен ног ≈ номинал пары / 2 → ступень Премиум.
+    overnight_per_day = overnight_fee_per_day_rub(eff / 2.0)
     # prebuild for binary search-ish scan
     mae_rubs: list[float] = []
     hit1_hours: list[float] = []

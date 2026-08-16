@@ -25,6 +25,68 @@ _CACHE: dict[str, Any] = {
 _BUILD_LOCK = threading.Lock()
 
 
+def _quantile_sorted(sorted_vals: list[float], q: float) -> float | None:
+    n = len(sorted_vals)
+    if n == 0:
+        return None
+    qq = max(0.0, min(1.0, float(q)))
+    if n == 1:
+        return float(sorted_vals[0])
+    pos = (n - 1) * qq
+    lo = int(math.floor(pos))
+    hi = int(math.ceil(pos))
+    if lo == hi:
+        return float(sorted_vals[lo])
+    w = pos - lo
+    return float(sorted_vals[lo] * (1.0 - w) + sorted_vals[hi] * w)
+
+
+def _numeric_dist_hist_window(
+    sorted_vals: list[float],
+    median: float | None,
+    mad: float,
+    p5: float | None,
+    p25: float | None,
+    p75: float | None,
+    p95: float | None,
+) -> tuple[list[float], bool]:
+    """Tukey (or p5–p95) window for bins; summary stays on full sample."""
+    n = len(sorted_vals)
+    vmin = sorted_vals[0]
+    vmax = sorted_vals[-1]
+
+    def pick(lo: float, hi: float) -> list[float]:
+        return [v for v in sorted_vals if lo <= v <= hi]
+
+    iqr = (p75 - p25) if (p25 is not None and p75 is not None) else 0.0
+    fence_lo = vmin
+    fence_hi = vmax
+    if iqr > 1e-12 and p25 is not None and p75 is not None:
+        fence_lo = p25 - 1.5 * iqr
+        fence_hi = p75 + 1.5 * iqr
+    elif mad > 1e-12 and median is not None:
+        fence_lo = median - 3.0 * mad
+        fence_hi = median + 3.0 * mad
+    elif p5 is not None and p95 is not None and p95 > p5:
+        fence_lo = p5
+        fence_hi = p95
+    fence_lo = max(vmin, fence_lo)
+    fence_hi = min(vmax, fence_hi)
+    hist = pick(fence_lo, fence_hi)
+    # Tiny n: fences are noisy — keep full range.
+    if n < 8:
+        return sorted_vals, False
+    min_keep = max(8, n // 2)
+    # Only widen when fences actually dropped too many points.
+    if len(hist) < n and len(hist) < min_keep and p5 is not None and p95 is not None and p95 > p5:
+        fence_lo = max(vmin, p5)
+        fence_hi = min(vmax, p95)
+        hist = pick(fence_lo, fence_hi)
+    if len(hist) < 2:
+        return sorted_vals, False
+    return hist, len(hist) < n
+
+
 def compute_numeric_distribution(
     values: list[float],
     *,
@@ -34,24 +96,40 @@ def compute_numeric_distribution(
     n = len(values)
     if n == 0:
         return None
-    vmin = min(values)
-    vmax = max(values)
+    sorted_vals = sorted(values)
+    vmin = sorted_vals[0]
+    vmax = sorted_vals[-1]
     mean = sum(values) / n
     if n > 1:
         var_acc = sum((v - mean) ** 2 for v in values)
         stdev = math.sqrt(var_acc / (n - 1))
     else:
         stdev = 0.0
-    bin_count = min(28, max(10, round(math.sqrt(n) * 2.2) or bin_target))
-    lo = vmin
-    hi = vmax
+    median = _quantile_sorted(sorted_vals, 0.5)
+    p5 = _quantile_sorted(sorted_vals, 0.05)
+    p25 = _quantile_sorted(sorted_vals, 0.25)
+    p75 = _quantile_sorted(sorted_vals, 0.75)
+    p95 = _quantile_sorted(sorted_vals, 0.95)
+    mad = 0.0
+    if median is not None:
+        abs_dev = sorted(abs(v - median) for v in sorted_vals)
+        mad = float(_quantile_sorted(abs_dev, 0.5) or 0.0)
+    hist_sorted, hist_clipped = _numeric_dist_hist_window(
+        sorted_vals, median, mad, p5, p25, p75, p95,
+    )
+    n_hist = len(hist_sorted)
+    hist_min = hist_sorted[0]
+    hist_max = hist_sorted[-1]
+    bin_count = min(28, max(10, round(math.sqrt(n_hist) * 2.2) or bin_target))
+    lo = hist_min
+    hi = hist_max
     if hi <= lo:
         pad = max(abs(lo) * 0.05, 1e-6)
         lo -= pad
         hi += pad
     width = (hi - lo) / bin_count
     bins = [0] * bin_count
-    for v in values:
+    for v in hist_sorted:
         i = int(math.floor((v - lo) / width))
         if i < 0:
             i = 0
@@ -60,15 +138,25 @@ def compute_numeric_distribution(
         bins[i] += 1
     return {
         "n": n,
+        "nHist": n_hist,
         "min": vmin,
         "max": vmax,
+        "histMin": hist_min,
+        "histMax": hist_max,
         "mean": mean,
         "stdev": stdev,
+        "median": median,
+        "mad": mad,
+        "p5": p5,
+        "p25": p25,
+        "p75": p75,
+        "p95": p95,
         "bins": bins,
         "lo": lo,
         "hi": hi,
         "width": width,
         "binCount": bin_count,
+        "histClipped": hist_clipped,
     }
 
 

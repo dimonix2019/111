@@ -1,10 +1,7 @@
 /* testing: trades table, summary, risk, metric tips */
-#barsCoverageWarn {
-  color: #fbbf24;
-  max-width: 280px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.trades-summary-note.is-sparse {
+  color: #fb923c;
+  font-weight: 600;
 }
 
 #edgeModeChips .chip[data-edge-mode="tip1m"].active {
@@ -81,7 +78,7 @@
   position: sticky;
   bottom: 0;
   z-index: 2;
-  background: #1e222d;
+  background: #3a3f48;
   border-top: 10px solid var(--bg, #131722);
   padding-top: 10px;
   padding-bottom: 8px;
@@ -89,6 +86,10 @@
   font-size: 130%;
   line-height: 1.25;
   box-shadow: 0 -6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.history-table-wrap tfoot tr.history-agg-row td {
+  background: #3a3f48;
 }
 
 .history-agg-row td.history-agg-label {
@@ -466,9 +467,11 @@ tr.trade-row-red td {
   color: #93c5fd;
 }
 
+.trade-metric-tip .tm-place-typical,
 .trade-metric-tip .tm-place-mean { color: #6ee7b7; }
 .trade-metric-tip .tm-place-shoulder { color: #93c5fd; }
 .trade-metric-tip .tm-place-tail { color: #fbbf24; }
+.trade-metric-tip .tm-place-outlier,
 .trade-metric-tip .tm-place-outside { color: #f87171; }
 .trade-metric-tip .tm-place-flat,
 .trade-metric-tip .tm-place-sparse { color: var(--muted); }
@@ -1199,6 +1202,16 @@ tr.trade-row-red td {
   text-shadow: 0 0 2px #7f1d1d, 0 1px 2px rgba(0, 0, 0, 0.85);
   z-index: 3;
   position: relative;
+}
+
+.z-heatmap-table td.zh-cell.is-hm-prod {
+  outline: 2px dashed rgba(37, 99, 235, 0.95);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.35);
+}
+
+.z-heatmap-table td.zh-cell.is-hm-prod.is-current {
+  outline-style: solid;
 }
 
 .z-heatmap-table td.zh-cell.is-hm-max.is-current,

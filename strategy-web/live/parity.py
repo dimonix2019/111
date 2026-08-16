@@ -39,6 +39,9 @@ def collect_sim_edges(
     bars: list[dict[str, Any]],
     entry: float,
     exit_z: float,
+    *,
+    regime_z_mode: bool = False,
+    spread_level_mode: bool = False,
 ) -> list[dict[str, Any]]:
     """Tip1m edge-проход (Prod Mode B). ``bars`` may be tip bars or M15 (auto-detect)."""
     if not bars:
@@ -47,7 +50,45 @@ def collect_sim_edges(
     if len(bars) >= 2:
         d0 = int(bars[1].get("timestampMs") or 0) - int(bars[0].get("timestampMs") or 0)
         if 0 < d0 <= 90_000:
-            return collect_tip1m_sim_edges(bars, entry, exit_z, respect_live_signal=True)
+            # Prefer «как Прод» actions (decision_bars + closed trades) so Friday
+            # geometric phantoms cannot hide Monday Prod ENTER.
+            try:
+                from replay.tip_touch import (
+                    build_as_live_tip_actions,
+                    ensure_tip_series,
+                )
+
+                prep, _ = ensure_tip_series("m15_tatn_255d.csv")
+                code_to_sig = {
+                    1: Signal.ENTER_LONG.value,
+                    2: Signal.ENTER_SHORT.value,
+                    3: Signal.EXIT_LONG.value,
+                    4: Signal.EXIT_SHORT.value,
+                }
+                out: list[dict[str, Any]] = []
+                for act in build_as_live_tip_actions(prep):
+                    idx, code = int(act[0]), int(act[1])
+                    td = str(prep.trade_dates[idx])
+                    out.append(
+                        {
+                            "bar_ts": td[:16] if len(td) >= 16 else td,
+                            "bar_ms": int(prep.ts_ms[idx]),
+                            "signal": code_to_sig[int(code)],
+                            "z": float(prep.z[idx]),
+                        }
+                    )
+                if out:
+                    return out
+            except Exception as exc:
+                log.warning("as_live tip edges fallback to geometric: %s", exc)
+            return collect_tip1m_sim_edges(
+                bars,
+                entry,
+                exit_z,
+                respect_live_signal=True,
+                regime_z_mode=regime_z_mode,
+                spread_level_mode=spread_level_mode,
+            )
     # Legacy M15 path (tests / old callers)
     pos = Position.FLAT
     edges: list[dict[str, Any]] = []
@@ -167,6 +208,12 @@ def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
     exit_z = float(edge.get("exit_z") or 1.2)
     live_ts = str(edge.get("bar_ts") or "")
     live_sig = str(edge.get("signal") or "")
+    settings = store.get_settings_bundle()
+    from live.spread_levels import parse_spread_level_mode
+    from live.spread_regime import parse_regime_z_mode
+
+    use_sl = parse_spread_level_mode(settings)
+    use_rz = (not use_sl) and parse_regime_z_mode(settings)
 
     try:
         from replay.replay_db import ensure_replay_bars, load_bars_from_db
@@ -201,7 +248,9 @@ def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
         store.log_event(f"Parity FAIL #{edge['id']}: {result['detail']}", "parity")
         return result
 
-    sim_edges = collect_sim_edges(bars, entry, exit_z)
+    sim_edges = collect_sim_edges(
+        bars, entry, exit_z, regime_z_mode=use_rz, spread_level_mode=use_sl
+    )
     match = find_matching_sim_edge(live_ts, live_sig, sim_edges)
     last_bar = str(bars[-1].get("tradeDate") or "") if bars else None
     if match:
@@ -230,12 +279,21 @@ def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
         for e in sim_edges
         if abs(_bar_delta_min(e["bar_ts"], live_ts[:16])) <= 60
     ][:8]
+    if use_sl:
+        from live.spread_levels import levels_from_settings
+
+        lv = levels_from_settings(settings)
+        thresh_note = (
+            f"уровни Short {lv.enter_wide:.1f}/{lv.exit_wide:.1f} · "
+            f"Long {lv.enter_narrow:.1f}/{lv.exit_narrow:.1f}"
+        )
+    else:
+        thresh_note = f"пороги ±{entry:.2f}/±{exit_z:.2f}"
     result = {
         "ok": False,
         "status": "missing",
         "detail": (
-            f"в Testing tip1m нет {live_sig} около {live_ts} "
-            f"(пороги ±{entry:.2f}/±{exit_z:.2f})"
+            f"в Testing tip1m нет {live_sig} около {live_ts} ({thresh_note})"
         ),
         "live_bar": live_ts,
         "live_signal": live_sig,
@@ -251,7 +309,20 @@ def run_parity_check(edge: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def process_due_parity_checks() -> list[dict[str, Any]]:
+# Full closed-trades reconcile (~10–20s tip1m) must NOT run every monitor tick:
+# it starves /api/health/live (DB + GIL) → watchdog «HTTP dead» → hard restart
+# mid Testing tip1m («считаю сделки на сервере…»).
+_TRADES_RECONCILE_MIN_INTERVAL_SEC = 900.0
+_last_trades_reconcile_mono = 0.0
+
+
+def process_due_parity_checks(*, force_trades: bool = False) -> list[dict[str, Any]]:
+    """Pending edge checks + open PnL; closed-trades reconcile throttled.
+
+    ``force_trades=True`` from manual ``POST /parity/check`` / trades API.
+    Monitor tick keeps due edges + open PnL every cycle; full reconcile ≤1/15м.
+    """
+    global _last_trades_reconcile_mono
     due = store.list_due_parity_edges()
     out = []
     for edge in due:
@@ -265,11 +336,18 @@ def process_due_parity_checks() -> list[dict[str, Any]]:
     except Exception as exc:
         log.exception("open pnl parity failed")
         store.log_event(f"Parity open PnL error: {exc}", "parity")
-    try:
-        out.append(reconcile_closed_trades_parity(days=7, fix=True))
-    except Exception as exc:
-        log.exception("closed trades parity failed")
-        store.log_event(f"Parity trades error: {exc}", "parity")
+    now_mono = time.monotonic()
+    due_trades = force_trades or (
+        _last_trades_reconcile_mono <= 0
+        or (now_mono - _last_trades_reconcile_mono) >= _TRADES_RECONCILE_MIN_INTERVAL_SEC
+    )
+    if due_trades:
+        try:
+            out.append(reconcile_closed_trades_parity(days=7, fix=True))
+            _last_trades_reconcile_mono = time.monotonic()
+        except Exception as exc:
+            log.exception("closed trades parity failed")
+            store.log_event(f"Parity trades error: {exc}", "parity")
     return out
 
 
@@ -871,7 +949,20 @@ def compare_trade_fields(prod, test):
         ("entry_spread", prod.get("entry_spread"), test.get("entry_spread"), "num", SPREAD_TOL, False),
         ("exit_spread", prod.get("exit_spread"), test.get("exit_spread"), "num", SPREAD_TOL, False),
         ("pnl_pts", prod_pts, test_pts, "num", SPREAD_TOL, False),
-        ("pnl_rub", prod.get("pnl_rub"), test.get("pnl_rub"), "num", pnl_tol, True),
+        # Soft PnL: модель по спреду (Test) ↔ Prod spread_pnl / модель, не Δ кошелька.
+        # Чист. Prod = account_delta остаётся в History; здесь яблоки к яблокам.
+        (
+            "pnl_rub",
+            (
+                prod.get("spread_pnl_rub")
+                if _f(prod.get("spread_pnl_rub")) is not None
+                else prod.get("pnl_rub")
+            ),
+            test.get("pnl_rub"),
+            "num",
+            pnl_tol,
+            True,
+        ),
         ("gross_rub", prod.get("gross_rub"), test.get("gross_rub"), "num", pnl_tol, True),
         ("commission_rub", prod.get("commission_rub"), test.get("commission_rub"), "num", 25.0, True),
         ("overnight_rub", prod.get("overnight_rub"), test.get("overnight_rub"), "num", 15.0, True),
@@ -904,11 +995,16 @@ def _fix_prod_z_from_bars(prod, bars):
 
 
 def _fix_prod_times_from_sim(prod, sim):
-    """Выровнять времена/Z на сигнал. Не трогаем pnl_rub (fill)."""
+    """Align entry/exit timestamps to signal bars; keep broker fill as exit_fill_time."""
     patch = {}
     for key in ("entry_time", "exit_time"):
-        if _ts16(prod.get(key)) != _ts16(sim.get(key)):
-            patch[key] = _ts16(sim.get(key))
+        sim_t = _ts16(sim.get(key))
+        prod_t = _ts16(prod.get(key))
+        if sim_t and prod_t != sim_t:
+            patch[key] = sim_t
+            if key == "exit_time" and prod_t and not prod.get("exit_fill_time"):
+                # Preserve broker fill when rewriting History exit to signal bar.
+                patch["exit_fill_time"] = prod_t
     for key in ("entry_z", "exit_z"):
         sz = _f(sim.get(key))
         if sz is None:
@@ -996,20 +1092,25 @@ def reconcile_closed_trades_parity(*, days=7, fix=True, limit=40):
         applied = []
         if fix:
             patch = {}
-            # Только Z с баров в СОХРАНЁННЫЕ timestamps (внутренняя согласованность).
-            # Времена/спреды/PnL от сима НЕ переписываем — fill/брокер канон для денег.
-            patch.update(_fix_prod_z_from_bars(prod, bars))
+            # Signal-bar times (Test parity) + Z; keep broker fill in exit_fill_time.
+            # PnL/spreads from broker fill are not overwritten.
+            patch.update(_fix_prod_times_from_sim(prod, sim))
+            patch.update(_fix_prod_z_from_bars({**prod, **patch}, bars))
             need_metrics = (
                 prod.get("pnl_min_rub") is None
                 or prod.get("pnl_max_rub") is None
                 or prod.get("pnl_rub") is None
             )
             if need_metrics:
-                path = _slice_bars(bars, prod.get("entry_time"), prod.get("exit_time"))
+                path = _slice_bars(
+                    bars,
+                    patch.get("entry_time") or prod.get("entry_time"),
+                    patch.get("exit_time") or prod.get("exit_time"),
+                )
                 from live.closed_metrics import compute_path_metrics
 
                 enriched_metrics = compute_path_metrics(
-                    prod, path, deposit_rub=deposit, leverage=leverage
+                    {**prod, **patch}, path, deposit_rub=deposit, leverage=leverage
                 )
                 for k, v in enriched_metrics.items():
                     if str(k).startswith("_") or v is None:
@@ -1038,6 +1139,9 @@ def reconcile_closed_trades_parity(*, days=7, fix=True, limit=40):
                         for k in before_keys
                         if k
                         in {
+                            "entry_time",
+                            "exit_time",
+                            "exit_fill_time",
                             "entry_spread_iss",
                             "entry_slip_pts",
                             "execution_notional_rub",

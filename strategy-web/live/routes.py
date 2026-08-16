@@ -266,6 +266,19 @@ def monitor_tick() -> dict[str, Any]:
         raise HTTPException(400, str(exc)) from exc
 
 
+@router.get("/pref-hang")
+def pref_hang_screener(
+    force: bool = Query(False, description="Игнорировать кэш и пересчитать с ISS"),
+) -> dict[str, Any]:
+    """Экран «Кто завис»: TATN/SNGS/RTKM — дневной спред обычка/преф."""
+    try:
+        from live.pref_hang_screener import get_pref_hang_screener
+
+        return get_pref_hang_screener(force=force)
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
 @router.get("/parity")
 def parity_status() -> dict[str, Any]:
     return store.parity_summary()
@@ -277,7 +290,7 @@ def parity_check_now() -> dict[str, Any]:
     from live import parity as parity_mod
 
     n = store.force_parity_due()
-    results = parity_mod.process_due_parity_checks()
+    results = parity_mod.process_due_parity_checks(force_trades=True)
     return {
         "ok": True,
         "forced": n,

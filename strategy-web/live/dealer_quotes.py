@@ -22,14 +22,28 @@ DEALER_LABEL = "дилер / выходные · 1м"
 DEALER_NORMAL = "SECURITY_TRADING_STATUS_DEALER_NORMAL_TRADING"
 DEALER_BAR_INTERVAL = "1m"
 DEALER_CANDLE_INTERVAL = "CANDLE_INTERVAL_1_MIN"
-# Хвост 1м дилерских свечей для монитора (спред + display-only Z).
-DEALER_1M_LOOKBACK_HOURS = 6.0
+DEALER_TIP_SOURCE = "tinvest_dealer_1m_tip"
+# Live tip overlay for desk spread freezes at 23:45 МСК (weekday).
+# AUTO tip1m session stays 07:00–23:50 — do not unify that here.
+SPREAD_LIVE_CUTOFF_MINS = 23 * 60 + 45
+SPREAD_LIVE_CUTOFF_LABEL = "23:45"
+SPREAD_LIVE_FROZEN_REASON = "сессия закрыта · спред не обновляем после 23:45"
+# TInvest GetCandles(1m): max 1 day per request. Trade chip 1Д/1Н → respect days;
+# 1М/3М/6М capped (30×1440 bars ×2 legs is too heavy for desk warm).
+DEALER_1M_MAX_LOOKBACK_DAYS = 7
+DEALER_1M_API_CHUNK_HOURS = 24.0
+# First paint / short budget: last calendar day (was hardcoded 6h → «один утренний хвост»).
+DEALER_1M_FIRST_CHUNK_HOURS = 24.0
+# Backward-compat alias (tests / callers).
+DEALER_1M_LOOKBACK_HOURS = DEALER_1M_FIRST_CHUNK_HOURS
 DEALER_Z_KIND = "dealer_monitor"
 # Desk must never wait minutes on GetCandles, but 5s was too aggressive on weekend.
 # Keep wall budget short: hung GetCandles must not starve uvicorn / watchdog health.
 DEALER_CANDLE_HTTP_TIMEOUT = 6.0
 DEALER_CANDLE_MAX_ATTEMPTS = 1
 DEALER_CANDLES_BUDGET_SEC = 8.0
+# Background multi-day warm (chunked GetCandles) — off request path.
+DEALER_CANDLES_WARM_BUDGET_SEC = 120.0
 DEALER_CANDLES_CACHE_TTL = 180.0
 DEALER_CANDLES_STALE_TTL = 900.0
 DEALER_QUOTES_CACHE_TTL = 12.0
@@ -37,7 +51,12 @@ DEALER_QUOTE_HTTP_TIMEOUT = 3.0
 DEALER_QUOTE_BOOK_ATTEMPTS = 1
 
 _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
-_CANDLES_CACHE: dict[str, Any] = {"ts": 0.0, "bars": None, "err": None}
+_CANDLES_CACHE: dict[str, Any] = {
+    "ts": 0.0,
+    "bars": None,
+    "err": None,
+    "lookback_hours": 0.0,
+}
 _LOCK = threading.Lock()
 _FETCH_LOCK = threading.Lock()
 _CANDLES_FETCH_LOCK = threading.Lock()
@@ -65,9 +84,144 @@ def is_msk_tqbr_session(dt: datetime | None = None) -> bool:
     return (7 * 60) <= mins < (23 * 60 + 50)
 
 
+def is_msk_spread_live(dt: datetime | None = None) -> bool:
+    """Можно ли обновлять live tip-спред на столе.
+
+    Выходные: да (дилер). Будни: только 07:00–23:45 МСК — после 23:45
+    дилерский tip часто врёт (не торговая зона), AUTO при этом до 23:50.
+    """
+    d = dt or now_msk()
+    if d.weekday() >= 5:
+        return True
+    mins = d.hour * 60 + d.minute
+    return (7 * 60) <= mins < SPREAD_LIVE_CUTOFF_MINS
+
+
+def _dt_from_bar_ms(ms: int | float | None) -> datetime | None:
+    try:
+        v = int(ms or 0)
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return datetime.fromtimestamp(v / 1000.0, tz=timezone.utc).astimezone(MSK)
+
+
+def is_after_hours_tip_bar(bar: dict[str, Any] | None) -> bool:
+    """Tip-бар с временем ≥23:45 МСК в будни — не показывать как «сейчас»."""
+    if not isinstance(bar, dict):
+        return False
+    if bar.get("source") != DEALER_TIP_SOURCE:
+        return False
+    dt = _dt_from_bar_ms(bar.get("timestampMs"))
+    if dt is None:
+        return False
+    return not is_msk_spread_live(dt)
+
+
+def strip_after_hours_tip_bars(
+    bars: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Убрать tip-source бары ≥23:45 МСК; hist-свечи сессии оставить."""
+    src = [b for b in (bars or []) if isinstance(b, dict)]
+    if not src:
+        return []
+    return [b for b in src if not is_after_hours_tip_bar(b)]
+
+
+def attach_spread_live_status(
+    out: dict[str, Any],
+    bars: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Поля статуса спреда + при заморозке подставить последний in-session бар."""
+    payload = dict(out)
+    live = is_msk_spread_live()
+    payload["spread_live"] = live
+    payload["spread_cutoff"] = SPREAD_LIVE_CUTOFF_LABEL
+    series = bars if bars is not None else payload.get("bars")
+    series = strip_after_hours_tip_bars(
+        series if isinstance(series, list) else []
+    )
+    if "bars" in payload or bars is not None:
+        payload["bars"] = series
+        payload["bars_count"] = len(series)
+    if live:
+        payload.pop("spread_frozen_reason", None)
+        return payload
+    payload["spread_frozen_reason"] = SPREAD_LIVE_FROZEN_REASON
+    last_good: dict[str, Any] | None = None
+    for b in reversed(series):
+        dt = _dt_from_bar_ms(b.get("timestampMs"))
+        if dt is None:
+            continue
+        if is_msk_spread_live(dt):
+            last_good = b
+            break
+    if last_good is None and series:
+        last_good = series[-1]
+    if last_good:
+        sp = last_good.get("spread")
+        if sp is not None:
+            try:
+                payload["spread"] = float(sp)
+                payload["spread_last"] = float(sp)
+            except (TypeError, ValueError):
+                pass
+        if last_good.get("tatn") is not None:
+            payload["tatn"] = last_good.get("tatn")
+        if last_good.get("tatnp") is not None:
+            payload["tatnp"] = last_good.get("tatnp")
+        if last_good.get("time"):
+            payload["spread_asof"] = last_good.get("time")
+    return payload
+
+
 def want_dealer_quotes(dt: datetime | None = None) -> bool:
     """Запрашивать дилера вне сессии TQBR (выходные и ночь будней)."""
     return not is_msk_tqbr_session(dt)
+
+
+def dealer_period_days(days: int | None = None) -> int:
+    """Map Trade period chip (1/7/30/90/180) → dealer 1m history days (cap 7)."""
+    try:
+        d = int(days) if days is not None else 7
+    except (TypeError, ValueError):
+        d = 7
+    if d not in (1, 7, 30, 90, 180):
+        d = 7
+    return min(max(1, d), DEALER_1M_MAX_LOOKBACK_DAYS)
+
+
+def dealer_lookback_hours(days: int | None = None) -> float:
+    """Calendar-day lookback in hours for GetCandles(1m) dealer history."""
+    return float(dealer_period_days(days)) * 24.0
+
+
+def filter_dealer_bars_by_days(
+    bars: list[dict[str, Any]] | None,
+    days: int | None,
+) -> list[dict[str, Any]]:
+    """Keep dealer bars inside the Trade period window (capped)."""
+    src = [b for b in (bars or []) if isinstance(b, dict)]
+    if not src:
+        return []
+    want = dealer_period_days(days)
+    last_ms = 0
+    for b in reversed(src):
+        try:
+            ms = int(b.get("timestampMs") or 0)
+        except (TypeError, ValueError):
+            ms = 0
+        if ms > 0:
+            last_ms = ms
+            break
+    if last_ms <= 0:
+        return src
+    cut = last_ms - want * 86_400_000
+    return [
+        b for b in src
+        if int(b.get("timestampMs") or 0) >= cut
+    ]
 
 
 def _status_name(raw: Any) -> str:
@@ -346,14 +500,18 @@ def build_dealer_1m_spread_bars(
             }
         )
     # Live tip текущего минутного слота (last/orderbook) — монитор, не Z.
-    if live_tatn and live_tatnp and live_tatnp > 0:
+    # После 23:45 МСК (будни) tip не мержим: котировки дилера вне зоны врут.
+    tip_now_ok = is_msk_spread_live()
+    if tip_now_ok and live_tatn and live_tatnp and live_tatnp > 0:
         tip_ms = live_asof_ms
         if tip_ms is None:
             tip_ms = int(now_msk().timestamp() * 1000)
         # округлить вниз к минуте
         tip_ms = (int(tip_ms) // 60_000) * 60_000
+        tip_dt = _dt_from_bar_ms(tip_ms)
+        tip_time_ok = tip_dt is not None and is_msk_spread_live(tip_dt)
         sp = spread_percent(float(live_tatn), float(live_tatnp))
-        if sp is not None:
+        if tip_time_ok and sp is not None:
             tip = {
                 "time": _ms_to_msk_label(tip_ms),
                 "timestampMs": tip_ms,
@@ -362,7 +520,7 @@ def build_dealer_1m_spread_bars(
                 "spread": sp,
                 "z": None,
                 "interval": DEALER_BAR_INTERVAL,
-                "source": "tinvest_dealer_1m_tip",
+                "source": DEALER_TIP_SOURCE,
                 "for_z": False,
             }
             if out and out[-1]["timestampMs"] == tip_ms:
@@ -378,7 +536,7 @@ def build_dealer_1m_spread_bars(
                 out[-1] = tip
             elif not out or out[-1]["timestampMs"] < tip_ms:
                 out.append(tip)
-    return out
+    return strip_after_hours_tip_bars(out)
 
 
 def fetch_dealer_1m_candles(
@@ -388,19 +546,46 @@ def fetch_dealer_1m_candles(
     hours: float = DEALER_1M_LOOKBACK_HOURS,
     timeout: float = DEALER_CANDLE_HTTP_TIMEOUT,
     max_attempts: int = DEALER_CANDLE_MAX_ATTEMPTS,
+    chunk_hours: float = DEALER_1M_API_CHUNK_HOURS,
 ) -> list[dict[str, Any]]:
+    """GetCandles dealer 1m — chunked because API allows ≤1 day per 1m request."""
     to_dt = datetime.now(timezone.utc)
-    from_dt = to_dt - timedelta(hours=max(0.5, float(hours)))
-    return client.get_candles(
-        instrument_id,
-        interval=DEALER_CANDLE_INTERVAL,
-        from_dt=from_dt,
-        to_dt=to_dt,
-        candle_source_type="CANDLE_SOURCE_DEALER_WEEKEND",
-        timeout=float(timeout),
-        max_attempts=int(max_attempts),
-        accept_empty=True,
-    )
+    total_h = max(0.5, float(hours))
+    from_dt = to_dt - timedelta(hours=total_h)
+    chunk = timedelta(hours=max(1.0, min(float(chunk_hours), DEALER_1M_API_CHUNK_HOURS)))
+    by_ms: dict[int, dict[str, Any]] = {}
+    cursor_to = to_dt
+    first_exc: Exception | None = None
+    while cursor_to > from_dt:
+        cursor_from = max(from_dt, cursor_to - chunk)
+        try:
+            rows = client.get_candles(
+                instrument_id,
+                interval=DEALER_CANDLE_INTERVAL,
+                from_dt=cursor_from,
+                to_dt=cursor_to,
+                candle_source_type="CANDLE_SOURCE_DEALER_WEEKEND",
+                timeout=float(timeout),
+                max_attempts=int(max_attempts),
+                accept_empty=True,
+            )
+        except Exception as exc:
+            if first_exc is None:
+                first_exc = exc
+            rows = []
+        for r in rows or []:
+            if not isinstance(r, dict):
+                continue
+            ms = _candle_time_ms(r.get("time"))
+            if ms is None:
+                continue
+            by_ms[int(ms)] = r
+        if cursor_from <= from_dt:
+            break
+        cursor_to = cursor_from
+    if not by_ms and first_exc is not None:
+        raise first_exc
+    return [by_ms[k] for k in sorted(by_ms)]
 
 
 def _tip_only_bars(out: dict[str, Any]) -> list[dict[str, Any]]:
@@ -426,18 +611,75 @@ def _merge_tip_onto_hist(
     )
     hist = [
         b for b in cached_bars
-        if isinstance(b, dict) and b.get("source") != "tinvest_dealer_1m_tip"
+        if isinstance(b, dict) and b.get("source") != DEALER_TIP_SOURCE
     ]
     if not hist:
-        return bars or _tip_only_bars(out)
+        return strip_after_hours_tip_bars(bars or _tip_only_bars(out))
     tip = bars[-1] if bars else None
+    if tip and tip.get("source") != DEALER_TIP_SOURCE:
+        tip = None
+    if tip and is_after_hours_tip_bar(tip):
+        tip = None
     merged = list(hist)
-    if tip:
+    if tip and is_msk_spread_live():
         if merged and merged[-1].get("timestampMs") == tip.get("timestampMs"):
             merged[-1] = tip
         elif not merged or (merged[-1].get("timestampMs") or 0) < (tip.get("timestampMs") or 0):
             merged.append(tip)
-    return merged
+    return strip_after_hours_tip_bars(merged)
+
+
+def _bars_span_hours(bars: list[dict[str, Any]] | None) -> float:
+    if not isinstance(bars, list) or len(bars) < 2:
+        return 0.0
+    ms_vals: list[int] = []
+    for b in bars:
+        if not isinstance(b, dict):
+            continue
+        try:
+            ms = int(b.get("timestampMs") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ms > 0:
+            ms_vals.append(ms)
+    if len(ms_vals) < 2:
+        return 0.0
+    return (max(ms_vals) - min(ms_vals)) / 3_600_000.0
+
+
+def _covers_hours(
+    *,
+    lookback_hours: float,
+    bars: list[dict[str, Any]] | None,
+    want_hours: float,
+    min_ratio: float = 0.85,
+) -> bool:
+    want = max(0.5, float(want_hours))
+    have = float(lookback_hours or 0.0)
+    if have + 0.5 >= want * float(min_ratio):
+        return True
+    return _bars_span_hours(bars) + 0.5 >= want * float(min_ratio)
+
+
+def _store_candles_cache(
+    bars: list[dict[str, Any]],
+    candles_err: str | None,
+    *,
+    lookback_hours: float,
+    hist_ok: bool,
+) -> None:
+    with _LOCK:
+        if hist_ok or candles_err is None:
+            _CANDLES_CACHE["ts"] = time.time()
+            _CANDLES_CACHE["bars"] = list(bars)
+            _CANDLES_CACHE["err"] = candles_err
+            prev = float(_CANDLES_CACHE.get("lookback_hours") or 0.0)
+            _CANDLES_CACHE["lookback_hours"] = max(prev, float(lookback_hours))
+        elif _CANDLES_CACHE.get("bars") is None:
+            _CANDLES_CACHE["ts"] = time.time()
+            _CANDLES_CACHE["bars"] = list(bars)
+            _CANDLES_CACHE["err"] = candles_err
+            _CANDLES_CACHE["lookback_hours"] = float(lookback_hours)
 
 
 def _fetch_candles_pair_budgeted(
@@ -445,16 +687,36 @@ def _fetch_candles_pair_budgeted(
     tatn_id: str,
     tatnp_id: str,
     out: dict[str, Any],
+    *,
+    hours: float = DEALER_1M_FIRST_CHUNK_HOURS,
+    budget_sec: float | None = None,
+    force: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     """GetCandles for TATN+TATNP with wall-clock budget; never block desk forever."""
+    want_h = max(0.5, float(hours))
+    budget = float(
+        budget_sec
+        if budget_sec is not None
+        else (
+            DEALER_CANDLES_WARM_BUDGET_SEC
+            if want_h > DEALER_1M_FIRST_CHUNK_HOURS + 0.5
+            else DEALER_CANDLES_BUDGET_SEC
+        )
+    )
     now = time.time()
     stale_serve: list[dict[str, Any]] | None = None
     with _LOCK:
         cached_bars = _CANDLES_CACHE.get("bars")
         cached_err = _CANDLES_CACHE.get("err")
         cached_ts = float(_CANDLES_CACHE.get("ts") or 0.0)
+        cached_lh = float(_CANDLES_CACHE.get("lookback_hours") or 0.0)
         age = now - cached_ts
-        if cached_bars is not None and age < DEALER_CANDLES_CACHE_TTL:
+        covers = (not force) and _covers_hours(
+            lookback_hours=cached_lh,
+            bars=cached_bars if isinstance(cached_bars, list) else None,
+            want_hours=want_h,
+        )
+        if cached_bars is not None and age < DEALER_CANDLES_CACHE_TTL and covers:
             return _merge_tip_onto_hist(cached_bars, out), (
                 cached_err if isinstance(cached_err, str) else None
             )
@@ -472,7 +734,7 @@ def _fetch_candles_pair_budgeted(
     bars: list[dict[str, Any]] = []
 
     def _one(iid: str) -> list[dict[str, Any]]:
-        return fetch_dealer_1m_candles(client, iid)
+        return fetch_dealer_1m_candles(client, iid, hours=want_h)
 
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
     try:
@@ -480,10 +742,10 @@ def _fetch_candles_pair_budgeted(
         fut_p = pool.submit(_one, tatnp_id)
         done, not_done = concurrent.futures.wait(
             {fut_n, fut_p},
-            timeout=DEALER_CANDLES_BUDGET_SEC,
+            timeout=budget,
         )
         if not_done:
-            candles_err = f"GetCandles timeout>{DEALER_CANDLES_BUDGET_SEC:.0f}s"
+            candles_err = f"GetCandles timeout>{budget:.0f}s"
             for fut in not_done:
                 fut.cancel()
         c_n: list[dict[str, Any]] = []
@@ -524,17 +786,9 @@ def _fetch_candles_pair_budgeted(
     if not bars:
         bars = _tip_only_bars(out)
 
-    with _LOCK:
-        # Cache history only when we got real candles (not tip-only failure).
-        if hist_ok or candles_err is None:
-            _CANDLES_CACHE["ts"] = time.time()
-            _CANDLES_CACHE["bars"] = list(bars)
-            _CANDLES_CACHE["err"] = candles_err
-        elif _CANDLES_CACHE.get("bars") is None:
-            # Remember failure briefly so we don't stampede.
-            _CANDLES_CACHE["ts"] = time.time()
-            _CANDLES_CACHE["bars"] = list(bars)
-            _CANDLES_CACHE["err"] = candles_err
+    _store_candles_cache(
+        bars, candles_err, lookback_hours=want_h, hist_ok=hist_ok
+    )
     return bars, candles_err
 
 
@@ -549,10 +803,9 @@ def _attach_tip_or_cached_bars(out: dict[str, Any]) -> dict[str, Any]:
     else:
         bars = _tip_only_bars(out)
         err = None
-    out["bars"] = bars
+    out = attach_spread_live_status(out, bars)
     out["bar_interval"] = DEALER_BAR_INTERVAL
     out["candle_interval"] = DEALER_CANDLE_INTERVAL
-    out["bars_count"] = len(bars)
     if err:
         out["candles_error"] = err
     return out
@@ -695,59 +948,165 @@ def _apply_candles_to_payload(
     out: dict[str, Any],
     bars: list[dict[str, Any]],
     candles_err: str | None,
+    *,
+    lookback_hours: float | None = None,
+    want_days: int | None = None,
 ) -> dict[str, Any]:
     out = dict(out)
+    bars = strip_after_hours_tip_bars(bars)
     out["bars"] = bars
     out["bar_interval"] = DEALER_BAR_INTERVAL
     out["candle_interval"] = DEALER_CANDLE_INTERVAL
     out["bars_count"] = len(bars)
+    # Do not take _LOCK here — callers may already hold it (stale payload path).
+    if lookback_hours is not None:
+        lh = float(lookback_hours)
+    else:
+        try:
+            lh = float(out.get("lookback_hours") or 0.0)
+        except (TypeError, ValueError):
+            lh = 0.0
+        if lh <= 0:
+            lh = _bars_span_hours(bars)
+    lookback_days = (
+        max(1, int(round(lh / 24.0))) if lh > 0 else dealer_period_days(want_days)
+    )
+    out["lookback_hours"] = round(lh, 2) if lh > 0 else lh
+    out["lookback_days"] = lookback_days
+    wd = dealer_period_days(want_days if want_days is not None else lookback_days)
+    out["want_days"] = wd
+    if int(want_days or 0) > DEALER_1M_MAX_LOOKBACK_DAYS or wd >= DEALER_1M_MAX_LOOKBACK_DAYS:
+        # Chip 1М/3М/6М → show cap note; 1Н at exactly 7d is the normal max.
+        chip = int(want_days) if want_days is not None else wd
+        if chip > DEALER_1M_MAX_LOOKBACK_DAYS:
+            out["lookback_note"] = (
+                f"дилер 1м: до {DEALER_1M_MAX_LOOKBACK_DAYS}д "
+                f"(чип {chip}д урезан · лимит TInvest 1м)"
+            )
+        else:
+            out["lookback_note"] = f"дилер 1м: последние {wd}д"
+    else:
+        out["lookback_note"] = f"дилер 1м: последние {wd}д"
     if candles_err:
         out["candles_error"] = candles_err
     else:
         out.pop("candles_error", None)
-    return out
+    return attach_spread_live_status(out, bars)
+
+
+def _publish_candle_payload(
+    seed: dict[str, Any],
+    bars: list[dict[str, Any]],
+    candles_err: str | None,
+    *,
+    lookback_hours: float,
+    want_days: int,
+) -> None:
+    out = _apply_candles_to_payload(
+        seed,
+        bars,
+        candles_err,
+        lookback_hours=lookback_hours,
+        want_days=want_days,
+    )
+    with _LOCK:
+        cur = _CACHE.get("payload")
+        if isinstance(cur, dict) and cur.get("asof_msk"):
+            for k in (
+                "tatn",
+                "tatnp",
+                "spread",
+                "tatn_bid",
+                "tatn_ask",
+                "tatnp_bid",
+                "tatnp_ask",
+                "asof_msk",
+                "trading_ok",
+                "manual_ok",
+                "ok",
+            ):
+                if k in cur:
+                    out[k] = cur[k]
+            out = _apply_candles_to_payload(
+                out,
+                _merge_tip_onto_hist(bars, out) if bars else bars,
+                candles_err,
+                lookback_hours=lookback_hours,
+                want_days=want_days,
+            )
+        _CACHE["ts"] = time.time()
+        _CACHE["payload"] = dict(out)
 
 
 def _candles_refresh_background(client: TInvestClient, seed: dict[str, Any]) -> None:
-    """Warm GetCandles off the request path — holds _CANDLES_FETCH_LOCK until done."""
+    """Warm GetCandles off the request path — holds _CANDLES_FETCH_LOCK until done.
+
+    Phase 1: last 24h (fast). Phase 2: extend to period days (≤7) via chunked API.
+    """
     try:
+        want_days = dealer_period_days(
+            seed.get("want_days") if isinstance(seed, dict) else None
+        )
+        target_h = dealer_lookback_hours(want_days)
         with _LOCK:
             fresh = _CACHE.get("payload")
-            if isinstance(fresh, dict) and _payload_has_hist_candles(fresh):
-                age = time.time() - float(_CANDLES_CACHE.get("ts") or 0.0)
-                if age < DEALER_CANDLES_CACHE_TTL:
-                    return
+            cached_bars = _CANDLES_CACHE.get("bars")
+            cached_lh = float(_CANDLES_CACHE.get("lookback_hours") or 0.0)
+            age = time.time() - float(_CANDLES_CACHE.get("ts") or 0.0)
+            covers = _covers_hours(
+                lookback_hours=cached_lh,
+                bars=cached_bars if isinstance(cached_bars, list) else None,
+                want_hours=target_h,
+            )
+            if (
+                isinstance(fresh, dict)
+                and _payload_has_hist_candles(fresh)
+                and age < DEALER_CANDLES_CACHE_TTL
+                and covers
+            ):
+                return
             out = dict(fresh) if isinstance(fresh, dict) else dict(seed)
+        out["want_days"] = want_days
         tatn_id = str(out.get("instrument_tatn") or TATN_FALLBACK_ID)
         tatnp_id = str(out.get("instrument_tatnp") or TATNP_FALLBACK_ID)
-        bars, candles_err = _fetch_candles_pair_budgeted(client, tatn_id, tatnp_id, out)
-        out = _apply_candles_to_payload(out, bars, candles_err)
-        with _LOCK:
-            # Keep newer quotes tip if quotes refreshed while we fetched candles.
-            cur = _CACHE.get("payload")
-            if isinstance(cur, dict) and cur.get("asof_msk"):
-                for k in (
-                    "tatn",
-                    "tatnp",
-                    "spread",
-                    "tatn_bid",
-                    "tatn_ask",
-                    "tatnp_bid",
-                    "tatnp_ask",
-                    "asof_msk",
-                    "trading_ok",
-                    "manual_ok",
-                    "ok",
-                ):
-                    if k in cur:
-                        out[k] = cur[k]
-                out = _apply_candles_to_payload(
+
+        # Phase 1 — last day so UI leaves the «35×1м morning» trap quickly.
+        first_h = min(DEALER_1M_FIRST_CHUNK_HOURS, target_h)
+        bars, candles_err = _fetch_candles_pair_budgeted(
+            client,
+            tatn_id,
+            tatnp_id,
+            out,
+            hours=first_h,
+            budget_sec=DEALER_CANDLES_BUDGET_SEC,
+        )
+        _publish_candle_payload(
+            out, bars, candles_err, lookback_hours=first_h, want_days=want_days
+        )
+
+        # Phase 2 — full period (chunked ≤1d per GetCandles).
+        if target_h > first_h + 0.5:
+            bars2, err2 = _fetch_candles_pair_budgeted(
+                client,
+                tatn_id,
+                tatnp_id,
+                out,
+                hours=target_h,
+                budget_sec=DEALER_CANDLES_WARM_BUDGET_SEC,
+                force=True,
+            )
+            hist_ok = any(
+                isinstance(b, dict) and b.get("source") == "tinvest_dealer_1m"
+                for b in (bars2 or [])
+            )
+            if hist_ok:
+                _publish_candle_payload(
                     out,
-                    _merge_tip_onto_hist(bars, out) if bars else bars,
-                    candles_err,
+                    bars2,
+                    err2,
+                    lookback_hours=target_h,
+                    want_days=want_days,
                 )
-            _CACHE["ts"] = time.time()
-            _CACHE["payload"] = dict(out)
     except Exception:
         pass
     finally:
@@ -812,22 +1171,57 @@ def fetch_dealer_quotes(
     force: bool = False,
     use_cache: bool = True,
     include_candles: bool = True,
+    days: int | None = None,
 ) -> dict[str, Any]:
     """GetTradingStatus + GetLastPrices(DEALER) + optional GetOrderBook for TATN/TATNP.
 
     Candles never block the caller: serve tip/stale bars and refresh GetCandles
     in a daemon thread. Keeps uvicorn workers free for /health and lite desk.
+    ``days`` follows Trade period chip (1/7/30/90/180), capped at 7 for dealer 1m.
     """
+    want_days = dealer_period_days(days)
+    target_h = dealer_lookback_hours(want_days)
     now = time.time()
     if use_cache and not force:
+        cached: dict[str, Any] | None = None
+        cached_lh = 0.0
         with _LOCK:
             if (
                 _CACHE["payload"] is not None
                 and (now - float(_CACHE["ts"])) < _CACHE_TTL
             ):
                 cached = _stale_payload_unlocked() or dict(_CACHE["payload"])
-                if (not include_candles) or _payload_has_hist_candles(cached):
-                    return cached
+                cached_lh = float(_CANDLES_CACHE.get("lookback_hours") or 0.0)
+        if cached is not None:
+            cached = _apply_candles_to_payload(
+                cached,
+                list(cached.get("bars") or []),
+                cached.get("candles_error")
+                if isinstance(cached.get("candles_error"), str)
+                else None,
+                lookback_hours=cached_lh or None,
+                want_days=want_days,
+            )
+            have_hist = _payload_has_hist_candles(cached)
+            covers = _covers_hours(
+                lookback_hours=float(cached.get("lookback_hours") or 0.0),
+                bars=cached.get("bars")
+                if isinstance(cached.get("bars"), list)
+                else None,
+                want_hours=target_h,
+            )
+            if (not include_candles) or (have_hist and covers):
+                return cached
+            if have_hist:
+                # Serve short cache now; extend lookback in background.
+                _kick_candles_background(
+                    client, {**cached, "want_days": want_days}
+                )
+                cached = dict(cached)
+                cached["candles_error"] = cached.get("candles_error") or (
+                    "candles extending lookback"
+                )
+                return cached
 
     # Single-flight for quotes — never wait behind a hung TInvest round-trip.
     got_lock = _FETCH_LOCK.acquire(
@@ -837,10 +1231,25 @@ def fetch_dealer_quotes(
         with _LOCK:
             stale = _stale_payload_unlocked()
         if stale is not None:
-            out = dict(stale)
+            out = _apply_candles_to_payload(
+                dict(stale),
+                list(stale.get("bars") or []),
+                stale.get("candles_error")
+                if isinstance(stale.get("candles_error"), str)
+                else None,
+                want_days=want_days,
+            )
             out["from_cache"] = True
-            if include_candles and not _payload_has_hist_candles(out):
-                _kick_candles_background(client, out)
+            need_warm = include_candles and (
+                not _payload_has_hist_candles(out)
+                or not _covers_hours(
+                    lookback_hours=float(out.get("lookback_hours") or 0.0),
+                    bars=out.get("bars") if isinstance(out.get("bars"), list) else None,
+                    want_hours=target_h,
+                )
+            )
+            if need_warm:
+                _kick_candles_background(client, {**out, "want_days": want_days})
                 if not out.get("candles_error"):
                     out["candles_error"] = "candles warming"
             return out
@@ -856,6 +1265,8 @@ def fetch_dealer_quotes(
                 "for_auto": False,
                 "bars": [],
                 "bars_count": 0,
+                "want_days": want_days,
+                "lookback_note": f"дилер 1м: последние {want_days}д",
             }
 
     try:
@@ -876,17 +1287,30 @@ def fetch_dealer_quotes(
     finally:
         _FETCH_LOCK.release()
 
-    if not include_candles:
-        return dict(out)
+    out = _apply_candles_to_payload(
+        dict(out),
+        list(out.get("bars") or []),
+        out.get("candles_error")
+        if isinstance(out.get("candles_error"), str)
+        else None,
+        want_days=want_days,
+    )
 
-    if _payload_has_hist_candles(out):
+    if not include_candles:
+        return out
+
+    covers = _covers_hours(
+        lookback_hours=float(out.get("lookback_hours") or 0.0),
+        bars=out.get("bars") if isinstance(out.get("bars"), list) else None,
+        want_hours=target_h,
+    )
+    if _payload_has_hist_candles(out) and covers:
         age = time.time() - float(_CANDLES_CACHE.get("ts") or 0.0)
         if age < DEALER_CANDLES_CACHE_TTL:
-            return dict(out)
+            return out
 
-    # Stale/missing hist: return tip/stale now; warm candles off-thread.
-    _kick_candles_background(client, out)
-    out = dict(out)
+    # Stale/missing/short hist: return tip/stale now; warm candles off-thread.
+    _kick_candles_background(client, {**out, "want_days": want_days})
     if not out.get("candles_error"):
         out["candles_error"] = "candles warming"
     return out
@@ -900,16 +1324,17 @@ def peek_cached_dealer_quotes() -> dict[str, Any] | None:
         return _stale_payload_unlocked()
 
 
-def kick_dealer_cache_warm() -> bool:
+def kick_dealer_cache_warm(days: int | None = None) -> bool:
     """Start background quotes+candles warm-up. Never blocks. True if started."""
     if not want_dealer_quotes():
         return False
     if not _WARM_LOCK.acquire(blocking=False):
         return False
+    want_days = dealer_period_days(days if days is not None else DEALER_1M_MAX_LOOKBACK_DAYS)
 
     def _run() -> None:
         try:
-            try_fetch_dealer_quotes(include_candles=True)
+            try_fetch_dealer_quotes(include_candles=True, days=want_days)
         except Exception:
             pass
         finally:
@@ -929,6 +1354,7 @@ def try_fetch_dealer_quotes(
     force: bool = False,
     only_when_off_tqbr: bool = True,
     include_candles: bool = True,
+    days: int | None = None,
 ) -> dict[str, Any] | None:
     """Credentials-aware helper for desk/status. Returns None if skipped/unavailable."""
     if only_when_off_tqbr and not want_dealer_quotes():
@@ -941,7 +1367,7 @@ def try_fetch_dealer_quotes(
     try:
         client = TInvestClient(mode, token)
         return fetch_dealer_quotes(
-            client, force=force, include_candles=include_candles
+            client, force=force, include_candles=include_candles, days=days
         )
     except Exception as exc:
         return {

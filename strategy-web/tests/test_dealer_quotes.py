@@ -104,6 +104,9 @@ def test_sizing_overlay_does_not_touch_z():
 
 
 def test_build_dealer_1m_spread_bars():
+    from datetime import datetime, timezone, timedelta
+
+    from live import dealer_quotes as dq
     from live.dealer_quotes import build_dealer_1m_spread_bars
 
     # 10:00 and 10:01 UTC → aligned OHLC
@@ -126,13 +129,108 @@ def test_build_dealer_1m_spread_bars():
     assert "spread_low" in bars[0]
     assert bars[0]["spread_high"] >= bars[0]["spread"]
     assert bars[0]["spread_low"] <= bars[0]["spread"]
-    # live tip replaces/appends current minute
-    tip = build_dealer_1m_spread_bars(
-        c_n, c_p, live_tatn=512.0, live_tatnp=482.0, live_asof_ms=bars[-1]["timestampMs"]
-    )
+    # live tip replaces/appends current minute (pin now inside spread-live window)
+    MSK = timezone(timedelta(hours=3))
+    orig_now = dq.now_msk
+    try:
+        dq.now_msk = lambda: datetime(2026, 7, 26, 10, 1, tzinfo=MSK)  # type: ignore[assignment]
+        tip = build_dealer_1m_spread_bars(
+            c_n, c_p, live_tatn=512.0, live_tatnp=482.0, live_asof_ms=bars[-1]["timestampMs"]
+        )
+    finally:
+        dq.now_msk = orig_now
     assert tip[-1]["tatn"] == 512.0
     assert tip[-1]["source"] == "tinvest_dealer_1m_tip"
     assert tip[-1].get("spread_open") is not None
+
+
+def test_spread_live_cutoff_rejects_after_2345_tip():
+    """После 23:45 МСК tip не мержится; уже попавшие tip ≥23:45 выкидываются."""
+    from datetime import datetime, timezone, timedelta
+
+    from live import dealer_quotes as dq
+
+    MSK = timezone(timedelta(hours=3))
+    # Пн 2026-07-27 23:44 / 23:45 / 23:55 МСК
+    ms_2344 = int(datetime(2026, 7, 27, 23, 44, tzinfo=MSK).timestamp() * 1000)
+    ms_2345 = int(datetime(2026, 7, 27, 23, 45, tzinfo=MSK).timestamp() * 1000)
+    ms_2355 = int(datetime(2026, 7, 27, 23, 55, tzinfo=MSK).timestamp() * 1000)
+
+    assert dq.is_msk_spread_live(datetime(2026, 7, 27, 23, 44, tzinfo=MSK)) is True
+    assert dq.is_msk_spread_live(datetime(2026, 7, 27, 23, 45, tzinfo=MSK)) is False
+    assert dq.is_msk_spread_live(datetime(2026, 7, 27, 23, 55, tzinfo=MSK)) is False
+    # выходные — tip OK
+    assert dq.is_msk_spread_live(datetime(2026, 7, 25, 23, 55, tzinfo=MSK)) is True
+
+    c_n = [
+        {"time": "2026-07-27T20:44:00Z", "open": 560.0, "high": 560.0, "low": 560.0, "close": 560.0},
+    ]
+    c_p = [
+        {"time": "2026-07-27T20:44:00Z", "open": 542.7, "high": 542.7, "low": 542.7, "close": 542.7},
+    ]
+    # Tip @ 23:55 — отклонён (и по now, и по времени tip); hist остаётся
+    frozen = datetime(2026, 7, 27, 23, 55, tzinfo=MSK)
+    orig_now = dq.now_msk
+    try:
+        dq.now_msk = lambda: frozen  # type: ignore[assignment]
+        bars = dq.build_dealer_1m_spread_bars(
+            c_n, c_p, live_tatn=542.0, live_tatnp=533.9, live_asof_ms=ms_2355
+        )
+    finally:
+        dq.now_msk = orig_now
+    assert len(bars) == 1
+    assert bars[0]["source"] == "tinvest_dealer_1m"
+    assert abs(bars[0]["spread"] - ((560 - 542.7) / 542.7 * 100)) < 1e-6
+    assert all(b.get("source") != "tinvest_dealer_1m_tip" for b in bars)
+
+    # Strip contaminated tip bars from a mixed series
+    mixed = [
+        {
+            "time": "2026-07-27 23:44:00",
+            "timestampMs": ms_2344,
+            "spread": 3.19,
+            "source": "tinvest_dealer_1m",
+        },
+        {
+            "time": "2026-07-27 23:45:00",
+            "timestampMs": ms_2345,
+            "spread": 1.52,
+            "tatn": 542.0,
+            "tatnp": 533.9,
+            "source": "tinvest_dealer_1m_tip",
+        },
+    ]
+    cleaned = dq.strip_after_hours_tip_bars(mixed)
+    assert len(cleaned) == 1
+    assert cleaned[0]["timestampMs"] == ms_2344
+
+    # Tip во время сессии (23:44) — ок, если now тоже в окне
+    live_ok = datetime(2026, 7, 27, 23, 44, 30, tzinfo=MSK)
+    try:
+        dq.now_msk = lambda: live_ok  # type: ignore[assignment]
+        tip_ok = dq.build_dealer_1m_spread_bars(
+            c_n, c_p, live_tatn=561.0, live_tatnp=543.0, live_asof_ms=ms_2344
+        )
+    finally:
+        dq.now_msk = orig_now
+    assert tip_ok[-1]["source"] == "tinvest_dealer_1m_tip"
+    assert tip_ok[-1]["tatn"] == 561.0
+
+    status = None
+    orig_live = dq.is_msk_spread_live
+    try:
+        dq.is_msk_spread_live = lambda dt=None: False if dt is None else orig_live(dt)  # type: ignore
+        status = dq.attach_spread_live_status(
+            {"ok": True, "spread": 1.52, "tatn": 542.0, "tatnp": 533.9},
+            mixed,
+        )
+    finally:
+        dq.is_msk_spread_live = orig_live
+    assert status["spread_live"] is False
+    assert status["spread_cutoff"] == "23:45"
+    assert "23:45" in (status.get("spread_frozen_reason") or "")
+    assert abs(float(status["spread"]) - 3.19) < 1e-9
+    assert len(status["bars"]) == 1
 
 
 def test_attach_dealer_monitor_z_ohlc():
@@ -170,6 +268,37 @@ def test_dealer_label_is_1m():
 
     assert "1м" in DEALER_LABEL
     assert DEALER_BAR_INTERVAL == "1m"
+
+
+def test_dealer_period_days_respects_chip_and_cap():
+    from live.dealer_quotes import (
+        DEALER_1M_MAX_LOOKBACK_DAYS,
+        dealer_lookback_hours,
+        dealer_period_days,
+        filter_dealer_bars_by_days,
+    )
+
+    assert dealer_period_days(1) == 1
+    assert dealer_period_days(7) == 7
+    assert dealer_period_days(30) == DEALER_1M_MAX_LOOKBACK_DAYS
+    assert dealer_period_days(90) == DEALER_1M_MAX_LOOKBACK_DAYS
+    assert dealer_period_days(180) == DEALER_1M_MAX_LOOKBACK_DAYS
+    assert dealer_lookback_hours(7) == 7 * 24.0
+    # Was hardcoded 6h — chip 1Д must be a full day of GetCandles window.
+    assert dealer_lookback_hours(1) == 24.0
+
+    last = 1_750_000_000_000
+    bars = [
+        {"timestampMs": last - 10 * 86_400_000, "spread": 1.0},
+        {"timestampMs": last - 2 * 86_400_000, "spread": 2.0},
+        {"timestampMs": last, "spread": 3.0},
+    ]
+    week = filter_dealer_bars_by_days(bars, 7)
+    assert len(week) == 2
+    assert week[0]["spread"] == 2.0
+    day = filter_dealer_bars_by_days(bars, 1)
+    assert len(day) == 1
+    assert day[0]["spread"] == 3.0
 
 
 def test_want_dealer_on_weekend():

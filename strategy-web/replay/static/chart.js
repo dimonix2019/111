@@ -15,6 +15,13 @@ const TV = {
   deltaBottom: 'rgba(38, 166, 154, 0.02)',
 };
 
+/** Зоны спреда — как trade.js SPREAD_REGIME_BAND_COLORS. */
+const SPREAD_BAND_COLORS = {
+  narrow: 'rgba(0, 188, 212, 0.20)',
+  transition: 'rgba(183, 110, 45, 0.20)',
+  wide: 'rgba(136, 14, 79, 0.22)',
+};
+
 const CHART_RIGHT_OFFSET_BARS = 18;
 const CHART_INITIAL_RIGHT_MARGIN_IN_WINDOW = 0.18;
 /** Одинаковые поля шкалы — иначе Z / Δпп / PnL расходятся по горизонтали. */
@@ -105,6 +112,10 @@ class ReplayChart {
     this.markersPlugin = null;
     this.deltaMarkersPlugin = null;
     this.priceLines = [];
+    /** Baseline fills for spread-level mode (parity Trade desk). */
+    this.spreadBands = { narrow: null, transition: null, wide: null };
+    this._primaryMetric = 'z';
+    this._lastSpreadBandTimes = [];
     this.pnlZeroLine = null;
     this.pnlMinLine = null;
     this.pnlMaxLine = null;
@@ -182,6 +193,12 @@ class ReplayChart {
     if (seriesType === LightweightCharts.LineSeries && typeof chart.addLineSeries === 'function') {
       return chart.addLineSeries(options);
     }
+    if (seriesType === LightweightCharts.BaselineSeries && typeof chart.addBaselineSeries === 'function') {
+      return chart.addBaselineSeries(options);
+    }
+    if (seriesType === LightweightCharts.AreaSeries && typeof chart.addAreaSeries === 'function') {
+      return chart.addAreaSeries(options);
+    }
     throw new Error('Unsupported lightweight-charts series API');
   }
 
@@ -223,6 +240,10 @@ class ReplayChart {
       delete opts.layout.background.type;
     }
     this.chart = LightweightCharts.createChart(this.container, opts);
+    // Bands first → under candles (как Trade spread pane).
+    this._ensureSpreadBands({
+      enter_wide: 6.2, exit_wide: 5.8, enter_narrow: 3.2, exit_narrow: 4.0,
+    });
     this.series = this._addSeries(LightweightCharts.CandlestickSeries, {
       upColor: TV.up,
       downColor: TV.down,
@@ -254,6 +275,103 @@ class ReplayChart {
     this._initPnlChart();
     this._bindResize();
     this._bindInteractions();
+  }
+
+  _resolveSpreadBandBounds(levels) {
+    const lv = levels || {};
+    const num = (v, fb) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fb;
+    };
+    const enterW = num(lv.enter_wide, 6.2);
+    const exitW = num(lv.exit_wide, 5.8);
+    const enterN = num(lv.enter_narrow, 3.2);
+    const exitN = num(lv.exit_narrow, 4.0);
+    const loHi = (a, b) => (a <= b ? { lo: a, hi: b } : { lo: b, hi: a });
+    const narrow = loHi(enterN, exitN);
+    const wide = loHi(exitW, enterW);
+    const trans = loHi(exitN, exitW);
+    return {
+      narrowLo: narrow.lo,
+      narrowHi: narrow.hi,
+      transLo: trans.lo,
+      transHi: trans.hi,
+      wideLo: wide.lo,
+      wideHi: wide.hi,
+    };
+  }
+
+  _makeSpreadBand(basePrice, fillColor) {
+    if (!this.chart || !LightweightCharts.BaselineSeries) return null;
+    try {
+      return this._addSeries(LightweightCharts.BaselineSeries, {
+        baseValue: { type: 'price', price: basePrice },
+        topLineColor: 'rgba(0,0,0,0)',
+        topFillColor1: fillColor,
+        topFillColor2: fillColor,
+        bottomLineColor: 'rgba(0,0,0,0)',
+        bottomFillColor1: 'rgba(0,0,0,0)',
+        bottomFillColor2: 'rgba(0,0,0,0)',
+        lineWidth: 1,
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        autoscaleInfoProvider: () => null,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _ensureSpreadBands(levels) {
+    if (!this.chart) return;
+    const b = this._resolveSpreadBandBounds(levels);
+    if (!this.spreadBands.narrow) {
+      this.spreadBands.narrow = this._makeSpreadBand(b.narrowLo, SPREAD_BAND_COLORS.narrow);
+      this.spreadBands.transition = this._makeSpreadBand(b.transLo, SPREAD_BAND_COLORS.transition);
+      this.spreadBands.wide = this._makeSpreadBand(b.wideLo, SPREAD_BAND_COLORS.wide);
+      return;
+    }
+    if (!this.spreadBands.narrow) return;
+    try {
+      this.spreadBands.narrow.applyOptions({
+        baseValue: { type: 'price', price: b.narrowLo },
+        topFillColor1: SPREAD_BAND_COLORS.narrow,
+        topFillColor2: SPREAD_BAND_COLORS.narrow,
+      });
+      this.spreadBands.transition.applyOptions({
+        baseValue: { type: 'price', price: b.transLo },
+        topFillColor1: SPREAD_BAND_COLORS.transition,
+        topFillColor2: SPREAD_BAND_COLORS.transition,
+      });
+      this.spreadBands.wide.applyOptions({
+        baseValue: { type: 'price', price: b.wideLo },
+        topFillColor1: SPREAD_BAND_COLORS.wide,
+        topFillColor2: SPREAD_BAND_COLORS.wide,
+      });
+    } catch (_) { /* */ }
+  }
+
+  _updateSpreadBands(candles, levels, enabled) {
+    if (!enabled) {
+      try {
+        this.spreadBands.narrow?.setData([]);
+        this.spreadBands.transition?.setData([]);
+        this.spreadBands.wide?.setData([]);
+      } catch (_) { /* */ }
+      this._lastSpreadBandTimes = [];
+      return;
+    }
+    this._ensureSpreadBands(levels);
+    const times = (candles || []).map((c) => c.time).filter((t) => t != null);
+    this._lastSpreadBandTimes = times;
+    const b = this._resolveSpreadBandBounds(levels);
+    const mk = (value) => times.map((time) => ({ time, value }));
+    try {
+      this.spreadBands.narrow?.setData(times.length ? mk(b.narrowHi) : []);
+      this.spreadBands.transition?.setData(times.length ? mk(b.transHi) : []);
+      this.spreadBands.wide?.setData(times.length ? mk(b.wideHi) : []);
+    } catch (_) { /* */ }
   }
 
   _initDeltaChart() {
@@ -804,6 +922,15 @@ class ReplayChart {
   _markerChartPrice(m) {
     const trade = this._tradeById(m.tradeId || m.text);
     if (!trade) return 0;
+    const useSpread = this._primaryMetric === 'spread';
+    if (useSpread) {
+      if (m.isEntry) {
+        return trade.entrySpread != null ? trade.entrySpread : (trade.entryZ ?? 0);
+      }
+      return trade.exitSpread != null
+        ? trade.exitSpread
+        : (trade.entrySpread != null ? trade.entrySpread : (trade.exitZ ?? trade.entryZ ?? 0));
+    }
     return m.isEntry ? trade.entryZ : (trade.exitZ ?? trade.entryZ);
   }
 
@@ -880,20 +1007,42 @@ class ReplayChart {
 
   _snapMarkersToCandles(markers) {
     if (!this.lastCandleTimes.length || !markers.length) return markers;
-    const set = new Set(this.lastCandleTimes);
-    return markers.map((m) => {
-      if (set.has(m.time)) return m;
-      let best = this.lastCandleTimes[0];
+    const times = this.lastCandleTimes;
+    const set = new Set(times);
+    let step = 60;
+    if (times.length >= 2) {
+      const diffs = [];
+      const start = Math.max(1, times.length - 80);
+      for (let i = start; i < times.length; i++) {
+        const d = times[i] - times[i - 1];
+        if (d > 0 && d < 7200) diffs.push(d);
+      }
+      if (diffs.length) {
+        diffs.sort((a, b) => a - b);
+        step = diffs[Math.floor(diffs.length / 2)] || 60;
+      }
+    }
+    const maxDelta = Math.max(90, Math.round(step * 1.5));
+    const out = [];
+    for (const m of markers) {
+      if (set.has(m.time)) {
+        out.push(m);
+        continue;
+      }
+      let best = times[0];
       let bestD = Math.abs(best - m.time);
-      for (const t of this.lastCandleTimes) {
+      for (const t of times) {
         const d = Math.abs(t - m.time);
         if (d < bestD) {
           best = t;
           bestD = d;
         }
       }
-      return { ...m, time: best };
-    });
+      // Drop far markers — do not stack weekend/off-window trades on the first candle.
+      if (bestD > maxDelta) continue;
+      out.push({ ...m, time: best });
+    }
+    return out;
   }
 
   _effectiveTradeId() {
@@ -913,10 +1062,17 @@ class ReplayChart {
       return;
     }
     const exitTime = trade.exitTime ?? trade.entryTime;
-    const exitZ = trade.exitZ ?? trade.entryZ;
+    const useSpread = this._primaryMetric === 'spread'
+      && (trade.entrySpread != null || trade.exitSpread != null);
+    const entryV = useSpread
+      ? (trade.entrySpread ?? trade.exitSpread ?? trade.entryZ)
+      : trade.entryZ;
+    const exitV = useSpread
+      ? (trade.exitSpread ?? trade.entrySpread ?? trade.exitZ ?? trade.entryZ)
+      : (trade.exitZ ?? trade.entryZ);
     const data = [
-      { time: trade.entryTime, value: trade.entryZ },
-      { time: exitTime, value: exitZ },
+      { time: trade.entryTime, value: entryV },
+      { time: exitTime, value: exitV },
     ].sort((a, b) => a.time - b.time);
     this.highlightSeries.setData(data);
   }
@@ -1249,6 +1405,8 @@ class ReplayChart {
       entryZ: t.entryZ,
       exitTime: t.exitTime == null ? null : t.exitTime,
       exitZ: t.exitZ == null ? null : t.exitZ,
+      entrySpread: t.entrySpread == null ? null : t.entrySpread,
+      exitSpread: t.exitSpread == null ? null : t.exitSpread,
       open: !!t.open,
     }));
 
@@ -1258,8 +1416,19 @@ class ReplayChart {
     }
     this.hoverTradeId = null;
 
-    const candleFp = `${payload.candles.length}|${payload.candles[0]?.time}|${payload.candles[payload.candles.length - 1]?.time}`;
-    const sameCandles = candleFp === this._candleFp;
+    const primaryMetric = payload.primaryMetric === 'spread' ? 'spread' : 'z';
+    const metricChanged = primaryMetric !== this._primaryMetric;
+    this._primaryMetric = primaryMetric;
+
+    const lastC = payload.candles[payload.candles.length - 1];
+    const candleFp = [
+      primaryMetric,
+      payload.candles.length,
+      payload.candles[0]?.time,
+      lastC?.time,
+      lastC?.close,
+    ].join('|');
+    const sameCandles = candleFp === this._candleFp && !metricChanged;
     const light = !!payload.light;
     const canAppend = light
       && this._lastCandleCount > 0
@@ -1297,7 +1466,7 @@ class ReplayChart {
       ? payload.maxVisibleBars
       : 200;
 
-    if (!light || (!sameCandles && !canAppend)) {
+    if (!light || (!sameCandles && !canAppend) || metricChanged) {
       this._clearPriceLines();
       for (const hl of payload.hlines || []) {
         this.priceLines.push(
@@ -1311,6 +1480,16 @@ class ReplayChart {
           }),
         );
       }
+      this._updateSpreadBands(
+        payload.candles,
+        payload.spreadLevels || null,
+        primaryMetric === 'spread',
+      );
+    } else if (primaryMetric === 'spread' && !sameCandles) {
+      this._updateSpreadBands(payload.candles, payload.spreadLevels || null, true);
+    } else if (canAppend && primaryMetric === 'spread' && payload.candles.length) {
+      // Append: extend band fills to new bar time
+      this._updateSpreadBands(payload.candles, payload.spreadLevels || null, true);
     }
     const last = payload.candles[payload.candles.length - 1];
     if (this.replayCursorLine) {

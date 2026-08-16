@@ -30,7 +30,14 @@
     hmEntryMin: 'moexReplay.hmEntryMin',
     hmEntryMax: 'moexReplay.hmEntryMax',
     hmExitMin: 'moexReplay.hmExitMin',
+    hmExitMax: 'moexReplay.hmExitMax',
     hmStep: 'moexReplay.hmStep',
+    hmBand: 'moexReplay.hmBand',
+    hmSpreadEnterWide: 'moexReplay.hmSpreadEnterWide',
+    hmSpreadExitWide: 'moexReplay.hmSpreadExitWide',
+    hmSpreadEnterNarrow: 'moexReplay.hmSpreadEnterNarrow',
+    hmSpreadExitNarrow: 'moexReplay.hmSpreadExitNarrow',
+    hmSGridDefaultsV1: 'moexReplay.hmSGridDefaultsV1',
     pnlMode: 'moexReplay.pnlMode',
     notionalRub: 'moexReplay.notionalRub',
     slippageSpreadPts: 'moexReplay.slippageSpreadPts',
@@ -42,7 +49,14 @@
     compound: 'moexReplay.compound',
     columnTips: 'moexReplay.columnTips',
     barsSource: 'moexReplay.barsSource',
+    /** Legacy migrations (as_live toggle removed from Testing UI). */
+    barsSourceFinalDefaultV1: 'moexReplay.barsSourceFinalDefaultV1',
+    barsSourceAsLiveDefaultV2: 'moexReplay.barsSourceAsLiveDefaultV2',
+    /** One-shot: force Testing to final CSV; ignore old as_live preference. */
+    barsSourceFinalOnlyV3: 'moexReplay.barsSourceFinalOnlyV3',
     edgeMode: 'moexReplay.edgeMode',
+    tipRegimeZ: 'moexReplay.tipRegimeZ',
+    tipSpreadLevels: 'moexReplay.tipSpreadLevels',
   };
 
   const TRADES_PANEL_DEFAULT = 300;
@@ -67,9 +81,14 @@
   const Z_HEATMAP_HEIGHT_MIN = 120;
   const TRADES_SUMMARY_MIN = 120;
 
+  /** Prod tip1m spread-% levels (live/constants.py) — UI mark + fixed other band. */
+  const HM_PROD_WIDE = { enter: 6.2, exit: 5.8 };
+  const HM_PROD_NARROW = { enter: 3.2, exit: 4.0 };
+  const HM_S_WIDE_DEFAULTS = { entryMin: 5.6, entryMax: 7.0, exitMin: 5.0, exitMax: 6.2, step: 0.2 };
+  const HM_S_NARROW_DEFAULTS = { entryMin: 2.4, entryMax: 3.8, exitMin: 3.4, exitMax: 4.8, step: 0.2 };
+  const HM_Z_DEFAULTS = { entryMin: 0.5, entryMax: 2.5, exitMin: 0.3, step: 0.1 };
+
   let allPoints = [];
-  /** Meta from last /api/bars (as_live coverage). */
-  let lastBarsMeta = { as_live: true, locked_count: 0, bars_count: 0, coverage: 0, locked_from: null, locked_to: null };
   /** Полная серия по CSV (для быстрых пресетов start без повторного /api/bars). */
   const barsCacheByCsv = Object.create(null);
   let engine = null;
@@ -116,6 +135,12 @@
   let tipSimCache = { key: '', rows: null, meta: null, summary: null };
   let tipSimJobId = 0;
   let tipSimTimer = null;
+  /**
+   * Manual «Закрыть все» for tip1m: close open sim row at current replay bar
+   * (no +1 bar needed; works at 100%/last bar). Invalid when tipSimCache.key changes.
+   * Shape: { cacheKey, index, entryDate, exitDate, row }.
+   */
+  let tipForceClose = null;
   /** M15 bars stash while tip1m chart is active. */
   let m15PointsStash = null;
   /** Last /api/bars1m meta (window limit note). */
@@ -186,11 +211,19 @@
     const hmEntryMin = localStorage.getItem(LS.hmEntryMin);
     const hmEntryMax = localStorage.getItem(LS.hmEntryMax);
     const hmExitMin = localStorage.getItem(LS.hmExitMin);
+    const hmExitMax = localStorage.getItem(LS.hmExitMax);
     const hmStep = localStorage.getItem(LS.hmStep);
     if (hmEntryMin && $('hmEntryMin')) $('hmEntryMin').value = hmEntryMin;
     if (hmEntryMax && $('hmEntryMax')) $('hmEntryMax').value = hmEntryMax;
     if (hmExitMin && $('hmExitMin')) $('hmExitMin').value = hmExitMin;
+    if (hmExitMax && $('hmExitMax')) $('hmExitMax').value = hmExitMax;
     if (hmStep && $('hmStep')) $('hmStep').value = hmStep;
+    const hmBand = localStorage.getItem(LS.hmBand);
+    if (hmBand === 'wide' || hmBand === 'narrow') {
+      document.querySelectorAll('#hmBandChips .chip').forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-hm-band') === hmBand);
+      });
+    }
     const sortCol = localStorage.getItem(LS.tradeSortCol);
     const sortDir = localStorage.getItem(LS.tradeSortDir);
     if (sortCol && TRADE_COLUMN_KEYS.includes(sortCol)) tradeSortColumn = sortCol;
@@ -201,6 +234,13 @@
       riskFilter = rf;
     }
     const tp = localStorage.getItem(LS.takeProfit);
+    if (tp != null && $('tpSel')) $('tpSel').value = tp;
+
+    const tipSl = localStorage.getItem(LS.tipSpreadLevels);
+    if ($('tipSpreadLevels')) {
+      // Primary spread levels default ON
+      $('tipSpreadLevels').checked = tipSl !== '0';
+    }
     if (tp === '0' || tp === '1' || tp === '2' || tp === '3') {
       const tpEl = $('tpSel');
       if (tpEl) tpEl.value = tp;
@@ -1298,7 +1338,7 @@
     barsCacheByCsv[csv] = [...map.values()].sort((a, b) => barTimestampMs(a) - barTimestampMs(b));
   }
 
-  function applyPointsLocally(points, { csv, sourceLabel } = {}) {
+  function applyPointsLocally(points, { csv, sourceLabel, seekEnd = false } = {}) {
     allPoints = points || [];
     chartFocusIndex = null;
     selectedTradeId = null;
@@ -1310,6 +1350,8 @@
       $('meta').innerHTML = `TATN/TATNP · ${allPoints.length} баров · ${csvSafe} · ${src}`;
     }
     rebuildEngine();
+    // Period/start change: always finish at the right edge so СДЕЛКИ = full window.
+    if (seekEnd && engine) engine.seekToEnd();
     chart?.followReplayEdge(true);
     reapplyLayoutFromStorage();
     if (!chart) {
@@ -1322,7 +1364,7 @@
     } else {
       chart.resize();
     }
-    refreshUi();
+    refreshUi({ afterParams: true });
     setTimeout(() => chart?.resize(), 100);
     reapplyLayoutFromStorage();
     requestAnimationFrame(() => {
@@ -1338,6 +1380,9 @@
     document.querySelectorAll('#startPresetChips .chip[data-start-preset]').forEach((b) => {
       b.classList.toggle('active', startDateForPreset(b.dataset.startPreset) === ymd);
     });
+    // Окно данных сменилось → показать весь загруженный период на графике
+    // («Всё» = масштаб, не второе окно данных). Не путать с пресетом «1 мес».
+    setVisibleDaysPeriod(400, { fitFull: true });
     scrollRestored = false;
     summaryScrollRestored = false;
     riskCompareScrollRestored = false;
@@ -1345,28 +1390,38 @@
     zHeatmapScrollRestored = false;
 
     const csv = $('csvSel')?.value || 'm15_tatn_255d.csv';
-    // Tip1m chart cache is start-dependent — drop stash so M15 reload is clean.
+    // Start window changed → drop tip1m chart stash + sim/heatmap caches so СДЕЛКИ recalculates.
     tip1mBarsCacheKey = '';
     tip1mChartMeta = null;
     m15PointsStash = null;
+    tipSimCache = { key: '', rows: null, meta: null, summary: null };
+    tipSimJobId += 1;
+    zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+    zHeatmapJobId += 1;
     const cache = barsCacheByCsv[csv];
     if (barsCacheCoversStart(cache, ymd)) {
       const sliced = sliceBarsFromStart(cache, ymd);
-      applyPointsLocally(sliced, { csv, sourceLabel: 'cache' });
+      applyPointsLocally(sliced, { csv, sourceLabel: 'cache', seekEnd: true });
       if (isTip1mMode()) {
-        try {
-          await activateTip1mChart();
-        } catch (e) {
+        // Chart + sim in parallel: table fills as soon as sim returns (not after bars1m).
+        const chartP = activateTip1mChart().catch((e) => {
           console.error(e);
-        }
+        });
         scheduleTipSimFetch({ immediate: true });
+        await chartP;
+      } else {
+        // M15: local engine already rebuilt for the new window — refresh PnL/summary.
+        refreshTradesTable();
       }
+      // Как «В конец»: стоп воспроизведения, курсор и график к правому краю окна.
+      jumpToEnd();
       return;
     }
 
     $('loading').classList.remove('hidden');
     $('app').classList.add('hidden');
     await bootstrap(csv);
+    jumpToEnd();
   }
 
   function syncStartPresetChips() {
@@ -1597,7 +1652,6 @@
     const pnlClass = overlay.net > 0 ? 'pnl-pos' : overlay.net < 0 ? 'pnl-neg' : '';
     el.classList.remove('hidden');
     el.innerHTML = [
-      `<div class="ot-z">${overlay.zLine}</div>`,
       `<div class="ot-trade">${overlay.tradePrefix} <span class="ot-pnl ${pnlClass}">${overlay.netText}</span></div>`,
       `<div class="ot-spread">${overlay.spreadLine}</div>`,
       `<div class="ot-duration">${overlay.duration}</div>`,
@@ -1767,17 +1821,121 @@
     return Math.round(Number(v) * 100) / 100;
   }
 
+  function isTipSpreadLevelsHeatmap() {
+    return isTip1mMode() && $('tipSpreadLevels')?.checked !== false;
+  }
+
+  function hmBand() {
+    const active = document.querySelector('#hmBandChips .chip.active');
+    const b = active?.getAttribute('data-hm-band') || localStorage.getItem(LS.hmBand) || 'wide';
+    return b === 'narrow' ? 'narrow' : 'wide';
+  }
+
+  function readHmSelectedSpreadLevels() {
+    const ew = parseFloat(localStorage.getItem(LS.hmSpreadEnterWide) || String(HM_PROD_WIDE.enter));
+    const xw = parseFloat(localStorage.getItem(LS.hmSpreadExitWide) || String(HM_PROD_WIDE.exit));
+    const en = parseFloat(localStorage.getItem(LS.hmSpreadEnterNarrow) || String(HM_PROD_NARROW.enter));
+    const xn = parseFloat(localStorage.getItem(LS.hmSpreadExitNarrow) || String(HM_PROD_NARROW.exit));
+    return {
+      enter_wide: Number.isFinite(ew) ? ew : HM_PROD_WIDE.enter,
+      exit_wide: Number.isFinite(xw) ? xw : HM_PROD_WIDE.exit,
+      enter_narrow: Number.isFinite(en) ? en : HM_PROD_NARROW.enter,
+      exit_narrow: Number.isFinite(xn) ? xn : HM_PROD_NARROW.exit,
+    };
+  }
+
+  function writeHmSelectedSpreadLevels(partial) {
+    const cur = readHmSelectedSpreadLevels();
+    const next = { ...cur, ...partial };
+    saveSetting(LS.hmSpreadEnterWide, next.enter_wide);
+    saveSetting(LS.hmSpreadExitWide, next.exit_wide);
+    saveSetting(LS.hmSpreadEnterNarrow, next.enter_narrow);
+    saveSetting(LS.hmSpreadExitNarrow, next.exit_narrow);
+    return next;
+  }
+
+  function applyHmSGridDefaultsForBand(band, { force = false } = {}) {
+    const d = band === 'narrow' ? HM_S_NARROW_DEFAULTS : HM_S_WIDE_DEFAULTS;
+    const migrated = localStorage.getItem(LS.hmSGridDefaultsV1) === '1';
+    const entryMax = parseFloat($('hmEntryMax')?.value || '0');
+    // Old Z ranges look like entryMax ≤ ~3 — replace once (or when forced).
+    if (!force && migrated && entryMax >= 4.5) return;
+    if ($('hmEntryMin')) $('hmEntryMin').value = String(d.entryMin);
+    if ($('hmEntryMax')) $('hmEntryMax').value = String(d.entryMax);
+    if ($('hmExitMin')) $('hmExitMin').value = String(d.exitMin);
+    if ($('hmExitMax')) $('hmExitMax').value = String(d.exitMax);
+    if ($('hmStep')) $('hmStep').value = String(d.step);
+    saveSetting(LS.hmEntryMin, d.entryMin);
+    saveSetting(LS.hmEntryMax, d.entryMax);
+    saveSetting(LS.hmExitMin, d.exitMin);
+    saveSetting(LS.hmExitMax, d.exitMax);
+    saveSetting(LS.hmStep, d.step);
+    saveSetting(LS.hmSGridDefaultsV1, '1');
+  }
+
+  function syncZHeatmapModeUi() {
+    const sMode = isTipSpreadLevelsHeatmap();
+    const title = $('zHeatmapTitle');
+    if (title) {
+      title.textContent = sMode
+        ? (hmBand() === 'narrow' ? 'PNL · S% вх × вых · узкий Long' : 'PNL · S% вх × вых · шир. Short')
+        : 'PnL · вход Z × выход Z';
+    }
+    const bandRow = $('zHeatmapBandControls');
+    if (bandRow) bandRow.hidden = !sMode;
+    const exitMaxLab = $('hmExitMaxLabel');
+    if (exitMaxLab) exitMaxLab.hidden = !sMode;
+    if (sMode) applyHmSGridDefaultsForBand(hmBand());
+    const stepEl = $('hmStep');
+    if (stepEl) {
+      stepEl.min = sMode ? '0.1' : '0.05';
+      stepEl.max = sMode ? '0.5' : '0.5';
+      stepEl.step = sMode ? '0.1' : '0.05';
+    }
+  }
+
   function readZHeatmapGridParams() {
-    const entryMin = roundZ(parseFloat($('hmEntryMin')?.value ?? '0.5'));
-    const entryMax = roundZ(parseFloat($('hmEntryMax')?.value ?? '2.5'));
-    const exitMin = roundZ(parseFloat($('hmExitMin')?.value ?? '0.3'));
-    let step = roundZ(parseFloat($('hmStep')?.value ?? '0.1'));
-    if (!Number.isFinite(step) || step < 0.05) step = 0.1;
+    const sMode = isTipSpreadLevelsHeatmap();
+    const band = hmBand();
+    const defs = sMode
+      ? (band === 'narrow' ? HM_S_NARROW_DEFAULTS : HM_S_WIDE_DEFAULTS)
+      : HM_Z_DEFAULTS;
+    const entryMin = roundZ(parseFloat($('hmEntryMin')?.value ?? String(defs.entryMin)));
+    const entryMax = roundZ(parseFloat($('hmEntryMax')?.value ?? String(defs.entryMax)));
+    const exitMin = roundZ(parseFloat($('hmExitMin')?.value ?? String(defs.exitMin)));
+    const exitMaxRaw = parseFloat($('hmExitMax')?.value ?? String(defs.exitMax ?? defs.entryMax));
+    let step = roundZ(parseFloat($('hmStep')?.value ?? String(defs.step)));
+    if (!Number.isFinite(step) || step < (sMode ? 0.1 : 0.05)) step = defs.step;
     if (step > 0.5) step = 0.5;
+    if (sMode) {
+      const lo = Number.isFinite(entryMin) ? Math.max(0.5, entryMin) : defs.entryMin;
+      const hi = Number.isFinite(entryMax) ? Math.min(12, Math.max(lo, entryMax)) : defs.entryMax;
+      const xLo = Number.isFinite(exitMin) ? Math.max(0.5, exitMin) : defs.exitMin;
+      const xHi = Number.isFinite(exitMaxRaw) ? Math.min(12, Math.max(xLo, exitMaxRaw)) : (defs.exitMax || hi);
+      return {
+        entryMin: lo,
+        entryMax: hi,
+        exitMin: xLo,
+        exitMax: xHi,
+        step,
+        spreadMode: true,
+        band,
+        triangle: band === 'wide' ? 'enter_gt_exit' : 'enter_lt_exit',
+      };
+    }
     const lo = Number.isFinite(entryMin) ? Math.max(0.3, entryMin) : 0.5;
     const hi = Number.isFinite(entryMax) ? Math.min(5, Math.max(lo, entryMax)) : 2.5;
     const xLo = Number.isFinite(exitMin) ? Math.max(0.1, exitMin) : 0.3;
-    return { entryMin: lo, entryMax: hi, exitMin: xLo, step };
+    return {
+      entryMin: lo,
+      entryMax: hi,
+      exitMin: xLo,
+      exitMax: null,
+      step,
+      spreadMode: false,
+      band: null,
+      triangle: 'enter_gt_exit',
+    };
   }
 
   function buildZHeatmapAxes(grid) {
@@ -1785,14 +1943,22 @@
     for (let e = grid.entryMin; e <= grid.entryMax + 1e-9; e = roundZ(e + grid.step)) {
       entries.push(roundZ(e));
     }
+    const exitHi = grid.exitMax != null
+      ? grid.exitMax
+      : (grid.entryMax - grid.step);
     const exits = [];
-    for (let x = grid.exitMin; x <= grid.entryMax - grid.step + 1e-9; x = roundZ(x + grid.step)) {
+    for (let x = grid.exitMin; x <= exitHi + 1e-9; x = roundZ(x + grid.step)) {
       exits.push(roundZ(x));
     }
     const pairs = [];
+    const enterGt = grid.triangle !== 'enter_lt_exit';
     for (const entry of entries) {
       for (const exit of exits) {
-        if (exit < entry - 1e-9) pairs.push({ entry, exit });
+        if (enterGt) {
+          if (exit < entry - 1e-9) pairs.push({ entry, exit });
+        } else if (entry < exit - 1e-9) {
+          pairs.push({ entry, exit });
+        }
       }
     }
     return { entries, exits, pairs };
@@ -1819,15 +1985,20 @@
   function zHeatmapCacheKey(grid) {
     const t = thresholds();
     const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
+    const lv = readHmSelectedSpreadLevels();
     return [
       getEdgeMode(),
-      grid.entryMin, grid.entryMax, grid.exitMin, grid.step,
+      grid.spreadMode ? 's%' : 'z',
+      grid.band || '-',
+      grid.entryMin, grid.entryMax, grid.exitMin, grid.exitMax ?? '-', grid.step,
+      lv.enter_wide, lv.exit_wide, lv.enter_narrow, lv.exit_narrow,
       getSimNotionalRub(), getSimCompound() ? 1 : 0, slip,
       t.takeProfitPct || 0,
       isTip1mMode() ? 'risk-ignored' : riskExitSelectionKey(),
       computeMinCursor(), zHeatmapSimEndIndex(), allPoints.length,
       $('csvSel')?.value || '',
       $('startDate')?.value || '',
+      $('tipSpreadLevels')?.checked !== false ? 1 : 0,
     ].join('|');
   }
 
@@ -1904,7 +2075,7 @@
     return { min: minC, max: maxC };
   }
 
-  function setZHeatmapExtremes(cells) {
+  function setZHeatmapExtremes(cells, grid) {
     const el = $('zHeatmapExtremes');
     if (!el) return;
     const { min, max } = findZHeatmapExtremes(cells);
@@ -1912,7 +2083,10 @@
       el.innerHTML = '';
       return;
     }
-    const fmtPair = (c) => `±${Number(c.entry).toFixed(1)} / ±${Number(c.exit).toFixed(1)}`;
+    const sMode = !!(grid && grid.spreadMode);
+    const fmtPair = (c) => sMode
+      ? `S ${Number(c.entry).toFixed(1)} / ${Number(c.exit).toFixed(1)}`
+      : `±${Number(c.entry).toFixed(1)} / ±${Number(c.exit).toFixed(1)}`;
     el.innerHTML = [
       `<span class="zh-ext zh-ext-max" title="Лучшая клетка сетки (макс. PnL)">`
         + `макс <b>${formatZHeatmapCell(max.pnl)}</b>`
@@ -1925,7 +2099,7 @@
     ].join('');
   }
 
-  function renderZHeatmapHtml(cells, grid, curEntry, curExit) {
+  function renderZHeatmapHtml(cells, grid, curEntry, curExit, prodMark) {
     const { entries, exits } = buildZHeatmapAxes(grid);
     const map = new Map();
     let pnlMin = Infinity;
@@ -1942,10 +2116,15 @@
       pnlMax = 0;
     }
     const { min: extMin, max: extMax } = findZHeatmapExtremes(cells);
-    const head = exits.map((x) => `<th title="выход ±${x}">${x.toFixed(1)}</th>`).join('');
+    const sMode = !!(grid && grid.spreadMode);
+    const enterGt = grid.triangle !== 'enter_lt_exit';
+    const head = exits.map((x) => (
+      `<th title="${sMode ? 'S% выход' : 'выход'} ${x}">${x.toFixed(1)}</th>`
+    )).join('');
     const body = entries.map((entry) => {
       const cellsHtml = exits.map((exit) => {
-        if (exit >= entry - 1e-9) {
+        const valid = enterGt ? (exit < entry - 1e-9) : (entry < exit - 1e-9);
+        if (!valid) {
           return '<td class="zh-na">·</td>';
         }
         const c = map.get(`${entry}|${exit}`);
@@ -1954,15 +2133,23 @@
         const isCur = Math.abs(entry - curEntry) < 1e-6 && Math.abs(exit - curExit) < 1e-6;
         const isMax = extMax && Math.abs(entry - extMax.entry) < 1e-6 && Math.abs(exit - extMax.exit) < 1e-6;
         const isMin = extMin && Math.abs(entry - extMin.entry) < 1e-6 && Math.abs(exit - extMin.exit) < 1e-6;
-        const title = `вход ±${entry} · выход ±${exit} · PnL ${formatRub(pnl)} · N=${n}`
+        const isProd = prodMark
+          && Math.abs(entry - Number(prodMark.entry)) < 1e-6
+          && Math.abs(exit - Number(prodMark.exit)) < 1e-6;
+        const title = (sMode
+          ? `S вх ${entry} · S вых ${exit}`
+          : `вход ±${entry} · выход ±${exit}`)
+          + ` · PnL ${formatRub(pnl)} · N=${n}`
           + (isMax ? ' · МАКС' : '')
           + (isMin ? ' · МИН' : '')
-          + (isCur ? ' · текущие пороги' : ' · клик — применить');
+          + (isProd ? ' · Prod default' : '')
+          + (isCur ? ' · текущие' : ' · клик — применить');
         const cls = [
           'zh-cell',
           isCur ? 'is-current' : '',
           isMax ? 'is-hm-max' : '',
           isMin ? 'is-hm-min' : '',
+          isProd ? 'is-hm-prod' : '',
         ].filter(Boolean).join(' ');
         return (
           `<td class="${cls}"`
@@ -1971,11 +2158,12 @@
           + ` title="${title}">${formatZHeatmapCell(pnl)}</td>`
         );
       }).join('');
-      return `<tr><th class="zh-y" title="вход ±${entry}">${entry.toFixed(1)}</th>${cellsHtml}</tr>`;
+      return `<tr><th class="zh-y" title="${sMode ? 'S% вход' : 'вход'} ${entry}">${entry.toFixed(1)}</th>${cellsHtml}</tr>`;
     }).join('');
+    const corner = sMode ? 'S\\вых' : 'в\\вых';
     return (
       `<table class="z-heatmap-table">`
-      + `<thead><tr><th class="zh-corner" title="строки = вход Z, столбцы = выход Z">в\\вых</th>${head}</tr></thead>`
+      + `<thead><tr><th class="zh-corner" title="${sMode ? 'строки = S% вход, столбцы = S% выход' : 'строки = вход Z, столбцы = выход Z'}">${corner}</th>${head}</tr></thead>`
       + `<tbody>${body}</tbody></table>`
     );
   }
@@ -2000,6 +2188,7 @@
     if (!host) return;
     const prevScrollTop = scrollEl ? scrollEl.scrollTop : 0;
     if (isZHeatmapHidden()) return;
+    syncZHeatmapModeUi();
     const endIdx = zHeatmapSimEndIndex();
     if (!allPoints.length || endIdx < 0) {
       host.innerHTML = '<div class="z-heatmap-empty">Нет данных</div>';
@@ -2010,21 +2199,33 @@
     const grid = readZHeatmapGridParams();
     const key = zHeatmapCacheKey(grid);
     const cur = thresholds();
+    const lv = readHmSelectedSpreadLevels();
+    const curEntry = grid.spreadMode
+      ? (grid.band === 'narrow' ? lv.enter_narrow : lv.enter_wide)
+      : cur.entry;
+    const curExit = grid.spreadMode
+      ? (grid.band === 'narrow' ? lv.exit_narrow : lv.exit_wide)
+      : cur.exit;
+    const prodMark = grid.spreadMode
+      ? (grid.band === 'narrow' ? HM_PROD_NARROW : HM_PROD_WIDE)
+      : null;
     if (key === zHeatmapCache.key && zHeatmapCache.cells) {
-      host.innerHTML = renderZHeatmapHtml(zHeatmapCache.cells, grid, cur.entry, cur.exit);
+      host.innerHTML = renderZHeatmapHtml(zHeatmapCache.cells, grid, curEntry, curExit, prodMark);
       applyZHeatmapScrollTop(zHeatmapScrollRestored ? prevScrollTop : readSavedZHeatmapScrollTop());
-      setZHeatmapExtremes(zHeatmapCache.cells);
+      setZHeatmapExtremes(zHeatmapCache.cells, grid);
       const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
       setZHeatmapStatus(
         `${zHeatmapCache.cells.length} клеток · ${zHeatmapCsvPeriodLabel()} · весь ряд · slip ${slip}`
-        + ` · кап. ${getSimNotionalRub()}₽ · ${barsSourceLabel()}`,
+        + ` · кап. ${getSimNotionalRub()}₽`,
       );
       return;
     }
     if (playing && zHeatmapCache.cells) {
-      host.innerHTML = renderZHeatmapHtml(zHeatmapCache.cells, zHeatmapCache.grid || grid, cur.entry, cur.exit);
+      host.innerHTML = renderZHeatmapHtml(
+        zHeatmapCache.cells, zHeatmapCache.grid || grid, curEntry, curExit, prodMark,
+      );
       applyZHeatmapScrollTop(zHeatmapScrollRestored ? prevScrollTop : readSavedZHeatmapScrollTop());
-      setZHeatmapExtremes(zHeatmapCache.cells);
+      setZHeatmapExtremes(zHeatmapCache.cells, zHeatmapCache.grid || grid);
       return;
     }
     // Same key already computing — don't cancel/restart (refreshUi would otherwise leave zeros).
@@ -2032,7 +2233,9 @@
 
     const axes = buildZHeatmapAxes(grid);
     if (!axes.pairs.length) {
-      host.innerHTML = '<div class="z-heatmap-empty">Пустая сетка (нужно exit &lt; entry)</div>';
+      host.innerHTML = grid.triangle === 'enter_lt_exit'
+        ? '<div class="z-heatmap-empty">Пустая сетка (нужно enter &lt; exit)</div>'
+        : '<div class="z-heatmap-empty">Пустая сетка (нужно exit &lt; entry)</div>';
       setZHeatmapStatus('');
       setZHeatmapExtremes(null);
       return;
@@ -2042,7 +2245,10 @@
     zHeatmapCache = { ...zHeatmapCache, inFlightKey: key };
 
     if (isTip1mMode()) {
-      setZHeatmapStatus(`Считаю heatmap касания 1м на сервере (${axes.pairs.length} клеток)…`);
+      const modeRu = grid.spreadMode
+        ? (grid.band === 'narrow' ? 'S% узкий Long' : 'S% шир. Short')
+        : 'Z±';
+      setZHeatmapStatus(`Считаю heatmap касания 1м (${modeRu}, ${axes.pairs.length} клеток)…`);
       try {
         const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         const data = await fetchTipHeatmap(grid);
@@ -2053,18 +2259,19 @@
           pnl: c.pnl,
           n: c.n,
         }));
+        const mark = data.meta?.prodMark || prodMark;
         zHeatmapCache = { key, cells, grid, inFlightKey: '' };
-        host.innerHTML = renderZHeatmapHtml(cells, grid, cur.entry, cur.exit);
+        host.innerHTML = renderZHeatmapHtml(cells, grid, curEntry, curExit, mark);
         applyZHeatmapScrollTop(zHeatmapScrollRestored ? prevScrollTop : readSavedZHeatmapScrollTop());
-        setZHeatmapExtremes(cells);
+        setZHeatmapExtremes(cells, grid);
         const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
         const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         const sec = Math.max(0.01, (t1 - t0) / 1000);
         const hmSec = data.meta?.heatmapSec != null ? data.meta.heatmapSec : sec.toFixed(1);
         setZHeatmapStatus(
-          `${cells.length} клеток · касание 1м · сервер ${hmSec}с`
+          `${cells.length} клеток · касание 1м · ${modeRu} · сервер ${hmSec}с`
           + ` · ${zHeatmapCsvPeriodLabel()} · slip ${slip}`
-          + ` · кап. ${getSimNotionalRub()}₽ · клик = пороги теста`,
+          + ` · кап. ${getSimNotionalRub()}₽ · клик = уровни теста`,
         );
       } catch (e) {
         if (jobId !== zHeatmapJobId) return;
@@ -2128,9 +2335,9 @@
     }
     if (jobId !== zHeatmapJobId) return;
     zHeatmapCache = { key, cells, grid, inFlightKey: '' };
-    host.innerHTML = renderZHeatmapHtml(cells, grid, cur.entry, cur.exit);
+    host.innerHTML = renderZHeatmapHtml(cells, grid, cur.entry, cur.exit, null);
     applyZHeatmapScrollTop(zHeatmapScrollRestored ? prevScrollTop : readSavedZHeatmapScrollTop());
-    setZHeatmapExtremes(cells);
+    setZHeatmapExtremes(cells, grid);
     const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
     const nMax = cells.reduce((m, c) => Math.max(m, c.n || 0), 0);
     const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
@@ -2138,7 +2345,7 @@
     setZHeatmapStatus(
       `${cells.length} клеток · ${zHeatmapCsvPeriodLabel()} · весь ряд · ${sec < 1 ? sec.toFixed(2) : sec.toFixed(1)}с`
       + (prepared ? ` · быстро${tpOn ? '+TP' : ''}` : (slowWhy ? ` · медленно (${slowWhy})` : ' · медленно'))
-      + ` · slip ${slip} · кап. ${getSimNotionalRub()}₽ · ${barsSourceLabel()}`
+      + ` · slip ${slip} · кап. ${getSimNotionalRub()}₽`
       + (nMax > 0 ? ' · клик по клетке = пороги теста' : ' · N=0 — проверьте дату старта / данные'),
     );
   }
@@ -2353,16 +2560,26 @@
       const hk = zHeatmapCacheKey(g);
       if (hk === zHeatmapCache.key && zHeatmapCache.cells) {
         const host = $('tradesZHeatmap');
+        const lv = readHmSelectedSpreadLevels();
+        const curEntry = g.spreadMode
+          ? (g.band === 'narrow' ? lv.enter_narrow : lv.enter_wide)
+          : thresholds().entry;
+        const curExit = g.spreadMode
+          ? (g.band === 'narrow' ? lv.exit_narrow : lv.exit_wide)
+          : thresholds().exit;
+        const prodMark = g.spreadMode
+          ? (g.band === 'narrow' ? HM_PROD_NARROW : HM_PROD_WIDE)
+          : null;
         if (host && !host.querySelector('.z-heatmap-table')) {
-          const cur = thresholds();
-          host.innerHTML = renderZHeatmapHtml(zHeatmapCache.cells, g, cur.entry, cur.exit);
-          setZHeatmapExtremes(zHeatmapCache.cells);
+          host.innerHTML = renderZHeatmapHtml(
+            zHeatmapCache.cells, g, curEntry, curExit, prodMark,
+          );
+          setZHeatmapExtremes(zHeatmapCache.cells, g);
         } else if (host) {
           // только подсветка текущих порогов
-          const cur = thresholds();
           host.querySelectorAll('td.zh-cell.is-current').forEach((el) => el.classList.remove('is-current'));
           const cell = host.querySelector(
-            `td.zh-cell[data-entry="${cur.entry}"][data-exit="${cur.exit}"]`,
+            `td.zh-cell[data-entry="${curEntry}"][data-exit="${curExit}"]`,
           );
           if (cell) cell.classList.add('is-current');
         }
@@ -2633,6 +2850,7 @@
       display,
       value: raw,
       dist,
+      colKey,
       formatStat: (v) => formatTradeMetricStat(colKey, v),
       spreadWidthRegime: colKey === 'SpreadEntry' || colKey === 'SpreadExit',
     });
@@ -2698,6 +2916,7 @@
       display,
       value,
       dist,
+      colKey: metric,
       formatStat: (v) => formatStatusBarMetricStat(metric, v),
       spreadWidthRegime: metric === 'spread',
     });
@@ -2748,12 +2967,34 @@
     };
   }
 
+  /** Apply tip1m manual flat override (same cache key only). */
+  function tipRowsWithForceClose(rows) {
+    if (!rows || !rows.length) return rows || [];
+    if (!tipForceClose || tipForceClose.cacheKey !== tipSimCache.key) return rows;
+    return rows.map((r) => {
+      if (r.index !== tipForceClose.index || r.entryDate !== tipForceClose.entryDate) {
+        return r;
+      }
+      const origExit = r.exitDate;
+      const forceExit = tipForceClose.exitDate;
+      if (
+        !origExit
+        || origExit === '—'
+        || compareTradeDateStr(origExit, forceExit) > 0
+      ) {
+        return tipForceClose.row;
+      }
+      return r;
+    });
+  }
+
   /**
    * Tip-1m server sim is full-window; slice to M15 cursor like local M15 edgesSoFar.
    * Trades that enter after cursor are dropped; exit after cursor → «Открыта».
    */
   function tipRowsUpToCursor(rows) {
     if (!rows || !rows.length) return rows || [];
+    rows = tipRowsWithForceClose(rows);
     if (!engine || !allPoints.length) return rows;
     const idx = Math.max(0, Math.min(engine.cursor | 0, allPoints.length - 1));
     const cursorDate = allPoints[idx]?.tradeDate;
@@ -2779,6 +3020,7 @@
           commission: null,
           overnight: null,
           net: null,
+          accountBefore: null,
           accountAfter: null,
           status: 'Открыта',
         });
@@ -2787,6 +3029,99 @@
       }
     }
     return out;
+  }
+
+  /**
+   * tip1m «Закрыть все»: сразу закрыть открытую sim-сделку на текущем баре
+   * (в т.ч. последний бар / 100% — без шага +1).
+   */
+  function closeTip1mOpenAtCursor() {
+    if (!isTip1mMode() || !tipSimCache.rows || !engine || !allPoints.length) return false;
+    if (typeof openTradeNetRub !== 'function' || typeof simExitSpread !== 'function') {
+      return false;
+    }
+    const idx = Math.max(0, Math.min(engine.cursor | 0, allPoints.length - 1));
+    const bar = allPoints[idx];
+    if (!bar?.tradeDate) return false;
+
+    const visible = tipRowsUpToCursor(tipSimCache.rows);
+    const open = [...visible].reverse().find((r) => r.status === 'Открыта');
+    if (!open) return false;
+    if (compareTradeDateStr(open.entryDate, bar.tradeDate) > 0) return false;
+
+    const dir = open.direction === 'Short' ? 'Short' : 'Long';
+    const entrySpread = open.spreadEntryValue != null
+      ? Number(open.spreadEntryValue)
+      : Number(open.entrySpread);
+    if (!Number.isFinite(entrySpread)) return false;
+
+    const notional = Number(open.notional) > 0
+      ? Number(open.notional)
+      : getSimNotionalRub();
+    const constants = typeof simPnlConstants === 'function'
+      ? simPnlConstants(notional)
+      : null;
+    if (!constants) return false;
+
+    const exitSpread = simExitSpread(bar.spreadPercent ?? 0, dir);
+    const pnlPts = dir === 'Long'
+      ? exitSpread - entrySpread
+      : entrySpread - exitSpread;
+    const net = openTradeNetRub(bar, dir, entrySpread, open.entryDate, constants, true);
+    const { effNotional, commPerSide, overnightPerDay } = constants;
+    const gross = typeof spreadPnlToRub === 'function'
+      ? spreadPnlToRub(pnlPts, effNotional)
+      : net;
+    const ovn = overnightPerDay * (
+      typeof overnightDays === 'function'
+        ? overnightDays(open.entryDate, bar.tradeDate)
+        : 0
+    );
+    const commTotal = commPerSide * 2;
+
+    let pnlMin = open.pnlMinValue;
+    let pnlMax = open.pnlMaxValue;
+    if (pnlMin == null || !Number.isFinite(pnlMin)) pnlMin = net;
+    else pnlMin = Math.min(pnlMin, net);
+    if (pnlMax == null || !Number.isFinite(pnlMax)) pnlMax = net;
+    else pnlMax = Math.max(pnlMax, net);
+
+    const entryTh = thresholds().entry;
+    const closedRaw = {
+      index: open.index,
+      direction: dir,
+      entryDate: open.entryDate,
+      exitDate: bar.tradeDate,
+      entryZ: open.entryZ,
+      exitZ: bar.zScore != null ? Number(bar.zScore) : null,
+      entrySpread,
+      exitSpread,
+      entrySlip: open.slipValue,
+      pnlPts,
+      gross,
+      commission: commTotal,
+      overnight: ovn,
+      net,
+      modelNet: net,
+      netFromAccount: false,
+      accountBefore: null,
+      accountAfter: null,
+      pnlMin,
+      pnlMax,
+      hit1Date: open.hit1Date,
+      hit2Date: open.hit2Date,
+      hit3Date: open.hit3Date,
+      status: 'Закрыта',
+      notional,
+    };
+    tipForceClose = {
+      cacheKey: tipSimCache.key,
+      index: open.index,
+      entryDate: open.entryDate,
+      exitDate: bar.tradeDate,
+      row: tipTradeToRow(closedRaw, entryTh),
+    };
+    return true;
   }
 
   function tipPointForDate(td, zFallback, spFallback) {
@@ -2810,7 +3145,8 @@
     if (!rows || !rows.length) return edges;
     for (const r of rows) {
       const isLong = r.direction === 'Long';
-      const entryBar = tipPointForDate(r.entryDate, r.entryZ, r.entrySpread);
+      const entrySp = r.entrySpread ?? r.spreadEntryValue;
+      const entryBar = tipPointForDate(r.entryDate, r.entryZ, entrySp);
       if (!entryBar) continue;
       edges.push({
         signal: isLong ? 'EnterLong' : 'EnterShort',
@@ -2820,7 +3156,8 @@
         manual: false,
       });
       if (r.exitDate && r.exitDate !== '—' && r.status !== 'Открыта') {
-        const exitBar = tipPointForDate(r.exitDate, r.exitZ, r.exitSpread);
+        const exitSp = r.exitSpread ?? r.spreadExitValue;
+        const exitBar = tipPointForDate(r.exitDate, r.exitZ, exitSp);
         if (!exitBar) continue;
         edges.push({
           signal: isLong ? 'ExitLong' : 'ExitShort',
@@ -2847,7 +3184,15 @@
       $('csvSel')?.value || '',
       $('startDate')?.value || '',
       '90',
+      'final',
     ].join('|');
+  }
+
+  function tip1mFetchTimeoutMs(csv) {
+    const name = String(csv || '');
+    if (name.includes('1095') || /_3y/i.test(name)) return 90000;
+    if (name.includes('365')) return 60000;
+    return 45000;
   }
 
   async function loadTip1mChartBars({ force = false } = {}) {
@@ -2861,7 +3206,22 @@
     const start = $('startDate')?.value || '';
     let url = `/api/bars1m?csv=${encodeURIComponent(csv)}&chartDays=90`;
     if (start) url += `&start=${encodeURIComponent(start)}`;
-    const res = await fetch(url);
+    const timeoutMs = tip1mFetchTimeoutMs(csv);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(url, { signal: controller.signal });
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        throw new Error(
+          `Таймаут графика 1м (${Math.round(timeoutMs / 1000)} с). Обновите страницу или перезапустите сервис.`,
+        );
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(errText || res.statusText);
@@ -3114,7 +3474,10 @@
       chartFocusIndex,
     );
     const windowPoints = allPoints.slice(range.start, range.end + 1);
-    const candles = buildZCandles(windowPoints);
+    const spreadChartMode = isTipSpreadLevelsHeatmap();
+    const candles = spreadChartMode
+      ? buildSpreadCandles(windowPoints)
+      : buildZCandles(windowPoints);
     const currentPoint = frame.currentPoint
       || (allPoints.length ? allPoints[frame.cursorIndex] : null);
 
@@ -3147,6 +3510,8 @@
       entryZ: t.entryZ,
       exitTime: t.exitTime,
       exitZ: t.exitZ,
+      entrySpread: t.entrySpread,
+      exitSpread: t.exitSpread,
       open: t.open,
     }));
 
@@ -3201,9 +3566,17 @@
         // afterParams меняет всю equity-кривую — нельзя «дописать хвост»
         light: light && !afterParams,
         markersChanged: markersChanged || afterParams,
+        primaryMetric: spreadChartMode ? 'spread' : 'z',
+        spreadLevels: spreadChartMode ? readHmSelectedSpreadLevels() : null,
       },
     );
     chart.setReplay(payload);
+    const chartLab = $('testPrimaryChartLabel');
+    if (chartLab) {
+      chartLab.textContent = spreadChartMode
+        ? (tipMode ? 'Спред % · tip1m' : 'Спред %')
+        : (tipMode ? 'Z-score · tip1m' : 'Z-score · M15');
+    }
     if (fitFull && typeof chart.fitFullRange === 'function') {
       requestAnimationFrame(() => chart.fitFullRange());
     }
@@ -3246,7 +3619,7 @@
     const slipPts = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
     const slipText = slipPts > 0 ? ` · slip ${slipPts}` : '';
     const modeText = isTip1mMode()
-      ? ' · <span class="badge-online" title="Mode B: tip-Z на 1м">касание 1м</span>'
+      ? ' · <span class="badge-online" title="Mode B: tip-Z на 1м · settle +10с как Prod">касание 1м</span>'
       : '';
     let tipNote = '';
     if (isTip1mMode()) {
@@ -3261,10 +3634,36 @@
       if (tip1mChartMeta?.chartLimited) {
         tipNote += `   ·   график ${tip1mChartMeta.chartDays}д 1м`;
       }
+      if (tipSimCache.rows) {
+        const tipRowsForNote = tipRowsCursor || tipRowsUpToCursor(tipSimCache.rows || []);
+        const n = tipRowsForNote.length;
+        const first = tipSimCache.rows?.[0]?.entryDate;
+        const last = tipSimCache.rows?.length
+          ? tipSimCache.rows[tipSimCache.rows.length - 1]?.entryDate
+          : null;
+        const openN = tipRowsForNote.filter((r) => r.status === 'Открыта').length;
+        if (first && last && n > 0) {
+          // Span of entry dates in loaded sim — not a clickable date filter.
+          tipNote += `   ·   входы ${String(first).slice(0, 10)}…${String(last).slice(0, 10)}`;
+          if (openN) tipNote += ` (+${openN} откр.)`;
+        } else if (openN) {
+          tipNote += `   ·   +${openN} откр.`;
+        }
+      }
     }
     const sigCount = tipMode ? chartEdges.length : frame.signalEdgesSoFar.length;
+    const th = thresholds();
+    let threshText;
+    if (spreadChartMode) {
+      const lv = readHmSelectedSpreadLevels();
+      const f1 = (v) => Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 1 });
+      threshText =
+        `S ${f1(lv.enter_wide)}/${f1(lv.exit_wide)} · L ${f1(lv.enter_narrow)}/${f1(lv.exit_narrow)}`;
+    } else {
+      threshText = `пороги ±${th.entry} / ±${th.exit}`;
+    }
     $('status').innerHTML =
-      `${frame.barLabel}   ·   Z ${zHover} · Спред ${spHover}${regimeHtml}   ·   ${tipPos}   ·   сигн. ${sigCount}   ·   пороги ±${thresholds().entry} / ±${thresholds().exit}${tpText}${riskText}${capText}${slipText}${modeText}   ·   ${barsSourceLabel()}${tipNote}`;
+      `${frame.barLabel}   ·   Z ${zHover} · Спред ${spHover}${regimeHtml}   ·   ${tipPos}   ·   сигн. ${sigCount}   ·   ${threshText}${tpText}${riskText}${capText}${slipText}${modeText}${tipNote}`;
 
     const pct = Math.round(engine.progressFraction * 100);
     $('progress').textContent = `${pct}%`;
@@ -3299,27 +3698,16 @@
     }
   }
 
-  function getBarsSource() {
-    const v = localStorage.getItem(LS.barsSource);
-    return v === 'final' ? 'final' : 'as_live';
-  }
-
-  function setBarsSource(src) {
-    const next = src === 'final' ? 'final' : 'as_live';
-    localStorage.setItem(LS.barsSource, next);
-    syncBarsSourceChips();
-    return next;
-  }
-
-  function syncBarsSourceChips() {
-    const cur = getBarsSource();
-    document.querySelectorAll('#barsSourceChips .chip').forEach((btn) => {
-      btn.classList.toggle('active', btn.getAttribute('data-bars-source') === cur);
-    });
-  }
-
-  function barsSourceLabel() {
-    return getBarsSource() === 'final' ? 'финальный CSV' : 'как Прод';
+  function forceFinalBarsSourceOnce() {
+    // Testing UI: always geometric final CSV; ignore legacy «как Прод» / as_live prefs.
+    if (localStorage.getItem(LS.barsSourceFinalOnlyV3)) {
+      if (localStorage.getItem(LS.barsSource) !== 'final') {
+        localStorage.setItem(LS.barsSource, 'final');
+      }
+      return;
+    }
+    localStorage.setItem(LS.barsSourceFinalOnlyV3, '1');
+    localStorage.setItem(LS.barsSource, 'final');
   }
 
   function getEdgeMode() {
@@ -3352,11 +3740,17 @@
   function tipSimRequestKey() {
     const t = thresholds();
     const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
+    const lv = readHmSelectedSpreadLevels();
     return [
+      'v6spreadLevelsHm',
       $('csvSel')?.value || '',
       $('startDate')?.value || '',
       t.entry, t.exit, t.takeProfitPct || 0,
       getSimNotionalRub(), getSimCompound() ? 1 : 0, slip,
+      'final',
+      $('tipSpreadLevels')?.checked !== false ? 1 : 0,
+      0,
+      lv.enter_wide, lv.exit_wide, lv.enter_narrow, lv.exit_narrow,
     ].join('|');
   }
 
@@ -3366,13 +3760,25 @@
       : null;
     const pnlMin = t.pnlMin != null && Number.isFinite(Number(t.pnlMin)) ? Number(t.pnlMin) : null;
     const pnlMax = t.pnlMax != null && Number.isFinite(Number(t.pnlMax)) ? Number(t.pnlMax) : null;
+    let accountBefore = t.accountBefore != null && Number.isFinite(Number(t.accountBefore))
+      ? Number(t.accountBefore)
+      : (t.account_before_rub != null && Number.isFinite(Number(t.account_before_rub))
+        ? Number(t.account_before_rub)
+        : null);
     const accountAfter = t.accountAfter != null && Number.isFinite(Number(t.accountAfter))
       ? Number(t.accountAfter)
       : null;
+    const tipNet = t.net != null && Number.isFinite(Number(t.net)) ? Number(t.net) : null;
+    if (accountBefore == null && accountAfter != null && tipNet != null) {
+      accountBefore = accountAfter - tipNet;
+    }
     const hit1Date = t.hit1Date || null;
     const hit2Date = t.hit2Date || null;
     const hit3Date = t.hit3Date || null;
     const parseMs = typeof parseTradeMs === 'function' ? parseTradeMs : () => null;
+    const modelNet = t.modelNet != null && Number.isFinite(Number(t.modelNet))
+      ? Number(t.modelNet)
+      : (t.model_net != null && Number.isFinite(Number(t.model_net)) ? Number(t.model_net) : null);
     return makeTradeRow({
       index: t.index,
       direction: t.direction,
@@ -3388,6 +3794,9 @@
       commission: t.commission,
       overnight: t.overnight,
       net: t.net,
+      modelNet,
+      netFromAccount: !!(t.netFromAccount || t.net_from_account),
+      accountBefore,
       accountAfter,
       pnlMin,
       pnlMax,
@@ -3400,6 +3809,7 @@
       status: t.status || 'Закрыта',
       entryThreshold,
       _risk: risk,
+      notional: t.notional,
     });
   }
 
@@ -3407,7 +3817,7 @@
     if (!isTip1mMode()) return;
     if (tipSimTimer) clearTimeout(tipSimTimer);
     // Debounce param tweaks; seek/cursor uses tipRowsUpToCursor (no server POST).
-    const delay = immediate ? 40 : 280;
+    const delay = immediate ? 0 : 160;
     tipSimTimer = setTimeout(() => {
       tipSimTimer = null;
       fetchTipSim().catch(() => {});
@@ -3427,8 +3837,9 @@
       st.textContent = 'касание 1м · считаю на сервере…';
     }
     const t = thresholds();
+    const csv = $('csvSel')?.value || 'm15_tatn_255d.csv';
     const body = {
-      csv: $('csvSel')?.value || 'm15_tatn_255d.csv',
+      csv,
       start: $('startDate')?.value || null,
       entry: t.entry,
       exit: t.exit,
@@ -3436,12 +3847,20 @@
       notional: getSimNotionalRub(),
       compound: getSimCompound(),
       takeProfitPct: t.takeProfitPct || 0,
+      as_live: 0,
+      regime_z_mode: 0,
+      spread_level_mode: $('tipSpreadLevels')?.checked !== false ? 1 : 0,
+      spread_levels: readHmSelectedSpreadLevels(),
     };
+    const timeoutMs = tip1mFetchTimeoutMs(csv);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch('/api/sim/tip1m', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const errText = await res.text();
@@ -3463,29 +3882,43 @@
     } catch (e) {
       if (jobId !== tipSimJobId) return;
       tipSimCache = { key: '', rows: null, meta: null, summary: null };
-      const msg = (e && e.message) ? String(e.message).slice(0, 180) : String(e);
+      const timedOut = e && e.name === 'AbortError';
+      const msg = timedOut
+        ? `таймаут ${Math.round(timeoutMs / 1000)} с — сервер не ответил (перезапустите сервис / F5)`
+        : ((e && e.message) ? String(e.message).slice(0, 180) : String(e));
       if (st) st.textContent = `касание 1м · ошибка: ${msg}`;
-      const host = $('tradesBody');
-      if (host) {
-        // leave table; summary note via status
+      const grid = $('tradesSummaryGrid');
+      if (grid) {
+        grid.innerHTML =
+          `<div class="trades-summary-note wide">касание 1м · ошибка: ${msg}</div>`;
       }
-      alert('Касание 1м (сервер): ' + msg);
+      if (!timedOut) alert('Касание 1м (сервер): ' + msg);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
   async function fetchTipHeatmap(grid) {
     const t = thresholds();
+    const lv = readHmSelectedSpreadLevels();
     const body = {
       csv: $('csvSel')?.value || 'm15_tatn_255d.csv',
       start: $('startDate')?.value || null,
       entryMin: grid.entryMin,
       entryMax: grid.entryMax,
       exitMin: grid.exitMin,
+      exitMax: grid.exitMax,
       step: grid.step,
       slip: typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0.02,
       notional: getSimNotionalRub(),
       compound: getSimCompound(),
       takeProfitPct: t.takeProfitPct || 0,
+      spread_level_mode: grid.spreadMode ? 1 : 0,
+      band: grid.band || 'wide',
+      enter_wide: lv.enter_wide,
+      exit_wide: lv.exit_wide,
+      enter_narrow: lv.enter_narrow,
+      exit_narrow: lv.exit_narrow,
     };
     const res = await fetch('/api/sim/tip1m/heatmap', {
       method: 'POST',
@@ -3497,43 +3930,6 @@
       throw new Error(errText || res.statusText);
     }
     return res.json();
-  }
-
-  function updateBarsCoverageWarn(meta) {
-    const el = $('barsCoverageWarn');
-    if (!el) return;
-    if (!meta || !meta.as_live) {
-      el.textContent = '';
-      el.title = '';
-      return;
-    }
-    const cov = Number(meta.coverage) || 0;
-    const locked = Number(meta.locked_count) || 0;
-    const n = Number(meta.bars_count) || 0;
-    if (n <= 0) {
-      el.textContent = '';
-      return;
-    }
-    const fromRaw = meta.locked_from || '';
-    const fromHm = fromRaw.length >= 16 ? fromRaw.slice(11, 16) : (fromRaw || '—');
-    // Low / partial coverage: freeze only where decision_bars exist.
-    if (cov < 0.15 || (n >= 50 && locked < Math.max(5, Math.floor(n * 0.05)))) {
-      el.textContent =
-        `⚠ заморозка с ${fromHm}; сделки до этой метки на финальном CSV (${locked}/${n})`;
-      el.title =
-        `Заморозка decision_bars с ${fromRaw || '—'}. ` +
-        'Бары без freeze = финальный CSV (возможны фантомные сделки). ' +
-        'Частичный overlay всё же подменяет Z там, где freeze есть.';
-    } else if (cov < 0.85) {
-      el.textContent =
-        `⚠ заморозка с ${fromHm}; до метки — финальный CSV · 🔒 ${locked}/${n} (${(cov * 100).toFixed(0)}%)`;
-      el.title =
-        `Заморожено ${meta.locked_from || ''} … ${meta.locked_to || ''}. ` +
-        'Сделки до начала заморозки считаются по финальному CSV.';
-    } else {
-      el.textContent = `🔒 ${locked}/${n} (${(cov * 100).toFixed(0)}%)`;
-      el.title = `Заморожено decision_bars: ${meta.locked_from || ''} … ${meta.locked_to || ''}`;
-    }
   }
 
   function barsLoadTimeoutMs(csv) {
@@ -3548,7 +3944,6 @@
     const startDate = $('startDate').value;
     let url = `/api/bars?csv=${encodeURIComponent(csv)}`;
     if (startDate) url += `&start=${encodeURIComponent(startDate)}`;
-    if (getBarsSource() === 'as_live') url += '&as_live=1';
     const title = $('loadingTitle');
     const sub = $('loadingSub');
     const timeoutMs = barsLoadTimeoutMs(csv);
@@ -3556,13 +3951,13 @@
     if (title) title.textContent = `Загрузка ${csv}…`;
     if (sub) {
       sub.textContent =
-        `запрос /api/bars (${barsSourceLabel()}) · лимит ${timeoutSec} с`;
+        `запрос /api/bars · лимит ${timeoutSec} с`;
     }
     const started = Date.now();
     const tick = setInterval(() => {
       if (sub) {
         sub.textContent =
-          `запрос /api/bars (${barsSourceLabel()}) · ${Math.round((Date.now() - started) / 1000)} / ${timeoutSec} с`;
+          `запрос /api/bars · ${Math.round((Date.now() - started) / 1000)} / ${timeoutSec} с`;
       }
     }, 500);
     const controller = new AbortController();
@@ -3602,15 +3997,6 @@
         if (sub) sub.textContent = `${data.count} баров`;
       }
       allPoints = data.bars;
-      lastBarsMeta = {
-        as_live: !!data.as_live,
-        locked_count: Number(data.locked_count) || 0,
-        bars_count: Number(data.bars_count != null ? data.bars_count : data.count) || 0,
-        coverage: Number(data.coverage) || 0,
-        locked_from: data.locked_from || null,
-        locked_to: data.locked_to || null,
-      };
-      updateBarsCoverageWarn(lastBarsMeta);
       rememberBarsCache(csv, data.bars);
       updateMoexLastBarHint(data.last);
       if (!opts.keepSelection) {
@@ -3623,12 +4009,12 @@
           ? '<span class="badge-online">MOEX tail</span>'
           : '<span class="badge-online">online</span>')
         : '<span class="badge-offline">offline</span>';
-      const modeBadge = data.as_live
-        ? '<span class="badge-online" title="decision_bars overlay">как Прод</span>'
-        : '<span class="badge-quiet" title="финальный CSV/SQLite">финальный CSV</span>';
       const csvSafe = String(data.csv || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      $('meta').innerHTML = `TATN/TATNP · ${data.count} баров · ${csvSafe} · ${src} · ${modeBadge} · ${netBadge}`;
+      $('meta').innerHTML = `TATN/TATNP · ${data.count} баров · ${csvSafe} · ${src} · ${netBadge}`;
       rebuildEngine();
+      // Full reload of bars window: jump to end so СДЕЛКИ/PnL cover the whole period
+      // (keepSelection=true for MOEX tail refresh — preserve scrubber).
+      if (!opts.keepSelection && engine) engine.seekToEnd();
       chart?.followReplayEdge(true);
       reapplyLayoutFromStorage();
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -3643,15 +4029,34 @@
         chart.resize();
       }
       if (!background && title) title.textContent = 'Построение сделок…';
+      if (!background && sub) {
+        sub.textContent = `${data.count || 0} баров · касание 1м…`;
+      }
       refreshUi();
       if (isTip1mMode()) {
         tipSimCache = { key: '', rows: null, meta: null, summary: null };
-        try {
-          await activateTip1mChart();
-        } catch (e) {
-          console.error(e);
-        }
+        const tipTimeoutMs = tip1mFetchTimeoutMs(csv);
+        let tipTimer = null;
+        const tipDeadline = new Promise((_, reject) => {
+          tipTimer = setTimeout(
+            () => reject(new Error(
+              `Таймаут «Построение сделок» (${Math.round(tipTimeoutMs / 1000)} с). F5 или перезапуск сервиса.`,
+            )),
+            tipTimeoutMs,
+          );
+        });
+        const chartP = activateTip1mChart();
         scheduleTipSimFetch({ immediate: true });
+        try {
+          await Promise.race([chartP, tipDeadline]);
+        } catch (tipErr) {
+          console.error(tipErr);
+          if (!background && title) title.textContent = 'Ошибка касания 1м';
+          if (!background && sub) sub.textContent = tipErr.message || String(tipErr);
+          // Still reveal UI with M15 bars so Test is usable; sim fetch has its own timeout.
+        } finally {
+          if (tipTimer) clearTimeout(tipTimer);
+        }
       }
       setTimeout(() => chart?.resize(), 100);
       if (!background) {
@@ -3819,6 +4224,7 @@
   }
 
   function jumpToEnd() {
+    if (!engine) return;
     playing = false;
     stopTimer();
     setPlayButtonLabel(false);
@@ -3930,11 +4336,25 @@
     $('btnCloseAll').addEventListener('click', () => {
       if (!engine) return;
       pausePlayback();
+      const status = $('status');
+      if (isTip1mMode()) {
+        // tip1m СДЕЛКИ = server sim rows, not M15 engine.manualEdges
+        const before = tipPositionFromRows(tipRowsUpToCursor(tipSimCache.rows || []));
+        const closed = closeTip1mOpenAtCursor();
+        refreshTradesTable();
+        refreshUi();
+        const after = tipPositionFromRows(tipRowsUpToCursor(tipSimCache.rows || []));
+        if (status && before !== 'Flat') {
+          status.textContent = closed || after === 'Flat'
+            ? `${status.textContent.split('·')[0]}· закрыто вручную (${before}→Flat)`
+            : `${status.textContent} · не удалось закрыть (${before})`;
+        }
+        return;
+      }
       const before = engine.openSideFromEdges();
       const closed = engine.closeAllTrades();
       refreshUi();
       const after = engine.openSideFromEdges();
-      const status = $('status');
       if (status && before !== 'Flat') {
         status.textContent = closed || after === 'Flat'
           ? `${status.textContent.split('·')[0]}· закрыто вручную (${before}→Flat)`
@@ -3990,6 +4410,27 @@
     if (tpSel) {
       tpSel.addEventListener('change', () => {
         saveSetting(LS.takeProfit, tpSel.value);
+        applyStrategyParamsChange();
+      });
+    }
+
+    const tipRz = $('tipRegimeZ');
+    // Legacy checkbox removed from DOM — no-op if absent.
+    if (tipRz) {
+      tipRz.addEventListener('change', () => {
+        saveSetting(LS.tipRegimeZ, tipRz.checked ? '1' : '0');
+        tipSimCache = { key: '', rows: null, meta: null, summary: null };
+        applyStrategyParamsChange();
+      });
+    }
+    const tipSl = $('tipSpreadLevels');
+    if (tipSl) {
+      tipSl.addEventListener('change', () => {
+        saveSetting(LS.tipSpreadLevels, tipSl.checked ? '1' : '0');
+        tipSimCache = { key: '', rows: null, meta: null, summary: null };
+        zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+        zHeatmapJobId += 1;
+        syncZHeatmapModeUi();
         applyStrategyParamsChange();
       });
     }
@@ -4051,18 +4492,34 @@
       if ($('hmEntryMin')) $('hmEntryMin').value = String(g.entryMin);
       if ($('hmEntryMax')) $('hmEntryMax').value = String(g.entryMax);
       if ($('hmExitMin')) $('hmExitMin').value = String(g.exitMin);
+      if ($('hmExitMax') && g.exitMax != null) $('hmExitMax').value = String(g.exitMax);
       if ($('hmStep')) $('hmStep').value = String(g.step);
       saveSetting(LS.hmEntryMin, g.entryMin);
       saveSetting(LS.hmEntryMax, g.entryMax);
       saveSetting(LS.hmExitMin, g.exitMin);
+      if (g.exitMax != null) saveSetting(LS.hmExitMax, g.exitMax);
       saveSetting(LS.hmStep, g.step);
       zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
       zHeatmapJobId += 1;
       scheduleZHeatmapUpdate(null, { immediate: true });
     };
-    ['hmEntryMin', 'hmEntryMax', 'hmExitMin', 'hmStep'].forEach((id) => {
+    ['hmEntryMin', 'hmEntryMax', 'hmExitMin', 'hmExitMax', 'hmStep'].forEach((id) => {
       $(id)?.addEventListener('change', persistHmGrid);
       $(id)?.addEventListener('blur', persistHmGrid);
+    });
+    document.querySelectorAll('#hmBandChips .chip[data-hm-band]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const band = btn.getAttribute('data-hm-band') === 'narrow' ? 'narrow' : 'wide';
+        document.querySelectorAll('#hmBandChips .chip').forEach((b) => {
+          b.classList.toggle('active', b.getAttribute('data-hm-band') === band);
+        });
+        saveSetting(LS.hmBand, band);
+        applyHmSGridDefaultsForBand(band, { force: true });
+        syncZHeatmapModeUi();
+        zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+        zHeatmapJobId += 1;
+        scheduleZHeatmapUpdate(null, { immediate: true });
+      });
     });
     $('btnHmRecompute')?.addEventListener('click', () => {
       zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
@@ -4148,6 +4605,26 @@
       const entry = cell.dataset.entry;
       const exit = cell.dataset.exit;
       if (entry == null || exit == null) return;
+      if (isTipSpreadLevelsHeatmap()) {
+        const band = hmBand();
+        if (band === 'narrow') {
+          writeHmSelectedSpreadLevels({
+            enter_narrow: Number(entry),
+            exit_narrow: Number(exit),
+          });
+        } else {
+          writeHmSelectedSpreadLevels({
+            enter_wide: Number(entry),
+            exit_wide: Number(exit),
+          });
+        }
+        tipSimCache = { key: '', rows: null, meta: null, summary: null };
+        tipSimJobId += 1;
+        runTip1mSim().catch(() => {});
+        zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
+        scheduleZHeatmapUpdate(null, { immediate: true });
+        return;
+      }
       populateThresholdSelect($('entrySel'), 0.5, entry);
       populateThresholdSelect($('exitSel'), 0.3, exit);
       saveSetting(LS.entry, entry);
@@ -4162,6 +4639,7 @@
     document.querySelectorAll('#startPresetChips .chip[data-start-preset]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const ymd = startDateForPreset(btn.dataset.startPreset);
+        // Пересчёт окна + jumpToEnd внутри applyStartDateAndReload (как «В конец»).
         applyStartDateAndReload(ymd).catch(() => {});
       });
     });
@@ -4178,20 +4656,6 @@
       await bootstrap($('csvSel').value);
     });
 
-    document.querySelectorAll('#barsSourceChips .chip[data-bars-source]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const src = btn.getAttribute('data-bars-source') || 'as_live';
-        if (src === getBarsSource()) return;
-        setBarsSource(src);
-        // Different OHLC/Z — drop cached series for this CSV.
-        Object.keys(barsCacheByCsv).forEach((k) => { delete barsCacheByCsv[k]; });
-        zHeatmapCache = { key: null, cells: null, grid: null, inFlightKey: null };
-        $('loading').classList.remove('hidden');
-        $('app').classList.add('hidden');
-        await bootstrap($('csvSel').value);
-      });
-    });
-
     document.querySelectorAll('#edgeModeChips .chip[data-edge-mode]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const mode = btn.getAttribute('data-edge-mode') || 'm15';
@@ -4201,16 +4665,15 @@
         tipSimJobId += 1;
         zHeatmapCache = { key: '', cells: null, grid: null, inFlightKey: '' };
         zHeatmapJobId += 1;
+        syncZHeatmapModeUi();
         if (mode === 'tip1m') {
-          activateTip1mChart()
-            .then(() => {
-              scheduleTipSimFetch({ immediate: true });
-            })
-            .catch((e) => {
-              console.error(e);
-              const st = $('status');
-              if (st) st.textContent = `касание 1м · ошибка графика: ${e.message || e}`;
-            });
+          // Start sim immediately; chart loads in parallel (table not blocked on bars1m).
+          scheduleTipSimFetch({ immediate: true });
+          activateTip1mChart().catch((e) => {
+            console.error(e);
+            const st = $('status');
+            if (st) st.textContent = `касание 1м · ошибка графика: ${e.message || e}`;
+          });
           return;
         }
         activateM15Chart();
@@ -4385,9 +4848,10 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
-    syncBarsSourceChips();
+    forceFinalBarsSourceOnce();
     syncEdgeModeChips();
     syncStartPresetChips();
+    syncZHeatmapModeUi();
     renderColumnPicker();
     bindSplitDivider();
     bindChartVerticalSplit();

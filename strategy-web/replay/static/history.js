@@ -53,8 +53,13 @@
     switch (preset) {
       case 'today':
         return { from: to, to };
-      case 'week':
-        return { from: formatYmd(startOfWeekMonday(today)), to };
+      case 'week': {
+        // Rolling last 7 calendar days (today inclusive). Calendar Mon→today
+        // collapses to a single day on Mondays and hid the week's trades.
+        const from = new Date(today);
+        from.setDate(from.getDate() - 6);
+        return { from: formatYmd(from), to };
+      }
       case 'month':
         return { from: formatYmd(new Date(today.getFullYear(), today.getMonth(), 1)), to };
       case '3m':
@@ -160,6 +165,22 @@
       next = insertAfter(next, 'AccountAfter', 'Net');
     }
     if (ver < 8) {
+      next = regroupTradeColumnKeys(next);
+    }
+    if (ver < 9) {
+      next = insertAfter(next, 'AccountBefore', 'Overnight');
+      next = insertAfter(next, 'AccountAfter', 'AccountBefore');
+      next = regroupTradeColumnKeys(next);
+    }
+    if (ver < 10) {
+      // ModelNet («Оц.») больше нет — не вставляем
+    }
+    if (ver < 11) {
+      next = next.filter((k) => k !== 'ModelNet');
+      next = regroupTradeColumnKeys(next);
+    }
+    if (ver < 12) {
+      next = insertAfter(next, 'Invest', 'Overnight');
       next = regroupTradeColumnKeys(next);
     }
     try { localStorage.setItem(LS_COLS_MIG, String(TRADE_COLUMNS_MIG_VERSION)); } catch (_) { /* */ }
@@ -339,6 +360,9 @@
           td.textContent = tradeCellValue(row, col.key);
           const cls = tradeCellClass(row, col.key);
           if (cls) td.className = cls;
+          const tip = typeof tradeCellTitle === 'function' ? tradeCellTitle(row, col.key) : '';
+          if (tip) td.title = tip;
+          else if (col.hint) td.title = col.hint;
           tr.appendChild(td);
         }
         tbody.appendChild(tr);
@@ -398,15 +422,31 @@
       const bm = parseTradeMs(b.entry_time) || 0;
       return am - bm;
     });
-    lastRows = chronological.map((t, i) => liveClosedToTradeRow(t, i + 1, entryThreshold));
+    lastRows = chronological.map((t, i) => liveClosedToTradeRow(t, i + 1, entryThreshold, settings));
+    if (typeof applyAccountDeltaNetToRows === 'function') {
+      applyAccountDeltaNetToRows(lastRows);
+    }
+
+    const withNet = lastRows.filter((r) => r.netValue != null && Number.isFinite(r.netValue));
+    const wins = withNet.filter((r) => r.netValue > 0).length;
+    const losses = withNet.filter((r) => r.netValue < 0).length;
+    const flat = withNet.length - wins - losses;
+    const sumNet = withNet.reduce((s, r) => s + r.netValue, 0);
+    const sumText = typeof formatRub === 'function' ? formatRub(sumNet) : `${Math.round(sumNet)} ₽`;
+    const wrText = withNet.length
+      ? ` · ${wins}+/${losses}−` + (flat ? `/${flat}=` : '') + ` · Σ ${sumText}`
+      : '';
 
     $('historyStatus').textContent =
       `Закрытых (${periodLabel()}): ${closed.length}` +
+      wrText +
       (data.closed_total != null ? ` · всего ${data.closed_total}` : '') +
       (data.position ? ` · сейчас ${data.position}` : '');
     $('historyMeta').textContent = `История · ${periodLabel()}`;
     $('historyCount').textContent =
-      `${closed.length} сделок` + (data.closed_total != null ? ` (из ${data.closed_total})` : '');
+      `${closed.length} сделок` +
+      (withNet.length ? ` · ${wins}+/${losses}−` : '') +
+      (data.closed_total != null ? ` (из ${data.closed_total})` : '');
 
     paintTable(lastRows);
   }

@@ -117,3 +117,50 @@ def test_enrich_prefers_fills_over_snap_spread():
     # old spread_snap path would be positive:
     snap_pnl = 69912 * ((4.15 - 3.94) / 100.0)
     assert snap_pnl > 0
+
+
+def test_overnight_premium_tier_matches_broker_long_pair():
+    """Long 68+68, short TATNP ~34.3k → Премиум 35₽/день; 2д → 70 (не notional×0.033%)."""
+    from live.overnight_fee import overnight_fee_rub, overnight_fee_per_day_rub
+
+    uncovered = 68 * 504.1
+    assert 5000 < uncovered <= 50000
+    assert overnight_fee_per_day_rub(uncovered) == 35.0
+    assert (
+        overnight_fee_rub(
+            direction="LONG",
+            lots=68,
+            fill_tatn=520.6,
+            fill_tatnp=504.1,
+            notional_rub=69876.8,
+            days=2,
+        )
+        == 70.0
+    )
+    # same-day open → 0
+    open_t = {
+        "direction": "LONG",
+        "quantity_lots": 68,
+        "entry_time": "2026-08-05 11:09",
+        "entry_tatn": 520.6,
+        "entry_tatnp": 504.1,
+        "execution_notional_rub": 69876.8,
+    }
+    out = enrich_open_trade(
+        open_t,
+        z_now=-1.5,
+        spread_now=3.2,
+        trade_date="2026-08-07 07:00",
+        tatn_now=520.0,
+        tatnp_now=504.0,
+    )
+    assert out is not None
+    m = out["mark"]
+    assert m["overnight_days"] == 2
+    assert m["overnight_per_day_rub"] == 35.0
+    assert m["overnight_rub"] == 70.0
+    assert abs(m["uncovered_rub"] - uncovered) < 0.01
+    # old model would be ~46
+    old = 69876.8 * 0.00033 * 2
+    assert abs(old - 46.12) < 0.1
+    assert m["overnight_rub"] > old

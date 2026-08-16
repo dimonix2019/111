@@ -150,8 +150,29 @@ def _init(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT INTO live_settings(key, value) VALUES('monitor_running', '1')"
         )
+    # Primary AUTO: spread-% levels (default ON). Legacy Z-regime default OFF.
+    row_sl = conn.execute(
+        "SELECT 1 FROM live_settings WHERE key = 'spread_level_mode'"
+    ).fetchone()
+    if row_sl is None:
+        conn.execute(
+            "INSERT INTO live_settings(key, value) VALUES('spread_level_mode', '1')"
+        )
+    row_rz = conn.execute(
+        "SELECT 1 FROM live_settings WHERE key = 'regime_z_mode'"
+    ).fetchone()
+    if row_rz is None:
+        conn.execute(
+            "INSERT INTO live_settings(key, value) VALUES('regime_z_mode', '0')"
+        )
     _ensure_column(conn, "live_open_trades", "entry_spread_iss", "REAL")
     _ensure_column(conn, "live_open_trades", "entry_slip_pts", "REAL")
+    _ensure_column(conn, "live_open_trades", "entry_regime", "TEXT")
+    _ensure_column(conn, "live_open_trades", "locked_entry_z", "REAL")
+    _ensure_column(conn, "live_open_trades", "locked_exit_z", "REAL")
+    _ensure_column(conn, "live_closed_trades", "entry_regime", "TEXT")
+    _ensure_column(conn, "live_closed_trades", "locked_entry_z", "REAL")
+    _ensure_column(conn, "live_closed_trades", "locked_exit_z", "REAL")
     _ensure_column(conn, "live_closed_trades", "entry_spread_iss", "REAL")
     _ensure_column(conn, "live_closed_trades", "entry_slip_pts", "REAL")
     _ensure_column(conn, "live_closed_trades", "execution_notional_rub", "REAL")
@@ -164,6 +185,11 @@ def _init(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "live_closed_trades", "hit2_time", "TEXT")
     _ensure_column(conn, "live_closed_trades", "hit3_time", "TEXT")
     _ensure_column(conn, "live_closed_trades", "account_after_rub", "REAL")
+    _ensure_column(conn, "live_closed_trades", "account_before_rub", "REAL")
+    _ensure_column(conn, "live_closed_trades", "account_delta_rub", "REAL")
+    _ensure_column(conn, "live_closed_trades", "spread_pnl_rub", "REAL")
+    _ensure_column(conn, "live_closed_trades", "exit_fill_time", "TEXT")
+    _ensure_column(conn, "live_open_trades", "account_after_rub", "REAL")
     conn.commit()
 
 
@@ -222,7 +248,18 @@ def get_settings_bundle() -> dict[str, Any]:
         "entry_deposit_rub": float(get_setting("entry_deposit_rub", "10000") or "10000"),
         "take_profit_pct": tp,
         "signal_mode": get_setting("signal_mode", "tip1m") or "tip1m",
+        # Primary AUTO: absolute spread-% levels (default ON).
+        "spread_level_mode": (get_setting("spread_level_mode", "1") or "1") == "1",
+        "spread_enter_wide": float(get_setting("spread_enter_wide", "6.2") or "6.2"),
+        "spread_exit_wide": float(get_setting("spread_exit_wide", "5.8") or "5.8"),
+        "spread_enter_narrow": float(get_setting("spread_enter_narrow", "3.2") or "3.2"),
+        "spread_exit_narrow": float(get_setting("spread_exit_narrow", "4.0") or "4.0"),
+        # Legacy tip1m Z-by-regime (default OFF when unset).
+        "regime_z_mode": (get_setting("regime_z_mode", "0") or "0") == "1",
         "last_processed_bar_ms": int(get_setting("last_processed_bar_ms", "0") or "0"),
+        # SSL for T‑Invest (default on). Escape: ssl_verify=0 or MOEX_SSL_VERIFY=0.
+        "ssl_verify": (get_setting("ssl_verify", "1") or "1").strip().lower()
+        not in ("0", "false", "no", "off"),
     }
 
 
@@ -290,8 +327,10 @@ def insert_open_trade(trade: dict[str, Any]) -> int:
                 mode, account_id, direction, entry_signal, quantity_lots,
                 entry_time, entry_z, entry_spread, entry_tatn, entry_tatnp,
                 execution_notional_rub, source, legs_json, created_ms,
-                entry_spread_iss, entry_slip_pts
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                entry_spread_iss, entry_slip_pts,
+                entry_regime, locked_entry_z, locked_exit_z,
+                account_after_rub
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 trade["mode"],
@@ -310,6 +349,10 @@ def insert_open_trade(trade: dict[str, Any]) -> int:
                 int(time.time() * 1000),
                 trade.get("entry_spread_iss"),
                 trade.get("entry_slip_pts"),
+                trade.get("entry_regime"),
+                trade.get("locked_entry_z"),
+                trade.get("locked_exit_z"),
+                trade.get("account_after_rub"),
             ),
         )
         conn.commit()
@@ -327,6 +370,10 @@ def update_open_trade_fields(trade_id: int, fields: dict[str, Any]) -> None:
         "execution_notional_rub",
         "entry_spread_iss",
         "entry_slip_pts",
+        "entry_regime",
+        "locked_entry_z",
+        "locked_exit_z",
+        "account_after_rub",
     }
     cols = []
     vals: list[Any] = []
@@ -358,6 +405,9 @@ def close_open_trade(
     open_t = get_open_trade()
     if not open_t:
         return None
+    from live.closed_metrics import coerce_exit_after_entry
+
+    exit_time = coerce_exit_after_entry(open_t.get("entry_time"), exit_time)
     m = metrics or {}
     with _connect() as conn:
         conn.execute(
@@ -369,8 +419,9 @@ def close_open_trade(
                 entry_spread_iss, entry_slip_pts,
                 execution_notional_rub, gross_rub, commission_rub, overnight_rub,
                 pnl_min_rub, pnl_max_rub, hit1_time, hit2_time, hit3_time,
-                account_after_rub
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                account_after_rub, account_before_rub, account_delta_rub, spread_pnl_rub,
+                entry_regime, locked_entry_z, locked_exit_z, exit_fill_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 open_t["id"],
@@ -400,6 +451,13 @@ def close_open_trade(
                 m.get("hit2_time"),
                 m.get("hit3_time"),
                 m.get("account_after_rub"),
+                m.get("account_before_rub"),
+                m.get("account_delta_rub"),
+                m.get("spread_pnl_rub"),
+                open_t.get("entry_regime"),
+                open_t.get("locked_entry_z"),
+                open_t.get("locked_exit_z"),
+                m.get("exit_fill_time"),
             ),
         )
         conn.execute("DELETE FROM live_open_trades WHERE id = ?", (open_t["id"],))
@@ -428,6 +486,9 @@ def get_closed_trades(limit: int = 50) -> list[dict[str, Any]]:
 def update_closed_trade(trade_id: int, fields: dict[str, Any]) -> None:
     """Patch closed-trade columns (backfill slip / PnL metrics)."""
     allowed = {
+        "entry_time",
+        "exit_time",
+        "exit_fill_time",
         "entry_spread_iss",
         "entry_slip_pts",
         "execution_notional_rub",
@@ -441,6 +502,9 @@ def update_closed_trade(trade_id: int, fields: dict[str, Any]) -> None:
         "hit2_time",
         "hit3_time",
         "account_after_rub",
+        "account_before_rub",
+        "account_delta_rub",
+        "spread_pnl_rub",
         "entry_z",
         "exit_z",
     }
@@ -543,13 +607,29 @@ def list_parity_edges(limit: int = 20) -> list[dict[str, Any]]:
 
 
 def force_parity_due() -> int:
-    """Сделать все pending edges due (ручной /parity/check)."""
+    """Сделать pending + свежие missing due (ручной /parity/check).
+
+    Missing edges stay sticky after a stale tip1m cache; re-queue so a later
+    check can match once parquet is extended.
+    """
     with _connect() as conn:
         cur = conn.execute(
             "UPDATE live_parity_edges SET check_after_ms = 0 WHERE status = 'pending'"
         )
+        n = int(cur.rowcount or 0)
+        # Re-check missing from the last ~5 days (AUTO open/close after cache gaps).
+        cur2 = conn.execute(
+            """
+            UPDATE live_parity_edges
+            SET status = 'pending', check_after_ms = 0, result_json = NULL
+            WHERE status = 'missing'
+              AND bar_ms >= (CAST(strftime('%s','now') AS INTEGER) * 1000
+                             - 5 * 24 * 60 * 60 * 1000)
+            """
+        )
+        n += int(cur2.rowcount or 0)
         conn.commit()
-        return int(cur.rowcount or 0)
+        return n
 
 
 def _msk_now_label() -> str:

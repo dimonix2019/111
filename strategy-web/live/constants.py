@@ -49,6 +49,23 @@ TATNP_FALLBACK_ID = "TATNP_TQBR"
 
 DEFAULT_Z_ENTRY = 1.3
 DEFAULT_Z_EXIT = 1.2
+# Classic tip1m defaults when regime_z_mode OFF (also «широкий» pair).
+CLASSIC_Z_ENTRY = 1.6
+CLASSIC_Z_EXIT = 1.3
+# Legacy tip1m Z-by-regime (узкий/переход/широкий). OFF by default — spread levels are primary.
+DEFAULT_REGIME_Z_MODE = False
+# Primary AUTO: absolute spread-% levels (no rolling μ/σ Z). See live.spread_levels.
+DEFAULT_SPREAD_LEVEL_MODE = True
+# Mean-reversion levels on tip1m spread_percent (TATN/TATNP−1)×100.
+# Cuts stay 3.5 / 5.5 in live.spread_regime; hysteresis around the cuts:
+SPREAD_ENTER_WIDE = 6.2  # Short: cross up through (1y sweep conservative)
+SPREAD_EXIT_WIDE = 5.8  # Short: cross down through
+SPREAD_ENTER_NARROW = 3.2  # Long: cross down through
+SPREAD_EXIT_NARROW = 4.0  # Long: cross up through
+DEFAULT_SPREAD_ENTER_WIDE = SPREAD_ENTER_WIDE
+DEFAULT_SPREAD_EXIT_WIDE = SPREAD_EXIT_WIDE
+DEFAULT_SPREAD_ENTER_NARROW = SPREAD_ENTER_NARROW
+DEFAULT_SPREAD_EXIT_NARROW = SPREAD_EXIT_NARROW
 # Prod signal path: tip1m Mode B (Testing «касание 1м»). M15 settle unused for AUTO.
 SIGNAL_MODE_TIP1M = "tip1m"
 # Take-profit % of deposit (0=off). Same options as Testing tip1m.
@@ -77,8 +94,10 @@ MONITOR_HEARTBEAT_SEC = 300.0
 # Watchdog soft: тик старше N сек при monitor_wanted → stale (probe каждые 60 с).
 # Запас ≥3× INTERVAL: медленный ISS/SQLite ночью не должен ронять монитор.
 MONITOR_STALE_SEC = 180.0
-# Legacy M15 settle (unused for tip1m AUTO; kept for tests / overlay).
+# Legacy M15 settle (M15 close path / overlay only — NOT tip1m AUTO).
 MONITOR_BAR_SETTLE_SEC = 90.0
+# tip1m AUTO: after 1m bar close wait this long for ISS tip to stabilize (≪ M15 90s).
+MONITOR_TIP1M_SETTLE_SEC = 10.0
 # Late revise: M15-only path; tip1m completed minutes are final (revise skipped).
 MONITOR_Z_REVISE_MIN_DELTA = 0.08
 USER_AGENT = "MOEX-MVP-Web-Replay"

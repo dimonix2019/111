@@ -1,4 +1,4 @@
-"""Settle 90s + decision_bars freeze + as_live overlay."""
+"""Settle constants + decision_bars freeze + as_live overlay."""
 
 from __future__ import annotations
 
@@ -8,7 +8,10 @@ from replay import replay_db
 
 
 def test_monitor_bar_settle_is_90():
+    """M15 legacy settle stays 90s; tip1m uses a short separate constant."""
     assert constants.MONITOR_BAR_SETTLE_SEC == 90.0
+    assert constants.MONITOR_TIP1M_SETTLE_SEC == 10.0
+    assert constants.MONITOR_TIP1M_SETTLE_SEC < constants.MONITOR_BAR_SETTLE_SEC
 
 
 def test_upsert_decision_bar_and_timestamps(tmp_path, monkeypatch):

@@ -5,3 +5,6 @@ data/replay_m15.db-wal
 data/live_trading.db
 data/live_trading.db-shm
 data/live_trading.db-wal
+data/ca_bundle_certifi_ru.pem
+data/_ca_*.pem
+data/_ssl_diag/

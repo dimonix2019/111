@@ -1,0 +1,162 @@
+{
+  "asof": "2026-08-16",
+  "definition_same_as": "_shelf_tatn_mtlr_pct_2020_2025.json",
+  "lookback_days": 1125,
+  "shelf_min_days": 8,
+  "ytd_2026": {
+    "year": 2026,
+    "from": "2026-01-05",
+    "to": "2026-08-14",
+    "trading_days_MTLR_valid": 156,
+    "trading_days_TATN_valid": 156,
+    "trading_days_both_valid": 156,
+    "MTLR_shelf_days": 39,
+    "TATN_shelf_days": 25,
+    "MTLR_shelf_days_on_common": 39,
+    "TATN_shelf_days_on_common": 25,
+    "both_shelf_days": 8,
+    "pct_MTLR_shelf": 25.0,
+    "pct_TATN_shelf": 16.03,
+    "pct_MTLR_shelf_on_common": 25.0,
+    "pct_TATN_shelf_on_common": 16.03,
+    "pct_both_shelf": 5.13
+  },
+  "notes": {
+    "tatn_2020": "TATN 2020 ~97.6% — артефакт окна/данных; не использовать для медиан TATN/joint",
+    "independence": "YTD product≈4.0% vs факт both=5.1%; медиана product 2021–25≈5.5% vs медиана both=5.9%",
+    "method": "Полный год ≈ 62%×YTD + 38%×ставка остатка; base=медиана 2021–25, opt/pes≈2-й min/max из 5 лет; без ложной точности",
+    "n_year_est_trading_days": 252,
+    "w_ytd": 0.619,
+    "w_rest": 0.381
+  },
+  "history_context_2021_2025": {
+    "MTLR_pct": [
+      50.59,
+      22.22,
+      42.13,
+      41.41,
+      51.57
+    ],
+    "TATN_pct": [
+      0.78,
+      7.54,
+      60.63,
+      37.89,
+      10.63
+    ],
+    "both_pct": [
+      0.39,
+      3.97,
+      31.1,
+      11.33,
+      5.91
+    ],
+    "indep_product_pct": [
+      0.39,
+      1.68,
+      25.54,
+      15.69,
+      5.48
+    ],
+    "2020_flagged": {
+      "MTLR": 0.4,
+      "TATN": 97.6,
+      "both": 0.4
+    }
+  },
+  "forecast_full_year_2026": {
+    "MTLR": {
+      "asset": "MTLR",
+      "ytd_pct": 25.0,
+      "hist_2021_2025": {
+        "values": [
+          50.59,
+          22.22,
+          42.13,
+          41.41,
+          51.57
+        ],
+        "min": 22.2,
+        "median": 42.1,
+        "max": 51.6
+      },
+      "full_year_2026_pct_scenarios": {
+        "run_rate_ytd": 25.0,
+        "base": 31.5,
+        "optimistic_less_shelf": 31.3,
+        "pessimistic_more_shelf": 34.7,
+        "range_approx": [
+          25.0,
+          34.7
+        ]
+      },
+      "rest_of_year_assumed_pct": {
+        "base": 42.1,
+        "optimistic": 41.4,
+        "pessimistic": 50.6
+      }
+    },
+    "TATN": {
+      "asset": "TATN",
+      "ytd_pct": 16.0,
+      "hist_2021_2025": {
+        "values": [
+          0.78,
+          7.54,
+          60.63,
+          37.89,
+          10.63
+        ],
+        "min": 0.8,
+        "median": 10.6,
+        "max": 60.6
+      },
+      "full_year_2026_pct_scenarios": {
+        "run_rate_ytd": 16.0,
+        "base": 14.0,
+        "optimistic_less_shelf": 12.8,
+        "pessimistic_more_shelf": 24.4,
+        "range_approx": [
+          12.8,
+          24.4
+        ]
+      },
+      "rest_of_year_assumed_pct": {
+        "base": 10.6,
+        "optimistic": 7.5,
+        "pessimistic": 37.9
+      }
+    },
+    "both": {
+      "asset": "both",
+      "ytd_pct": 5.1,
+      "hist_2021_2025": {
+        "values": [
+          0.39,
+          3.97,
+          31.1,
+          11.33,
+          5.91
+        ],
+        "min": 0.4,
+        "median": 5.9,
+        "max": 31.1
+      },
+      "full_year_2026_pct_scenarios": {
+        "run_rate_ytd": 5.1,
+        "base": 5.4,
+        "optimistic_less_shelf": 4.7,
+        "pessimistic_more_shelf": 7.5,
+        "range_approx": [
+          4.7,
+          7.5
+        ]
+      },
+      "rest_of_year_assumed_pct": {
+        "base": 5.9,
+        "optimistic": 4.0,
+        "pessimistic": 11.3
+      }
+    }
+  }
+}

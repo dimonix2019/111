@@ -340,8 +340,28 @@
     max-height: none;
   }
 
-  .trade-checklist {
+  .trade-mid-col {
     order: 2;
+    overflow: visible;
+  }
+
+  .trade-mid-tabs-shell {
+    flex: none;
+    overflow: visible;
+    max-height: none;
+  }
+
+  .trade-mid-tab-panes {
+    overflow: visible;
+  }
+
+  .trade-mid-tab-pane {
+    overflow: visible;
+    max-height: none;
+  }
+
+  .trade-hang-table-wrap {
+    max-height: 220px;
   }
 
   #tradeSidePanel {

@@ -34,10 +34,26 @@ from live.signals import (
     should_revise_none_to_signal,
 )
 from live.tip_touch_signals import (
+    get_tip_feed_meta,
     is_consecutive_1m,
     load_tip_bars_for_live,
     plan_tip1m_catchup,
     should_exit_take_profit,
+    tip1m_mtm_pct_of_deposit,
+)
+from live.spread_regime import (
+    desk_regime_payload,
+    gate_signal,
+    lock_fields_for_entry,
+    parse_regime_z_mode,
+    resolve_from_settings,
+)
+from live.spread_levels import (
+    desk_spread_levels_payload,
+    determine_spread_level_signal,
+    levels_from_settings,
+    lock_fields_for_spread_entry,
+    parse_spread_level_mode,
 )
 from live import store
 from live.tinvest import TInvestClient
@@ -307,6 +323,32 @@ def open_position(
             fill_tatnp=fill_tatnp,
         )
         entry_slip_pts = adverse_entry_slip_pts(position.value, entry_spread_iss, entry_spread)
+
+    # Regime / spread-level lock on open trade.
+    lock_spread = sig.get("spreadPercent")
+    if lock_spread is None:
+        lock_spread = sig.get("spread")
+    if lock_spread is None:
+        lock_spread = entry_spread
+    regime_fields: dict[str, Any] = {}
+    settings_bundle = store.get_settings_bundle()
+    if parse_spread_level_mode(settings_bundle):
+        regime_fields = lock_fields_for_spread_entry(lock_spread)
+    elif parse_regime_z_mode(settings_bundle):
+        regime_fields = lock_fields_for_entry(lock_spread)
+
+    from live.closed_metrics import account_after_from_legs
+
+    account_after_entry = account_after_from_legs(legs)
+    if account_after_entry is None:
+        try:
+            pf = client.get_portfolio(account)
+            account_after_entry = client.portfolio_total_rub(pf)
+            if account_after_entry is None:
+                account_after_entry = client.portfolio_cash_rub(pf)
+        except Exception:
+            account_after_entry = None
+
     trade_id = store.insert_open_trade(
         {
             "mode": mode,
@@ -324,6 +366,8 @@ def open_position(
             "execution_notional_rub": sizing["execution_notional_rub"],
             "source": source,
             "legs": legs,
+            "account_after_rub": account_after_entry,
+            **regime_fields,
         }
     )
     store.log_event(
@@ -377,7 +421,12 @@ def close_position(
     )
     snap = market_snapshot()
     sig = signal_bar if isinstance(signal_bar, dict) else {}
-    exit_time = str(sig.get("tradeDate") or snap.get("trade_date") or "")
+    from live.closed_metrics import coerce_exit_after_entry, exit_time_from_broker_legs
+
+    # History/parity: exit_time = signal bar (Test alignment). Broker fill kept separate.
+    signal_exit = str(sig.get("tradeDate") or snap.get("trade_date") or "")
+    leg_exit = exit_time_from_broker_legs(legs)
+    exit_time = coerce_exit_after_entry(open_t.get("entry_time"), signal_exit)
     exit_z = sig.get("zScore") if sig.get("zScore") is not None else snap.get("z")
     try:
         exit_z = float(exit_z) if exit_z is not None else None
@@ -386,6 +435,8 @@ def close_position(
     # Спред для PnL — с live tip (цены ближе к фактическому fill), время/Z — с бара сигнала
     exit_spread = snap.get("spread")
     metrics = _closed_metrics_for_open(open_t, exit_time=exit_time, exit_spread=exit_spread)
+    if leg_exit:
+        metrics["exit_fill_time"] = leg_exit
     # Сумма на счету после выхода (total, иначе cash) — из последней ноги или свежий портфель
     account_after = None
     for leg in reversed(legs or []):
@@ -411,6 +462,31 @@ def close_position(
             pass
     if account_after is not None:
         metrics["account_after_rub"] = account_after
+    # Чист. = Δ портфеля этой сделки: после входа → после выхода (не previous trade).
+    try:
+        from live.closed_metrics import account_after_from_legs
+
+        account_before = None
+        raw_before = open_t.get("account_after_rub")
+        if raw_before is not None:
+            try:
+                account_before = float(raw_before)
+            except (TypeError, ValueError):
+                account_before = None
+        if account_before is None:
+            account_before = account_after_from_legs(
+                open_t.get("legs") or open_t.get("legs_json")
+            )
+    except Exception:
+        account_before = None
+    if account_before is not None:
+        metrics["account_before_rub"] = float(account_before)
+    if account_before is not None and account_after is not None:
+        delta = float(account_after) - float(account_before)
+        if metrics.get("spread_pnl_rub") is None and metrics.get("pnl_rub") is not None:
+            metrics["spread_pnl_rub"] = metrics.get("pnl_rub")
+        metrics["account_delta_rub"] = delta
+        metrics["pnl_rub"] = delta
     closed = store.close_open_trade(
         exit_time=exit_time,
         exit_z=exit_z,
@@ -420,7 +496,8 @@ def close_position(
         metrics=metrics,
     )
     store.log_event(
-        f"{source} выход {open_t['direction']} · Z={exit_z} · бар {exit_time[:16] if exit_time else '—'}",
+        f"{source} выход {open_t['direction']} · Z={exit_z} · бар {exit_time[:16] if exit_time else '—'}"
+        + (f" · fill {leg_exit}" if leg_exit and leg_exit != (exit_time[:16] if exit_time else "") else ""),
         "info",
     )
     return {"ok": True, "closed": closed, "legs": legs, "market": snap}
@@ -445,8 +522,8 @@ def reconcile_broker_open_trade(
 ) -> dict[str, Any]:
     """
     Синхронизация локального open с брокером:
-    - спред есть, локально пусто → adopt (сделка из APK / Тинькофф);
-    - локально open, на брокере пусто → закрыть локальный ghost (ручной выход и т.п.);
+    - на брокере есть спред, локально пусто → не создаём сделку (только своё приложение);
+    - локально open, на брокере пусто → закрыть локальную «висячую» (ручной выход и т.п.);
     - оба есть, разные стороны → предупреждение (не перетираем автоматически).
     """
     mode, token, account = store.get_credentials()
@@ -465,7 +542,12 @@ def reconcile_broker_open_trade(
     if local and not spread:
         if snap is None:
             snap = market_snapshot()
-        exit_time = str(snap.get("trade_date") or "")
+        from live.closed_metrics import coerce_exit_after_entry
+
+        exit_time = coerce_exit_after_entry(
+            local.get("entry_time"),
+            str(snap.get("trade_date") or ""),
+        )
         exit_spread = snap.get("spread")
         metrics = _closed_metrics_for_open(local, exit_time=exit_time, exit_spread=exit_spread)
         closed = store.close_open_trade(
@@ -490,45 +572,18 @@ def reconcile_broker_open_trade(
         }
 
     if spread and not local:
-        if snap is None:
-            snap = market_snapshot()
-        trade_id = store.insert_open_trade(
-            {
-                "mode": mode,
-                "account_id": account,
-                "direction": spread["direction"],
-                "entry_signal": spread["entry_signal"],
-                "quantity_lots": spread["quantity_lots"],
-                "entry_time": snap.get("trade_date") or "",
-                "entry_z": snap.get("z"),
-                "entry_spread": snap.get("spread"),
-                "entry_spread_iss": snap.get("spread"),
-                "entry_slip_pts": 0.0,  # adopt без fill → mid=ISS, slip 0
-                "entry_tatn": snap.get("tatn"),
-                "entry_tatnp": snap.get("tatnp"),
-                "execution_notional_rub": None,
-                "source": "BROKER",
-                "legs": [
-                    {
-                        "ticker": "TATN",
-                        "qty": spread["qty_tatn"],
-                        "note": "sync from portfolio",
-                    },
-                    {
-                        "ticker": "TATNP",
-                        "qty": spread["qty_tatnp"],
-                        "note": "sync from portfolio",
-                    },
-                ],
-            }
-        )
         store.log_event(
-            f"BROKER sync: открыт {spread['direction']} · "
-            f"{spread['quantity_lots']}+{spread['quantity_lots']} лот "
-            f"(TATN={spread['qty_tatn']}, TATNP={spread['qty_tatnp']})",
-            "info",
+            f"Брокер: {spread['direction']} {spread['quantity_lots']}+{spread['quantity_lots']} лот, "
+            f"локально пусто — подхват отключён (сделка не из этого приложения)",
+            "warn",
         )
-        return {"ok": True, "adopted": True, "trade_id": trade_id, "broker": spread}
+        return {
+            "ok": True,
+            "adopted": False,
+            "skipped_adopt": True,
+            "broker": spread,
+            "local": False,
+        }
 
     if local and spread:
         loc_dir = (local.get("direction") or "").upper()
@@ -647,6 +702,25 @@ def _record_edge_snapshot(
         log.warning("decision_bars upsert failed: %s", exc)
 
 
+def _thresholds_for_edge(
+    settings: dict[str, Any],
+    bar: dict[str, Any] | None,
+    *,
+    position: Position | None = None,
+    open_trade: dict[str, Any] | None = None,
+):
+    """Effective entry/exit for one tip edge (regime-aware)."""
+    pos = position if position is not None else current_position()
+    open_t = open_trade if open_trade is not None else store.get_open_trade()
+    return resolve_from_settings(
+        settings,
+        spread=None,
+        position=pos,
+        open_trade=open_t,
+        bar=bar,
+    )
+
+
 def _maybe_late_z_revise(
     bars: list[dict[str, Any]],
     *,
@@ -677,7 +751,12 @@ def _maybe_late_z_revise(
     new_z = float(cur["zScore"])
     old_sig = store.get_setting("last_edge_signal", Signal.NONE.value) or Signal.NONE.value
     pos = current_position()
-    new_sig = determine_z_signal(float(prev["zScore"]), new_z, pos, entry, exit_z)
+    th = _thresholds_for_edge(store.get_settings_bundle(), cur, position=pos)
+    new_sig = gate_signal(
+        determine_z_signal(float(prev["zScore"]), new_z, pos, th.entry, th.exit),
+        th,
+    )
+    entry, exit_z = th.entry, th.exit
 
     if not should_revise_none_to_signal(
         old_signal=old_sig,
@@ -727,6 +806,50 @@ def _maybe_late_z_revise(
     else:
         msg += f" · сигнал {new_sig.value} revise (auto выкл)"
     return msg
+
+
+def _maybe_profit_deposit_alert(
+    *,
+    tip: dict[str, Any] | None,
+    settings: dict[str, Any],
+) -> None:
+    """Once per open trade: signal when MTM ≥ 3% of entry deposit (вложение)."""
+    open_t = store.get_open_trade()
+    pos = current_position()
+    if not open_t or pos not in (Position.LONG, Position.SHORT):
+        return
+    tid = open_t.get("id")
+    if tid is None:
+        return
+    if str(store.get_setting("profit_alert_trade_id", "") or "") == str(tid):
+        return
+    cur_sp = None
+    if tip:
+        cur_sp = tip.get("spreadPercent")
+        if cur_sp is None:
+            cur_sp = tip.get("spread")
+    if cur_sp is None:
+        return
+    dep, lev = _tp_deposit_leverage(settings, open_t)
+    direction = "LONG" if pos == Position.LONG else "SHORT"
+    try:
+        pct = tip1m_mtm_pct_of_deposit(
+            direction=direction,
+            entry_spread=float(open_t.get("entry_spread")),
+            cur_spread=float(cur_sp),
+            deposit_rub=dep,
+            leverage=lev,
+        )
+    except (TypeError, ValueError):
+        return
+    if pct < 3.0:
+        return
+    mtm = dep * (pct / 100.0)
+    store.set_setting("profit_alert_trade_id", str(tid))
+    store.log_event(
+        f"Прибыль ≥3% от депозита · {pct:.1f}% · ≈{mtm:.0f} ₽ · вложение {dep:.0f} ₽",
+        "signal",
+    )
 
 
 def _ensure_tip1m_signal_mode() -> None:
@@ -835,21 +958,22 @@ def monitor_tick() -> dict[str, Any]:
     global _last_status
     _ensure_tip1m_signal_mode()
     settings = store.get_settings_bundle()
-    entry = float(settings.get("entry_z") or DEFAULT_Z_ENTRY)
-    exit_z = float(settings.get("exit_z") or DEFAULT_Z_EXIT)
     auto = bool(settings.get("auto_execute"))
     now_ms = int(time.time() * 1000)
     # Keep M15 SQLite fresh (μ/σ base); signals come from 1m tip-Z.
     snap = market_snapshot(wait_sync=True, sync_timeout_sec=MONITOR_SYNC_TIMEOUT_SEC)
-    try:
-        reconcile_broker_open_trade()
-    except Exception as sync_exc:
-        log.warning("broker reconcile failed: %s", sync_exc)
 
     m15_bars = list(snap.get("bars") or [])
     tip_bars = load_tip_bars_for_live(
         m15_bars, now_ms=now_ms, hours=MONITOR_TIP1M_HOURS
     )
+    adopt_market = dict(snap)
+    if tip_bars:
+        adopt_market["tip_trade_date"] = tip_bars[-1].get("tradeDate")
+    try:
+        reconcile_broker_open_trade(market=adopt_market)
+    except Exception as sync_exc:
+        log.warning("broker reconcile failed: %s", sync_exc)
     if tip_bars:
         bar = tip_bars[-1]
         z = float(bar.get("zScore") or 0)
@@ -858,7 +982,38 @@ def monitor_tick() -> dict[str, Any]:
         bar = snap["bar"]
         z = float(bar.get("zScore") or 0)
         display_td = bar.get("tradeDate")
-    msg = f"{display_td} · tip1m Z {z:.2f}"
+
+    open_t0 = store.get_open_trade()
+    th0 = resolve_from_settings(
+        settings,
+        spread=None,
+        position=current_position(),
+        open_trade=open_t0,
+        bar=bar if isinstance(bar, dict) else None,
+    )
+    entry, exit_z = th0.entry, th0.exit
+    bar_spread = None
+    if isinstance(bar, dict):
+        bar_spread = bar.get("spreadPercent")
+        if bar_spread is None:
+            bar_spread = bar.get("spread")
+    if bar_spread is None:
+        bar_spread = snap.get("spread")
+    use_spread_levels = parse_spread_level_mode(settings)
+    lv0 = levels_from_settings(settings) if use_spread_levels else None
+    if use_spread_levels and bar_spread is not None:
+        try:
+            msg = f"{display_td} · tip1m S {float(bar_spread):.2f}%"
+        except (TypeError, ValueError):
+            msg = f"{display_td} · tip1m Z {z:.2f}"
+        msg += (
+            f" · уровни Short {lv0.enter_wide:.1f}/{lv0.exit_wide:.1f}"
+            f" · Long {lv0.enter_narrow:.1f}/{lv0.exit_narrow:.1f}"
+        )
+    else:
+        msg = f"{display_td} · tip1m Z {z:.2f}"
+        if parse_regime_z_mode(settings) and th0.regime != "off":
+            msg += f" · {th0.label_ru} ±{entry:.1f}/±{exit_z:.1f}"
     result: dict[str, Any] = {
         "z": z,
         "bar": display_td,
@@ -866,6 +1021,18 @@ def monitor_tick() -> dict[str, Any]:
         "catchup_edges": 0,
         "signals": [],
         "signal_mode": SIGNAL_MODE_TIP1M,
+        "spread_level_mode": use_spread_levels,
+        "regime": desk_regime_payload(
+            settings,
+            spread=bar_spread,
+            position=current_position(),
+            open_trade=open_t0,
+        ),
+        "spread_levels": desk_spread_levels_payload(
+            settings,
+            spread=bar_spread,
+            position=current_position(),
+        ),
     }
 
     if len(tip_bars) < 2:
@@ -941,13 +1108,17 @@ def monitor_tick() -> dict[str, Any]:
         return result
 
     if mode == "skip_gap":
+        # No consecutive 1m pair after last_proc (empty/gapped tip series) —
+        # advance anchor only. Prefer gap-recover via plan_tip1m_catchup when
+        # tips reappear so the first cross in the hole is not skipped.
         tip = tip_bars[-1]
         tip_ms = int(tip.get("timestampMs") or 0)
         n_miss = max(0, len(edges))
         store.set_setting("last_processed_bar_ms", str(tip_ms))
         _record_edge_snapshot(tip_ms, float(tip.get("zScore") or z), Signal.NONE, bar=tip)
         store.log_event(
-            f"Монитор tip1m: пропуск без AUTO-догона → якорь {tip.get('tradeDate')}",
+            f"Монитор tip1m: нет consecutive 1м после дыры → якорь {tip.get('tradeDate')}"
+            f" (без AUTO; ждать восстановление tip)",
             "warn",
         )
         msg, _ = _maybe_tp_exit_on_tip(
@@ -998,6 +1169,9 @@ def monitor_tick() -> dict[str, Any]:
 
         # TP before Z exit/entry on this tip (Testing order).
         pos = current_position()
+        open_t = store.get_open_trade()
+        th = _thresholds_for_edge(settings, cur, position=pos, open_trade=open_t)
+        entry, exit_z = th.entry, th.exit
         msg, tp_fired = _maybe_tp_exit_on_tip(
             tip=cur,
             settings=settings,
@@ -1018,7 +1192,28 @@ def monitor_tick() -> dict[str, Any]:
             continue
 
         pos = current_position()
-        signal = determine_z_signal(float(prev["zScore"]), cur_z, pos, entry, exit_z)
+        open_t = store.get_open_trade()
+        th = _thresholds_for_edge(settings, cur, position=pos, open_trade=open_t)
+        entry, exit_z = th.entry, th.exit
+        if use_spread_levels:
+            prev_sp = prev.get("spreadPercent")
+            if prev_sp is None:
+                prev_sp = prev.get("spread")
+            cur_sp = cur.get("spreadPercent")
+            if cur_sp is None:
+                cur_sp = cur.get("spread")
+            try:
+                ps = float(prev_sp) if prev_sp is not None else None
+                cs = float(cur_sp) if cur_sp is not None else float("nan")
+            except (TypeError, ValueError):
+                ps, cs = None, float("nan")
+            lv = lv0 or levels_from_settings(settings)
+            signal = determine_spread_level_signal(ps, cs, pos, lv)
+        else:
+            signal = gate_signal(
+                determine_z_signal(float(prev["zScore"]), cur_z, pos, entry, exit_z),
+                th,
+            )
         store.set_setting("last_processed_bar_ms", str(cur_ms))
         _record_edge_snapshot(cur_ms, cur_z, signal, bar=cur)
         n_edges += 1
@@ -1029,7 +1224,25 @@ def monitor_tick() -> dict[str, Any]:
 
         result["signal"] = signal.value
         result.setdefault("signals", []).append(f"{signal.value}@{cur_td}")
-        store.log_event(f"Сигнал {signal.value} @ {cur_td} Z={cur_z:.2f} (tip1m)", "signal")
+        if use_spread_levels:
+            cur_sp_log = cur.get("spreadPercent")
+            if cur_sp_log is None:
+                cur_sp_log = cur.get("spread")
+            try:
+                sp_txt = f"S={float(cur_sp_log):.2f}%"
+            except (TypeError, ValueError):
+                sp_txt = "S=—"
+            store.log_event(
+                f"Сигнал {signal.value} @ {cur_td} {sp_txt} (tip1m спред-уровни)",
+                "signal",
+            )
+        else:
+            reg_note = f" · {th.label_ru}" if parse_regime_z_mode(settings) else ""
+            store.log_event(
+                f"Сигнал {signal.value} @ {cur_td} Z={cur_z:.2f} "
+                f"(tip1m ±{entry:.2f}/±{exit_z:.2f}{reg_note})",
+                "signal",
+            )
 
         if auto:
             try:
@@ -1056,13 +1269,21 @@ def monitor_tick() -> dict[str, Any]:
     except Exception as parity_exc:
         log.warning("parity process failed: %s", parity_exc)
 
+    try:
+        tip_for_alert = tip_bars[-1] if tip_bars else None
+        _maybe_profit_deposit_alert(tip=tip_for_alert, settings=settings)
+    except Exception as alert_exc:
+        log.warning("profit deposit alert failed: %s", alert_exc)
+
     _maybe_monitor_heartbeat(bar, z)
+    meta = get_tip_feed_meta()
     _last_status.update(
         {
             "last_tick_ms": now_ms,
             "last_message": msg,
             "last_z": z,
             "last_bar": display_td,
+            **meta,
         }
     )
     return result
@@ -1142,8 +1363,10 @@ def restart_monitor() -> dict[str, Any]:
 
 def monitor_status() -> dict[str, Any]:
     alive = bool(_monitor_thread and _monitor_thread.is_alive())
+    meta = get_tip_feed_meta()
     return {
         **_last_status,
+        **meta,
         "running": alive,
         "settings": store.get_settings_bundle(),
         "open": store.get_open_trade(),
@@ -1151,9 +1374,13 @@ def monitor_status() -> dict[str, Any]:
 
 
 def health_live() -> dict[str, Any]:
-    """Liveness + business probe для внешнего watchdog."""
+    """Liveness + business probe для внешнего watchdog.
+
+    Avoid ``get_settings_bundle()`` (many SQLite round-trips): under tip1m/parity
+    load that starves the DB lock and makes watchdog think HTTP is dead.
+    """
     now_ms = int(time.time() * 1000)
-    wanted = bool(store.get_settings_bundle().get("monitor_running"))
+    wanted = (store.get_setting("monitor_running", "1") or "1") == "1"
     alive = bool(_monitor_thread and _monitor_thread.is_alive())
     last_tick_ms = int(_last_status.get("last_tick_ms") or 0)
     ref_ms = last_tick_ms if last_tick_ms > 0 else int(_monitor_started_ms or 0)
@@ -1180,4 +1407,5 @@ def health_live() -> dict[str, Any]:
         "last_bar": _last_status.get("last_bar"),
         "last_z": _last_status.get("last_z"),
         "last_message": _last_status.get("last_message"),
+        **{k: get_tip_feed_meta().get(k) for k in ("tip_lag_sec", "iss_lag_sec", "ti_lag_sec", "tip_feed")},
     }

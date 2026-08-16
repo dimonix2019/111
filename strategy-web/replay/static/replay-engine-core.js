@@ -447,6 +447,23 @@ function buildZCandles(points) {
   });
 }
 
+/** Свечи спреда % (prev→close), как Z — для Теста в режиме спред-уровней. */
+function buildSpreadCandles(points) {
+  return points.map((p, i) => {
+    const close = Number(p.spreadPercent);
+    const prev = i > 0 ? Number(points[i - 1].spreadPercent) : close;
+    const open = Number.isFinite(prev) ? prev : close;
+    const c = Number.isFinite(close) ? close : open;
+    return {
+      label: p.tradeDate,
+      open,
+      high: Math.max(open, c),
+      low: Math.min(open, c),
+      close: c,
+    };
+  });
+}
+
 function labelToUnixSec(label) {
   const s = label.trim().replace('T', ' ');
   const iso = s.length >= 16 ? `${s.slice(0, 16).replace(' ', 'T')}:00+03:00` : `${s}+03:00`;
@@ -473,6 +490,10 @@ function buildTradeSegments(edges, currentPoint) {
   const segments = [];
   let tradeNo = 0;
   let openEntry = null;
+  const spOf = (bar) => {
+    const n = bar?.spreadPercent != null ? Number(bar.spreadPercent) : NaN;
+    return Number.isFinite(n) ? n : null;
+  };
 
   for (const edge of edges) {
     if (edge.signal === 'EnterLong' || edge.signal === 'EnterShort') {
@@ -487,6 +508,8 @@ function buildTradeSegments(edges, currentPoint) {
         entryZ: openEntry.bar.zScore ?? 0,
         exitTime: labelToUnixSec(edge.bar.tradeDate),
         exitZ: edge.bar.zScore ?? 0,
+        entrySpread: spOf(openEntry.bar),
+        exitSpread: spOf(edge.bar),
         open: false,
       });
       openEntry = null;
@@ -501,6 +524,8 @@ function buildTradeSegments(edges, currentPoint) {
       entryZ: openEntry.bar.zScore ?? 0,
       exitTime: labelToUnixSec(currentPoint.tradeDate),
       exitZ: currentPoint.zScore ?? 0,
+      entrySpread: spOf(openEntry.bar),
+      exitSpread: spOf(currentPoint),
       open: true,
     });
   }
@@ -786,15 +811,11 @@ function buildOpenTradeOverlay(edges, currentPoint, positionHint = null) {
   const gross = spreadPnlToRub(pnlPts, effNotional);
   const ovn = overnightPerDay * overnightDays(openEntry.bar.tradeDate, currentPoint.tradeDate);
   const net = gross - commPerSide - ovn;
-  const z = currentPoint.zScore;
-  const zText = z != null ? (z >= 0 ? `+${z.toFixed(2)}` : z.toFixed(2)) : '—';
   const dirLabel = isLong ? 'LONG спрэд' : 'SHORT спрэд';
-  const entryZ = openEntry.bar.zScore ?? 0;
 
   return {
     tradeId: tradeSelectId(tradeNo),
-    zLine: `Z=${zText}`,
-    tradePrefix: `${tradeNo} ${dirShort} ${compactDateTime(openEntry.bar.tradeDate)} Z₀${entryZ.toFixed(2)}`,
+    tradePrefix: `${tradeNo} ${dirShort} ${compactDateTime(openEntry.bar.tradeDate)}`,
     net,
     netText: formatRub(net),
     spreadLine: `${dirLabel} · ${entrySpread.toFixed(2)}% → ${lastSpread.toFixed(2)}%`,

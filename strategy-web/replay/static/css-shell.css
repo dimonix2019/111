@@ -86,6 +86,7 @@ html, body {
 .status-bar .badge-strat-tip1m,
 .status-bar .badge-strat-m15,
 .status-bar .badge-regime,
+.status-bar .badge-tip-lag,
 .trade-side-status .badge-mon-on,
 .trade-side-status .badge-mon-off,
 .trade-side-status .badge-auto-on,
@@ -142,10 +143,20 @@ html, body {
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
+.badge-spread-frozen {
+  color: #fffbeb;
+  background: linear-gradient(180deg, #a8a29e 0%, #57534e 100%);
+  border: 1px solid #44403c;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+
 .status-bar .badge-dealer-on,
 .status-bar .badge-dealer-off,
 .toolbar .meta .badge-dealer-on,
-.toolbar .meta .badge-dealer-off {
+.toolbar .meta .badge-dealer-off,
+.status-bar .badge-spread-frozen,
+.toolbar .meta .badge-spread-frozen {
   display: inline-block;
   vertical-align: middle;
   padding: 2px 8px;
@@ -190,6 +201,27 @@ html, body {
   border: 1px solid #92400e;
   box-shadow: none;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+
+.badge-tip-lag {
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+.badge-tip-lag.is-ok {
+  color: #ecfdf5;
+  background: linear-gradient(180deg, #34d399 0%, #059669 100%);
+  border: 1px solid #047857;
+}
+.badge-tip-lag.is-warn {
+  color: #fffbeb;
+  background: linear-gradient(180deg, #fbbf24 0%, #d97706 100%);
+  border: 1px solid #b45309;
+}
+.badge-tip-lag.is-bad {
+  color: #fff1f2;
+  background: linear-gradient(180deg, #fb7185 0%, #e11d48 100%);
+  border: 1px solid #be123c;
 }
 
 .badge-auto-on {
@@ -406,6 +438,12 @@ select {
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
+}
+
+.test-primary-chart-label {
+  flex: 0 0 auto;
+  padding: 4px 8px 0;
+  z-index: 2;
 }
 
 .chart-pane-z {

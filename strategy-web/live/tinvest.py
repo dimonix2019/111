@@ -7,8 +7,6 @@ import re
 import uuid
 from typing import Any
 
-import requests
-
 from live.constants import (
     PROD_INSTRUMENTS_PREFIXES,
     PROD_MARKETDATA_PREFIXES,
@@ -21,6 +19,7 @@ from live.constants import (
     TATNP_FALLBACK_ID,
     USER_AGENT,
 )
+from live.ssl_util import format_tinvest_error, requests_post_verified, resolve_requests_verify
 
 _ASCII_TOKEN = re.compile(r"[^\x21-\x7e]")
 
@@ -74,20 +73,22 @@ def _post_raw(
         raise RuntimeError(
             "Пустой или недопустимый токен API. Вставьте токен из кабинета Т‑Инвест."
         )
+    verify = resolve_requests_verify()
     last: Exception | None = None
     for prefix in prefixes:
         url = f"{prefix}/{method}"
         try:
-            resp = requests.post(
+            resp = requests_post_verified(
                 url,
-                json=body,
                 headers={
                     "Authorization": f"Bearer {norm}",
                     "Accept": "application/json",
                     "Content-Type": "application/json; charset=utf-8",
                     "User-Agent": USER_AGENT,
                 },
+                json_body=body,
                 timeout=timeout,
+                verify=verify,
             )
             text = resp.text or ""
             if not resp.ok:
@@ -99,8 +100,8 @@ def _post_raw(
                 return resp.json()
             except Exception:
                 return {"_raw": text}
-        except requests.RequestException as exc:
-            last = exc
+        except Exception as exc:
+            last = RuntimeError(format_tinvest_error(exc))
     raise RuntimeError(str(last) if last else "T‑Invest REST: нет доступных хостов")
 
 

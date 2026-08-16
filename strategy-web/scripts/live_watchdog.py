@@ -253,15 +253,25 @@ def cycle() -> None:
     global _soft_fail_streak
     live = _http_json("GET", "/api/health/live")
     if live is None:
+        # Plain /api/health is DB-free. If it answers, the process is alive but
+        # busy (tip1m / parity reconcile) — do NOT hard-kill mid Testing request.
+        plain = _http_json("GET", "/api/health", timeout=min(2.0, HTTP_TIMEOUT))
+        if plain is not None:
+            log("probe: /health ok, /health/live busy — skip hard recover")
+            _soft_fail_streak = 0
+            return
         _soft_fail_streak += 1
         log(f"probe: HTTP dead (streak={_soft_fail_streak})")
         if _soft_fail_streak >= 2 or not MANAGE_SERVER:
-            hard_recover("HTTP /api/health/live unavailable")
+            hard_recover("HTTP /api/health unavailable")
         else:
             # One soft wait: maybe process restarting
             time.sleep(3.0)
-            if _http_json("GET", "/api/health/live") is None:
+            if _http_json("GET", "/api/health", timeout=min(2.0, HTTP_TIMEOUT)) is None:
                 hard_recover("HTTP still down")
+            elif _http_json("GET", "/api/health/live") is None:
+                log("probe: /health recovered, /health/live still busy — skip hard")
+                _soft_fail_streak = 0
         return
 
     wanted = bool(live.get("monitor_wanted", True))

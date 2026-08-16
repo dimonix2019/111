@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import math
 import time
 from typing import Any
 
 from live.closed_metrics import COMMISSION_PCT_PER_SIDE, _pnl_constants
 from live.open_mark import fill_prices_from_legs, legs_unrealized_rub, overnight_days
+from live.overnight_fee import (
+    overnight_fee_from_open,
+    overnight_fee_per_day_rub,
+    short_leg_uncovered_rub,
+)
 
 # Half-tick fallback when ISS BID/OFFER empty (after hours / thin book).
 _FALLBACK_HALF_SPREAD_RUB = 0.05
@@ -265,6 +271,7 @@ def compute_close_forecast(
         "has_position": False,
         "forecast_total_rub": None,
         "equity_now_rub": None,
+        "equity_at_open_rub": None,
         "cash_now_rub": None,
         "mid_pnl_rub": None,
         "adverse_pnl_rub": None,
@@ -274,6 +281,13 @@ def compute_close_forecast(
         "overnight_days": 0,
         "quotes_mode": None,
         "note": None,
+        "exit_level_spread": None,
+        "exit_level_pnl_rub": None,
+        "exit_level_pnl_pct": None,
+        "exit_level_entry_spread": None,
+        "exit_level_deposit_rub": None,
+        "overnight_per_day_rub": None,
+        "exit_level_ovn_days_to_red": None,
     }
     if not open_t:
         out["ok"] = True
@@ -296,6 +310,27 @@ def compute_close_forecast(
         cash = _f(broker.get("cash_rub"))
     out["equity_now_rub"] = equity
     out["cash_now_rub"] = cash
+    try:
+        from live.closed_metrics import account_after_from_legs
+
+        equity_open = account_after_from_legs(
+            open_t.get("legs") or open_t.get("legs_json")
+        )
+    except Exception:
+        equity_open = None
+    if equity_open is None:
+        equity_open = _f(open_t.get("equity_at_open_rub")) or _f(
+            open_t.get("account_after_rub")
+        )
+    if equity_open is None and equity is not None:
+        mtm = _f(mark.get("unrealized_pnl_rub"))
+        if mtm is None:
+            mtm = _f(mark.get("net_approx_rub"))
+        if mtm is not None:
+            equity_open = float(equity) - float(mtm)
+    out["equity_at_open_rub"] = (
+        round(float(equity_open), 2) if equity_open is not None else None
+    )
 
     constants = _pnl_constants(
         execution_notional_rub=notional if notional > 0 else None,
@@ -303,16 +338,9 @@ def compute_close_forecast(
         leverage=lev,
     )
     exit_comm = float(constants["comm_per_side"])  # exit of pair ≈ both legs
-    # Prefer desk mark overnight (matches displayed Овн / broker ~notional×0.033%/день)
-    ovn_days = int(mark.get("overnight_days") or 0)
-    if not ovn_days:
-        ovn_days = overnight_days(open_t.get("entry_time"), trade_date)
-    overnight = _f(mark.get("overnight_rub"))
-    if overnight is None:
-        overnight = float(constants["overnight_per_day"]) * ovn_days
     out["exit_commission_rub"] = round(exit_comm, 2)
-    out["overnight_rub"] = round(float(overnight or 0.0), 2)
-    out["overnight_days"] = ovn_days
+    eff_notional = float(constants["eff_notional"])
+    deposit_base = float(constants["deposit"])
 
     mid_pnl = _f(mark.get("unrealized_pnl_rub"))
     fill_tatn, fill_tatnp = fill_prices_from_legs(open_t)
@@ -321,6 +349,77 @@ def compute_close_forecast(
         fill_tatn = _pick_px(open_t.get("entry_tatn"), open_t.get("fill_tatn"))
     if fill_tatnp is None:
         fill_tatnp = _pick_px(open_t.get("entry_tatnp"), open_t.get("fill_tatnp"))
+    if fill_tatn is None:
+        fill_tatn = _f(mark.get("fill_tatn"))
+    if fill_tatnp is None:
+        fill_tatnp = _f(mark.get("fill_tatnp"))
+
+    # Prefer desk mark overnight (T‑Invest ступени на короткую ногу; не % от номинала).
+    ovn_days = int(mark.get("overnight_days") or 0)
+    if not ovn_days:
+        ovn_days = overnight_days(open_t.get("entry_time"), trade_date)
+    overnight = _f(mark.get("overnight_rub"))
+    if overnight is None:
+        overnight = overnight_fee_from_open(
+            open_t,
+            fill_tatn=fill_tatn,
+            fill_tatnp=fill_tatnp,
+            days=ovn_days,
+        )
+    overnight_rub = float(overnight or 0.0)
+    out["overnight_rub"] = round(overnight_rub, 2)
+    out["overnight_days"] = ovn_days
+
+    ovn_per_day = _f(mark.get("overnight_per_day_rub"))
+    if ovn_per_day is None:
+        uncovered = short_leg_uncovered_rub(
+            direction=direction,
+            lots=lots,
+            fill_tatn=fill_tatn,
+            fill_tatnp=fill_tatnp,
+            notional_rub=notional if notional > 0 else None,
+        )
+        ovn_per_day = overnight_fee_per_day_rub(uncovered)
+    out["overnight_per_day_rub"] = round(float(ovn_per_day or 0.0), 4)
+
+    # Потенциал при выходе на уровне спреда (L вых / S вых): ΔS×номинал − выходная комиссия − overnight.
+    entry_spread = _f(mark.get("fill_spread")) or _f(open_t.get("entry_spread"))
+    try:
+        from live.spread_levels import levels_from_settings
+
+        lv = levels_from_settings(settings)
+    except Exception:
+        lv = None
+    d_up = (direction or "").upper()
+    exit_level = None
+    if lv is not None:
+        if d_up.startswith("L"):
+            exit_level = float(lv.exit_narrow)
+        elif d_up.startswith("S"):
+            exit_level = float(lv.exit_wide)
+    if entry_spread is not None and exit_level is not None and eff_notional > 0:
+        if d_up.startswith("L"):
+            pnl_pts = exit_level - float(entry_spread)
+        else:
+            pnl_pts = float(entry_spread) - exit_level
+        gross = eff_notional * (pnl_pts / 100.0)
+        # Как в прогнозе закрытия: осталась только комиссия выхода + overnight на сейчас.
+        level_pnl = gross - exit_comm - overnight_rub
+        out["exit_level_spread"] = round(exit_level, 4)
+        out["exit_level_entry_spread"] = round(float(entry_spread), 4)
+        out["exit_level_pnl_rub"] = round(level_pnl, 2)
+        out["exit_level_deposit_rub"] = round(deposit_base, 2)
+        if deposit_base > 0:
+            out["exit_level_pnl_pct"] = round((level_pnl / deposit_base) * 100.0, 4)
+        # Подушка при выходе / ₽·день → через сколько полуночей плюс ≤ 0.
+        rate = float(ovn_per_day or 0.0)
+        if level_pnl <= 0:
+            out["exit_level_ovn_days_to_red"] = 0
+        elif rate > 0:
+            out["exit_level_ovn_days_to_red"] = int(math.ceil(level_pnl / rate))
+        else:
+            out["exit_level_ovn_days_to_red"] = None
+
     mid_tatn = _pick_px(tatn_now, mark.get("tatn_now"))
     mid_tatnp = _pick_px(tatnp_now, mark.get("tatnp_now"))
 

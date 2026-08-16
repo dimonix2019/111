@@ -107,7 +107,26 @@ function createSimSizingState() {
 
 const SIM_LEVERAGE = 7;
 const SIM_COMMISSION_PCT_PER_SIDE = 0.04;
+/** @deprecated старая %‑модель; Test использует ступени Премиум (см. simOvernightPerDayRub). */
 const SIM_OVERNIGHT_FEE_PCT_PER_DAY = 0.033;
+
+/** T‑Invest Премиум: ₽/день по сумме непокрытой (короткая нога). */
+function simOvernightPerDayRub(uncoveredRub) {
+  const u = Math.max(0, Number(uncoveredRub) || 0);
+  if (u <= 0) return 0;
+  if (u <= 5000) return 0;
+  if (u <= 50000) return 35;
+  if (u <= 100000) return 70;
+  if (u <= 250000) return 175;
+  if (u <= 500000) return 340;
+  if (u <= 1000000) return 680;
+  if (u <= 2500000) return 1700;
+  if (u <= 5000000) return 3400;
+  if (u <= 10000000) return 6800;
+  if (u <= 25000000) return u * 0.00066;
+  if (u <= 50000000) return u * 0.00063;
+  return u * 0.00055;
+}
 
 const TRADE_COLUMNS = [
   // слева — сделка и тех. индикаторы
@@ -131,11 +150,29 @@ const TRADE_COLUMNS = [
   { key: 'Hit3', title: '3%', width: 72, hint: 'Первый бар, где PnL ≥ 3% от вложения' },
   { key: 'Risk', title: 'Риск', width: 72 },
   // справа — деньги
-  { key: 'Net', title: 'Чист.', width: 56, hint: 'Чистый PnL после комиссий и overnight' },
-  { key: 'Gross', title: 'Вал.', width: 52 },
-  { key: 'Commission', title: 'Ком.', width: 48 },
-  { key: 'Overnight', title: 'Овн.', width: 48 },
-  { key: 'AccountAfter', title: 'Сумма после', width: 88, hint: 'Сумма на счету после сделки (оценка портфеля / cash) · только Prod' },
+  {
+    key: 'Invest',
+    title: 'Вложения',
+    width: 64,
+    // Депозит на пару (база %), не номинал×плечо. См. resolveTradeInvestRub.
+    hint: 'Капитал на пару (депозит входа): execution_notional/плечо или entry_deposit — та же база %, что в оверлее открытой',
+  },
+  {
+    key: 'Net',
+    title: 'Чист.',
+    width: 88,
+    hint: 'Prod: Δ счёта (После−До). Test: модель вал−ком−овн (или Δ счёта в режиме «как Прод»). Не путать с Max. В итоге: сумма и % от Σ Вложения',
+  },
+  { key: 'Gross', title: 'Вал.', width: 52, hint: 'PnL по спреду до комиссии и overnight (не Δ счёта; Вал.−Ком.≠Чист. на Prod)' },
+  { key: 'Commission', title: 'Ком.', width: 48, hint: 'Оценка комиссии вход+выход; в Prod «Чист.» (Δ счёта) уже внутри брокера' },
+  {
+    key: 'Overnight',
+    title: 'Овн.',
+    width: 48,
+    hint: 'Оценка overnight (Премиум: ступени ₽/день на ~короткую ногу). В Test «Чист.» вычитается; в Prod «Чист.» (Δ счёта) уже внутри брокера',
+  },
+  { key: 'AccountBefore', title: 'До', width: 72, hint: 'Сумма на счету на входе (база Чист. = после − до) · только Prod' },
+  { key: 'AccountAfter', title: 'После', width: 72, hint: 'Сумма на счету после выхода (= after в Δ Чист.) · только Prod' },
 ];
 
 const TRADE_COLUMN_KEYS = TRADE_COLUMNS.map((c) => c.key);
@@ -835,7 +872,7 @@ function decodeTradeColumns(raw) {
  * Однократная миграция: добавить новые столбцы в сохранение пользователя.
  * version bump только когда реально появляются новые колонки.
  */
-const TRADE_COLUMNS_MIG_VERSION = 8;
+const TRADE_COLUMNS_MIG_VERSION = 12;
 
 function migrateTradeColumnsOnce(keys) {
   let next = [...keys];
@@ -874,6 +911,24 @@ function migrateTradeColumnsOnce(keys) {
     next = insertAfter(next, 'AccountAfter', 'Net');
   }
   if (ver < 8) {
+    next = regroupTradeColumnKeys(next);
+  }
+  if (ver < 9) {
+    next = insertAfter(next, 'AccountBefore', 'Overnight');
+    // «Сумма после» → короче «После»; колонка До перед После
+    next = insertAfter(next, 'AccountAfter', 'AccountBefore');
+    next = regroupTradeColumnKeys(next);
+  }
+  if (ver < 10) {
+    // ModelNet («Оц.») больше нет — не вставляем
+  }
+  if (ver < 11) {
+    next = next.filter((k) => k !== 'ModelNet');
+    next = regroupTradeColumnKeys(next);
+  }
+  if (ver < 12) {
+    next = insertAfter(next, 'Invest', 'Overnight');
+    // Вложения перед Чист. (канон TRADE_COLUMNS)
     next = regroupTradeColumnKeys(next);
   }
   try {
@@ -986,6 +1041,9 @@ function buildTradeRows(edges, entryThreshold = 0.7, allPoints = [], cursorIndex
         commission: commTotal,
         overnight: ovn,
         net,
+        modelNet: net,
+        netFromAccount: false,
+        notional: entryConstants.notionalRub,
         pnlMin,
         pnlMax,
         hit1Date: milestones.hit1Date,
@@ -1050,6 +1108,7 @@ function buildTradeRows(edges, entryThreshold = 0.7, allPoints = [], cursorIndex
       commission: null,
       overnight: null,
       net: null,
+      notional: entryConstants.notionalRub,
       pnlMin,
       pnlMax,
       hit1Date: milestones.hit1Date,
@@ -1071,23 +1130,140 @@ function formatZScore(z) {
   return `${sign}${z.toFixed(2)}`;
 }
 
+/**
+ * Вложения = депозит на пару (база % как в оверлее / hit1–3), не номинал×плечо.
+ * Приоритет: entry_deposit → execution_notional/плечо → notional (Test) → ноги/плечо → settings.
+ */
+function resolveTradeInvestRub(t, settings = {}) {
+  if (!t) return null;
+  const fromDep = Number(t.entry_deposit_rub ?? t.entryDepositRub);
+  if (Number.isFinite(fromDep) && fromDep > 0) return fromDep;
+
+  const explicit = Number(t.invest);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+
+  const lev = Math.max(1, Number(settings.leverage ?? t.leverage) || SIM_LEVERAGE);
+  const execNom = Number(t.execution_notional_rub ?? t.notional_rub);
+  if (Number.isFinite(execNom) && execNom > 0) return execNom / lev;
+
+  // Test/sim: notionalRub — уже депозит (см. simPnlConstants)
+  const simDep = Number(t.notional);
+  if (Number.isFinite(simDep) && simDep > 0) return simDep;
+
+  const fromLegs = pairNotionalFromTradeLegs(t);
+  if (fromLegs != null && fromLegs > 0) return fromLegs / lev;
+
+  const settingsDep = Number(settings.entry_deposit_rub);
+  if (Number.isFinite(settingsDep) && settingsDep > 0) return settingsDep;
+  return null;
+}
+
+/** Номинал пары по ногам/ценам входа (если нет execution_notional). */
+function pairNotionalFromTradeLegs(t) {
+  const tatn = Number(t.entry_tatn ?? t.entryTatn);
+  const tatnp = Number(t.entry_tatnp ?? t.entryTatnp);
+  const lots = Number(t.quantity_lots ?? t.lots);
+  const lotSize = Number(t.lot_size ?? t.lotSize) || 1;
+  if (Number.isFinite(tatn) && Number.isFinite(tatnp) && Number.isFinite(lots) && lots > 0) {
+    return (tatn + tatnp) * lotSize * lots;
+  }
+  let legs = t.legs || t.legs_json;
+  if (typeof legs === 'string') {
+    try { legs = JSON.parse(legs); } catch (_) { return null; }
+  }
+  if (!Array.isArray(legs) || !legs.length) return null;
+  let sum = 0;
+  let n = 0;
+  for (const leg of legs) {
+    const phase = String(leg.phase || leg.leg || leg.role || '').toLowerCase();
+    if (phase.includes('exit') || phase.includes('close')) continue;
+    const px = Number(leg.price ?? leg.average_price ?? leg.fill_price ?? leg.avg_price);
+    const qty = Math.abs(Number(leg.quantity_lots ?? leg.lots ?? leg.quantity ?? leg.qty));
+    if (!Number.isFinite(px) || !(px > 0) || !Number.isFinite(qty) || !(qty > 0)) continue;
+    const ls = Number(leg.lot_size ?? leg.lotSize) || lotSize;
+    sum += px * qty * ls;
+    n += 1;
+  }
+  return n > 0 ? sum : null;
+}
+
+/** % от вложений в итоге Чист.: 3% / −0.8% (без «+» у плюса). */
+function formatInvestPct(pct) {
+  if (!Number.isFinite(pct)) return '';
+  const abs = Math.abs(pct);
+  const digits = abs >= 10 ? 0 : 1;
+  return pct >= 0 ? `${abs.toFixed(digits)}%` : `−${abs.toFixed(digits)}%`;
+}
+
+function formatNetWithInvestPct(netRub, investRub) {
+  const netText = formatRub(netRub);
+  if (!(investRub > 0) || !Number.isFinite(netRub)) return netText;
+  return `${netText} (${formatInvestPct((netRub / investRub) * 100)})`;
+}
+
 function makeTradeRow(t) {
   const closed = t.status === 'Закрыта';
   const hasNet = t.net != null && Number.isFinite(Number(t.net));
   const hasGross = t.gross != null && Number.isFinite(Number(t.gross));
   const hasComm = t.commission != null && Number.isFinite(Number(t.commission));
   const hasOvn = t.overnight != null && Number.isFinite(Number(t.overnight));
+  let modelNetNum = t.modelNet != null && Number.isFinite(Number(t.modelNet))
+    ? Number(t.modelNet)
+    : null;
+  if (modelNetNum == null && hasGross && hasComm) {
+    modelNetNum = Number(t.gross) - Number(t.commission) - (hasOvn ? Number(t.overnight) : 0);
+  }
+  if (modelNetNum == null && hasNet && !t.netFromAccount) {
+    modelNetNum = Number(t.net);
+  }
+  const hasModelNet = modelNetNum != null && Number.isFinite(modelNetNum);
+  const netFromAccount = !!t.netFromAccount;
+  let netTitle = '';
+  if (closed && (hasGross || hasComm || hasNet)) {
+    const bits = [];
+    if (hasGross) bits.push(`вал ${formatRub(t.gross)}`);
+    if (hasComm) bits.push(`ком ${formatCostRub(t.commission)}`);
+    if (hasOvn && Number(t.overnight) !== 0) bits.push(`овн ${formatCostRub(t.overnight)}`);
+    if (hasNet) bits.push(`чист ${formatRub(t.net)}`);
+    netTitle = bits.join(' · ');
+    if (netFromAccount) {
+      netTitle = `Δ счёта (после − до входа)` + (bits.length ? ` · ${bits.join(' · ')}` : '');
+      if (hasModelNet && Math.abs(modelNetNum - Number(t.net)) > 0.5) {
+        netTitle += ` · оценка по спреду ${formatRub(modelNetNum)}`;
+      }
+    } else if (hasNet) {
+      netTitle = `модель: вал − ком. − overnight` + (bits.length ? ` · ${bits.join(' · ')}` : '');
+    }
+  }
+  const investValue = resolveTradeInvestRub(t, t._settings || {});
   return {
     index: t.index,
     direction: t.direction,
     lots: t.lots ?? null,
     source: t.source || null,
+    notional: t.notional != null && Number.isFinite(Number(t.notional))
+      ? Number(t.notional)
+      : null,
+    investValue,
+    invest: investValue != null ? formatAccountRub(investValue) : '—',
     entryDate: t.entryDate,
     exitDate: t.exitDate,
+    exitFillDate: t.exitFillDate || null,
+    exitTitle: t.exitTitle || '',
     duration: closed ? formatSimTradeDuration(t.entryDate, t.exitDate) : '—',
     durationTone: closed ? durationTone(t.entryDate, t.exitDate) : 'neutral',
     net: closed && hasNet ? formatRub(t.net) : '—',
     netValue: hasNet ? Number(t.net) : null,
+    netTitle,
+    netFromAccount,
+    modelNet: closed && hasModelNet ? formatRub(modelNetNum) : '—',
+    modelNetValue: hasModelNet ? modelNetNum : null,
+    accountBefore: t.accountBefore != null && Number.isFinite(Number(t.accountBefore))
+      ? formatAccountRub(Number(t.accountBefore))
+      : '—',
+    accountBeforeValue: t.accountBefore != null && Number.isFinite(Number(t.accountBefore))
+      ? Number(t.accountBefore)
+      : null,
     accountAfter: t.accountAfter != null && Number.isFinite(Number(t.accountAfter))
       ? formatAccountRub(Number(t.accountAfter))
       : '—',
@@ -1143,8 +1319,59 @@ function makeTradeRow(t) {
   };
 }
 
+/**
+ * Legacy fallback: если API ещё не отдал account_delta / account_before,
+ * Чист. ≈ Δ «Сумма после» по хронологии. Не трогает netFromAccount.
+ * Между сделками (пополнение и т.п.) этот fallback врёт — поэтому API
+ * обязан отдавать account_before/delta.
+ */
+function applyAccountDeltaNetToRows(rows) {
+  if (!rows || !rows.length) return rows;
+  const chrono = [...rows].sort((a, b) => {
+    const am = parseTradeMs(a.exitDate === '—' ? null : a.exitDate) || parseTradeMs(a.entryDate) || 0;
+    const bm = parseTradeMs(b.exitDate === '—' ? null : b.exitDate) || parseTradeMs(b.entryDate) || 0;
+    if (am !== bm) return am - bm;
+    return (a.index || 0) - (b.index || 0);
+  });
+  let prev = null;
+  for (const r of chrono) {
+    const after = r.accountAfterValue;
+    if (r.accountBeforeValue == null && after != null && Number.isFinite(after)) {
+      if (r.netFromAccount && r.netValue != null && Number.isFinite(r.netValue)) {
+        r.accountBeforeValue = after - r.netValue;
+        r.accountBefore = formatAccountRub(r.accountBeforeValue);
+      } else if (prev != null && Number.isFinite(prev)) {
+        r.accountBeforeValue = prev;
+        r.accountBefore = formatAccountRub(prev);
+      }
+    }
+    if (r.netFromAccount) {
+      if (after != null && Number.isFinite(after)) prev = after;
+      continue;
+    }
+    if (after != null && prev != null && Number.isFinite(after) && Number.isFinite(prev)) {
+      const delta = after - prev;
+      if (r.modelNetValue == null && r.netValue != null) r.modelNetValue = r.netValue;
+      if (r.modelNetValue != null) r.modelNet = formatRub(r.modelNetValue);
+      r.netValue = delta;
+      r.net = formatRub(delta);
+      r.netFromAccount = true;
+      r.netTitle = 'Δ счёта (legacy: после − prev после)';
+      if (r.modelNetValue != null && Math.abs(r.modelNetValue - delta) > 0.5) {
+        r.netTitle += ` · оценка по спреду ${formatRub(r.modelNetValue)}`;
+      }
+      if (r.accountBeforeValue == null) {
+        r.accountBeforeValue = prev;
+        r.accountBefore = formatAccountRub(prev);
+      }
+    }
+    if (after != null && Number.isFinite(after)) prev = after;
+  }
+  return rows;
+}
+
 /** Map Prod closed trade (API / store) → same row shape as Testing table. */
-function liveClosedToTradeRow(t, index, entryThreshold = 1.3) {
+function liveClosedToTradeRow(t, index, entryThreshold = 1.3, settings = {}) {
   const dirRaw = String(t.direction || '').toUpperCase();
   const direction = dirRaw.includes('SHORT') ? 'Short' : 'Long';
   const entrySpread = t.entry_spread != null && Number.isFinite(Number(t.entry_spread))
@@ -1157,10 +1384,23 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3) {
   if (pnlPts == null && entrySpread != null && exitSpread != null) {
     pnlPts = direction === 'Long' ? exitSpread - entrySpread : entrySpread - exitSpread;
   }
-  const net = t.pnl_rub != null && Number.isFinite(Number(t.pnl_rub)) ? Number(t.pnl_rub) : null;
+  const accountDelta = t.account_delta_rub != null && Number.isFinite(Number(t.account_delta_rub))
+    ? Number(t.account_delta_rub)
+    : null;
+  const spreadPnl = t.spread_pnl_rub != null && Number.isFinite(Number(t.spread_pnl_rub))
+    ? Number(t.spread_pnl_rub)
+    : null;
+  const storedPnl = t.pnl_rub != null && Number.isFinite(Number(t.pnl_rub)) ? Number(t.pnl_rub) : null;
+  // Чист. = деньги на счёте (account_delta), иначе model/API pnl_rub
+  const net = accountDelta != null ? accountDelta : storedPnl;
+  const modelNet = spreadPnl != null
+    ? spreadPnl
+    : (accountDelta != null && storedPnl != null && Math.abs(storedPnl - accountDelta) > 0.05
+      ? storedPnl
+      : (accountDelta == null ? storedPnl : null));
   const gross = t.gross_rub != null && Number.isFinite(Number(t.gross_rub))
     ? Number(t.gross_rub)
-    : (net != null ? net : null);
+    : (modelNet != null ? modelNet : null);
   const commission = t.commission_rub != null && Number.isFinite(Number(t.commission_rub))
     ? Number(t.commission_rub) : null;
   const overnight = t.overnight_rub != null && Number.isFinite(Number(t.overnight_rub))
@@ -1174,6 +1414,11 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3) {
   const entrySlip = t.entry_slip_pts != null && Number.isFinite(Number(t.entry_slip_pts))
     ? Number(t.entry_slip_pts)
     : null;
+  const exitFill = t.exit_fill_time || t.exitFillTime || null;
+  let exitTitle = '';
+  if (exitFill && t.exit_time && String(exitFill).slice(0, 16) !== String(t.exit_time).slice(0, 16)) {
+    exitTitle = `Сигнал ${String(t.exit_time).slice(0, 16)} · fill ${String(exitFill).slice(0, 16)}`;
+  }
   const risk = assessTradeRisk(
     t.entry_time,
     t.exit_time || t.entry_time,
@@ -1181,6 +1426,25 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3) {
     overnight || 0,
     entryThreshold,
   );
+  let accountBefore = t.account_before_rub != null && Number.isFinite(Number(t.account_before_rub))
+    ? Number(t.account_before_rub)
+    : (t.accountBefore != null && Number.isFinite(Number(t.accountBefore))
+      ? Number(t.accountBefore)
+      : null);
+  const accountAfter = t.account_after_rub != null && Number.isFinite(Number(t.account_after_rub))
+    ? Number(t.account_after_rub)
+    : (t.accountAfter != null && Number.isFinite(Number(t.accountAfter))
+      ? Number(t.accountAfter)
+      : null);
+  // Исторические Prod-строки: «До» = После − Δ, если before не записали на выходе
+  if (accountBefore == null && accountAfter != null && accountDelta != null) {
+    accountBefore = accountAfter - accountDelta;
+  }
+  const execNom = t.execution_notional_rub != null && Number.isFinite(Number(t.execution_notional_rub))
+    ? Number(t.execution_notional_rub)
+    : (t.notional_rub != null && Number.isFinite(Number(t.notional_rub))
+      ? Number(t.notional_rub)
+      : null);
   return makeTradeRow({
     index,
     direction,
@@ -1188,6 +1452,8 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3) {
     source: t.source || null,
     entryDate: t.entry_time,
     exitDate: t.exit_time || '—',
+    exitFillDate: exitFill,
+    exitTitle,
     entryZ,
     exitZ,
     entrySpread,
@@ -1198,11 +1464,10 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3) {
     commission,
     overnight,
     net,
-    accountAfter: t.account_after_rub != null && Number.isFinite(Number(t.account_after_rub))
-      ? Number(t.account_after_rub)
-      : (t.accountAfter != null && Number.isFinite(Number(t.accountAfter))
-        ? Number(t.accountAfter)
-        : null),
+    modelNet,
+    netFromAccount: accountDelta != null,
+    accountBefore,
+    accountAfter,
     pnlMin,
     pnlMax,
     hit1Date: t.hit1_time || null,
@@ -1214,6 +1479,14 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3) {
     status: 'Закрыта',
     entryThreshold,
     _risk: risk,
+    execution_notional_rub: execNom,
+    entry_deposit_rub: t.entry_deposit_rub,
+    entry_tatn: t.entry_tatn,
+    entry_tatnp: t.entry_tatnp,
+    quantity_lots: t.quantity_lots,
+    legs: t.legs || t.legs_json,
+    leverage: settings.leverage,
+    _settings: settings,
   });
 }
 
@@ -1237,7 +1510,9 @@ function tradeSortValue(row, colKey) {
     case 'EntryZ': return row.entryZ;
     case 'ExitZ': return row.exitZ;
     case 'Duration': return row.durationMs;
+    case 'Invest': return row.investValue;
     case 'Net': return row.netValue;
+    case 'AccountBefore': return row.accountBeforeValue;
     case 'AccountAfter': return row.accountAfterValue;
     case 'PnlMin': return row.pnlMinValue;
     case 'PnlMax': return row.pnlMaxValue;
@@ -1280,10 +1555,10 @@ function compareTradeRows(a, b, colKey, dir) {
   return asc ? cmp : -cmp;
 }
 
-/** Чист. — сумма; Hit1/2/3 — кол-во; Сумма после — последнее; остальные числовые — среднее. */
-const TRADE_AGG_SUM_KEYS = new Set(['Net']);
+/** Чист. / Вложения — сумма; Hit1/2/3 — кол-во; Сумма после — последнее; остальные числовые — среднее. */
+const TRADE_AGG_SUM_KEYS = new Set(['Net', 'Invest']);
 const TRADE_AGG_COUNT_KEYS = new Set(['Hit1', 'Hit2', 'Hit3']);
-const TRADE_AGG_LAST_KEYS = new Set(['AccountAfter']);
+const TRADE_AGG_LAST_KEYS = new Set(['AccountBefore', 'AccountAfter']);
 const TRADE_AGG_AVG_KEYS = new Set([
   'Lots',
   'EntryZ',
@@ -1339,6 +1614,8 @@ function formatTradeAggValue(colKey, value) {
     case 'Commission':
     case 'Overnight':
       return formatCostRub(Math.max(0, value));
+    case 'Invest':
+    case 'AccountBefore':
     case 'AccountAfter':
       return formatAccountRub(value);
     case 'Risk':
@@ -1439,10 +1716,28 @@ function buildTradeColumnSummary(rows, colKeys) {
       };
     }
     const value = mode === 'sum' ? sum : sum / count;
-    const text = formatTradeAggValue(key, value);
+    let text = formatTradeAggValue(key, value);
     let cls = '';
     if (key === 'Net' || key === 'Gross' || key === 'SpreadDelta' || key === 'PnlMin' || key === 'PnlMax') {
       cls = value > 0 ? 'pnl-pos' : value < 0 ? 'pnl-neg' : '';
+    }
+    let title = mode === 'sum'
+      ? `Сумма · ${count} зн.`
+      : `Среднее · ${count} зн.`;
+    // Итог Чист.: сумма нетто и % от суммы Вложения по видимым строкам
+    if (key === 'Net' && mode === 'sum') {
+      let invSum = 0;
+      let invN = 0;
+      for (const row of list) {
+        const inv = row.investValue;
+        if (inv == null || !Number.isFinite(Number(inv)) || !(Number(inv) > 0)) continue;
+        invSum += Number(inv);
+        invN += 1;
+      }
+      if (invSum > 0) {
+        text = formatNetWithInvestPct(value, invSum);
+        title = `Сумма · ${count} зн. · ${formatInvestPct((value / invSum) * 100)} от Σ Вложения (${formatAccountRub(invSum)}, ${invN} сд.)`;
+      }
     }
     return {
       key,
@@ -1450,11 +1745,18 @@ function buildTradeColumnSummary(rows, colKeys) {
       value,
       text,
       cls,
-      title: mode === 'sum'
-        ? `Сумма · ${count} зн.`
-        : `Среднее · ${count} зн.`,
+      title,
     };
   });
+}
+
+function tradeCellTitle(row, colKey) {
+  if (colKey === 'Net' && row.netTitle) return row.netTitle;
+  if (colKey === 'Invest' && row.investValue != null) {
+    return `Вложения ${formatAccountRub(row.investValue)} · депозит на пару (база %)`;
+  }
+  if (colKey === 'Exit' && row.exitTitle) return row.exitTitle;
+  return '';
 }
 
 function tradeCellValue(row, colKey) {
@@ -1468,7 +1770,9 @@ function tradeCellValue(row, colKey) {
     case 'EntryZ': return row.entryZText;
     case 'ExitZ': return row.exitZText;
     case 'Duration': return row.duration;
+    case 'Invest': return row.invest;
     case 'Net': return row.net;
+    case 'AccountBefore': return row.accountBefore;
     case 'AccountAfter': return row.accountAfter;
     case 'PnlMin': return row.pnlMin;
     case 'PnlMax': return row.pnlMax;
@@ -1575,6 +1879,72 @@ function formatTradeMetricStat(colKey, value) {
   }
 }
 
+/** Linear interpolation quantile on a sorted ascending array. */
+function quantileSorted(sorted, q) {
+  const n = sorted?.length || 0;
+  if (!n) return null;
+  const qq = Math.max(0, Math.min(1, Number(q)));
+  if (!Number.isFinite(qq)) return null;
+  if (n === 1) return sorted[0];
+  const pos = (n - 1) * qq;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  if (lo === hi) return sorted[lo];
+  const w = pos - lo;
+  return sorted[lo] * (1 - w) + sorted[hi] * w;
+}
+
+/**
+ * Histogram window that drops extreme tails so the shape is readable.
+ * Summary stats stay on the full sample; only bins/lo/hi use the window.
+ * Prefer Tukey fences (Q1−1.5·IQR … Q3+1.5·IQR); if too few points remain,
+ * fall back to [p5, p95], then the full range.
+ */
+function numericDistHistWindow(sorted, median, mad, p5, p25, p75, p95) {
+  const n = sorted.length;
+  const min = sorted[0];
+  const max = sorted[n - 1];
+  const pickInRange = (lo, hi) => {
+    const out = [];
+    for (const v of sorted) {
+      if (v >= lo && v <= hi) out.push(v);
+    }
+    return out;
+  };
+  const iqr = (p25 != null && p75 != null) ? (p75 - p25) : 0;
+  let fenceLo = min;
+  let fenceHi = max;
+  if (iqr > 1e-12) {
+    fenceLo = p25 - 1.5 * iqr;
+    fenceHi = p75 + 1.5 * iqr;
+  } else if (mad > 1e-12 && median != null && Number.isFinite(median)) {
+    fenceLo = median - 3 * mad;
+    fenceHi = median + 3 * mad;
+  } else if (p5 != null && p95 != null && p95 > p5) {
+    fenceLo = p5;
+    fenceHi = p95;
+  }
+  fenceLo = Math.max(min, fenceLo);
+  fenceHi = Math.min(max, fenceHi);
+  let histSorted = pickInRange(fenceLo, fenceHi);
+  // Tiny n: fences are noisy — keep full range.
+  if (n < 8) {
+    return { histSorted: sorted, histClipped: false };
+  }
+  const minKeep = Math.max(8, Math.floor(n * 0.5));
+  // Only widen when fences actually dropped too many points.
+  if (histSorted.length < n && histSorted.length < minKeep
+    && p5 != null && p95 != null && p95 > p5) {
+    fenceLo = Math.max(min, p5);
+    fenceHi = Math.min(max, p95);
+    histSorted = pickInRange(fenceLo, fenceHi);
+  }
+  if (histSorted.length < 2) {
+    return { histSorted: sorted, histClipped: false };
+  }
+  return { histSorted, histClipped: histSorted.length < n };
+}
+
 function computeNumericDistribution(values, binTarget = 24) {
   const n = values.length;
   if (n === 0) return null;
@@ -1587,9 +1957,25 @@ function computeNumericDistribution(values, binTarget = 24) {
   let varAcc = 0;
   for (const v of values) varAcc += (v - mean) ** 2;
   const stdev = n > 1 ? Math.sqrt(varAcc / (n - 1)) : 0;
-  const binCount = Math.min(28, Math.max(10, Math.round(Math.sqrt(n) * 2.2) || binTarget));
-  let lo = min;
-  let hi = max;
+  const median = quantileSorted(sorted, 0.5);
+  const p5 = quantileSorted(sorted, 0.05);
+  const p25 = quantileSorted(sorted, 0.25);
+  const p75 = quantileSorted(sorted, 0.75);
+  const p95 = quantileSorted(sorted, 0.95);
+  let mad = 0;
+  if (n > 0 && median != null && Number.isFinite(median)) {
+    const absDev = sorted.map((v) => Math.abs(v - median)).sort((a, b) => a - b);
+    mad = quantileSorted(absDev, 0.5) || 0;
+  }
+  const { histSorted, histClipped } = numericDistHistWindow(
+    sorted, median, mad, p5, p25, p75, p95,
+  );
+  const nHist = histSorted.length;
+  const histMin = histSorted[0];
+  const histMax = histSorted[nHist - 1];
+  const binCount = Math.min(28, Math.max(10, Math.round(Math.sqrt(nHist) * 2.2) || binTarget));
+  let lo = histMin;
+  let hi = histMax;
   if (hi <= lo) {
     const pad = Math.max(Math.abs(lo) * 0.05, 1e-6);
     lo -= pad;
@@ -1597,13 +1983,16 @@ function computeNumericDistribution(values, binTarget = 24) {
   }
   const width = (hi - lo) / binCount;
   const bins = new Array(binCount).fill(0);
-  for (const v of values) {
+  for (const v of histSorted) {
     let i = Math.floor((v - lo) / width);
     if (i < 0) i = 0;
     if (i >= binCount) i = binCount - 1;
     bins[i] += 1;
   }
-  return { n, min, max, mean, stdev, bins, lo, hi, width, binCount, sorted };
+  return {
+    n, nHist, min, max, histMin, histMax, mean, stdev, median, mad, p5, p25, p75, p95,
+    bins, lo, hi, width, binCount, sorted, histClipped,
+  };
 }
 
 function buildTradeMetricDistributions(rows, colKeys) {
@@ -1623,6 +2012,11 @@ function buildTradeMetricDistributions(rows, colKeys) {
 
 function tradeMetricBinIndex(dist, value) {
   if (!dist || value == null || !Number.isFinite(value)) return -1;
+  // Outside the clipped hist window → no active bar (tail filtered out).
+  if (Number.isFinite(dist.lo) && Number.isFinite(dist.hi)
+    && (value < dist.lo || value > dist.hi)) {
+    return -1;
+  }
   let i = Math.floor((value - dist.lo) / dist.width);
   if (i < 0) i = 0;
   if (i >= dist.binCount) i = dist.binCount - 1;
@@ -1649,26 +2043,91 @@ function tradeMetricPercentile(dist, value) {
   return (count / dist.n) * 100;
 }
 
+/** Directional RU labels for values outside the typical band. */
+function tradeMetricDirectionLabels(colKey) {
+  if (colKey === 'Duration') {
+    return { low: 'короче обычного', high: 'длиннее обычного' };
+  }
+  return { low: 'ниже обычного', high: 'выше обычного' };
+}
+
 /**
- * Placement of a value vs sample mean/σ.
- * |z|<0.5 near mean · <1 shoulder · <2 tail · ≥2 outside.
+ * Placement vs robust center (median + IQR / MAD).
+ * Mean±σ is misleading on skewed metrics (esp. Duration).
+ * p25–p75 (or |x−med|≤1.5·MAD) → типично;
+ * outside but within p5–p95 (or ≤3·MAD) → короче/длиннее / ниже/выше;
+ * beyond → выброс.
+ *
+ * @param {number} value
+ * @param {object} dist
+ * @param {{ colKey?: string }} [opts]
  */
-function classifyTradeMetricPlacement(value, dist) {
+function classifyTradeMetricPlacement(value, dist, opts) {
   if (!dist || value == null || !Number.isFinite(value)) {
     return { key: 'none', label: 'нет данных', z: null };
   }
   if (dist.n < 2) {
     return { key: 'sparse', label: 'мало данных', z: null };
   }
-  if (!(dist.stdev > 1e-12)) {
+  const colKey = opts && opts.colKey;
+  const dirs = tradeMetricDirectionLabels(colKey);
+  const med = Number.isFinite(dist.median) ? dist.median : null;
+  const mad = Number.isFinite(dist.mad) ? dist.mad : null;
+  const p5 = Number.isFinite(dist.p5) ? dist.p5 : null;
+  const p25 = Number.isFinite(dist.p25) ? dist.p25 : null;
+  const p75 = Number.isFinite(dist.p75) ? dist.p75 : null;
+  const p95 = Number.isFinite(dist.p95) ? dist.p95 : null;
+  const scale = (mad != null && mad > 1e-12)
+    ? mad
+    : (p25 != null && p75 != null && (p75 - p25) > 1e-12 ? (p75 - p25) / 1.349 : 0);
+  const robustZ = (med != null && scale > 1e-12) ? (value - med) / scale : null;
+
+  const flatScale = !(scale > 1e-12)
+    && !(p25 != null && p75 != null && (p75 - p25) > 1e-12)
+    && !(dist.stdev > 1e-12);
+  if (flatScale) {
+    return { key: 'flat', label: 'как у всех', z: 0 };
+  }
+
+  const lowLabel = dirs.low;
+  const highLabel = dirs.high;
+  const sideLabel = (v) => (med != null && v < med ? lowLabel : highLabel);
+
+  // Prefer percentile bands when available.
+  if (p25 != null && p75 != null && (p75 - p25) > 1e-12) {
+    if (value >= p25 && value <= p75) {
+      return { key: 'typical', label: 'типично', z: robustZ };
+    }
+    const extremeLow = p5 != null && value < p5;
+    const extremeHigh = p95 != null && value > p95;
+    if (extremeLow || extremeHigh) {
+      return { key: 'outlier', label: 'выброс', z: robustZ };
+    }
+    // Between IQR edge and p5/p95 (or missing tails): mildly unusual.
+    return { key: 'tail', label: sideLabel(value), z: robustZ };
+  }
+
+  // MAD fallback (or when percentiles collapsed).
+  if (med != null && mad != null && mad > 1e-12) {
+    const ad = Math.abs(value - med);
+    if (ad <= 1.5 * mad) {
+      return { key: 'typical', label: 'ближе к медиане', z: robustZ };
+    }
+    if (ad <= 3 * mad) {
+      return { key: 'tail', label: sideLabel(value), z: robustZ };
+    }
+    return { key: 'outlier', label: 'выброс', z: robustZ };
+  }
+
+  // Last resort: classical mean/σ (near-symmetric series without robust stats).
+  if (!(dist.stdev > 1e-12) || !Number.isFinite(dist.mean)) {
     return { key: 'flat', label: 'как у всех', z: 0 };
   }
   const z = (value - dist.mean) / dist.stdev;
   const az = Math.abs(z);
-  if (az < 0.5) return { key: 'mean', label: 'ближе к среднему', z };
-  if (az < 1) return { key: 'shoulder', label: 'на плече распределения', z };
-  if (az < 2) return { key: 'tail', label: 'в хвосте', z };
-  return { key: 'outside', label: 'вне типичного диапазона', z };
+  if (az < 0.5) return { key: 'typical', label: 'типично', z };
+  if (az < 2) return { key: 'tail', label: sideLabel(value), z };
+  return { key: 'outlier', label: 'выброс', z };
 }
 
 /** Absolute spread % cuts: узкий / переход (valley) / широкий. */
@@ -1719,20 +2178,21 @@ function metricDistCountTicks(maxCount) {
 
 /**
  * HTML гистограммы распределения (как tip в таблице сделок).
- * @param {{ title: string, display: string, value: number, dist: object, formatStat?: (v:number)=>string, spreadWidthRegime?: boolean }} opts
+ * @param {{ title: string, display: string, value: number, dist: object, formatStat?: (v:number)=>string, spreadWidthRegime?: boolean, colKey?: string }} opts
  */
 function buildMetricDistTipHtml(opts) {
   const { title, display, value, dist } = opts;
   const formatStat = opts.formatStat || ((v) => (Number.isFinite(v) ? String(Math.round(v * 100) / 100) : '—'));
   const sampleLabel = opts.sampleLabel ? String(opts.sampleLabel) : '';
   if (!dist || value == null || !Number.isFinite(value)) return '';
-  const place = classifyTradeMetricPlacement(value, dist);
+  const place = classifyTradeMetricPlacement(value, dist, { colKey: opts.colKey });
   const widthReg = opts.spreadWidthRegime ? classifySpreadWidthRegime(value) : null;
   const pct = tradeMetricPercentile(dist, value);
   const activeBin = tradeMetricBinIndex(dist, value);
   const maxBin = Math.max(1, ...dist.bins);
+  const medLabel = Number.isFinite(dist.median) ? formatStat(dist.median) : '—';
+  const madLabel = Number.isFinite(dist.mad) ? formatStat(dist.mad) : '—';
   const meanLabel = formatStat(dist.mean);
-  const sigmaLabel = formatStat(dist.stdev);
   const barsHtml = dist.bins.map((count, i) => {
     const h = Math.max(4, Math.round((count / maxBin) * 100));
     const cls = i === activeBin ? ' active' : '';
@@ -1749,6 +2209,12 @@ function buildMetricDistTipHtml(opts) {
   }).join('');
   const pctText = pct != null ? ` · p${Math.round(pct)}` : '';
   const sampleText = sampleLabel ? ` · ${sampleLabel}` : '';
+  const nHist = Number.isFinite(dist.nHist) ? dist.nHist : dist.n;
+  const histClipped = !!(dist.histClipped && nHist < dist.n);
+  const nText = histClipped ? `n ${nHist}/${dist.n}` : `n=${dist.n}`;
+  const clipText = histClipped ? ' · без хвоста' : '';
+  const axisLo = Number.isFinite(dist.histMin) ? dist.histMin : dist.lo;
+  const axisHi = Number.isFinite(dist.histMax) ? dist.histMax : dist.hi;
   let footerHtml = `<div class="tm-place tm-place-${place.key}">${place.label}</div>`;
   if (widthReg && widthReg.key !== 'na') {
     footerHtml = `<div class="tm-regime tm-regime-${widthReg.key}" title="${widthReg.title}">режим: ${widthReg.shortLabel}</div>`;
@@ -1762,9 +2228,9 @@ function buildMetricDistTipHtml(opts) {
     + `<div class="tm-hist-grid">${gridHtml}</div>`
     + `<div class="tm-hist">${barsHtml}</div>`
     + `</div></div>`
-    + `<div class="tm-hist-x"><span>${formatStat(dist.min)}</span><span>${meanLabel}</span><span>${formatStat(dist.max)}</span></div>`
+    + `<div class="tm-hist-x"><span>${formatStat(axisLo)}</span><span>${medLabel}</span><span>${formatStat(axisHi)}</span></div>`
     + `</div>`
-    + `<div class="tm-meta">ср. ${meanLabel} · σ ${sigmaLabel} · n=${dist.n}${pctText}${sampleText}</div>`
+    + `<div class="tm-meta">мед. ${medLabel} · MAD ${madLabel} · ср. ${meanLabel} · ${nText}${clipText}${pctText}${sampleText}</div>`
     + footerHtml
   );
 }

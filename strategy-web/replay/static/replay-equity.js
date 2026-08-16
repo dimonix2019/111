@@ -3,7 +3,8 @@
 function simPnlConstants(notionalRub = getSimNotionalRub()) {
   const effNotional = notionalRub * SIM_LEVERAGE;
   const commPerSide = effNotional * (SIM_COMMISSION_PCT_PER_SIDE / 100);
-  const overnightPerDay = notionalRub * Math.max(0, SIM_LEVERAGE - 1) * (SIM_OVERNIGHT_FEE_PCT_PER_DAY / 100);
+  // Как live.overnight_fee: без цен ног ≈ номинал пары / 2.
+  const overnightPerDay = simOvernightPerDayRub(effNotional / 2);
   return { effNotional, commPerSide, overnightPerDay, notionalRub };
 }
 
@@ -238,6 +239,43 @@ function buildDeltaPpSeries(allPoints, edges, windowPoints, cursorIndex) {
   return equitySeriesToWindow(allPoints, windowPoints, cursorIndex, deltaByMs);
 }
 
+/** Подпись уровня как на Trade desk (ru-RU, 1 знак). */
+function formatSpreadLevelTitle(prefix, value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return prefix;
+  return `${prefix} ${n.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}`;
+}
+
+/**
+ * Горизонтали + зоны спреда — как trade.js setSpreadThresholdLines / bands.
+ * @param {{enter_wide?:number,exit_wide?:number,enter_narrow?:number,exit_narrow?:number}} levels
+ */
+function buildSpreadChartOverlays(levels) {
+  const num = (v, fb) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fb;
+  };
+  const enterW = num(levels?.enter_wide, 6.2);
+  const exitW = num(levels?.exit_wide, 5.8);
+  const enterN = num(levels?.enter_narrow, 3.2);
+  const exitN = num(levels?.exit_narrow, 4.0);
+  const hlines = [
+    { value: enterW, color: '#2962ff', title: formatSpreadLevelTitle('S вх', enterW) },
+    { value: exitW, color: '#26a69a', title: formatSpreadLevelTitle('S вых', exitW) },
+    { value: exitN, color: '#26a69a', title: formatSpreadLevelTitle('L вых', exitN) },
+    { value: enterN, color: '#2962ff', title: formatSpreadLevelTitle('L вх', enterN) },
+  ];
+  return {
+    hlines,
+    spreadLevels: {
+      enter_wide: enterW,
+      exit_wide: exitW,
+      enter_narrow: enterN,
+      exit_narrow: exitN,
+    },
+  };
+}
+
 function buildChartPayload(candles, entry, exit, markers, trades, playing, opts = {}) {
   const candleArr = [];
   const seen = new Set();
@@ -253,16 +291,27 @@ function buildChartPayload(candles, entry, exit, markers, trades, playing, opts 
       close: c.close,
     });
   }
-  const hlines = [
-    { value: entry, color: '#EF5350', title: '+Entry' },
-    { value: -entry, color: '#66BB6A', title: '−Entry' },
-    { value: exit, color: '#FFB74D', title: '+Exit' },
-    { value: -exit, color: '#4DD0E1', title: '−Exit' },
-    { value: 0, color: '#616161', title: '0' },
-  ];
+  const primaryMetric = opts.primaryMetric === 'spread' ? 'spread' : 'z';
+  let hlines;
+  let spreadLevels = null;
+  if (primaryMetric === 'spread') {
+    const ov = buildSpreadChartOverlays(opts.spreadLevels || {});
+    hlines = ov.hlines;
+    spreadLevels = ov.spreadLevels;
+  } else {
+    hlines = [
+      { value: entry, color: '#EF5350', title: '+Entry' },
+      { value: -entry, color: '#66BB6A', title: '−Entry' },
+      { value: exit, color: '#FFB74D', title: '+Exit' },
+      { value: -exit, color: '#4DD0E1', title: '−Exit' },
+      { value: 0, color: '#616161', title: '0' },
+    ];
+  }
   return {
     candles: candleArr,
     hlines,
+    primaryMetric,
+    spreadLevels,
     markers,
     trades,
     equity: opts.equity || [],
