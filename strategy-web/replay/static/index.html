@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MOEX · Торговля / История / Счёт / Тестирование</title>
-  <link rel="stylesheet" href="/static/css-shell.css?v=20260811spread1" />
-  <link rel="stylesheet" href="/static/css-testing.css?v=20260815agg2" />
+  <link rel="stylesheet" href="/static/css-shell.css?v=20260817fit1" />
+  <link rel="stylesheet" href="/static/css-testing.css?v=20260817noZm15" />
   <link rel="stylesheet" href="/static/css-replay-ui.css?v=20260723a12" />
-  <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260815noz1" />
-  <link rel="stylesheet" href="/static/css-mobile.css?v=20260815noz1" />
+  <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260817mtlr4" />
+  <link rel="stylesheet" href="/static/css-mobile.css?v=20260816mtlr2" />
 </head>
 <body>
   <div id="loading" class="loading">
@@ -63,23 +63,38 @@
         <button type="button" class="chip" data-days="90" title="Масштаб графика: ~90д">3М</button>
         <button type="button" class="chip" data-days="180" title="Масштаб графика: ~180д">6М</button>
         <button type="button" class="chip" data-days="400" title="Масштаб: все загруженные бары до курсора (не меняет окно данных / СДЕЛКИ)">Всё</button>
-        <button type="button" class="chip" id="btnFitFullChart" title="Zoom-out: показать весь загруженный график">⤢ весь</button>
+        <button type="button" class="chip" id="btnFitFullChart" title="Показать на графике все загруженные бары (масштаб, без пересчёта сделок)">⤢ весь</button>
       </div>
       <div class="replay-opt-group" role="group" aria-label="Параметры стратегии">
         <span class="replay-opt-group-title">Стратегия</span>
-        <label class="meta">Вх ±
+        <label class="meta z-thresh-only">Вх ±
           <select id="entrySel"></select>
         </label>
-        <label class="meta">Вых ±
+        <label class="meta z-thresh-only">Вых ±
           <select id="exitSel"></select>
         </label>
-        <button type="button" class="chip" id="btnCopyLiveThresh" title="Скопировать пороги с вкладки Торговля в этот тест (в Prod не пишется)">из Торговли</button>
+        <button type="button" class="chip z-thresh-only" id="btnCopyLiveThresh" title="Скопировать пороги с вкладки Торговля в этот тест (в Prod не пишется)">из Торговли</button>
         <label class="meta" title="Take-profit: закрыть сделку, когда PnL (% от номинала) достиг порога">TP
           <select id="tpSel">
             <option value="0" selected>выкл</option>
             <option value="1">1%</option>
             <option value="2">2%</option>
             <option value="3">3%</option>
+          </select>
+        </label>
+        <label class="meta tip1m-hold" title="Закрыть, если за N календарных дней спред не ушёл к выходу ≥0,2 п.п. и MTM &lt; 0 (бэктест «7д нет хода»)">Нет хода
+          <select id="holdNoTrendSel">
+            <option value="0" selected>выкл</option>
+            <option value="5">5д</option>
+            <option value="7">7д</option>
+            <option value="10">10д</option>
+          </select>
+        </label>
+        <label class="meta tip1m-hold" title="Закрыть, если N календарных дней в минусе (бэктест «10д в минусе»)">В минусе
+          <select id="holdLosingSel">
+            <option value="0" selected>выкл</option>
+            <option value="7">7д</option>
+            <option value="10">10д</option>
           </select>
         </label>
         <div class="risk-exit-groups" id="riskExitGroups" role="group" aria-label="Risk exit по группам"></div>
@@ -104,13 +119,9 @@
       </label>
       <div class="chip-group" id="edgeModeChips" role="group" aria-label="Режим сигнала Теста">
         <button type="button" class="chip active" data-edge-mode="m15"
-          title="Вход/выход на закрытии M15 (как сейчас)">M15 закрытие</button>
+          title="Вход/выход на закрытии M15 по уровням спреда (Short 6.2/5.8 · Long 3.2/4.0), без Z">M15 закрытие</button>
           <button type="button" class="chip" data-edge-mode="tip1m"
-            title="Касание порога на 1м tip: μ/σ по completed M15 + текущий 1м спред. Settle +10с как Prod tip1m AUTO (бар actionable после close+settle или следующего tip). Считает сервер.">касание 1м</button>
-          <label class="live-check tip-regime-check" title="Спред-% уровни (Prod AUTO): Short ≥6.2 / ≤5.8 · Long ≤3.2 / ≥4.0 · переход без входа · без Z">
-            <input type="checkbox" id="tipSpreadLevels" checked />
-            спред-уровни
-          </label>
+            title="Касание порога на 1м tip. Уровни спреда как Prod AUTO (Short 6.2/5.8 · Long 3.2/4.0). Считает сервер.">касание 1м</button>
       </div>
       <button type="button" class="btn btn-sm btn-primary" id="btnRefreshMoex" title="Дотянуть хвост с MOEX ISS и обновить бары теста">Обновить MOEX</button>
       <span class="moex-last-bar" id="moexLastBarTs" title="Последний бар в данных теста (M15)"></span>
@@ -142,7 +153,7 @@
         <div class="trade-chart-stack" id="tradeChartStack">
           <div class="trade-pane-z-wrap" id="tradeZPane">
             <div class="pnl-head">
-              <div class="pnl-label" id="tradeZChartLabel">Спред % · tip1m</div>
+              <div class="pnl-label" id="tradeZChartLabel">Татнефть · спред % · tip1m</div>
               <div class="pnl-head-right">
                 <span class="meta" id="tradeThreshLabel">уровни L 3.2/4.0 · S 5.8/6.2</span>
                 <button type="button" class="pane-collapse-btn" id="btnExpandTradeZ" aria-pressed="false" title="На весь экран">⛶</button>
@@ -157,8 +168,9 @@
           <div class="split-divider-h" id="tradeSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота графиков спреда" title="Перетащите · двойной клик — сброс"></div>
           <div class="trade-pane-spread-wrap" id="tradeSpreadPane">
             <div class="pnl-head">
-              <div class="pnl-label" id="tradeSpreadChartLabel">Спред % · tip1m</div>
+              <div class="pnl-label" id="tradeSpreadChartLabel">Мечел · спред % · m15</div>
               <div class="pnl-head-right">
+                <span class="meta" id="tradeMtlrThreshLabel">уровни L 3.2/4.3 · S 8.4/8.9</span>
                 <button type="button" class="pane-collapse-btn" id="btnExpandTradeSpread" aria-pressed="false" title="На весь экран">⛶</button>
               </div>
             </div>
@@ -257,6 +269,21 @@
           </div>
           <div class="trade-mid-tab-panes">
             <div class="trade-mid-tab-pane trade-checklist active" data-mid-pane="check" id="tradeChecklistPanel" role="tabpanel" aria-labelledby="tradeMidTabCheck">
+              <div class="trade-mtlr-card" id="tradeMtlrCard" aria-label="Мечел m15" hidden>
+                <div class="trade-mtlr-head">
+                  <span class="trade-mtlr-title">Мечел</span>
+                  <span class="trade-mtlr-badge" id="tradeMtlrBadge">m15</span>
+                </div>
+                <div class="trade-mtlr-row" id="tradeMtlrMain">—</div>
+                <div class="trade-mtlr-meta" id="tradeMtlrMeta">Short 8.9→8.4 · Long 3.2→4.3</div>
+                <div class="trade-mtlr-open" id="tradeMtlrOpen" hidden></div>
+                <div class="trade-mtlr-sig" id="tradeMtlrSig"></div>
+                <div class="trade-mtlr-actions" id="tradeMtlrActions">
+                  <button type="button" class="btn btn-sm btn-long" id="tradeMtlrBtnLong" disabled title="Ручной Long Мечел (отдельно от Татнефть)">Long</button>
+                  <button type="button" class="btn btn-sm btn-short" id="tradeMtlrBtnShort" disabled title="Ручной Short Мечел">Short</button>
+                  <button type="button" class="btn btn-sm btn-close-all" id="tradeMtlrBtnClose" disabled title="Закрыть спред Мечел на брокере">Закрыть</button>
+                </div>
+              </div>
               <div class="trade-check-hint" id="tradeCheckHint">ожидание данных…</div>
               <div class="trade-check-section">
                 <div class="trade-check-title">Общее</div>
@@ -320,16 +347,30 @@
                     <option value="3">3%</option>
                   </select>
                 </label>
-                <label class="live-check" title="Спред-% уровни (AUTO): Short enter≥6.2 exit≤5.8 · Long enter≤3.2 exit≥4.0 · переход без входа · без Z">
-                  <input type="checkbox" id="tradeSpreadLevels" checked />
-                  Спред-уровни
-                </label>
                 <label class="live-check">
                   <input type="checkbox" id="tradeAutoExec" />
                   Авто
                 </label>
-                <button type="button" class="btn btn-sm btn-primary" id="tradeBtnSaveParams" title="Сохранить ТП, плечо, спред-уровни и Авто на сервер (монитор Prod tip1m)">Сохранить</button>
+                <button type="button" class="btn btn-sm btn-primary" id="tradeBtnSaveParams" title="Сохранить ТП, плечо и Авто на сервер (монитор Prod tip1m, уровни спреда всегда)">Сохранить</button>
                 <span class="trade-params-status" id="tradeParamsStatus" aria-live="polite"></span>
+              </div>
+              <div class="trade-params-mtlr" id="tradeParamsMtlr">
+                <div class="trade-params-mtlr-title">Мечел (MTLR/MTLRP)</div>
+                <div class="live-row live-actions trade-params-actions">
+                  <label class="live-check" title="Показывать сигналы Мечела по 15м">
+                    <input type="checkbox" id="tradeMtlrEnabled" checked />
+                    Тень Мечел
+                  </label>
+                  <label class="live-check" title="Ордера Мечела по m15 (отдельно от Авто Татнефть). По умолчанию выкл.">
+                    <input type="checkbox" id="tradeMtlrAuto" />
+                    Авто Мечел
+                  </label>
+                  <label class="live-field trade-mtlr-deposit" title="Депозит на вход Мечела (малый размер для prod)">
+                    <span>Депозит Мечел ₽</span>
+                    <input type="number" id="tradeMtlrDeposit" min="1000" max="10000000" step="500" value="12000" />
+                  </label>
+                </div>
+                <div class="meta trade-params-mtlr-hint">Уровни Short 8.9→8.4 · Long 3.2→4.3 · m15 · корзина ≤2 · ТП общий (параметр выше) · Татнефть tip1m отдельно</div>
               </div>
             </div>
           </div>
@@ -480,7 +521,7 @@
       <div class="chart-wrap">
         <div class="chart-stack" id="chartStack">
           <div class="chart-pane-z-wrap">
-            <div class="pnl-label test-primary-chart-label" id="testPrimaryChartLabel">Z-score · M15</div>
+            <div class="pnl-label test-primary-chart-label" id="testPrimaryChartLabel">Спред %</div>
             <div id="openTradeOverlay" class="open-trade-overlay hidden"></div>
             <div id="chart" class="chart-pane-z"></div>
           </div>
@@ -610,19 +651,34 @@
                 <button type="button" class="chip" id="btnHmRecompute" title="Пересчитать heatmap">↻</button>
               </div>
               <div class="z-heatmap-controls z-heatmap-strategy" id="zHeatmapStrategyControls">
-                <label class="meta" title="Порог входа теста (как в тулбаре)">Вх ±
+                <label class="meta z-thresh-only" title="Порог входа теста (как в тулбаре)">Вх ±
                   <select id="hmEntrySel"></select>
                 </label>
-                <label class="meta" title="Порог выхода теста (как в тулбаре)">Вых ±
+                <label class="meta z-thresh-only" title="Порог выхода теста (как в тулбаре)">Вых ±
                   <select id="hmExitSel"></select>
                 </label>
-                <button type="button" class="chip" id="btnHmCopyLive" title="Скопировать пороги с вкладки Торговля в этот тест">из Торговли</button>
+                <button type="button" class="chip z-thresh-only" id="btnHmCopyLive" title="Скопировать пороги с вкладки Торговля в этот тест">из Торговли</button>
                 <label class="meta" title="Take-profit % от номинала">TP
                   <select id="hmTpSel">
                     <option value="0" selected>выкл</option>
                     <option value="1">1%</option>
                     <option value="2">2%</option>
                     <option value="3">3%</option>
+                  </select>
+                </label>
+                <label class="meta tip1m-hold" title="Закрыть, если за N дней нет хода к выходу ≥0,2 п.п. и MTM &lt; 0">Нет хода
+                  <select id="hmHoldNoTrendSel">
+                    <option value="0" selected>выкл</option>
+                    <option value="5">5д</option>
+                    <option value="7">7д</option>
+                    <option value="10">10д</option>
+                  </select>
+                </label>
+                <label class="meta tip1m-hold" title="Закрыть, если N дней в минусе">В минусе
+                  <select id="hmHoldLosingSel">
+                    <option value="0" selected>выкл</option>
+                    <option value="7">7д</option>
+                    <option value="10">10д</option>
                   </select>
                 </label>
                 <div class="risk-exit-groups hm-risk-exit-groups" id="hmRiskExitGroups" role="group" aria-label="Risk exit heatmap"></div>
@@ -674,14 +730,14 @@
 
   <script src="/static/lightweight-charts.standalone.production.js?v=20260723a12"></script>
   <!-- replay engine split (load order matters) -->
-  <script src="/static/replay-sim.js?v=20260815invest1"></script>
+  <script src="/static/replay-sim.js?v=20260817spreadRisk1"></script>
   <script src="/static/replay-equity.js?v=20260807spread1"></script>
-  <script src="/static/replay-signals.js?v=20260723a12"></script>
-  <script src="/static/replay-engine-core.js?v=20260810noz1"></script>
+  <script src="/static/replay-signals.js?v=20260817noZlab1"></script>
+  <script src="/static/replay-engine-core.js?v=20260817noZm15"></script>
   <script src="/static/chart.js?v=20260807spread1"></script>
-  <script src="/static/trade.js?v=20260815bands1"></script>
-  <script src="/static/history.js?v=20260815invest1"></script>
+  <script src="/static/trade.js?v=20260817mtlr6m"></script>
+  <script src="/static/history.js?v=20260817spreadRisk1"></script>
   <script src="/static/live.js?v=20260726otc2"></script>
-  <script src="/static/app.js?v=20260815noz1"></script>
+  <script src="/static/app.js?v=20260817noZlab1"></script>
 </body>
 </html>

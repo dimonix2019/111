@@ -97,8 +97,8 @@
   let spreadPriceLines = [];
   /**
    * Semi-transparent trade-band fills (BaselineSeries) — same style as Test/chart.js.
-   * Bounds from desk.spread_levels.levels (L вх/вых · gap · S вых/вх) — not regime cuts.
-   * primary* → upper candle pane; spreadRegime* → lower yellow S% line.
+   * Bounds from enter/exit levels (L вх/вых · gap · S вых/вх) — not regime cuts.
+   * primary* → upper TATN candle pane; spreadRegime* → lower MTLR candle pane.
    */
   let spreadRegimeBands = { narrow: null, transition: null, wide: null };
   let primarySpreadBands = { narrow: null, transition: null, wide: null };
@@ -113,11 +113,16 @@
     // Maroon/red — Short band (S вых … S вх)
     wide: 'rgba(136, 14, 79, 0.22)',
   };
-  /** Линия вход→сейчас / hover вход→выход на Z (parity Тест). */
+  /** Линия вход→сейчас / hover вход→выход на верхнем TATN. */
   let openHighlightSeries = null;
   let openMarkersPlugin = null;
-  /** Те же маркеры сделок на жёлтой линии S% (sync с Z). */
+  /** Маркеры сделок Мечела на нижнем pane (не TATN). */
   let openSpreadMarkersPlugin = null;
+  /** Bottom pane: CandlestickSeries (MTLR m15) — not yellow TATN line. */
+  let spreadSeriesIsLine = false;
+  let lastMtlrBars = [];
+  let lastMtlrLevels = null;
+  let lastMtlrMarkers = [];
   let lastOpenTradeFp = '';
   /** Режим счёта с последнего desk refresh (prod|sandbox) — для confirm ручного входа. */
   let lastTradeMode = '';
@@ -178,28 +183,31 @@
     zEmpty = false,
     lookbackDays = null,
     spreadLevels = null,
+    mtlrLevels = null,
+    mtlrEmpty = false,
   } = {}) {
     const zLab = $('tradeZChartLabel');
     const spLab = $('tradeSpreadChartLabel');
     const thLab = $('tradeThreshLabel');
+    const mtlrThLab = $('tradeMtlrThreshLabel');
     const lb = (lookbackDays != null && Number(lookbackDays) > 0)
       ? ` · до ${Number(lookbackDays)}д`
       : '';
     if (zLab) {
       if (dealer1m && zEmpty) {
-        zLab.textContent = 'Спред % · нет баров дилер 1м';
+        zLab.textContent = 'Татнефть · спред % · нет баров дилер 1м';
       } else if (dealer1m) {
-        zLab.textContent = `Спред % · дилер 1м (монитор · не AUTO)${lb}`;
+        zLab.textContent = `Татнефть · спред % · дилер 1м (монитор · не AUTO)${lb}`;
       } else {
-        zLab.textContent = 'Спред % · tip1m';
+        zLab.textContent = 'Татнефть · спред % · tip1m';
       }
       zLab.classList.toggle('pnl-label-dealer', !!dealer1m);
     }
     if (spLab) {
-      spLab.textContent = dealer1m
-        ? `Спред % · дилер 1м${lb}`
-        : 'Спред % · tip1m';
-      spLab.classList.toggle('pnl-label-dealer', !!dealer1m);
+      spLab.textContent = mtlrEmpty
+        ? 'Мечел · спред % · нет баров m15'
+        : 'Мечел · спред % · m15';
+      spLab.classList.remove('pnl-label-dealer');
     }
     if (thLab) {
       thLab.classList.toggle('pnl-label-dealer', !!dealer1m);
@@ -216,6 +224,18 @@
         thLab.textContent = dealer1m
           ? 'уровни спреда · дилер монитор (не AUTO)'
           : 'уровни спреда';
+      }
+    }
+    if (mtlrThLab) {
+      const lv = mtlrLevels || lastMtlrLevels || {};
+      const en = Number(lv.enter_narrow);
+      const xn = Number(lv.exit_narrow);
+      const xw = Number(lv.exit_wide);
+      const ew = Number(lv.enter_wide);
+      if ([en, xn, xw, ew].every((n) => Number.isFinite(n))) {
+        mtlrThLab.textContent = `уровни L ${fmt(en, 1)}/${fmt(xn, 1)} · S ${fmt(xw, 1)}/${fmt(ew, 1)}`;
+      } else {
+        mtlrThLab.textContent = 'уровни L 3.2/4.3 · S 8.4/8.9';
       }
     }
   }
@@ -334,17 +354,38 @@
     userPinnedAwayFromLive = !!saved.pinnedAway;
   }
 
-  /** Z и Spread = одинаковые time keys → один logical range (пиксель в пиксель). */
+  /** Верх TATN (logical pin) + низ MTLR — один календарный интервал по времени. */
   function applyVisibleRange(range) {
     if (!range || !zChart) return;
     suppressRangeEvents = true;
     try {
       equalizePriceScales();
       zChart.timeScale().setVisibleLogicalRange(range);
-      spreadChart?.timeScale().setVisibleLogicalRange(range);
+      syncBottomPaneToTopTime();
     } catch (_) { /* ignore */ }
     // Не снимаем suppress сразу: LC часто шлёт range-change в следующем кадре
     scheduleEndSuppress();
+  }
+
+  /** TATN tip1m ↔ MTLR m15: sync by calendar time, not logical bar index. */
+  function syncBottomPaneToTopTime() {
+    if (!zChart || !spreadChart) return;
+    try {
+      const tr = zChart.timeScale().getVisibleRange();
+      if (tr && tr.from != null && tr.to != null) {
+        spreadChart.timeScale().setVisibleRange(tr);
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  function syncTopPaneToBottomTime() {
+    if (!zChart || !spreadChart) return;
+    try {
+      const tr = spreadChart.timeScale().getVisibleRange();
+      if (tr && tr.from != null && tr.to != null) {
+        zChart.timeScale().setVisibleRange(tr);
+      }
+    } catch (_) { /* ignore */ }
   }
 
   function scheduleEndSuppress() {
@@ -365,30 +406,14 @@
     } catch (_) { /* ignore */ }
   }
 
-  /** После paint ещё раз навязать общий logical range (setData/fit асинхронно съезжают). */
+  /** После paint ещё раз навязать общий time-range (setData/fit асинхронно съезжают). */
   function forceSyncAfterPaint() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (!pinnedRange || !zChart || !spreadChart) return;
         equalizePriceScales();
         reassertPinnedRange();
-        try {
-          const zr = zChart.timeScale().getVisibleLogicalRange();
-          const sr = spreadChart.timeScale().getVisibleLogicalRange();
-          if (zr && sr) {
-            const mid = {
-              from: (zr.from + sr.from) / 2,
-              to: (zr.to + sr.to) / 2,
-            };
-            // Если разошлись >0.05 бара — взять Z как источник истины
-            if (Math.abs(zr.from - sr.from) > 0.05 || Math.abs(zr.to - sr.to) > 0.05) {
-              setPinnedRange(zr, { fromUser: false });
-              applyVisibleRange(zr);
-            } else if (!pinnedRange) {
-              setPinnedRange(mid, { fromUser: false });
-            }
-          }
-        } catch (_) { /* ignore */ }
+        syncBottomPaneToTopTime();
       });
     });
   }
@@ -400,7 +425,7 @@
     try {
       equalizePriceScales();
       zChart.timeScale().setVisibleLogicalRange(pinnedRange);
-      spreadChart?.timeScale().setVisibleLogicalRange(pinnedRange);
+      syncBottomPaneToTopTime();
     } catch (_) { /* ignore */ }
     scheduleEndSuppress();
   }
@@ -436,17 +461,38 @@
         return;
       }
 
-      // Реальный жест — общий logical range на оба графика (Z↔Spread)
-      setPinnedRange(range, { fromUser: true });
+      // Жест: pin по верхнему TATN (logical); низ — тот же календарный интервал.
       suppressRangeEvents = true;
       try {
-        if (source !== 'z') zChart.timeScale().setVisibleLogicalRange(range);
-        if (source !== 'spread') spreadChart.timeScale().setVisibleLogicalRange(range);
+        if (source === 'z') {
+          setPinnedRange(range, { fromUser: true });
+          syncBottomPaneToTopTime();
+        } else {
+          syncTopPaneToBottomTime();
+          const zr = zChart.timeScale().getVisibleLogicalRange();
+          if (zr) setPinnedRange(zr, { fromUser: true });
+        }
       } catch (_) { /* ignore */ }
       scheduleEndSuppress();
     };
     zChart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange('z'));
     spreadChart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange('spread'));
+  }
+
+  function nearestPriceByTime(map, time) {
+    if (!map || time == null) return null;
+    if (map.has(time)) return map.get(time);
+    let best = null;
+    let bestD = Infinity;
+    for (const [t, v] of map) {
+      const d = Math.abs(t - time);
+      if (d < bestD) {
+        bestD = d;
+        best = v;
+      }
+    }
+    // ~½ m15 bar — enough for tip1m↔m15 crosshair
+    return bestD <= 450 ? best : null;
   }
 
   function bindCrosshairSync() {
@@ -467,7 +513,8 @@
         clearOther(dst);
         return;
       }
-      const price = (src === 'z' ? spPriceByTime : zPriceByTime).get(param.time);
+      const priceMap = src === 'z' ? spPriceByTime : zPriceByTime;
+      const price = nearestPriceByTime(priceMap, param.time);
       if (price == null || typeof dst.setCrosshairPosition !== 'function') {
         clearOther(dst);
         return;
@@ -517,10 +564,10 @@
    * @param {number} [spreadCount]
    */
   function restoreOrFitVisibleRange(zCount, spreadCount) {
-    // Z и Spread 1:1 по времени — длина берём по минимуму (должны совпадать)
+    // Pin/live follow по верхнему TATN; низ MTLR подтягивается по времени.
     const zN = Math.max(0, zCount | 0);
     const spN = spreadCount != null ? Math.max(0, spreadCount | 0) : zN;
-    const n = Math.min(zN, spN) || zN || spN;
+    const n = zN || spN;
     const dataEnd = dataEndIndex(n);
     lastBarCount = n;
     lastDataEnd = dataEnd;
@@ -1119,11 +1166,8 @@
     if (typeof classifySpreadRegime !== 'function') return '';
     const r = classifySpreadRegime(bars || []);
     if (!r || r.key === 'na') return '';
-    const zPart = r.zLabel
-      ? ` <span class="badge-quiet">· ${escapeHtml(r.zLabel)}</span>`
-      : '';
     return `<span class="badge-regime badge-regime-${escapeHtml(r.key)}" title="${escapeHtml(r.title)}">`
-      + `${escapeHtml(r.label)}${zPart}</span>`;
+      + `${escapeHtml(r.label)}</span>`;
   }
 
   /**
@@ -1163,6 +1207,9 @@
         timeVisible: true,
         secondsVisible: false,
         tickMarkFormatter: formatChartTick,
+        // 3М tip1m ≈ 70k свечей: без этого fitContent схлопывает ось (как на Тесте).
+        minBarSpacing: 0.001,
+        maxBarSpacing: 64,
       },
       localization: {
         locale: 'ru-RU',
@@ -1272,7 +1319,22 @@
   }
 
   function ensureSpreadRegimeBands(levels) {
-    ensureSpreadBandsOnChart(spreadChart, spreadRegimeBands, levels);
+    if (!spreadChart) return;
+    const created = ensureSpreadBandsOnChart(spreadChart, spreadRegimeBands, levels);
+    if (created && spreadSeries) {
+      const wantLine = spreadSeriesIsLine;
+      spreadPriceLines.forEach((pl) => {
+        try { spreadSeries.removePriceLine(pl); } catch (_) {}
+      });
+      spreadPriceLines = [];
+      openSpreadMarkersPlugin = null;
+      try {
+        if (typeof spreadChart.removeSeries === 'function') spreadChart.removeSeries(spreadSeries);
+      } catch (_) {}
+      spreadSeries = null;
+      spreadSeriesIsLine = !wantLine;
+      ensureSpreadSeriesKind(wantLine);
+    }
   }
 
   /**
@@ -1427,11 +1489,48 @@
     return true;
   }
 
+  /** Bottom MTLR pane: candles by default (same as TATN top). */
+  function ensureSpreadSeriesKind(wantLine) {
+    if (!spreadChart) return false;
+    const asLine = !!wantLine;
+    if (spreadSeries && spreadSeriesIsLine === asLine) return false;
+    spreadPriceLines.forEach((pl) => {
+      try { if (spreadSeries) spreadSeries.removePriceLine(pl); } catch (_) {}
+    });
+    spreadPriceLines = [];
+    openSpreadMarkersPlugin = null;
+    if (spreadSeries) {
+      try {
+        if (typeof spreadChart.removeSeries === 'function') spreadChart.removeSeries(spreadSeries);
+      } catch (_) {}
+      spreadSeries = null;
+    }
+    if (asLine) {
+      spreadSeries = makeZLineSeries(spreadChart);
+      spreadSeriesIsLine = !!spreadSeries;
+    } else {
+      const candle = makeZCandleSeries(spreadChart);
+      if (candle) {
+        spreadSeries = candle;
+        spreadSeriesIsLine = false;
+      } else {
+        spreadSeries = makeZLineSeries(spreadChart);
+        spreadSeriesIsLine = !!spreadSeries;
+      }
+    }
+    lastBarsFingerprint = '';
+    forceFitContent = true;
+    return true;
+  }
+
   function ensureCharts() {
     if (typeof LightweightCharts === 'undefined') return;
     const zEl = $('tradeZChart');
     const sEl = $('tradeSpreadChart');
     if (!zEl || !sEl) return;
+    const zoom = { minBarSpacing: 0.001, maxBarSpacing: 64 };
+    try { zChart?.timeScale()?.applyOptions?.(zoom); } catch (_) { /* ignore */ }
+    try { spreadChart?.timeScale()?.applyOptions?.(zoom); } catch (_) { /* ignore */ }
     if (!zChart) {
       zChart = LightweightCharts.createChart(zEl, {
         layout: { background: { color: '#161a25' }, textColor: '#d1d4dc' },
@@ -1485,39 +1584,20 @@
         ...chartTimeOpts(),
         ...CHART_SCROLL_SCALE,
       });
-      // Trade-band fills first (drawn under yellow S% line).
+      // Trade-band fills first (under MTLR candles) — Mechel levels.
       ensureSpreadRegimeBands({
-        enter_wide: 6.2, exit_wide: 5.8, enter_narrow: 3.2, exit_narrow: 4.0,
+        enter_wide: 8.9, exit_wide: 8.4, enter_narrow: 3.2, exit_narrow: 4.3,
       });
-      const dashStyle = (typeof LightweightCharts !== 'undefined'
-        && LightweightCharts.LineStyle
-        && LightweightCharts.LineStyle.Dashed != null)
-        ? LightweightCharts.LineStyle.Dashed
-        : 2;
-      spreadSeries = addSeries(spreadChart, 'LineSeries', {
-        color: '#f0b90b',
-        lineWidth: 2,
-        lastValueVisible: true,
-        priceLineVisible: true,
-        priceLineWidth: 1,
-        priceLineColor: '#f0b90b',
-        priceLineStyle: dashStyle,
-      });
-    } else if (spreadSeries && typeof spreadSeries.applyOptions === 'function') {
-      const dashStyle = (typeof LightweightCharts !== 'undefined'
-        && LightweightCharts.LineStyle
-        && LightweightCharts.LineStyle.Dashed != null)
-        ? LightweightCharts.LineStyle.Dashed
-        : 2;
-      try {
-        spreadSeries.applyOptions({
-          lastValueVisible: true,
-          priceLineVisible: true,
-          priceLineWidth: 1,
-          priceLineColor: '#f0b90b',
-          priceLineStyle: dashStyle,
-        });
-      } catch (_) { /* */ }
+      const candle = makeZCandleSeries(spreadChart);
+      if (candle) {
+        spreadSeries = candle;
+        spreadSeriesIsLine = false;
+      } else {
+        spreadSeries = makeZLineSeries(spreadChart);
+        spreadSeriesIsLine = !!spreadSeries;
+      }
+    } else if (spreadSeries && spreadSeriesIsLine) {
+      ensureSpreadSeriesKind(false);
     }
     equalizePriceScales();
     bindRangeSync();
@@ -1790,7 +1870,44 @@
     }
     const t = entry.time;
     const hasZ = (zData || []).some((c) => c && c.time === t);
-    const hasSp = (spreadPts || []).some((p) => p && p.time === t);
+    const dualPane = Array.isArray(spreadPts) && spreadPts.length > 0;
+    const hasSp = dualPane && spreadPts.some((p) => p && p.time === t);
+    // TATN/MTLR now paint one candle series; zip vs empty spreadPts left 1 bar
+    // (all markers stacked at the live tick — «Аид» вместо свечей).
+    if (!dualPane) {
+      let nextZ = zData ? zData.slice() : [];
+      let nextBars = bars ? bars.slice() : [];
+      if (!hasZ) {
+        const z = Number(entry.z);
+        const zVal = Number.isFinite(z) ? z : 0;
+        const spN = Number(entry.spread != null ? entry.spread : open.entry_spread);
+        const spVal = Number.isFinite(spN) ? spN : zVal;
+        const candleVal = primarySpread ? spVal : zVal;
+        nextZ.push({
+          time: t, open: candleVal, high: candleVal, low: candleVal, close: candleVal,
+        });
+        nextZ.sort((a, b) => a.time - b.time);
+      }
+      if (entry.synthetic && !nextBars.some((b) => toChartTime(b.time, b.timestampMs) === t)) {
+        const z = Number(entry.z);
+        const zVal = Number.isFinite(z) ? z : 0;
+        const spN = Number(entry.spread != null ? entry.spread : open.entry_spread);
+        const spVal = Number.isFinite(spN) ? spN : zVal;
+        nextBars.push({
+          time: open.entry_time,
+          timestampMs: t * 1000,
+          z: zVal,
+          spread: spVal,
+          interval: '1m',
+          source: primarySpread ? 'tinvest_dealer_1m' : 'tip1m',
+          for_z: !primarySpread,
+        });
+        nextBars.sort((a, b) => (
+          (toChartTime(a.time, a.timestampMs) || 0) - (toChartTime(b.time, b.timestampMs) || 0)
+        ));
+      }
+      return { zData: nextZ, spreadPts, bars: nextBars };
+    }
     if (hasZ && hasSp && !entry.synthetic) {
       const synced = syncChartSeriesByTime(zData, spreadPts);
       return { zData: synced.zData, spreadPts: synced.spreadPts, bars };
@@ -1801,9 +1918,9 @@
     const spVal = Number.isFinite(spN) ? spN : zVal;
     const candleVal = primarySpread ? spVal : zVal;
     let nextZ = zData ? zData.slice() : [];
-    let nextSp = spreadPts ? spreadPts.slice() : [];
+    let nextSp = spreadPts.slice();
     let nextBars = bars ? bars.slice() : [];
-    // Always inject into BOTH panes — never leave Z/spread length mismatch.
+    // Dual pane: inject into BOTH series — never leave Z/spread length mismatch.
     if (!hasZ) {
       nextZ.push({
         time: t, open: candleVal, high: candleVal, low: candleVal, close: candleVal,
@@ -1945,7 +2062,10 @@
   }
 
   function refreshDeskMarkers() {
-    applyTradeMarkers(buildMarkerRenderData(lastDeskMarkers, hoverTradeId));
+    applyTradeMarkers(
+      buildMarkerRenderData(lastDeskMarkers, hoverTradeId),
+      buildMarkerRenderData(lastMtlrMarkers, null),
+    );
     applyHighlightForActiveTrade();
   }
 
@@ -2032,10 +2152,12 @@
     return pluginRef;
   }
 
-  function applyTradeMarkers(markerData) {
-    openMarkersPlugin = applyMarkersToSeries(zSeries, openMarkersPlugin, markerData);
+  function applyTradeMarkers(tatnMarkerData, mtlrMarkerData) {
+    openMarkersPlugin = applyMarkersToSeries(
+      zSeries, openMarkersPlugin, tatnMarkerData || [],
+    );
     openSpreadMarkersPlugin = applyMarkersToSeries(
-      spreadSeries, openSpreadMarkersPlugin, markerData,
+      spreadSeries, openSpreadMarkersPlugin, mtlrMarkerData || [],
     );
   }
 
@@ -2189,13 +2311,26 @@
     return { markers, trades };
   }
 
-  function updateOpenTradeOnChart(open, bars, closed = []) {
+  function updateOpenTradeOnChart(open, bars, closed = [], {
+    mtlrOpen = null,
+    mtlrBars = null,
+    mtlrClosed = null,
+  } = {}) {
     ensureCharts();
-    const built = buildDeskTradeMarkers(closed, open, bars);
-    lastDeskMarkers = built.markers;
-    lastDeskTrades = built.trades;
+    const tatnBuilt = buildDeskTradeMarkers(closed, open, bars);
+    lastDeskMarkers = tatnBuilt.markers;
+    lastDeskTrades = tatnBuilt.trades;
+    const mtlrBuilt = buildDeskTradeMarkers(
+      mtlrClosed || [],
+      mtlrOpen || null,
+      mtlrBars != null ? mtlrBars : lastMtlrBars,
+    );
+    lastMtlrMarkers = mtlrBuilt.markers;
     if (hoverTradeId && !deskTradeById(hoverTradeId)) hoverTradeId = null;
-    applyTradeMarkers(buildMarkerRenderData(lastDeskMarkers, hoverTradeId));
+    applyTradeMarkers(
+      buildMarkerRenderData(tatnBuilt.markers, hoverTradeId),
+      buildMarkerRenderData(mtlrBuilt.markers, null),
+    );
 
     if (!open || !bars || !bars.length) {
       clearOpenTradeOnChart();
@@ -2674,9 +2809,30 @@
   }
 
   /**
-   * Spread % candles (top, Test-style) + yellow spread line (bottom).
-   * tip1m и дилер 1м — один путь. Prefer spread_open/high/low; else prevSp→currSp.
-   * Z не используется для отрисовки.
+   * If API still clips MTLR m15 to 2500 bars (~45д), fill 1М/3М/6М from sidecar.
+   */
+  async function ensureMtlrChartBars(bars, wantDays) {
+    const d = Math.max(1, Number(wantDays) || 7);
+    const span = tip1mSpanDays(bars);
+    const covers = d <= 30
+      ? (Array.isArray(bars) && bars.length >= 2)
+      : span >= Math.min(d * 0.45, d - 0.4);
+    if (Array.isArray(bars) && bars.length >= 5 && covers) return bars;
+    try {
+      const r = await fetch(`/static/desk_mtlr_m15.json?v=${Date.now()}`, { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        const raw = filterTip1mBarsByDays(j && j.bars, d);
+        const spanSide = tip1mSpanDays(raw);
+        const okSpan = d <= 30 || spanSide >= Math.min(d * 0.45, d - 0.4);
+        if (Array.isArray(raw) && raw.length >= 5 && okSpan) return raw;
+      }
+    } catch (_) { /* keep API bars */ }
+    return bars || [];
+  }
+
+  /**
+   * Spread % candles for TATN tip1m/dealer (top). Prefer spread_open/high/low; else prevSp→currSp.
    */
   function buildSpread1mChartSeries(bars) {
     const candlePts = [];
@@ -2709,6 +2865,31 @@
     return { zPts: candlePts, spreadPts };
   }
 
+  /**
+   * Spread % candles for MTLR m15 (bottom pane). Allows ~15m step.
+   */
+  function buildSpreadM15ChartSeries(bars) {
+    const candlePts = [];
+    const seen = new Set();
+    let prevSp = null;
+    for (const b of bars || []) {
+      if (!b) continue;
+      const t = toChartTime(b.time, b.timestampMs);
+      if (t == null || seen.has(t)) continue;
+      const sp = b.spread != null ? Number(b.spread) : NaN;
+      if (!Number.isFinite(sp)) continue;
+      seen.add(t);
+      const candle = spreadCandleFromBar(b, sp, prevSp);
+      if (!candle) continue;
+      candlePts.push({ time: t, ...candle });
+      prevSp = sp;
+    }
+    return candlePts;
+  }
+
+  /**
+   * Top: TATN tip1m/dealer spread candles. Bottom: MTLR m15 spread candles + Mechel levels.
+   */
   function renderCharts(bars, entry, exitZ, openTrade = null, closedTrades = [], {
     dealer1m = false,
     weekendMonitor = false,
@@ -2716,22 +2897,26 @@
     spreadLevels = null,
     spreadCuts = null,
     lookbackDays = null,
+    mtlrBars = null,
+    mtlrLevels = null,
+    mtlrOpen = null,
+    mtlrClosed = null,
   } = {}) {
     ensureCharts();
     const monMode = !!(dealer1m || weekendMonitor);
-    // Always prefer candles (dealer + tip1m). Line only if candle series missing.
     if (zSeriesIsLine || !zSeries) {
       ensureZSeriesKind(false);
     }
+    if (spreadSeriesIsLine || !spreadSeries) {
+      ensureSpreadSeriesKind(false);
+    }
     if (!zSeries || !spreadSeries) return;
 
-    // lite M15 → full dealer_1m: сбросить pin M15 и переfit, иначе спред выглядит как 15м
     if (monMode !== chartDealer1m) {
       chartDealer1m = monMode;
       forceFitContent = true;
       clearPinState();
     }
-    // Всегда верхний pane = свечи спреда (как Test) — без Z.
     if (!chartPrimarySpread) {
       chartPrimarySpread = true;
       forceFitContent = true;
@@ -2739,42 +2924,54 @@
     }
 
     let zData = [];
-    let spreadPts = [];
     let paintBars = bars;
+    const mtlrPaint = Array.isArray(mtlrBars) ? mtlrBars : lastMtlrBars;
+    if (Array.isArray(mtlrBars)) lastMtlrBars = mtlrBars.slice();
+    const mtlrLv = mtlrLevels || lastMtlrLevels || {
+      enter_wide: 8.9, exit_wide: 8.4, enter_narrow: 3.2, exit_narrow: 4.3,
+    };
+    if (mtlrLevels) lastMtlrLevels = mtlrLevels;
 
     const built = buildSpread1mChartSeries(paintBars);
     zData = built.zPts;
-    spreadPts = built.spreadPts;
     if (openTrade) {
-      const inj = injectOpenEntryIntoChartSeries(zData, spreadPts, openTrade, paintBars, {
+      const inj = injectOpenEntryIntoChartSeries(zData, [], openTrade, paintBars, {
         primarySpread: true,
       });
       zData = inj.zData;
-      spreadPts = inj.spreadPts;
       paintBars = inj.bars;
     }
-    const synced = syncChartSeriesByTime(zData, spreadPts);
-    zData = synced.zData;
-    spreadPts = synced.spreadPts;
+
+    let mtlrCandlePts = buildSpreadM15ChartSeries(mtlrPaint);
+    if (mtlrOpen) {
+      const injM = injectOpenEntryIntoChartSeries(
+        mtlrCandlePts, [], mtlrOpen, mtlrPaint, { primarySpread: true },
+      );
+      mtlrCandlePts = injM.zData;
+    }
 
     zPriceByTime = new Map(zData.map((c) => [c.time, c.close != null ? c.close : c.value]));
-    spPriceByTime = new Map(spreadPts.map((p) => [p.time, p.value]));
+    spPriceByTime = new Map(mtlrCandlePts.map((c) => [
+      c.time, c.close != null ? c.close : c.value,
+    ]));
 
     const zEmpty = zData.length === 0;
+    const mtlrEmpty = mtlrCandlePts.length === 0;
     updateChartPaneLabels(monMode, {
       zEmpty: monMode && zEmpty,
       lookbackDays: monMode ? lookbackDays : null,
       spreadLevels,
+      mtlrLevels: mtlrLv,
+      mtlrEmpty,
     });
     if (monMode && zEmpty) {
-      setZEmptyMessage('Нет баров дилер 1м · ISS M15 не рисуем · спред внизу тоже пуст');
+      setZEmptyMessage('Нет баров дилер 1м · ISS M15 не рисуем · спред внизу — Мечел');
     } else if (!monMode && zEmpty) {
       setZEmptyMessage('Нет tip1m 1м · ISS M15 не рисуем под лейблом tip1m');
     } else {
       setZEmptyMessage('');
     }
 
-    // Bodies with open≠close (or real wick) count as visible candles.
     let bodyN = 0;
     for (const c of zData) {
       if (!c || c.open == null || c.close == null) continue;
@@ -2783,35 +2980,36 @@
         bodyN += 1;
       }
     }
-    const timesEqual = zData.length === spreadPts.length
-      && (zData.length === 0 || (
-        zData[0].time === spreadPts[0].time
-        && zData[zData.length - 1].time === spreadPts[spreadPts.length - 1].time
-      ));
     publishChartDebug({
       zPts: zData.length,
-      spPts: spreadPts.length,
+      spPts: mtlrCandlePts.length,
       bodyN,
       primary: chartPrimarySpread ? 'spread' : 'z',
+      bottom: 'mtlr_m15',
       sample: zData.length ? [zData[0], zData[zData.length - 1]] : null,
-      sync: { timesEqual, zN: zData.length, spN: spreadPts.length },
+      sync: { mode: 'time', zN: zData.length, mtlrN: mtlrCandlePts.length },
     });
 
-    const fp = barsFingerprint(paintBars) + '|zc' + zData.length + '|sp' + spreadPts.length
+    const fp = barsFingerprint(paintBars) + '|zc' + zData.length
+      + '|mtlr' + mtlrCandlePts.length + '|' + barsFingerprint(mtlrPaint)
       + '|c' + (closedTrades || []).length + '|o' + (openTrade ? openTrade.id : '')
+      + '|mc' + (mtlrClosed || []).length + '|mo' + (mtlrOpen ? mtlrOpen.id : '')
       + (monMode ? '|d1m' : '')
       + (zSeriesIsLine ? '|zl' : '|zcndl')
+      + (spreadSeriesIsLine ? '|sl' : '|scndl')
       + (chartPrimarySpread ? '|ps' : '|pz')
       + (zEmpty ? '|ze' : '')
-      + (Array.isArray(zBars) ? `|iss${zBars.length}` : '');
+      + (mtlrEmpty ? '|me' : '')
+      + (Array.isArray(zBars) ? '|iss' + zBars.length : '');
     const dataChanged = fp !== lastBarsFingerprint;
     lastBarsFingerprint = fp;
 
-    // Типичный poll без новых баров: не трогаем timescale вообще
     if (!dataChanged && !forceFitContent && pinnedRange) {
       setPrimarySpreadThresholdLines(spreadLevels);
-      setSpreadThresholdLines(spreadLevels);
-      updateOpenTradeOnChart(openTrade, paintBars, closedTrades);
+      setSpreadThresholdLines(mtlrLv);
+      updateOpenTradeOnChart(openTrade, paintBars, closedTrades, {
+        mtlrOpen, mtlrBars: mtlrPaint, mtlrClosed,
+      });
       if (userPinnedAwayFromLive) reassertPinnedRange();
       return;
     }
@@ -2835,42 +3033,56 @@
             zSeriesIsLine = true;
           }
         }
-        spreadSeries.setData(spreadPts);
+        if (spreadSeriesIsLine) {
+          spreadSeries.setData(mtlrCandlePts.map((c) => ({
+            time: c.time, value: c.close != null ? c.close : c.value,
+          })));
+        } else {
+          try { spreadSeries.setData(mtlrCandlePts); }
+          catch {
+            ensureSpreadSeriesKind(true);
+            spreadSeries.setData(mtlrCandlePts.map((c) => ({
+              time: c.time, value: c.close,
+            })));
+          }
+        }
       } catch (e) {
         suppressRangeEvents = false;
         publishChartDebug({
           zPts: zData.length,
-          spPts: spreadPts.length,
+          spPts: mtlrCandlePts.length,
           err: String(e && e.message || e),
-          sync: { timesEqual, zN: zData.length, spN: spreadPts.length },
+          sync: { mode: 'time', zN: zData.length, mtlrN: mtlrCandlePts.length },
         });
         throw e;
       }
-      // Trade-band fills need bar times before enter/exit price-lines refresh.
       updatePrimarySpreadBands(zData, spreadLevels);
-      updateSpreadRegimeBands(spreadPts, spreadLevels);
+      updateSpreadRegimeBands(mtlrCandlePts, mtlrLv);
       setPrimarySpreadThresholdLines(spreadLevels);
-      setSpreadThresholdLines(spreadLevels);
-      updateOpenTradeOnChart(openTrade, paintBars, closedTrades);
-      // Dealer monitor / series swap: always refit once after first paint.
+      setSpreadThresholdLines(mtlrLv);
+      updateOpenTradeOnChart(openTrade, paintBars, closedTrades, {
+        mtlrOpen, mtlrBars: mtlrPaint, mtlrClosed,
+      });
       if (monMode && (dataChanged || forceFitContent)) {
         forceFitContent = true;
       }
-      restoreOrFitVisibleRange(zData.length, spreadPts.length);
+      restoreOrFitVisibleRange(zData.length, mtlrCandlePts.length);
       forceSyncAfterPaint();
       publishChartDebug({
         zPts: zData.length,
-        spPts: spreadPts.length,
+        spPts: mtlrCandlePts.length,
         bodyN,
         primary: chartPrimarySpread ? 'spread' : 'z',
+        bottom: 'mtlr_m15',
         sample: zData.length ? [zData[0], zData[zData.length - 1]] : null,
-        sync: { timesEqual, zN: zData.length, spN: spreadPts.length },
+        sync: { mode: 'time', zN: zData.length, mtlrN: mtlrCandlePts.length },
       });
     } catch (e) {
       suppressRangeEvents = false;
       console.warn('trade chart', e);
     }
   }
+
   function syncTradeActionButtons(data) {
     const open = data && data.open;
     const flat = !open;
@@ -4207,7 +4419,7 @@
   function paramsFocused() {
     const ae = document.activeElement;
     return !!(ae && (ae.id === 'tradeLeverage' || ae.id === 'tradeAutoExec'
-      || ae.id === 'tradeTpSel' || ae.id === 'tradeSpreadLevels'
+      || ae.id === 'tradeTpSel'
       || ae.id === 'tradeEntryDeposit'));
   }
 
@@ -4242,6 +4454,12 @@
     return Math.max(1000, Math.min(10_000_000, Math.round(n)));
   }
 
+  function readMtlrDeposit() {
+    const n = parseFloat(String($('tradeMtlrDeposit')?.value || '').replace(',', '.'));
+    if (!Number.isFinite(n)) return null;
+    return Math.max(1000, Math.min(10_000_000, Math.round(n)));
+  }
+
   function readFormParams() {
     const leverage = parseFloat(String($('tradeLeverage')?.value || '').replace(',', '.'));
     const tpRaw = parseFloat(String($('tradeTpSel')?.value || '0').replace(',', '.'));
@@ -4252,8 +4470,11 @@
       leverage: Number.isFinite(leverage) ? leverage : null,
       take_profit_pct: takeProfit,
       auto_execute: !!$('tradeAutoExec')?.checked,
-      spread_level_mode: !!$('tradeSpreadLevels')?.checked,
+      spread_level_mode: true,
       entry_deposit_rub: readEntryDeposit(),
+      mtlr_enabled: !!$('tradeMtlrEnabled')?.checked,
+      mtlr_auto_execute: !!$('tradeMtlrAuto')?.checked,
+      mtlr_deposit_rub: readMtlrDeposit(),
     };
   }
 
@@ -4302,8 +4523,16 @@
       $('tradeEntryDeposit').value = String(dep);
     }
     if ($('tradeAutoExec')) $('tradeAutoExec').checked = !!settings.auto_execute;
-    if ($('tradeSpreadLevels')) {
-      $('tradeSpreadLevels').checked = settings.spread_level_mode !== false;
+    if ($('tradeMtlrEnabled')) {
+      $('tradeMtlrEnabled').checked = settings.mtlr_enabled !== false;
+    }
+    if ($('tradeMtlrAuto')) {
+      $('tradeMtlrAuto').disabled = false;
+      $('tradeMtlrAuto').checked = !!settings.mtlr_auto_execute;
+    }
+    if ($('tradeMtlrDeposit')) {
+      const dep = settings.mtlr_deposit_rub != null ? settings.mtlr_deposit_rub : 12000;
+      $('tradeMtlrDeposit').value = String(dep);
     }
   }
 
@@ -4371,7 +4600,10 @@
       }
     }
     setPrimarySpreadThresholdLines(spreadGuide.levels);
-    setSpreadThresholdLines(spreadGuide.levels);
+    // Bottom pane = Mechel levels (not TATN). Keep last MTLR or defaults.
+    setSpreadThresholdLines(lastMtlrLevels || {
+      enter_wide: 8.9, exit_wide: 8.4, enter_narrow: 3.2, exit_narrow: 4.3,
+    });
     return { entry: entryN, exitZ: exitN, spreadLevels: spreadGuide.levels, spreadCuts: spreadGuide.cuts };
   }
 
@@ -5302,6 +5534,11 @@
       if (cached) hydrateParams(cached);
     }
 
+    renderMtlrCard(data.mtlr || null, settings);
+    if (settings.mtlr_enabled !== false && (!data.mtlr || data.mtlr.warming)) {
+      refreshMtlrShadow({ force: false }).catch(() => {});
+    }
+
     const entry = settings.entry_z;
     const exitZ = settings.exit_z;
     const thEffDesk = effectiveThresholds(settings, data.regime, entry, exitZ);
@@ -5343,6 +5580,7 @@
     });
     renderChecklist(data);
 
+    const mtlr = data.mtlr || null;
     renderCharts(chartBars, th.entry, th.exitZ, data.open || null, data.closed || [], {
       dealer1m: dealer1mMode || barsLookDealer,
       weekendMonitor,
@@ -5353,6 +5591,10 @@
         || (data.dealer && data.dealer.lookback_days)
         || (data.dealer && data.dealer.want_days)
         || null,
+      mtlrBars: (mtlr && Array.isArray(mtlr.bars)) ? mtlr.bars : lastMtlrBars,
+      mtlrLevels: (mtlr && mtlr.levels) || lastMtlrLevels,
+      mtlrOpen: (mtlr && mtlr.open) || null,
+      mtlrClosed: (mtlr && Array.isArray(mtlr.closed)) ? mtlr.closed : [],
     });
   }
 
@@ -5477,6 +5719,11 @@
     // Keep chip days even if running API still coerces unknown windows → 7.
     data.days = days;
     data = await ensureWeekdayTip1mBars(data);
+    if (seq !== deskFetchSeq) return data;
+    if (data.mtlr && Array.isArray(data.mtlr.bars)) {
+      const mtlrBars = await ensureMtlrChartBars(data.mtlr.bars, days);
+      data.mtlr = { ...data.mtlr, bars: mtlrBars };
+    }
     if (seq !== deskFetchSeq) return data;
     rememberGoodChartBars(data.bars || [], data);
     // Late responses: never force-hydrate over newer in-flight work
@@ -5702,6 +5949,192 @@
     return 'hang-st-na';
   }
 
+  function fmtMtlrSig(sig) {
+    const s = String(sig || '');
+    if (s === 'ENTER_LONG') return 'вход Long';
+    if (s === 'ENTER_SHORT') return 'вход Short';
+    if (s === 'EXIT_LONG') return 'выход Long';
+    if (s === 'EXIT_SHORT') return 'выход Short';
+    return s || '—';
+  }
+
+  function renderMtlrCard(mtlr, settings) {
+    const card = $('tradeMtlrCard');
+    const main = $('tradeMtlrMain');
+    const meta = $('tradeMtlrMeta');
+    const sigEl = $('tradeMtlrSig');
+    const badge = $('tradeMtlrBadge');
+    const openEl = $('tradeMtlrOpen');
+    if (!card) return;
+    const enabled = mtlr
+      ? (mtlr.enabled !== false && !mtlr.disabled)
+      : (settings ? settings.mtlr_enabled !== false : true);
+    if (!enabled) {
+      card.hidden = true;
+      syncMtlrActionButtons(null);
+      return;
+    }
+    card.hidden = false;
+    const autoOn = !!(mtlr && mtlr.auto_execute)
+      || !!(settings && settings.mtlr_auto_execute);
+    if (badge) {
+      badge.textContent = (mtlr && mtlr.badge_ru) || (autoOn ? 'AUTO · m15' : 'тень · m15');
+    }
+    if (!mtlr || mtlr.warming) {
+      if (main) main.textContent = 'прогрев m15…';
+      if (meta) {
+        meta.textContent = `Short 8.9→8.4 · Long 3.2→4.3 · ${autoOn ? 'AUTO вкл' : 'AUTO выкл'}`;
+      }
+      if (openEl) {
+        openEl.hidden = true;
+        openEl.textContent = '';
+      }
+      if (sigEl) {
+        sigEl.textContent = '';
+        sigEl.classList.remove('is-edge');
+      }
+      syncMtlrActionButtons(mtlr || null);
+      return;
+    }
+    if (mtlr.ok === false) {
+      if (main) main.textContent = `ошибка: ${mtlr.error || '—'}`;
+      if (meta) meta.textContent = mtlr.note_ru || '';
+      if (openEl) {
+        openEl.hidden = true;
+        openEl.textContent = '';
+      }
+      if (sigEl) {
+        sigEl.textContent = '';
+        sigEl.classList.remove('is-edge');
+      }
+      syncMtlrActionButtons(mtlr);
+      return;
+    }
+    const s = mtlr.spread != null ? Number(mtlr.spread).toFixed(2) : '—';
+    const livePos = mtlr.live_position || (mtlr.open ? mtlr.open.direction : null);
+    const pos = livePos || mtlr.position || 'FLAT';
+    const reg = mtlr.regime_label_ru || mtlr.regime || '—';
+    if (main) {
+      main.textContent = `S ${s}% · ${pos} · ${reg}`;
+    }
+    const lv = mtlr.levels || {};
+    const dep = mtlr.deposit_rub != null
+      ? mtlr.deposit_rub
+      : (settings && settings.mtlr_deposit_rub != null ? settings.mtlr_deposit_rub : 12000);
+    if (meta) {
+      meta.textContent = [
+        `Short ${lv.enter_wide ?? 8.9}→${lv.exit_wide ?? 8.4}`,
+        `Long ${lv.enter_narrow ?? 3.2}→${lv.exit_narrow ?? 4.3}`,
+        autoOn ? 'AUTO вкл' : 'AUTO выкл',
+        `деп ${Math.round(Number(dep) || 12000)}`,
+        mtlr.last_bar ? `бар ${String(mtlr.last_bar).slice(0, 16)}` : '',
+        (Number(mtlr.last_bar_lag_sec) >= 20 * 60
+          ? `отставание ${Math.round(Number(mtlr.last_bar_lag_sec) / 60)} мин`
+          : ''),
+      ].filter(Boolean).join(' · ');
+    }
+    if (openEl) {
+      if (mtlr.open) {
+        const o = mtlr.open;
+        const lots = o.quantity_lots != null ? o.quantity_lots : '—';
+        const es = o.entry_spread != null ? Number(o.entry_spread).toFixed(2) : '—';
+        openEl.hidden = false;
+        openEl.textContent = `открыто ${o.direction || '—'} · ${lots}+${lots} лот · вход S ${es}%`
+          + (o.entry_time ? ` · ${String(o.entry_time).slice(0, 16)}` : '');
+      } else {
+        openEl.hidden = true;
+        openEl.textContent = '';
+      }
+    }
+    if (sigEl) {
+      if (mtlr.last_signal) {
+        sigEl.textContent = `последний сигнал: ${fmtMtlrSig(mtlr.last_signal)}`
+          + (mtlr.last_signal_bar ? ` @ ${String(mtlr.last_signal_bar).slice(0, 16)}` : '');
+        sigEl.classList.add('is-edge');
+      } else {
+        sigEl.textContent = 'сигналов на истории нет / вне уровней';
+        sigEl.classList.remove('is-edge');
+      }
+    }
+    syncMtlrActionButtons(mtlr);
+  }
+
+  function syncMtlrActionButtons(mtlr) {
+    const btnLong = $('tradeMtlrBtnLong');
+    const btnShort = $('tradeMtlrBtnShort');
+    const btnClose = $('tradeMtlrBtnClose');
+    if (!btnLong && !btnShort && !btnClose) return;
+    const liveOpen = !!(mtlr && mtlr.open);
+    const livePos = (mtlr && (mtlr.live_position || (mtlr.open && mtlr.open.direction))) || 'FLAT';
+    const flat = !liveOpen && String(livePos).toUpperCase() === 'FLAT';
+    const basketOpen = mtlr && mtlr.basket_open != null ? Number(mtlr.basket_open) : 0;
+    const basketMax = mtlr && mtlr.basket_max != null ? Number(mtlr.basket_max) : 2;
+    const canOpen = flat && basketOpen < basketMax;
+    let openTitle = 'Ручной Long Мечел (брокер, отдельно от Татнефть)';
+    if (!flat) openTitle = 'Уже есть открытый Мечел';
+    else if (basketOpen >= basketMax) openTitle = `Корзина заполнена (${basketOpen}/${basketMax})`;
+    if (btnLong) {
+      btnLong.disabled = !canOpen;
+      btnLong.title = openTitle;
+    }
+    if (btnShort) {
+      btnShort.disabled = !canOpen;
+      btnShort.title = !flat
+        ? 'Уже есть открытый Мечел'
+        : (basketOpen >= basketMax
+          ? `Корзина заполнена (${basketOpen}/${basketMax})`
+          : 'Ручной Short Мечел');
+    }
+    if (btnClose) {
+      btnClose.disabled = !liveOpen;
+      btnClose.title = liveOpen
+        ? 'Закрыть спред Мечел на брокере'
+        : 'Нет открытого Мечела';
+    }
+  }
+
+  async function refreshMtlrShadow({ force = false } = {}) {
+    try {
+      const q = force ? `?force=1&days=${days}` : `?days=${days}`;
+      const data = await api(`/api/live/mtlr/shadow${q}`);
+      renderMtlrCard(data || {}, null);
+      if (data && Array.isArray(data.bars) && data.bars.length) {
+        lastMtlrBars = await ensureMtlrChartBars(data.bars.slice(), days);
+        if (data.levels) lastMtlrLevels = data.levels;
+        // Soft re-paint bottom pane without waiting for next desk poll.
+        if (zSeries && spreadSeries) {
+          const mtlrLv = data.levels || lastMtlrLevels || {
+            enter_wide: 8.9, exit_wide: 8.4, enter_narrow: 3.2, exit_narrow: 4.3,
+          };
+          const pts = buildSpreadM15ChartSeries(lastMtlrBars);
+          try {
+            suppressRangeEvents = true;
+            if (!spreadSeriesIsLine) spreadSeries.setData(pts);
+            else {
+              spreadSeries.setData(pts.map((c) => ({ time: c.time, value: c.close })));
+            }
+            updateSpreadRegimeBands(pts, mtlrLv);
+            setSpreadThresholdLines(mtlrLv);
+            spPriceByTime = new Map(pts.map((c) => [c.time, c.close]));
+            updateChartPaneLabels(chartDealer1m, {
+              spreadLevels: null,
+              mtlrLevels: mtlrLv,
+              mtlrEmpty: pts.length === 0,
+            });
+            syncBottomPaneToTopTime();
+            scheduleEndSuppress();
+          } catch (_) {
+            suppressRangeEvents = false;
+            /* next desk refresh will paint */
+          }
+        }
+      }
+      return data;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function renderHangPanel(data) {
     const body = $('tradeHangBody');
     const meta = $('tradeHangMeta');
@@ -5780,6 +6213,7 @@
   function onShow() {
     // Экран зависаний — тихо обновить при входе на вкладку (кэш 10 мин на сервере)
     refreshHangPanel({ force: false }).catch(() => {});
+    refreshMtlrShadow({ force: false }).catch(() => {});
     // Re-load server params when opening the tab, unless user has unsaved edits
     if (!formDirty) formHydrated = false;
     ensureCharts();
@@ -5867,7 +6301,7 @@
         saveEntryDeposit().catch((e) => alert(e.message));
       }
     });
-    ['tradeLeverage', 'tradeTpSel', 'tradeSpreadLevels'].forEach((id) => {
+    ['tradeLeverage', 'tradeTpSel', 'tradeMtlrEnabled', 'tradeMtlrAuto', 'tradeMtlrDeposit'].forEach((id) => {
       const el = $(id);
       if (!el) return;
       el.addEventListener('input', markParamsDirty);
@@ -5896,6 +6330,63 @@
         alert(e.message);
       });
     });
+    $('tradeMtlrEnabled')?.addEventListener('change', () => {
+      markParamsDirty();
+      setParamsStatus('Сохранение…', 'pending');
+      api('/api/portfolio/params', {
+        method: 'POST',
+        body: JSON.stringify({ mtlr_enabled: $('tradeMtlrEnabled').checked }),
+      }).then((res) => {
+        formDirty = false;
+        formHydrated = true;
+        if (res.settings) hydrateParams(res.settings, { force: true });
+        setParamsStatus('Сохранено', 'ok');
+        renderMtlrCard(null, res.settings || { mtlr_enabled: $('tradeMtlrEnabled').checked });
+        if ($('tradeMtlrEnabled').checked) {
+          return refreshMtlrShadow({ force: true });
+        }
+        return null;
+      }).catch((e) => {
+        setParamsStatus('Ошибка сохранения', 'err');
+        alert(e.message);
+      });
+    });
+    $('tradeMtlrAuto')?.addEventListener('change', () => {
+      markParamsDirty();
+      setParamsStatus('Сохранение…', 'pending');
+      api('/api/portfolio/params', {
+        method: 'POST',
+        body: JSON.stringify({ mtlr_auto_execute: !!$('tradeMtlrAuto').checked }),
+      }).then((res) => {
+        formDirty = false;
+        formHydrated = true;
+        if (res.settings) hydrateParams(res.settings, { force: true });
+        setParamsStatus('Сохранено', 'ok');
+        renderMtlrCard(null, res.settings || {});
+        return refreshMtlrShadow({ force: true });
+      }).catch((e) => {
+        setParamsStatus('Ошибка сохранения', 'err');
+        alert(e.message);
+      });
+    });
+    $('tradeMtlrDeposit')?.addEventListener('change', () => {
+      const dep = readMtlrDeposit();
+      if (dep == null) return;
+      markParamsDirty();
+      setParamsStatus('Сохранение…', 'pending');
+      api('/api/portfolio/params', {
+        method: 'POST',
+        body: JSON.stringify({ mtlr_deposit_rub: dep }),
+      }).then((res) => {
+        formDirty = false;
+        formHydrated = true;
+        if (res.settings) hydrateParams(res.settings, { force: true });
+        setParamsStatus('Сохранено', 'ok');
+      }).catch((e) => {
+        setParamsStatus('Ошибка сохранения', 'err');
+        alert(e.message);
+      });
+    });
     const manualTrade = async (side) => {
       const warn = lastTradeMode === 'prod'
         ? `Боевой счёт: открыть ${side}?`
@@ -5918,6 +6409,27 @@
       } catch (e) {
         alert(e.message);
       }
+    });
+    const manualMtlrTrade = async (side) => {
+      const label = side === 'CLOSE' ? 'закрыть Мечел' : `Мечел ${side}`;
+      const warn = lastTradeMode === 'prod'
+        ? `Боевой счёт: ${label}?`
+        : `${label} (ручной)?`;
+      if (!window.confirm(warn)) return;
+      await api('/api/live/mtlr/trade', { method: 'POST', body: JSON.stringify({ side }) });
+      await Promise.all([
+        refresh({ hydrateForm: false }).catch(() => {}),
+        refreshMtlrShadow({ force: true }).catch(() => {}),
+      ]);
+    };
+    $('tradeMtlrBtnLong')?.addEventListener('click', () => {
+      manualMtlrTrade('LONG').catch((e) => alert(e.message));
+    });
+    $('tradeMtlrBtnShort')?.addEventListener('click', () => {
+      manualMtlrTrade('SHORT').catch((e) => alert(e.message));
+    });
+    $('tradeMtlrBtnClose')?.addEventListener('click', () => {
+      manualMtlrTrade('CLOSE').catch((e) => alert(e.message));
     });
     window.addEventListener('resize', () => {
       if (document.getElementById('app')?.dataset?.view === 'trade') resize();

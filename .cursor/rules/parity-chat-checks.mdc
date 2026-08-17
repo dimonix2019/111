@@ -1,58 +1,24 @@
 ---
-description: Arm Test↔Prod parity check/investigate/fix loops in every MoexMvp chat
+description: Test↔Prod parity — chat loops OFF unless user asks
 alwaysApply: true
 ---
 
 # Parity checks in chat (Test↔Prod)
 
-Предпочтение: **chat loops** (hourly + trade open/close). **Cursor Automation сейчас не использовать.**
+**Отчёты сверки в чат выключены** (просьба 17.08.2026: после перехода на уровни спреда расхождений нет). **Cursor Automation не использовать.**
 
-Durable hourly digest уже пишет **MoexLiveWatchdog** в `strategy-web/data/parity-hourly.log` / `parity-hourly-latest.json` (не зависит от чата).
+Durable hourly digest по-прежнему пишет **MoexLiveWatchdog** в `strategy-web/data/parity-hourly.log` / `parity-hourly-latest.json` — это не чат, не отключать.
 
-Отчёты **в чат** (проверка → при расхождении разбор → фикс → RU-отчёт) живут только пока в этой сессии крутятся wake-loops.
+## Не запускать
 
-## В начале сессии (если ещё не крутятся)
+- `parity_recon_agent_loop.ps1`
+- `parity_trade_chat_wake.ps1`
+- `parity_digest_chat_wake.ps1` (deprecated stub)
 
-1. Проверь процессы: ровно **один** `parity_recon_agent_loop.ps1` и **один** `parity_trade_chat_wake.ps1`. Убей дубликаты `parity_*wake*` / старые AGENT_LOOP parity shells. **Не** запускай `parity_digest_chat_wake.ps1` (deprecated stub).
-2. Hourly loop:
-   `powershell -NoProfile -ExecutionPolicy Bypass -File strategy-web/scripts/parity_recon_agent_loop.ps1`
-   с `notify_on_output` на `^AGENT_LOOP_TICK_parity_recon`.
-3. Trade open/close loop:
-   `powershell -NoProfile -ExecutionPolicy Bypass -File strategy-web/scripts/parity_trade_chat_wake.ps1`
-   с `notify_on_output` на `^AGENT_LOOP_WAKE_parity_trade`.
-4. Сразу один раз: health (`GET /api/health`, `GET /api/health/live`) + `POST /api/live/parity/check` + короткий RU-статус в чат (или OK).
+Если в сессии уже крутятся `parity_*wake*` / `parity_recon_agent_loop` — остановить. Не поднимать заново.
 
-## На каждый tick `AGENT_LOOP_TICK_parity_recon` (каждый час / ALERT / startup)
+Уровни спреда Prod (TATN Short 6.2/5.8 · Long 3.2/4.0) не менять без явной просьбы. Старые Z ±1.6/±1.3 — не пороги Prod.
 
-Полный цикл:
+## Включить снова
 
-1. Health live + monitor alive (`/api/health`, `/api/health/live`, status lite).
-2. `POST /api/live/parity/check`, `GET /api/live/parity`, при необходимости `parity-hourly-latest.json`.
-3. Новое расхождение (missing edge / Prod без Test за свежее окно) → причина в `strategy-web/live` vs replay-signals → явный баг исправить.
-4. Soft-restart `MoexLiveWatchdog` только если менял live-код **и** позиция **FLAT**.
-5. В чат: дайджест + итог; если чисто — одна строка OK.
-6. Исторический шум (старый missing #2 от 20.07, hard≈15) не «чинить» заново без нового сигнала.
-7. Пороги Prod ±1.6/±1.3 не менять без явной просьбы пользователя.
-
-## На каждый wake `AGENT_LOOP_WAKE_parity_trade`
-
-Событие **open** или **close** (debounce: last position + last closed trade id).
-
-### Open (FLAT → Long/Short)
-
-1. Сверить entry-параметры Prod vs Test/sim: bar, Z, spread, side, source; open_pnl если есть.
-2. RU-отчёт; фикс явных багов. Restart сервиса только при FLAT + смене live-кода (на open обычно не рестартовать).
-
-### Close (Long/Short → FLAT / новый closed id)
-
-1. `POST /api/live/parity/trades?fix=true` (только soft-safe поля).
-2. Полное сравнение полей закрытой сделки Prod↔Test.
-3. RU-отчёт; фикс явных багов; restart только FLAT + live-код изменён.
-
-После AUTO по-прежнему `schedule_parity_for_auto` (~15 мин) — для open/close chat wake срабатывает на событие; полная сверка полей — через trades reconcile.
-
-## Важно
-
-- Новый чат **сам по себе не создаётся** — правило срабатывает, когда открыт агент-чат по этому репо.
-- Без открытого чата остаются файловый дайджест и live-parity на мониторе.
-- Не плодить второй hourly digest-wake рядом с `parity_recon_agent_loop.ps1`.
+Только если пользователь явно просит («включи сверку», «петли в чат»). Тогда: один `parity_recon_agent_loop.ps1` + один `parity_trade_chat_wake.ps1`, без дубликатов.
