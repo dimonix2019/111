@@ -1,0 +1,242 @@
+<mxfile host="app.diagrams.net" modified="2026-08-24T15:45:00.000Z" agent="MOEX MVP" version="22.1.16" type="device">
+  <diagram id="cicd-user-revised" name="CI/CD процесс (редакция пользователя)">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3800" pageHeight="1360" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="CI/CD — без пересечений: НЕТ↓ в колонке шлюза · Approve↑ в колонке слева · Merge↓ справа мимо QA" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontColor=#1a1a1a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="10" width="1100" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="legend" value="Зелёный = ДА Красный пунктир = возврат (левый коридор) Оранжевый пунктир = ожидание QA" style="text;html=1;strokeColor=none;fillColor=#f5f5f5;align=left;verticalAlign=middle;fontSize=11;spacingLeft=10;fontColor=#444444;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="900" height="24" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="pool" value="Единый конвейер поставки (CI/CD) — ответственность по ролям" style="swimlane;html=1;horizontal=1;startSize=32;fillColor=#2c3e50;fontColor=#ffffff;strokeColor=#1a252f;fontStyle=1;fontSize=13;whiteSpace=wrap;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="74" width="3600" height="1140" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="return_bus" value="" style="rounded=0;html=1;fillColor=#fdecea;strokeColor=#e6b0aa;dashed=1;dashPattern=6 6;opacity=35;" vertex="1" parent="pool">
+          <mxGeometry x="48" y="40" width="140" height="1080" as="geometry"/>
+        </mxCell>
+        <mxCell id="return_label" value="Коридор&#xa;возвратов" style="text;html=1;align=center;fontSize=10;fontColor=#922b21;fontStyle=2;" vertex="1" parent="pool">
+          <mxGeometry x="50" y="46" width="130" height="30" as="geometry"/>
+        </mxCell>
+
+        <!-- DEV -->
+        <mxCell id="lane_dev" value="Разработчик (Dev)" style="swimlane;html=1;horizontal=0;startSize=44;fillColor=#1b4f72;fontColor=#ffffff;strokeColor=#1b4f72;swimlaneFillColor=#eaf2f8;fontStyle=1;fontSize=12;collapsible=0;" vertex="1" parent="pool">
+          <mxGeometry y="32" width="3600" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_fixes" value="Внесение исправлений&#xa;по замечаниям" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;arcSize=12;strokeWidth=1.5;dashed=1;" vertex="1" parent="lane_dev">
+          <mxGeometry x="56" y="36" width="130" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="ev_start" value="Старт" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;strokeWidth=2;" vertex="1" parent="lane_dev">
+          <mxGeometry x="250" y="42" width="58" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_code" value="Написание кода&#xa;и локальная проверка" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_dev">
+          <mxGeometry x="340" y="32" width="150" height="72" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_push" value="Git Push&#xa;в ветку фичи" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_dev">
+          <mxGeometry x="520" y="32" width="130" height="72" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_pr" value="Создание&#xa;Pull Request (MR)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_dev">
+          <mxGeometry x="680" y="32" width="140" height="72" as="geometry"/>
+        </mxCell>
+
+        <!-- CI -->
+        <mxCell id="lane_ci" value="CI/CD Система (Автоматизация)" style="swimlane;html=1;horizontal=0;startSize=44;fillColor=#6c3483;fontColor=#ffffff;strokeColor=#6c3483;swimlaneFillColor=#f5eef8;fontStyle=1;fontSize=12;collapsible=0;" vertex="1" parent="pool">
+          <mxGeometry y="172" width="3600" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="grp_ci" value="Автопроверки" style="rounded=0;html=1;dashed=1;dashPattern=8 8;fillColor=none;strokeColor=#9673a6;verticalAlign=top;align=left;spacingLeft=6;spacingTop=2;fontSize=9;fontColor=#6c3483;fontStyle=2;" vertex="1" parent="lane_ci">
+          <mxGeometry x="680" y="10" width="900" height="92" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_pipeline" value="Запуск&#xa;пайплайна CI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_ci">
+          <mxGeometry x="692" y="28" width="110" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_tests" value="1. Автотесты&#xa;Unit/Integration" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_ci">
+          <mxGeometry x="822" y="28" width="130" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_linters" value="2. Linters" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_ci">
+          <mxGeometry x="972" y="28" width="110" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_regs" value="3. Регламенты" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_ci">
+          <mxGeometry x="1102" y="28" width="120" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_yaml" value="4. YAML/SQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_ci">
+          <mxGeometry x="1242" y="28" width="110" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="gw_checks" value="Проверки&#xa;OK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;strokeWidth=1.5;" vertex="1" parent="lane_ci">
+          <mxGeometry x="1380" y="18" width="110" height="76" as="geometry"/>
+        </mxCell>
+
+        <!-- Колонки: A=check/approve 1380 | B=gw/review 1580 | C=merge/init 1780 -->
+        <mxCell id="act_check_appr" value="5. Проверка&#xa;обязательных аппрувов" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_ci">
+          <mxGeometry x="1360" y="160" width="150" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="gw_appr" value="Аппрувы&#xa;собраны?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;strokeWidth=1.5;" vertex="1" parent="lane_ci">
+          <mxGeometry x="1560" y="146" width="110" height="84" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_merge" value="Auto-merge&#xa;develop/master" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;arcSize=12;strokeWidth=2;" vertex="1" parent="lane_ci">
+          <mxGeometry x="1740" y="160" width="150" height="56" as="geometry"/>
+        </mxCell>
+
+        <!-- QA -->
+        <mxCell id="lane_qa" value="Команда QA / Архитектура" style="swimlane;html=1;horizontal=0;startSize=44;fillColor=#9a7d0a;fontColor=#ffffff;strokeColor=#9a7d0a;swimlaneFillColor=#fef9e7;fontStyle=1;fontSize=12;collapsible=0;" vertex="1" parent="pool">
+          <mxGeometry y="432" width="3600" height="170" as="geometry"/>
+        </mxCell>
+        <!-- Колонка A: Approve под check. Колонка B: Review под gw. Arch справа от Review.
+             Approve↑ и НЕТ↓ — параллельные вертикали, не пересекаются.
+             Arch→Approve идёт НИЖНИМ обходом под Review. -->
+        <mxCell id="act_approve" value="Approve в MR" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;arcSize=12;strokeWidth=2;" vertex="1" parent="lane_qa">
+          <mxGeometry x="1360" y="20" width="140" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_review" value="Ревью кода&#xa;(Code Review)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_qa">
+          <mxGeometry x="1545" y="20" width="140" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_arch" value="Архитектурные&#xa;требования" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_qa">
+          <mxGeometry x="1725" y="20" width="140" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_comments" value="Комментарии&#xa;и запрос правок" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;arcSize=12;strokeWidth=1.5;dashed=1;" vertex="1" parent="lane_qa">
+          <mxGeometry x="1120" y="100" width="160" height="48" as="geometry"/>
+        </mxCell>
+
+        <!-- REL: одна горизонталь, init под merge (колонка C) -->
+        <mxCell id="lane_rel" value="Релиз-менеджер / DevOps" style="swimlane;html=1;horizontal=0;startSize=44;fillColor=#b9770e;fontColor=#ffffff;strokeColor=#b9770e;swimlaneFillColor=#fef5e7;fontStyle=1;fontSize=12;collapsible=0;" vertex="1" parent="pool">
+          <mxGeometry y="602" width="3600" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="grp_rel" value="Сборка релизного пакета" style="rounded=0;html=1;dashed=1;dashPattern=8 8;fillColor=none;strokeColor=#b9770e;verticalAlign=top;align=left;spacingLeft=6;spacingTop=2;fontSize=9;fontColor=#b9770e;fontStyle=2;" vertex="1" parent="lane_rel">
+          <mxGeometry x="1728" y="8" width="1320" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_init" value="Инициация&#xa;сборки релиза" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fad7a0;strokeColor=#b9770e;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_rel">
+          <mxGeometry x="1740" y="28" width="120" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_art" value="1. Артефакты" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fad7a0;strokeColor=#b9770e;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_rel">
+          <mxGeometry x="1884" y="28" width="110" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_mig" value="2. Миграции БД" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fad7a0;strokeColor=#b9770e;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_rel">
+          <mxGeometry x="2016" y="28" width="120" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_patch" value="3. Релизный патч" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fad7a0;strokeColor=#b9770e;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_rel">
+          <mxGeometry x="2160" y="28" width="120" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_reports" value="4. Отчёты" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fad7a0;strokeColor=#b9770e;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_rel">
+          <mxGeometry x="2304" y="28" width="100" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_sr" value="SR / тикет" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fad7a0;strokeColor=#b9770e;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_rel">
+          <mxGeometry x="2428" y="28" width="100" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_attach" value="Патч+отчёты&#xa;к MR" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fad7a0;strokeColor=#b9770e;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_rel">
+          <mxGeometry x="2552" y="28" width="110" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="gw_rel" value="Релиз&#xa;согласован?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;strokeWidth=1.5;" vertex="1" parent="lane_rel">
+          <mxGeometry x="2692" y="18" width="110" height="76" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_rework" value="Исправление релиза (DevOps)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;arcSize=12;strokeWidth=1.5;dashed=1;" vertex="1" parent="lane_rel">
+          <mxGeometry x="2428" y="130" width="200" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- PROD одна линия -->
+        <mxCell id="lane_prod" value="Внедренец (Production)" style="swimlane;html=1;horizontal=0;startSize=44;fillColor=#196f3d;fontColor=#ffffff;strokeColor=#196f3d;swimlaneFillColor=#eafaf1;fontStyle=1;fontSize=12;collapsible=0;" vertex="1" parent="pool">
+          <mxGeometry y="802" width="3600" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_recv" value="Получение патча" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_prod">
+          <mxGeometry x="2672" y="40" width="130" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_infra" value="Готовность&#xa;инфраструктуры" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_prod">
+          <mxGeometry x="2828" y="40" width="130" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_db" value="Миграции БД" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_prod">
+          <mxGeometry x="2984" y="40" width="110" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_deploy" value="Деплой Prod" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_prod">
+          <mxGeometry x="3120" y="40" width="110" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="act_smoke" value="Смоук-тесты" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_prod">
+          <mxGeometry x="3256" y="40" width="110" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="ev_end" value="Успешный&#xa;релиз" style="ellipse;whiteSpace=wrap;html=1;fillColor=#82b366;fontColor=#ffffff;strokeColor=#1e4d2b;fontStyle=1;fontSize=11;strokeWidth=3;" vertex="1" parent="lane_prod">
+          <mxGeometry x="3392" y="40" width="90" height="52" as="geometry"/>
+        </mxCell>
+
+        <!-- EDGES -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#4a4a4a;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="ev_start" target="act_code"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#4a4a4a;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_code" target="act_push"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#4a4a4a;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_push" target="act_pr"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_fix_push" value="повторный Push" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b85450;dashed=1;dashPattern=8 4;fontSize=10;fontColor=#b85450;exitX=1;exitY=0.5;entryX=0;entryY=0.25;" edge="1" parent="1" source="act_fixes" target="act_push">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="280" y="136"/><mxPoint x="280" y="118"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e_pr_ci" value="MR" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#6c3483;fontSize=10;fontColor=#6c3483;fontStyle=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="act_pr" target="act_pipeline"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e_ci1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#6c3483;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_pipeline" target="act_tests"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_ci2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#6c3483;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_tests" target="act_linters"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_ci3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#6c3483;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_linters" target="act_regs"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_ci4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#6c3483;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_regs" target="act_yaml"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_ci5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#6c3483;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_yaml" target="gw_checks"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e_checks_no" value="НЕТ" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;dashPattern=8 4;fontSize=11;fontColor=#b85450;fontStyle=1;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" edge="1" parent="1" source="gw_checks" target="act_fixes">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1475" y="210"/><mxPoint x="141" y="210"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e_checks_yes" value="ДА" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#548235;fontSize=11;fontColor=#548235;fontStyle=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="gw_checks" target="act_check_appr"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e_appr_chain" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#6c3483;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_check_appr" target="gw_appr"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_appr_yes" value="ДА" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#548235;fontSize=11;fontColor=#548235;fontStyle=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="gw_appr" target="act_merge"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Колонка B: НЕТ строго вниз gw→review -->
+        <mxCell id="e_appr_wait" value="НЕТ: ждать QA" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#d79b00;dashed=1;dashPattern=6 3;fontSize=10;fontColor=#d79b00;fontStyle=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="gw_appr" target="act_review"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Review → Arch вправо (не через Approve) -->
+        <mxCell id="e_qa_right" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#d79b00;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_review" target="act_arch"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <!-- Arch → Approve нижним обходом под Review (не пересекает НЕТ сверху) -->
+        <mxCell id="e_arch_ok" value="OK" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#548235;fontSize=10;fontColor=#548235;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" edge="1" parent="1" source="act_arch" target="act_approve">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1795" y="590"/><mxPoint x="1430" y="590"/></Array></mxGeometry>
+        </mxCell>
+        <!-- Approve ↑ check — колонка A, параллельно НЕТ↓ в колонке B -->
+        <mxCell id="e_approve_up" value="Approve" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#548235;fontSize=10;fontColor=#548235;fontStyle=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="act_approve" target="act_check_appr"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- замечания → comments слева, ниже ряда Approve/Review -->
+        <mxCell id="e_rev_notes" value="замечания" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b85450;dashed=1;dashPattern=8 4;fontSize=10;fontColor=#b85450;exitX=0.25;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="1" source="act_review" target="act_comments">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1580" y="620"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e_arch_notes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b85450;dashed=1;dashPattern=8 4;exitX=0;exitY=1;entryX=1;entryY=0.75;" edge="1" parent="1" source="act_arch" target="act_comments">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1700" y="630"/><mxPoint x="1320" y="630"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e_comments_fix" value="правки" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;dashPattern=8 4;fontSize=10;fontColor=#b85450;exitX=0;exitY=0.5;entryX=0;entryY=1;" edge="1" parent="1" source="act_comments" target="act_fixes">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="141" y="636"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- Merge ↓ Init: колонка C, справа от QA — пустое место под merge -->
+        <mxCell id="e_merge_init" value="после Merge" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b9770e;fontSize=10;fontColor=#b9770e;fontStyle=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="act_merge" target="act_init"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e_r1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b9770e;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_init" target="act_art"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_r2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b9770e;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_art" target="act_mig"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_r3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b9770e;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_mig" target="act_patch"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_r4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b9770e;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_patch" target="act_reports"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_r5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b9770e;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_reports" target="act_sr"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_r6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b9770e;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_sr" target="act_attach"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_r7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b9770e;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_attach" target="gw_rel"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e_rel_ops" value="НЕТ: DevOps" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;dashPattern=8 4;fontSize=10;fontColor=#b85450;fontStyle=1;exitX=0.25;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="gw_rel" target="act_rework"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_rework_init" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b85450;dashed=1;dashPattern=8 4;exitX=0;exitY=0.5;entryX=0.5;entryY=1;" edge="1" parent="1" source="act_rework" target="act_init">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1840" y="840"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e_rel_dev" value="НЕТ: Dev" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;dashPattern=8 4;fontSize=10;fontColor=#b85450;fontStyle=1;exitX=0;exitY=0.25;entryX=0.5;entryY=1;" edge="1" parent="1" source="gw_rel" target="act_fixes">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="900" y="720"/>
+              <mxPoint x="900" y="220"/>
+              <mxPoint x="141" y="220"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_rel_yes" value="ДА" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#548235;fontSize=11;fontColor=#548235;fontStyle=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="gw_rel" target="act_recv"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="e_p1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#196f3d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_recv" target="act_infra"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_p2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#196f3d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_infra" target="act_db"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_p3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#196f3d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_db" target="act_deploy"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_p4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#196f3d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_deploy" target="act_smoke"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_p5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#196f3d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_smoke" target="ev_end"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
