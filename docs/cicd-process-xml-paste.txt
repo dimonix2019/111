@@ -1,5 +1,5 @@
 <mxfile host="app.diagrams.net" modified="2026-08-24T15:45:00.000Z" agent="MOEX MVP" version="22.1.16" type="device">
-  <diagram id="cicd-no-crossings" name="CI/CD без пересечений">
+  <diagram id="cicd-user-revised" name="CI/CD процесс (редакция пользователя)">
     <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3800" pageHeight="1360" math="0" shadow="0">
       <root>
         <mxCell id="0"/>
@@ -125,7 +125,7 @@
         <mxCell id="act_sr" value="SR / тикет" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fad7a0;strokeColor=#b9770e;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_rel">
           <mxGeometry x="2428" y="28" width="100" height="56" as="geometry"/>
         </mxCell>
-        <mxCell id="act_attach" value="Патч+отчёты&#xa;к SR" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fad7a0;strokeColor=#b9770e;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_rel">
+        <mxCell id="act_attach" value="Патч+отчёты&#xa;к MR" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fad7a0;strokeColor=#b9770e;fontSize=10;arcSize=12;strokeWidth=1.5;" vertex="1" parent="lane_rel">
           <mxGeometry x="2552" y="28" width="110" height="56" as="geometry"/>
         </mxCell>
         <mxCell id="gw_rel" value="Релиз&#xa;согласован?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;strokeWidth=1.5;" vertex="1" parent="lane_rel">
@@ -215,12 +215,18 @@
         <mxCell id="e_r6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b9770e;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_sr" target="act_attach"><mxGeometry relative="1" as="geometry"/></mxCell>
         <mxCell id="e_r7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b9770e;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="act_attach" target="gw_rel"><mxGeometry relative="1" as="geometry"/></mxCell>
 
-        <mxCell id="e_rel_ops" value="НЕТ: DevOps" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;dashPattern=8 4;fontSize=10;fontColor=#b85450;exitX=0.5;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="1" source="gw_rel" target="act_rework"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e_rel_ops" value="НЕТ: DevOps" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;dashPattern=8 4;fontSize=10;fontColor=#b85450;fontStyle=1;exitX=0.25;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="gw_rel" target="act_rework"><mxGeometry relative="1" as="geometry"/></mxCell>
         <mxCell id="e_rework_init" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1.5;strokeColor=#b85450;dashed=1;dashPattern=8 4;exitX=0;exitY=0.5;entryX=0.5;entryY=1;" edge="1" parent="1" source="act_rework" target="act_init">
           <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1840" y="840"/></Array></mxGeometry>
         </mxCell>
-        <mxCell id="e_rel_dev" value="НЕТ: Dev" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;dashPattern=8 4;fontSize=10;fontColor=#b85450;exitX=0;exitY=0.5;entryX=0;entryY=1;" edge="1" parent="1" source="gw_rel" target="act_fixes">
-          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="141" y="754"/></Array></mxGeometry>
+        <mxCell id="e_rel_dev" value="НЕТ: Dev" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;dashPattern=8 4;fontSize=10;fontColor=#b85450;fontStyle=1;exitX=0;exitY=0.25;entryX=0.5;entryY=1;" edge="1" parent="1" source="gw_rel" target="act_fixes">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="900" y="720"/>
+              <mxPoint x="900" y="220"/>
+              <mxPoint x="141" y="220"/>
+            </Array>
+          </mxGeometry>
         </mxCell>
         <mxCell id="e_rel_yes" value="ДА" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#548235;fontSize=11;fontColor=#548235;fontStyle=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="gw_rel" target="act_recv"><mxGeometry relative="1" as="geometry"/></mxCell>
 
