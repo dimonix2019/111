@@ -2,6 +2,10 @@
 
 Готовый файл со **swimlanes (дорожками ролей)**: [`cicd-process.drawio`](cicd-process.drawio).
 
+Версия с **чистой маршрутизацией**: возвраты идут только по левому «коридору возвратов», happy-path слева направо, междорожечные передачи — короткие вертикали в одной колонке.
+
+Для копирования XML: [`cicd-process-xml-paste.txt`](cicd-process-xml-paste.txt).
+
 ## Способ 1 (рекомендуется): открыть `.drawio`
 
 1. Откройте [https://app.diagrams.net](https://app.diagrams.net) (или desktop draw.io).
