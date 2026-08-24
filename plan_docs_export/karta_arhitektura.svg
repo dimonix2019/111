@@ -1,44 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520">
-  <rect width="1200" height="520" fill="#f7f8fa"/>
-  <text x="40" y="40" font-family="DejaVu Sans, Arial, sans-serif" font-size="24" font-weight="700" fill="#1a2744">8=8-:0@B0: @E8B5:BC@0</text>
-  <text x="40" y="64" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#5b6578">&5?>G:0 >4=>3> AB@8<0. >4 :064K< MB0?><  Definition of Done 8 >B:C40 27OBL 2E>4.</text>
-
-  <rect x="40" y="96" width="240" height="150" rx="12" fill="#e8f6f5" stroke="#0e7c7b" stroke-width="2"/>
-  <text x="160" y="128" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="700" fill="#0e7c7b">1. >=F5?B</text>
-  <text x="160" y="154" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" fill="#1a2744">4>:C<5=B 3>B>2</text>
-  <text x="160" y="176" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" fill="#5b6578">2E>4: ?@>B>:>;K,</text>
-  <text x="160" y="194" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" fill="#5b6578">B@51>20=8O, </text>
-  <text x="160" y="222" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" fill="#0e7c7b">DoD: 25@A8O A>3;0A>20=0</text>
-
-  <polygon points="292,171 318,171 318,163 348,176 318,189 318,181 292,181" fill="#1a2744"/>
-
-  <rect x="360" y="96" width="240" height="150" rx="12" fill="#e8f6f5" stroke="#0e7c7b" stroke-width="2"/>
-  <text x="480" y="128" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="700" fill="#0e7c7b">2. !5B52K5 AE5<K</text>
-  <text x="480" y="154" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" fill="#1a2744">@8ACNBAO ?> :>=F5?BC</text>
-  <text x="480" y="176" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" fill="#5b6578">2E>4: :>=F5?B + 8=D@0</text>
-  <text x="480" y="194" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" fill="#5b6578">2KE>4: AE5<K =0 48A:5</text>
-  <text x="480" y="222" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" fill="#0e7c7b">DoD: AE5<K 2 master</text>
-
-  <polygon points="612,171 638,171 638,163 668,176 638,189 638,181 612,181" fill="#1a2744"/>
-
-  <rect x="680" y="96" width="240" height="150" rx="12" fill="#fff4c4" stroke="#d4a017" stroke-width="2"/>
-  <text x="800" y="128" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="700" fill="#1a2744">3. !0978=3 </text>
-  <text x="800" y="154" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" fill="#1a2744">D>:CA MB>9 =545;8</text>
-  <text x="800" y="176" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" fill="#5b6578">2E>4: AE5<K + =03@C7:0</text>
-  <text x="800" y="194" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" fill="#5b6578">2KE>4: B01;8F0 CPU/RAM</text>
-  <text x="800" y="222" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" fill="#8a6d12">DoD: A>3;0A>20=> A 8=D@0</text>
-
-  <polygon points="932,171 958,171 958,163 988,176 958,189 958,181 932,181" fill="#d4a017"/>
-
-  <rect x="1000" y="96" width="160" height="150" rx="12" fill="#fff8dc" stroke="#f4c542" stroke-width="2"/>
-  <text x="1080" y="160" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="700" fill="#1a2744">?0:5B -</text>
-  <text x="1080" y="186" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" fill="#5b6578">0@E.0@B5D0:BK</text>
-
-  <rect x="40" y="280" width="1120" height="200" rx="12" fill="#ffffff" stroke="#d8dee8"/>
-  <text x="60" y="312" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="700" fill="#1a2744">!2O78 A 4@C38<8 AB@8<0<8 (=5 45@60BL 2 3>;>25)</text>
-  <text x="60" y="344" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#3b4454"> � 70<5G0=8O : :>=F5?BC 8 AE5<0< 4> 4>?CA:0 2 -</text>
-  <text x="60" y="370" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#3b4454">=D@0AB@C:BC@0 � :>=BC@ 8 AB5=4 =C6=K, 8=0G5 A0978=3 �2 2>74CE5�</text>
-  <text x="60" y="396" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#3b4454">0G5AB2> 40==KE � B>;L:> 5A;8 1;>:8@C5B >?KB=CN M:A?;C0B0F8N</text>
-  <text x="60" y="422" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#3b4454">AB>G=8:8: :>=F5?B =0 >1I5< 48A:5; AE5<K  B0< 65; ?@>B>:>;K  2 ; 7040G8  Confluence ID 2 @55AB@5</text>
-  <text x="60" y="454" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" fill="#5b6578">@028;>: =0 MB>9 <8=8-:0@B5 4 1;>:0, =5 30 7040G. 5B0;8  2 @55AB@5.</text>
+<rect x="0" y="0" width="1200" height="520" rx="0" fill="#f7f8fa"/>
+<text x="40" y="40" text-anchor="start" font-size="24" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Мини-карта: Архитектура</text>
+<text x="40" y="64" text-anchor="start" font-size="14" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">Цепочка одного стрима. Под каждым этапом — Definition of Done и откуда взять вход.</text>
+<rect x="40" y="96" width="240" height="150" rx="12" fill="#e8f6f5" stroke="#0e7c7b" stroke-width="2"/>
+<text x="160" y="128" text-anchor="middle" font-size="16" fill="#0e7c7b" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">1. Концепт</text>
+<text x="160" y="154" text-anchor="middle" font-size="13" fill="#1a2744" font-family="DejaVu Sans, Arial, sans-serif">документ готов</text>
+<text x="160" y="176" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">вход: протоколы,</text>
+<text x="160" y="194" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">требования, ИБ</text>
+<text x="160" y="222" text-anchor="middle" font-size="12" fill="#0e7c7b" font-family="DejaVu Sans, Arial, sans-serif">DoD: версия согласована</text>
+<polygon points="292,171 318,171 318,163 348,176 318,189 318,181 292,181" fill="#1a2744"/>
+<rect x="360" y="96" width="240" height="150" rx="12" fill="#e8f6f5" stroke="#0e7c7b" stroke-width="2"/>
+<text x="480" y="128" text-anchor="middle" font-size="16" fill="#0e7c7b" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">2. Сетевые схемы</text>
+<text x="480" y="154" text-anchor="middle" font-size="13" fill="#1a2744" font-family="DejaVu Sans, Arial, sans-serif">рисуются по концепту</text>
+<text x="480" y="176" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">вход: концепт + инфра</text>
+<text x="480" y="194" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">выход: схемы на диске</text>
+<text x="480" y="222" text-anchor="middle" font-size="12" fill="#0e7c7b" font-family="DejaVu Sans, Arial, sans-serif">DoD: схемы в master</text>
+<polygon points="612,171 638,171 638,163 668,176 638,189 638,181 612,181" fill="#1a2744"/>
+<rect x="680" y="96" width="240" height="150" rx="12" fill="#fff4c4" stroke="#d4a017" stroke-width="2"/>
+<text x="800" y="128" text-anchor="middle" font-size="16" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">3. Сайзинг ★</text>
+<text x="800" y="154" text-anchor="middle" font-size="13" fill="#1a2744" font-family="DejaVu Sans, Arial, sans-serif">фокус этой недели</text>
+<text x="800" y="176" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">вход: схемы + нагрузка</text>
+<text x="800" y="194" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">выход: таблица CPU/RAM</text>
+<text x="800" y="222" text-anchor="middle" font-size="12" fill="#8a6d12" font-family="DejaVu Sans, Arial, sans-serif">DoD: согласовано с инфра</text>
+<polygon points="932,171 958,171 958,163 988,176 958,189 958,181 932,181" fill="#d4a017"/>
+<rect x="1000" y="96" width="160" height="150" rx="12" fill="#fff8dc" stroke="#f4c542" stroke-width="2"/>
+<text x="1080" y="160" text-anchor="middle" font-size="16" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">пакет ОЭ</text>
+<text x="1080" y="186" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">арх.артефакты</text>
+<rect x="40" y="280" width="1120" height="200" rx="12" fill="#ffffff" stroke="#d8dee8" stroke-width="1"/>
+<text x="60" y="312" text-anchor="start" font-size="15" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Связи с другими стримами (не держать в голове)</text>
+<text x="60" y="344" text-anchor="start" font-size="14" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">ИБ → замечания к концепту и схемам до допуска в ОЭ</text>
+<text x="60" y="370" text-anchor="start" font-size="14" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">Инфраструктура → контур и стенд нужны, иначе сайзинг «в воздухе»</text>
+<text x="60" y="396" text-anchor="start" font-size="14" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">Качество данных → только если блокирует опытную эксплуатацию</text>
+<text x="60" y="422" text-anchor="start" font-size="14" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">Источники: концепт на общем диске; схемы — там же; протоколы — в ИИ; задачи — Confluence ID в реестре</text>
+<text x="60" y="454" text-anchor="start" font-size="13" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">Правило: на этой мини-карте 4 блока, не 30 задач. Детали — в реестре.</text>
 </svg>
