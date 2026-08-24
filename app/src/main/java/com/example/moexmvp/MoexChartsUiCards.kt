@@ -211,6 +211,7 @@ internal fun CandlestickChartCard(
     candles: List<CandlePoint>,
     chartHeightDp: Int = 180,
     referenceLines: List<ChartReferenceLine> = emptyList(),
+    zoneFills: List<ChartZoneFill> = emptyList(),
     pointMarkers: List<ChartPointMarker> = emptyList(),
     showLegend: Boolean = true,
     showMinMax: Boolean = true,
@@ -341,6 +342,7 @@ internal fun CandlestickChartCard(
                     selectedIndex = selectedIndex,
                     onSelectIndex = { selectedIndex = it },
                     referenceLines = referenceLines,
+                    zoneFills = zoneFills,
                     pointMarkers = pointMarkers,
                     modifier = Modifier
                         .weight(1f)

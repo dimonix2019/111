@@ -45,7 +45,7 @@ private const val WEB_DESK_UI_CACHE = "apk=1.7.307&v=20260722a1"
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal fun MoexScreenTabWebDesk(
-    @Suppress("UNUSED_PARAMETER") screen: MoexScreenState,
+    screen: MoexScreenState,
     @Suppress("UNUSED_PARAMETER") scope: CoroutineScope,
     modifier: Modifier,
 ) {
@@ -99,6 +99,11 @@ internal fun MoexScreenTabWebDesk(
                 },
             ) {
                 Text("Обновить", color = Color(0xFF90CAF9), fontSize = 12.sp)
+            }
+            TextButton(
+                onClick = { screen.showCloseAllPortfolioDialog = true },
+            ) {
+                Text("Закрыть пару", color = Color(0xFFFFAB91), fontSize = 12.sp)
             }
         }
 

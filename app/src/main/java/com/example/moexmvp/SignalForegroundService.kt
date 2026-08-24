@@ -26,7 +26,7 @@ internal const val SIGNAL_MONITOR_CHANNEL_ID = "moex_signal_monitor_channel"
 internal const val SIGNAL_MONITOR_NOTIFICATION_ID = 11001
 /** Полный цикл сигналов (MOEX 15м + rolling Z + journal). */
 internal const val SIGNAL_MONITOR_INTERVAL_MS = 15_000L
-/** Быстрое обновление шторки (Z, возраст тика) — не ждёт тяжёлый signal-work. */
+/** Быстрое обновление шторки (спред %, возраст тика) — не ждёт тяжёлый signal-work. */
 internal const val SIGNAL_MONITOR_PULSE_MS = 10_000L
 /** Тяжёлая обработка сигналов реже pulse, чтобы шторка не «замирала». */
 internal const val SIGNAL_MONITOR_SIGNAL_WORK_MS = 45_000L
@@ -44,9 +44,11 @@ class SignalForegroundService : Service() {
     private var pulseJob: kotlinx.coroutines.Job? = null
     private var signalWorkJob: kotlinx.coroutines.Job? = null
     private var webDeskPollJob: kotlinx.coroutines.Job? = null
+    private var brokerPollJob: kotlinx.coroutines.Job? = null
     private var ticksSinceAppUpdateCheck = 0
     private var signalWorkTickCount = 0
-    private var lastForegroundZScore: Double? = null
+    private var lastForegroundSpreadPercent: Double? = null
+    private var lastForegroundDeskShade: WebDeskShadeSnapshot? = null
     private var lastForegroundOpenTrade: SignalMonitorOpenTradeSnapshot? = null
     private var cachedSignalPoints: List<DataPoint>? = null
     private var lastOpenTradeRefreshMs = 0L
@@ -76,13 +78,15 @@ class SignalForegroundService : Service() {
     private fun ensureMonitorWorkerRunning() {
         if (pulseJob?.isActive == true &&
             signalWorkJob?.isActive == true &&
-            webDeskPollJob?.isActive == true
+            webDeskPollJob?.isActive == true &&
+            brokerPollJob?.isActive == true
         ) {
             return
         }
         pulseJob?.cancel()
         signalWorkJob?.cancel()
         webDeskPollJob?.cancel()
+        brokerPollJob?.cancel()
         pulseJob = scope.launch {
             while (isActive) {
                 runCatching { performNotificationPulse() }
@@ -103,11 +107,22 @@ class SignalForegroundService : Service() {
         }
         webDeskPollJob = scope.launch {
             while (isActive) {
-                runCatching { pollWebDeskAndNotify(applicationContext) }
-                    .onFailure { e ->
-                        MoexDiagnostics.logError(applicationContext, "web_desk", e, "poll failed")
-                    }
+                runCatching {
+                    pollWebDeskAndNotify(applicationContext)
+                    refreshDeskShadeForNotification()
+                }.onFailure { e ->
+                    MoexDiagnostics.logError(applicationContext, "web_desk", e, "poll failed")
+                }
                 delay(WEB_DESK_POLL_MS)
+            }
+        }
+        brokerPollJob = scope.launch {
+            while (isActive) {
+                runCatching { pollBrokerAccountAndNotify(applicationContext) }
+                    .onFailure { e ->
+                        MoexDiagnostics.logError(applicationContext, "broker_poll", e, "poll failed")
+                    }
+                delay(BROKER_ACCOUNT_POLL_MS)
             }
         }
     }
@@ -129,6 +144,8 @@ class SignalForegroundService : Service() {
         signalWorkJob = null
         webDeskPollJob?.cancel()
         webDeskPollJob = null
+        brokerPollJob?.cancel()
+        brokerPollJob = null
         scope.cancel()
         super.onDestroy()
     }
@@ -148,19 +165,21 @@ class SignalForegroundService : Service() {
             monitorEnabled = status.monitorEnabled,
             serviceLastTickMs = status.serviceLastTickMs,
             serviceAgeSec = status.serviceAgeSec,
-            zScore = lastForegroundZScore,
+            spreadPercent = lastForegroundSpreadPercent,
             openTrade = lastForegroundOpenTrade,
+            deskShade = lastForegroundDeskShade,
         )
         val bigText = formatSignalMonitorForegroundBigText(
             monitorEnabled = status.monitorEnabled,
             serviceLastTickMs = status.serviceLastTickMs,
             serviceAgeSec = status.serviceAgeSec,
-            zScore = lastForegroundZScore,
+            spreadPercent = lastForegroundSpreadPercent,
             openTrade = lastForegroundOpenTrade,
+            deskShade = lastForegroundDeskShade,
         )
         return NotificationCompat.Builder(this, SIGNAL_MONITOR_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("MOEX signal monitor")
+            .setContentTitle("MOEX монитор сигналов")
             .setContentText(subtitle)
             .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .setOngoing(true)
@@ -178,18 +197,20 @@ class SignalForegroundService : Service() {
             )
         }.getOrNull()
         if (points != null && points.size >= 2) {
-            val liveZ = if (isMoexNetworkAvailable(applicationContext)) {
+            val liveSnap = if (isMoexNetworkAvailable(applicationContext)) {
                 runCatching {
                     withTimeout(SIGNAL_MONITOR_1M_FETCH_TIMEOUT_MS) {
                         fetchMarketsIntraday1mLive()
                     }
-                }.getOrNull()?.let { snap -> liveZScoreFromIntraday1m(points, snap) }
+                }.getOrNull()
             } else {
                 null
             }
-            lastForegroundZScore = liveZ
-                ?: cachedSignalPoints?.lastOrNull()?.zScore
-                ?: points.last().zScore
+            lastForegroundSpreadPercent = liveSnap?.let { liveSpreadPercentFromIntraday1m(it) }
+                ?: lastForegroundDeskShade?.spreadPercent
+                ?: cachedSignalPoints?.lastOrNull()?.spreadPercent
+                ?: points.last().spreadPercent
+            maybeNotifySpreadLevelAlerts(applicationContext, lastForegroundSpreadPercent)
 
             val now = System.currentTimeMillis()
             if (now - lastOpenTradeRefreshMs >= SIGNAL_MONITOR_OPEN_TRADE_REFRESH_MS) {
@@ -198,6 +219,17 @@ class SignalForegroundService : Service() {
                 lastOpenTradeRefreshMs = now
             }
         }
+        withContext(Dispatchers.Main) {
+            refreshForegroundNotification()
+        }
+    }
+
+    private suspend fun refreshDeskShadeForNotification() {
+        if (!WebDeskPrefs.isMonitorEnabled(applicationContext)) return
+        if (WebDeskPrefs.normalizedBaseUrl(applicationContext) == null) return
+        val shade = WebDeskApi.fetchDeskShade(applicationContext).getOrNull() ?: return
+        lastForegroundDeskShade = shade
+        shade.spreadPercent?.let { lastForegroundSpreadPercent = it }
         withContext(Dispatchers.Main) {
             refreshForegroundNotification()
         }
@@ -259,7 +291,7 @@ class SignalForegroundService : Service() {
 
         val signalPoints = prepareM15PointsForZStrategySignalDetection(monitorPoints)
         cachedSignalPoints = signalPoints
-        lastForegroundZScore = signalPoints.last().zScore
+        lastForegroundSpreadPercent = signalPoints.last().spreadPercent
         lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, signalPoints)
         lastOpenTradeRefreshMs = System.currentTimeMillis()
         withContext(Dispatchers.Main) {

@@ -45,6 +45,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
@@ -603,6 +604,31 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             ) {
                 refreshProdOpenTradesFromBroker()
             }
+        }
+    }
+    /** Минутный опрос брокера и уровней спреда, пока приложение на экране и монитор выключен. */
+    LaunchedEffect(activityResumed) {
+        if (!activityResumed) return@LaunchedEffect
+        while (activityResumed) {
+            if (!SignalForegroundService.isBackgroundMonitorEnabled(context)) {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        pollBrokerAccountAndNotify(context.applicationContext)
+                        if (isMoexNetworkAvailable(context)) {
+                            runCatching {
+                                withTimeout(SIGNAL_MONITOR_1M_FETCH_TIMEOUT_MS) {
+                                    fetchMarketsIntraday1mLive()
+                                }
+                            }.getOrNull()
+                                ?.let { liveSpreadPercentFromIntraday1m(it) }
+                                ?.let { maybeNotifySpreadLevelAlerts(context.applicationContext, it) }
+                        }
+                    }
+                }.onFailure { t ->
+                    MoexDiagnostics.logError(context, "broker_poll", t, "foreground poll")
+                }
+            }
+            delay(BROKER_ACCOUNT_POLL_MS)
         }
     }
     }

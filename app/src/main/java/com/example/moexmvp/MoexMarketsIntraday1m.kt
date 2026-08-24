@@ -76,6 +76,86 @@ internal fun candleBarsToIntradayCandlePoints(bars: List<CandleBar>): List<Candl
         )
     }
 
+/** Метки с датой — для недельного графика и привязки сделок. */
+internal fun candleBarsToWeekCandlePoints(bars: List<CandleBar>): List<CandlePoint> =
+    bars.sortedBy { it.timestamp }.map { bar ->
+        CandlePoint(
+            label = bar.timestamp.format(portfolio15mLabelFormatter),
+            open = bar.open,
+            high = bar.high,
+            low = bar.low,
+            close = bar.close,
+        )
+    }
+
+/** Понедельник текущей календарной недели (МСК). */
+internal fun currentWeekMondayMsk(now: LocalDate = LocalDate.now(moexZoneId)): LocalDate {
+    val dow = now.dayOfWeek.value // Mon=1 … Sun=7
+    return now.minusDays((dow - 1).toLong())
+}
+
+/**
+ * Свечи спреда %: S = (TATN/TATNP − 1)×100 по выровненным 1м барам.
+ * high/low — экстремумы отношения high/low ног.
+ */
+internal fun buildSpreadPercentCandlesFromLegs(
+    tatnBars: List<CandleBar>,
+    tatnpBars: List<CandleBar>,
+): List<CandlePoint> {
+    if (tatnBars.isEmpty() || tatnpBars.isEmpty()) return emptyList()
+    val tatnByTs = tatnBars.associateBy { it.timestamp }
+    val tatnpByTs = tatnpBars.associateBy { it.timestamp }
+    val ordered = (tatnByTs.keys + tatnpByTs.keys).toSortedSet()
+    val out = ArrayList<CandlePoint>(ordered.size)
+    for (ts in ordered) {
+        val a = tatnByTs[ts] ?: continue
+        val b = tatnpByTs[ts] ?: continue
+        if (b.open <= 0.0 || b.high <= 0.0 || b.low <= 0.0 || b.close <= 0.0) continue
+        fun s(num: Double, den: Double): Double = (num / den - 1.0) * 100.0
+        val open = s(a.open, b.open)
+        val close = s(a.close, b.close)
+        val highCand = maxOf(open, close, s(a.high, b.low), s(a.high, b.high), s(a.low, b.low))
+        val lowCand = minOf(open, close, s(a.low, b.high), s(a.low, b.low), s(a.high, b.high))
+        out += CandlePoint(
+            label = ts.format(portfolio15mLabelFormatter),
+            open = open,
+            high = highCand,
+            low = lowCand,
+            close = close,
+        )
+    }
+    return out
+}
+
+internal data class MarketsSpreadWeekSnapshot(
+    val spreadCandles: List<CandlePoint>,
+    val lastBarMillis: Long,
+    val lastSpreadPercent: Double?,
+    val fetchedAtMillis: Long = System.currentTimeMillis(),
+)
+
+/** 1м TATN/TATNP с понедельника недели до завтра (МСК) → свечи спреда %. */
+internal suspend fun fetchMarketsIntraday1mWeek(): MarketsSpreadWeekSnapshot = withContext(Dispatchers.IO) {
+    val today = LocalDate.now(moexZoneId)
+    val weekFrom = currentWeekMondayMsk(today)
+    val till = today.plusDays(1)
+    val tenFrom = weekFrom.minusDays(1)
+    coroutineScope {
+        val tatn1 = async { loadCandleBars("TATN", weekFrom, till, interval = 1) }
+        val tatnp1 = async { loadCandleBars("TATNP", weekFrom, till, interval = 1) }
+        val tatn10 = async { loadCandleBars("TATN", tenFrom, till, interval = 10) }
+        val tatnp10 = async { loadCandleBars("TATNP", tenFrom, till, interval = 10) }
+        val tatnBars = appendFormingIntraday1mFrom10m(tatn1.await(), tatn10.await())
+        val tatnpBars = appendFormingIntraday1mFrom10m(tatnp1.await(), tatnp10.await())
+        val candles = buildSpreadPercentCandlesFromLegs(tatnBars, tatnpBars)
+        MarketsSpreadWeekSnapshot(
+            spreadCandles = candles,
+            lastBarMillis = maxOf(lastCandleBarMillis(tatnBars), lastCandleBarMillis(tatnpBars)),
+            lastSpreadPercent = candles.lastOrNull()?.close,
+        )
+    }
+}
+
 internal fun lastCandleBarMillis(bars: List<CandleBar>, zone: ZoneId = moexZoneId): Long =
     bars.maxOfOrNull { it.timestamp.atZone(zone).toInstant().toEpochMilli() } ?: 0L
 

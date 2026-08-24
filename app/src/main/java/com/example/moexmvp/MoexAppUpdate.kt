@@ -178,42 +178,60 @@ internal fun formatAppUpdateFetchFailure(diagnostics: AppUpdateFetchDiagnostics)
 internal fun appUpdateManifestUrlCandidates(): List<String> = listOf(
     APP_UPDATE_MANIFEST_URL,
     APP_UPDATE_PUBLIC_MANIFEST_URL,
-)
+).map { cacheBustUrl(it) }
 
-/** Из нескольких источников берём сборку с наибольшим versionCode (release может быть новее gh-pages). */
-internal fun selectBestRemoteAppUpdate(candidates: List<AppRemoteUpdate>): AppRemoteUpdate? =
-    candidates.maxByOrNull { it.versionCode }?.let { best ->
-        best.copy(apkDownloadUrl = preferredInAppApkDownloadUrl(best.apkDownloadUrl))
-    }
+/** Анти-кэш для raw.githubusercontent / CDN: иначе app-update.json может отставать от APK. */
+internal fun cacheBustUrl(url: String): String {
+    val trimmed = url.trim()
+    if (trimmed.isEmpty()) return trimmed
+    val sep = if (trimmed.contains('?')) '&' else '?'
+    return "$trimmed${sep}v=${BuildConfig.VERSION_CODE}"
+}
 
-/** In-app загрузка: gh-pages (публичное зеркало), не release URL с возможной HTML-страницей. */
+/**
+ * Из нескольких источников берём сборку с наибольшим versionCode.
+ * URL APK берём у победившего versionCode: зеркало gh-pages — только если оно само на этом же коде
+ * (нельзя подменять release 434 на устаревший APK с gh-pages 433).
+ */
+internal fun selectBestRemoteAppUpdate(candidates: List<AppRemoteUpdate>): AppRemoteUpdate? {
+    val bestCode = candidates.maxOfOrNull { it.versionCode } ?: return null
+    val top = candidates.filter { it.versionCode == bestCode }
+    val ghPages = top.firstOrNull { isGhPagesApkUrl(it.apkDownloadUrl) }
+    return ghPages ?: top.first()
+}
+
+internal fun isGhPagesApkUrl(url: String): Boolean {
+    val trimmed = url.trim()
+    return trimmed.contains("raw.githubusercontent.com", ignoreCase = true) &&
+        trimmed.endsWith(".apk", ignoreCase = true)
+}
+
+/** Предпочтительный URL для in-app: свой primary, если уже gh-pages; иначе без принудительной подмены. */
 internal fun preferredInAppApkDownloadUrl(primaryUrl: String): String {
     val trimmed = primaryUrl.trim()
-    if (trimmed.contains("raw.githubusercontent.com", ignoreCase = true) &&
-        trimmed.endsWith(".apk", ignoreCase = true)
-    ) {
-        return trimmed
-    }
-    return APP_UPDATE_PUBLIC_APK_URL
+    if (isGhPagesApkUrl(trimmed)) return trimmed
+    return trimmed.ifBlank { APP_UPDATE_PUBLIC_APK_URL }
 }
 
 internal fun resolveApkDownloadUrl(manifestUrl: String, parsed: AppRemoteUpdate): String {
-    if (manifestUrl == APP_UPDATE_PUBLIC_MANIFEST_URL) {
+    val baseManifest = manifestUrl.substringBefore('?')
+    if (baseManifest == APP_UPDATE_PUBLIC_MANIFEST_URL) {
         // gh-pages — публичное зеркало; APK всегда с raw.githubusercontent (без входа в GitHub).
         return APP_UPDATE_PUBLIC_APK_URL
     }
     return parsed.apkDownloadUrl.ifBlank { APK_DOWNLOAD_DIRECT_URL }
 }
 
-/** Порядок попыток скачивания: зеркало gh-pages → основной URL → Release. */
+/**
+ * Порядок попыток скачивания: URL победившего манифеста → зеркало gh-pages → Release.
+ * Primary первым: иначе устаревший CDN gh-pages «успешно» отдаёт старый APK и валидация пишет «не новее».
+ */
 internal fun apkDownloadUrlCandidates(primaryUrl: String): List<String> =
     buildList {
+        val primary = preferredInAppApkDownloadUrl(primaryUrl)
+        if (primary.isNotBlank()) add(primary)
         if (none { it.equals(APP_UPDATE_PUBLIC_APK_URL, ignoreCase = true) }) {
             add(APP_UPDATE_PUBLIC_APK_URL)
-        }
-        val primary = preferredInAppApkDownloadUrl(primaryUrl)
-        if (primary.isNotBlank() && none { it.equals(primary, ignoreCase = true) }) {
-            add(primary)
         }
         if (none { it.equals(APK_DOWNLOAD_DIRECT_URL, ignoreCase = true) }) {
             add(APK_DOWNLOAD_DIRECT_URL)
@@ -391,17 +409,28 @@ internal fun appUpdateApkFile(context: Context): File {
 
 /**
  * @param onProgress 0..1 or null if length unknown
+ * @param context если задан — после загрузки сверяем versionCode APK с ожидаемым и пробуем другой URL
  */
 internal fun downloadAppUpdateApk(
     update: AppRemoteUpdate,
     destination: File,
-    onProgress: ((Float?) -> Unit)? = null
+    onProgress: ((Float?) -> Unit)? = null,
+    context: Context? = null,
 ) {
     val urls = apkDownloadUrlCandidates(update.apkDownloadUrl)
     var lastError: IOException? = null
     for (url in urls) {
         try {
             downloadAppUpdateApkFromUrl(url, destination, onProgress)
+            if (context != null) {
+                val apkCode = downloadedApkVersionCode(context, destination)
+                if (apkCode != null && apkCode < update.versionCode) {
+                    destination.delete()
+                    throw IOException(
+                        "С зеркала пришла сборка $apkCode, ожидалась ${update.versionCode}. Пробуем другой URL."
+                    )
+                }
+            }
             return
         } catch (e: IOException) {
             lastError = e
@@ -418,7 +447,16 @@ private fun isApkDownloadRetryable(error: IOException): Boolean {
         msg.contains("слишком мал") ||
         msg.contains("Пустой ответ") ||
         msg.contains("не APK") ||
-        msg.contains("HTML")
+        msg.contains("HTML") ||
+        msg.contains("ожидалась") ||
+        msg.contains("с зеркала", ignoreCase = true)
+}
+
+/** versionCode из скачанного APK (null если Android не прочитал архив). */
+internal fun downloadedApkVersionCode(context: Context, apkFile: File): Long? {
+    val pm = context.packageManager
+    val info = loadArchivePackageInfo(pm, apkFile.absolutePath, 0) ?: return null
+    return archiveApkVersionCode(info)
 }
 
 private fun isLikelyHtmlApkPayload(contentType: String?, peekHead: ByteArray): Boolean {

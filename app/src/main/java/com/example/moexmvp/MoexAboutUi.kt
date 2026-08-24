@@ -142,6 +142,13 @@ internal fun AboutTabContent(
             ) {
                 Text("Открыть Release в браузере")
             }
+            Text(
+                text = "Если Windows спросит аккаунт GitHub — выберите dimonix2019, не x-access-token.",
+                color = Color(0xFF9E9E9E),
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier.padding(top = 6.dp)
+            )
         }
         if (currentNotes != null) {
             Text(
@@ -162,6 +169,9 @@ internal fun AboutTabContent(
                     .padding(10.dp)
             )
         }
+        SpreadLevelAlertsSettingsCard(
+            modifier = Modifier.padding(top = 16.dp),
+        )
         Text(
             text = "История версий",
             color = Color.White,

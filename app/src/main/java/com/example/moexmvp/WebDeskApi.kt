@@ -31,6 +31,15 @@ internal data class WebDeskStatusSnapshot(
     val lastMessage: String?,
 )
 
+/** Lite desk open mark for profit-% alerts (deposit base). */
+internal data class WebDeskOpenMark(
+    val openId: Long?,
+    val direction: String?,
+    val unrealizedPnlRub: Double?,
+    val netApproxRub: Double?,
+    val entryDepositRub: Double,
+)
+
 /** HTTP client for strategy-web desk over Tailscale/LAN. */
 internal object WebDeskApi {
     suspend fun fetchHealthLive(context: Context): Result<WebDeskHealthLive> =
@@ -97,6 +106,65 @@ internal object WebDeskApi {
                         lastMessage = mon?.optString("last_message")?.takeIf {
                             it.isNotBlank() && it != "null"
                         },
+                    )
+                }
+            }
+        }
+
+    /** Lite desk → статус чеклиста + спред для шторки монитора. */
+    suspend fun fetchDeskShade(context: Context): Result<WebDeskShadeSnapshot?> =
+        withContext(Dispatchers.IO) {
+            val base = WebDeskPrefs.normalizedBaseUrl(context)
+                ?: return@withContext Result.failure(IllegalStateException("URL не задан"))
+            runCatching {
+                val req = Request.Builder()
+                    .url("$base/api/trade/desk?days=1&lite=1")
+                    .get()
+                    .build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        error("HTTP ${resp.code}")
+                    }
+                    val body = resp.body?.string().orEmpty()
+                    buildWebDeskShadeSnapshot(JSONObject(body))
+                }
+            }
+        }
+
+    /**
+     * Lite trade desk: open mark + entry_deposit for ≥3% profit push
+     * (same base as web «Сделка» % от вложения).
+     */
+    suspend fun fetchOpenMark(context: Context): Result<WebDeskOpenMark?> =
+        withContext(Dispatchers.IO) {
+            val base = WebDeskPrefs.normalizedBaseUrl(context)
+                ?: return@withContext Result.failure(IllegalStateException("URL не задан"))
+            runCatching {
+                val req = Request.Builder()
+                    .url("$base/api/trade/desk?days=1&lite=1")
+                    .get()
+                    .build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        error("HTTP ${resp.code}")
+                    }
+                    val body = resp.body?.string().orEmpty()
+                    val root = JSONObject(body)
+                    val open = root.optJSONObject("open")
+                        ?: return@use null
+                    val mark = open.optJSONObject("mark")
+                    val settings = root.optJSONObject("settings")
+                    val deposit = settings?.optDouble("entry_deposit_rub")
+                        ?.takeIf { settings.has("entry_deposit_rub") && !settings.isNull("entry_deposit_rub") }
+                        ?: 10_000.0
+                    fun optMarkRub(key: String): Double? =
+                        mark?.optDouble(key)?.takeIf { mark.has(key) && !mark.isNull(key) }
+                    WebDeskOpenMark(
+                        openId = open.optLong("id").takeIf { open.has("id") && !open.isNull("id") },
+                        direction = open.optString("direction").takeIf { it.isNotBlank() },
+                        unrealizedPnlRub = optMarkRub("unrealized_pnl_rub"),
+                        netApproxRub = optMarkRub("net_approx_rub"),
+                        entryDepositRub = if (deposit.isFinite() && deposit > 0) deposit else 10_000.0,
                     )
                 }
             }

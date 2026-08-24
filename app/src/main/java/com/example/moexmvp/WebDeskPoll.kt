@@ -1,9 +1,12 @@
 package com.example.moexmvp
 
 import android.content.Context
+import java.util.Locale
 
 internal const val WEB_DESK_POLL_MS = 35_000L
 private const val WEB_DESK_PUSH_BASE_ID = 42_100
+/** Same threshold as web Trade desk: MTM ≥ 3% of entry deposit (вложение). */
+internal const val WEB_DESK_PROFIT_ALERT_PCT = 3.0
 
 /** Whether a live_events row should produce a phone push. */
 internal fun webDeskEventShouldNotify(event: WebDeskEvent): Boolean {
@@ -17,6 +20,11 @@ internal fun webDeskEventShouldNotify(event: WebDeskEvent): Boolean {
     }
     // "AUTO вход LONG · …" logged as "{source} вход"
     if (m.startsWith("AUTO ", ignoreCase = true)) return true
+    if (m.contains("Прибыль ≥3%", ignoreCase = false) ||
+        m.contains("Прибыль >=3%", ignoreCase = false)
+    ) {
+        return true
+    }
     return false
 }
 
@@ -48,9 +56,12 @@ internal suspend fun pollWebDeskAndNotify(context: Context) {
         .sortedBy { it.id }
     for (ev in fresh) {
         if (!webDeskEventShouldNotify(ev)) continue
-        val title = when (ev.level.lowercase()) {
-            "signal" -> "Web: сигнал"
-            "error" -> "Web: ошибка"
+        val isProfit = ev.message.contains("Прибыль ≥3%") ||
+            ev.message.contains("Прибыль >=3%")
+        val title = when {
+            isProfit -> "Web: прибыль ≥3%"
+            ev.level.lowercase() == "signal" -> "Web: сигнал"
+            ev.level.lowercase() == "error" -> "Web: ошибка"
             else -> "Web desk"
         }
         showPushNotification(
@@ -61,12 +72,16 @@ internal suspend fun pollWebDeskAndNotify(context: Context) {
             skipDuplicateCheck = true,
             correlationTag = "web_desk_ev_${ev.id}",
         )
+        if (isProfit) {
+            snap.openId?.let { WebDeskPrefs.setProfitAlertTradeId(app, it) }
+        }
     }
     if (newestId > lastId) {
         WebDeskPrefs.setLastEventId(app, newestId)
     }
 
     notifyOpenTradeChange(app, snap)
+    notifyOpenProfitAlert(app, snap)
 }
 
 private fun syncOpenTradeStateSilent(app: Context, snap: WebDeskStatusSnapshot) {
@@ -112,4 +127,45 @@ private fun notifyOpenTradeChange(app: Context, snap: WebDeskStatusSnapshot) {
             WebDeskPrefs.setLastOpenId(app, 0L)
         }
     }
+}
+
+/**
+ * Once per open trade: push when MTM (else net) ≥ 3% of entry deposit.
+ * Uses desk lite mark — works even before Watchdog picks up engine alert code.
+ */
+private suspend fun notifyOpenProfitAlert(app: Context, snap: WebDeskStatusSnapshot) {
+    val openId = snap.openId ?: return
+    if (WebDeskPrefs.profitAlertTradeId(app) == openId) return
+
+    val mark = WebDeskApi.fetchOpenMark(app).getOrElse {
+        MoexDiagnostics.log(app, "web_desk", "open mark fail: ${it.message}")
+        return
+    } ?: return
+    val tid = mark.openId ?: openId
+    if (WebDeskPrefs.profitAlertTradeId(app) == tid) return
+
+    val deposit = mark.entryDepositRub
+    if (!(deposit > 0)) return
+    val profit = mark.unrealizedPnlRub ?: mark.netApproxRub ?: return
+    if (profit < deposit * (WEB_DESK_PROFIT_ALERT_PCT / 100.0)) return
+
+    val pct = (profit / deposit) * 100.0
+    val dir = mark.direction ?: snap.openDirection ?: "?"
+    val body = String.format(
+        Locale.US,
+        "%s · %+.0f ₽ (%+.1f%% от вложения %.0f ₽)",
+        dir,
+        profit,
+        pct,
+        deposit,
+    )
+    showPushNotification(
+        app,
+        title = "Web: прибыль ≥${WEB_DESK_PROFIT_ALERT_PCT.toInt()}%",
+        body = body,
+        notificationId = WEB_DESK_PUSH_BASE_ID + 902,
+        skipDuplicateCheck = true,
+        correlationTag = "web_desk_profit_$tid",
+    )
+    WebDeskPrefs.setProfitAlertTradeId(app, tid)
 }

@@ -96,10 +96,31 @@ jobs:
         if: steps.publish.outputs.should == 'true'
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk moexmvp-debug.apk
-          printf '{"versionCode":%s,"versionName":"%s","apkUrl":"https://raw.githubusercontent.com/%s/gh-pages/moexmvp-debug.apk"}\n' \
+          # Страховка: versionCode внутри APK должен совпасть с Gradle (иначе in-app «не новее»).
+          APK_VC=""
+          for AAPT_BIN in aapt \
+            "${ANDROID_HOME:-}/build-tools/34.0.0/aapt" \
+            "${ANDROID_SDK_ROOT:-}/build-tools/34.0.0/aapt"; do
+            if command -v "$AAPT_BIN" >/dev/null 2>&1 || [ -x "$AAPT_BIN" ]; then
+              APK_VC=$("$AAPT_BIN" dump badging moexmvp-debug.apk 2>/dev/null | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)
+              [ -n "$APK_VC" ] && break
+            fi
+          done
+          EXPECT="${{ steps.meta.outputs.vcode }}"
+          if [ -n "$APK_VC" ] && [ "$APK_VC" != "$EXPECT" ]; then
+            echo "APK versionCode=$APK_VC != Gradle $EXPECT" >&2
+            exit 1
+          fi
+          if [ -z "$APK_VC" ]; then
+            echo "warn: aapt unavailable — skip APK versionCode check"
+          fi
+          PUBLISHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          printf '{"versionCode":%s,"versionName":"%s","apkUrl":"https://raw.githubusercontent.com/%s/gh-pages/moexmvp-debug.apk","publishedAt":"%s"}\n' \
             "${{ steps.meta.outputs.vcode }}" \
             "${{ steps.meta.outputs.version }}" \
-            "${{ github.repository }}" > app-update.json
+            "${{ github.repository }}" \
+            "$PUBLISHED_AT" > app-update.json
+          cat app-update.json
 
       - name: Remove previous rolling release (best effort)
         if: steps.publish.outputs.should == 'true'

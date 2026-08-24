@@ -9,6 +9,7 @@ private const val KEY_ORDERS_ON_WEB_ONLY = "orders_on_web_only"
 private const val KEY_LAST_EVENT_ID = "last_event_id"
 private const val KEY_LAST_OPEN_ID = "last_open_id"
 private const val KEY_HAD_OPEN = "had_open"
+private const val KEY_PROFIT_ALERT_TRADE_ID = "profit_alert_trade_id"
 
 /** Prefs for Tailscale / LAN web desk monitoring. */
 internal object WebDeskPrefs {
@@ -19,7 +20,39 @@ internal object WebDeskPrefs {
         prefs(context).getString(KEY_BASE_URL, "")?.trim().orEmpty()
 
     fun setBaseUrl(context: Context, url: String) {
-        prefs(context).edit().putString(KEY_BASE_URL, url.trim().trimEnd('/')).apply()
+        val cleaned = sanitizeBaseUrl(url) ?: url.trim().trimEnd('/')
+        prefs(context).edit().putString(KEY_BASE_URL, cleaned).apply()
+    }
+
+    /**
+     * Extract a usable desk base URL from messy paste
+     * (e.g. «привет как http://100.x.x.x:8765» → http://100.x.x.x:8765).
+     */
+    fun sanitizeBaseUrl(raw: String): String? {
+        val t = raw.trim()
+        if (t.isBlank()) return null
+        val embedded = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
+            .find(t)
+            ?.value
+            ?.trim()
+            ?.trimEnd('/', ')', ',', ';')
+        val candidate = (embedded ?: t).trim().trimEnd('/')
+        val withScheme = when {
+            candidate.startsWith("http://", ignoreCase = true) -> candidate
+            candidate.startsWith("https://", ignoreCase = true) -> candidate
+            else -> "http://$candidate"
+        }
+        return try {
+            val u = java.net.URI(withScheme)
+            val host = u.host?.trim().orEmpty()
+            if (host.isBlank()) null
+            else {
+                val port = if (u.port > 0) ":${u.port}" else ""
+                "${u.scheme}://$host$port"
+            }
+        } catch (_: Exception) {
+            withScheme.trimEnd('/')
+        }
     }
 
     /** When true, poll web events and show push; WebView desk is available. */
@@ -64,14 +97,14 @@ internal object WebDeskPrefs {
         prefs(context).edit().putBoolean(KEY_HAD_OPEN, value).apply()
     }
 
-    fun normalizedBaseUrl(context: Context): String? {
-        val raw = baseUrl(context)
-        if (raw.isBlank()) return null
-        val withScheme = when {
-            raw.startsWith("http://", ignoreCase = true) -> raw
-            raw.startsWith("https://", ignoreCase = true) -> raw
-            else -> "http://$raw"
-        }
-        return withScheme.trimEnd('/')
+    /** Trade id for which ≥3% deposit profit push already fired (once per open). */
+    fun profitAlertTradeId(context: Context): Long =
+        prefs(context).getLong(KEY_PROFIT_ALERT_TRADE_ID, 0L)
+
+    fun setProfitAlertTradeId(context: Context, id: Long) {
+        prefs(context).edit().putLong(KEY_PROFIT_ALERT_TRADE_ID, id).apply()
     }
+
+    fun normalizedBaseUrl(context: Context): String? =
+        sanitizeBaseUrl(baseUrl(context))
 }

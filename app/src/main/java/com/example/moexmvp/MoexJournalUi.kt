@@ -51,6 +51,8 @@ internal fun JournalTabContent(
 ) {
     var journalSection by remember { mutableIntStateOf(JOURNAL_SECTION_SIGNALS) }
     var typeFilter by remember { mutableIntStateOf(0) }
+    var pushFilter by remember { mutableIntStateOf(0) }
+    var spreadAlertUiTick by remember { mutableIntStateOf(0) }
     var dayFilter by remember { mutableStateOf<LocalDate?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearPushDialog by remember { mutableStateOf(false) }
@@ -78,12 +80,15 @@ internal fun JournalTabContent(
             true
         }.toList().asReversed()
     }
-    val filteredPush = remember(pushNotifications, dayFilter) {
+    val filteredPush = remember(pushNotifications, dayFilter, pushFilter) {
         pushNotifications.asSequence()
             .filter { entry ->
                 if (dayFilter != null) {
                     val d = Instant.ofEpochMilli(entry.wallTimestampMillis).atZone(zone).toLocalDate()
                     if (d != dayFilter) return@filter false
+                }
+                when (pushFilter) {
+                    1 -> if (!isSpreadLevelAlertCorrelationTag(entry.correlationTag)) return@filter false
                 }
                 true
             }
@@ -223,6 +228,19 @@ internal fun JournalTabContent(
                 }
             }
         }
+        if (journalSection == JOURNAL_SECTION_NOTIFICATIONS) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilterChip("Все push", selected = pushFilter == 0) { pushFilter = 0 }
+                    FilterChip("Спред", selected = pushFilter == 1) { pushFilter = 1 }
+                }
+            }
+            item {
+                SpreadLevelAlertsSettingsCard(
+                    onChanged = { spreadAlertUiTick++ },
+                )
+            }
+        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 val today = LocalDate.now(zone)
@@ -290,6 +308,8 @@ internal fun JournalTabContent(
                     pushStatusText = pushLogStatusText(entry),
                     pushPosted = entry.posted,
                     correlationTag = entry.correlationTag,
+                    spreadAlertUiTick = spreadAlertUiTick,
+                    onSpreadAlertDisabled = { spreadAlertUiTick++ },
                 )
             }
         }
@@ -317,6 +337,8 @@ private fun JournalSignalOrPushCard(
     pushStatusText: String?,
     pushPosted: Boolean?,
     correlationTag: String? = null,
+    spreadAlertUiTick: Int = 0,
+    onSpreadAlertDisabled: () -> Unit = {},
 ) {
     Column(
         Modifier
@@ -365,6 +387,13 @@ private fun JournalSignalOrPushCard(
                 color = Color(0xFF757575),
                 fontSize = 10.sp,
                 maxLines = 2
+            )
+        }
+        if (isSpreadLevelAlertCorrelationTag(correlationTag)) {
+            SpreadLevelAlertDisableButton(
+                correlationTag = correlationTag,
+                refreshTick = spreadAlertUiTick,
+                onDisabled = onSpreadAlertDisabled,
             )
         }
         if (messageBody.isNotBlank()) {
