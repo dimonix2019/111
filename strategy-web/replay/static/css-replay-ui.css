@@ -27,10 +27,15 @@
 .app[data-view="replay"] .markets-only,
 .app[data-view="replay"] .portfolio-only { display: none !important; }
 
-.app[data-view="trade"],
+/* Торговля: шапка + 2 строки статуса + стол (1fr).
+   Раньше было auto auto 1fr — вторая строка правил съедала всю высоту (дыра). */
+.app[data-view="trade"] {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
 .app[data-view="history"],
 .app[data-view="account"] {
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .view-mode-chips {

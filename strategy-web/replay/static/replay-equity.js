@@ -132,6 +132,103 @@ function resolvePnlPctBasisRub(equityTotalSeries, notionalRub = getSimNotionalRu
   return Math.max(1, notionalRub + Math.max(0, peakPnl));
 }
 
+/**
+ * Unix-секунды бара — как у свечей (подпись даты), иначе timestampMs.
+ * Свечи в chart.js берут labelToUnixSec(tradeDate); тот же ключ — кривая не уезжает.
+ */
+function unixSecFromBar(p) {
+  const fromLabel = unixSecFromTradeDate(p && p.tradeDate);
+  if (fromLabel != null) return fromLabel;
+  const ms = Number(p && p.timestampMs);
+  if (Number.isFinite(ms) && ms > 1e12) return Math.floor(ms / 1000);
+  if (Number.isFinite(ms) && ms > 1e9 && ms < 1e12) return Math.floor(ms);
+  return null;
+}
+
+function unixSecFromTradeDate(td) {
+  if (td == null || td === '—' || td === '') return null;
+  if (typeof parseTradeMs === 'function') {
+    const ms = parseTradeMs(td);
+    if (Number.isFinite(ms) && ms > 1e12) return Math.floor(ms / 1000);
+    if (Number.isFinite(ms) && ms > 1e9 && ms < 1e12) return Math.floor(ms);
+  }
+  if (typeof labelToUnixSec === 'function') {
+    const s = labelToUnixSec(String(td));
+    if (Number.isFinite(s) && s > 1e9) return s;
+  }
+  return null;
+}
+
+function tradeDateKey16(td) {
+  return String(td || '').replace('T', ' ').trim().slice(0, 16);
+}
+
+/**
+ * Кривая счёта tip1m по факту серверных сделок (net), не пересчёт edges на хвосте графика.
+ * Важно: график tip1m часто только ~90д, а сим — всё окно; seed = сумма закрытий до первого бара окна.
+ */
+function buildTipAccountEquitySeries(rows, windowPoints) {
+  if (!windowPoints || !windowPoints.length) return [];
+
+  const events = [];
+  for (const r of rows || []) {
+    if (!r || r.status === 'Открыта') continue;
+    let net = Number(r.netValue);
+    if (!Number.isFinite(net) && typeof r.net === 'number') net = r.net;
+    if (!Number.isFinite(net)) continue;
+    const t = unixSecFromTradeDate(r.exitDate);
+    const key = tradeDateKey16(r.exitDate);
+    if (t == null && !key) continue;
+    events.push({ time: t, key, net });
+  }
+  events.sort((a, b) => {
+    if (a.time != null && b.time != null && a.time !== b.time) return a.time - b.time;
+    return String(a.key).localeCompare(String(b.key));
+  });
+
+  const t0 = unixSecFromBar(windowPoints[0]);
+  const k0 = tradeDateKey16(windowPoints[0].tradeDate);
+  let seed = 0;
+  const rest = [];
+  for (const e of events) {
+    let before = false;
+    if (t0 != null && e.time != null) before = e.time < t0;
+    else if (e.key && k0) before = e.key < k0;
+    if (before) seed += e.net;
+    else rest.push(e);
+  }
+
+  let j = 0;
+  let last = seed;
+  const out = [];
+  const seen = new Set();
+  for (const p of windowPoints) {
+    const time = unixSecFromBar(p);
+    if (time == null || seen.has(time)) continue;
+    seen.add(time);
+    const pk = tradeDateKey16(p.tradeDate);
+    while (j < rest.length) {
+      const e = rest[j];
+      const due = (e.time != null && time != null)
+        ? e.time <= time
+        : !!(e.key && pk && e.key <= pk);
+      if (!due) break;
+      last += e.net;
+      j += 1;
+    }
+    out.push({ time, value: last });
+  }
+  if (j < rest.length && out.length) {
+    while (j < rest.length) {
+      last += rest[j].net;
+      j += 1;
+    }
+    const tail = out[out.length - 1];
+    out[out.length - 1] = { time: tail.time, value: last };
+  }
+  return out;
+}
+
 /** PnL одной открытой сделки: 0 вне позиции и на баре выхода. */
 function buildPerTradeEquitySeries(allPoints, edges, windowPoints, cursorIndex) {
   if (!allPoints.length || !windowPoints.length) return [];
@@ -298,6 +395,17 @@ function buildChartPayload(candles, entry, exit, markers, trades, playing, opts 
     const ov = buildSpreadChartOverlays(opts.spreadLevels || {});
     hlines = ov.hlines;
     spreadLevels = ov.spreadLevels;
+    // Пока не рисуем липкую полку −0.25…1 на Тесте (коридор не торгуем).
+    const sticky = null;
+    if (sticky && Number.isFinite(Number(sticky.lo)) && Number.isFinite(Number(sticky.hi))) {
+      const lo = Number(sticky.lo);
+      const hi = Number(sticky.hi);
+      hlines = [
+        ...hlines,
+        { value: lo, color: '#FBBF24', title: formatSpreadLevelTitle('полка низ', lo) },
+        { value: hi, color: '#FBBF24', title: formatSpreadLevelTitle('полка верх', hi) },
+      ];
+    }
   } else {
     hlines = [
       { value: entry, color: '#EF5350', title: '+Entry' },
@@ -317,11 +425,16 @@ function buildChartPayload(candles, entry, exit, markers, trades, playing, opts 
     equity: opts.equity || [],
     deltaPp: opts.deltaPp || [],
     pnlBasisRub: typeof opts.pnlBasisRub === 'number' ? opts.pnlBasisRub : getSimNotionalRub(),
+    pnlChartMode: opts.pnlChartMode || 'account',
+    accountBaseRub: typeof opts.accountBaseRub === 'number' ? opts.accountBaseRub : getSimNotionalRub(),
     fitFull: !!opts.fitFull,
     light: !!opts.light,
     markersChanged: opts.markersChanged !== false,
     windowWidth: typeof opts.windowWidth === 'number' ? opts.windowWidth : 1,
     maxVisibleBars: typeof opts.maxVisibleBars === 'number' ? opts.maxVisibleBars : 200,
     playing: !!playing,
+    cascadeVlines: Array.isArray(opts.cascadeVlines) ? opts.cascadeVlines : [],
+    cascadeVlinesChanged: opts.cascadeVlinesChanged !== false,
+    corridor: null,
   };
 }

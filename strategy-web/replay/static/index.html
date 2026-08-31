@@ -4,17 +4,31 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MOEX · Торговля / История / Счёт / Тестирование</title>
-  <link rel="stylesheet" href="/static/css-shell.css?v=20260817fit1" />
-  <link rel="stylesheet" href="/static/css-testing.css?v=20260817noZm15" />
-  <link rel="stylesheet" href="/static/css-replay-ui.css?v=20260723a12" />
-  <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260817mtlr4" />
-  <link rel="stylesheet" href="/static/css-mobile.css?v=20260816mtlr2" />
+  <link rel="stylesheet" href="/static/css-shell.css?v=20260830ref100k" />
+  <link rel="stylesheet" href="/static/css-testing.css?v=20260831nocorr1" />
+  <link rel="stylesheet" href="/static/css-replay-ui.css?v=20260829gap1" />
+    <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260831sideTab1" />
+  <link rel="stylesheet" href="/static/css-mobile.css?v=20260831sideTab1" />
 </head>
 <body>
   <div id="loading" class="loading">
-    <div id="loadingTitle">Загрузка 15м данных…</div>
-    <div class="loading-sub" id="loadingSub">подключение к http://127.0.0.1:8765</div>
+    <div id="loadingTitle">Загрузка интерфейса…</div>
+    <div class="loading-sub" id="loadingSub">сервер http://127.0.0.1:8765</div>
   </div>
+  <script>
+    (function () {
+      var t = document.getElementById('loadingTitle');
+      var s = document.getElementById('loadingSub');
+      if (t) t.textContent = 'Загрузка интерфейса…';
+      if (s) s.textContent = 'скрипты · затем 15м бары, затем касание 1м';
+      window.addEventListener('error', function (e) {
+        var src = String((e && e.filename) || '');
+        if (!/\/static\/.+\.js/i.test(src)) return;
+        if (t) t.textContent = 'Ошибка скрипта';
+        if (s) s.textContent = (e && e.message) ? String(e.message) : src;
+      });
+    })();
+  </script>
 
   <div class="app hidden" id="app" data-view="trade">
     <header class="toolbar">
@@ -45,17 +59,19 @@
       </div>
       <div class="replay-toolbar-extras replay-only" id="replayToolbarExtras">
       <span class="meta" id="meta">TATN/TATNP · 15м</span>
-      <label class="meta" title="Окно данных: с этой даты грузятся бары и пересчитывается таблица СДЕЛКИ">Окно
-        <input type="date" id="startDate" />
+      <label class="meta window-range" title="Окно данных: с даты начала по дату окончания грузятся бары и пересчитывается таблица СДЕЛКИ. Пустой конец = до последнего бара.">Окно
+        <input type="date" id="startDate" title="Начало периода" aria-label="Начало окна" />
+        <span class="window-range-sep" aria-hidden="true">–</span>
+        <input type="date" id="endDate" title="Окончание периода (пусто = до последнего бара)" aria-label="Окончание окна" />
       </label>
-      <div class="chip-group start-preset-chips" id="startPresetChips" role="group" aria-label="Окно данных (старт симуляции)">
-        <button type="button" class="chip" data-start-preset="1d" title="Окно данных: сегодня (МСК) → сейчас. Пересчёт баров и СДЕЛКИ.">1 день</button>
-        <button type="button" class="chip" data-start-preset="1w" title="Окно данных: пн текущей недели (МСК) → сейчас. Пересчёт баров и СДЕЛКИ.">1 неделя</button>
-        <button type="button" class="chip" data-start-preset="1m" title="Окно данных: сегодня−1 мес → сейчас. Пересчёт баров и СДЕЛКИ по финальному CSV (геометрия за всё окно).">1 мес</button>
-        <button type="button" class="chip" data-start-preset="3m" title="Окно данных: сегодня−3 мес → сейчас. Пересчёт баров и СДЕЛКИ.">3 мес</button>
-        <button type="button" class="chip" data-start-preset="6m" title="Окно данных: сегодня−6 мес → сейчас. Пересчёт баров и СДЕЛКИ.">6 мес</button>
-        <button type="button" class="chip" data-start-preset="1y" title="Окно данных: сегодня−1 год → сейчас. Пересчёт баров и СДЕЛКИ.">год</button>
-        <button type="button" class="chip" data-start-preset="3y" title="Окно данных: сегодня−3 года → сейчас. Пересчёт баров и СДЕЛКИ.">3 года</button>
+      <div class="chip-group start-preset-chips" id="startPresetChips" role="group" aria-label="Окно данных (старт→сегодня)">
+        <button type="button" class="chip" data-start-preset="1d" title="Окно данных: сегодня (МСК) → сегодня. Пересчёт баров и СДЕЛКИ.">1 день</button>
+        <button type="button" class="chip" data-start-preset="1w" title="Окно данных: пн текущей недели (МСК) → сегодня. Пересчёт баров и СДЕЛКИ.">1 неделя</button>
+        <button type="button" class="chip" data-start-preset="1m" title="Окно данных: сегодня−1 мес → сегодня. Пересчёт баров и СДЕЛКИ по финальному CSV (геометрия за всё окно).">1 мес</button>
+        <button type="button" class="chip" data-start-preset="3m" title="Окно данных: сегодня−3 мес → сегодня. Пересчёт баров и СДЕЛКИ.">3 мес</button>
+        <button type="button" class="chip" data-start-preset="6m" title="Окно данных: сегодня−6 мес → сегодня. Пересчёт баров и СДЕЛКИ.">6 мес</button>
+        <button type="button" class="chip" data-start-preset="1y" title="Окно данных: сегодня−1 год → сегодня. Пересчёт баров и СДЕЛКИ.">год</button>
+        <button type="button" class="chip" data-start-preset="3y" title="Окно данных: сегодня−3 года → сегодня. Пересчёт баров и СДЕЛКИ.">3 года</button>
       </div>
       <span class="meta" title="Только масштаб графика — не меняет окно данных и не пересчитывает СДЕЛКИ">График:</span>
       <div class="chip-group" id="periodChips" role="group" aria-label="Масштаб графика (не окно данных)">
@@ -63,7 +79,7 @@
         <button type="button" class="chip" data-days="90" title="Масштаб графика: ~90д">3М</button>
         <button type="button" class="chip" data-days="180" title="Масштаб графика: ~180д">6М</button>
         <button type="button" class="chip" data-days="400" title="Масштаб: все загруженные бары до курсора (не меняет окно данных / СДЕЛКИ)">Всё</button>
-        <button type="button" class="chip" id="btnFitFullChart" title="Показать на графике все загруженные бары (масштаб, без пересчёта сделок)">⤢ весь</button>
+        <button type="button" class="chip" id="btnFitFullChart" title="Подогнать масштаб: все загруженные бары на экран. Не режим и не полный экран (полный экран — ⛶ в строке статуса).">⤢ весь</button>
       </div>
       <div class="replay-opt-group" role="group" aria-label="Параметры стратегии">
         <span class="replay-opt-group-title">Стратегия</span>
@@ -117,11 +133,16 @@
           <option value="m15_test_3d.csv">тест 3д</option>
         </select>
       </label>
-      <div class="chip-group" id="edgeModeChips" role="group" aria-label="Режим сигнала Теста">
-        <button type="button" class="chip active" data-edge-mode="m15"
-          title="Вход/выход на закрытии M15 по уровням спреда (Short 6.2/5.8 · Long 3.2/4.0), без Z">M15 закрытие</button>
-          <button type="button" class="chip" data-edge-mode="tip1m"
-            title="Касание порога на 1м tip. Уровни спреда как Prod AUTO (Short 6.2/5.8 · Long 3.2/4.0). Считает сервер.">касание 1м</button>
+      <div class="chip-group" id="addonModeChips" role="group" aria-label="Варианты теста">
+        <button type="button" class="chip" id="btnAddon27" aria-pressed="false"
+          title="Вариант 2: база (Short 6.2/5.8 · Long 3.2/4.0) плюс добор той же ногой. Long+касание 2% → вторая Long, выход 3.2. Short+касание 7% → вторая Short, выход 6.2. Без базы добор не входит. Капит. ON — размер ноги = депозит + закрытый PnL. Только Тест (касание 1м), не Prod AUTO.">добор 2/7</button>
+        <button type="button" class="chip" id="btnExtra19" aria-pressed="false"
+          title="Экстра-добор на хвостах истории (~3г): Long касание ≤1% → выход 2; Short касание ≥9% (~p98) → выход 7. Только при открытой базе, можно вместе с добором 2/7 (до 3 ног). Уровень 0 при открытой базе почти не бывает. Не Prod AUTO.">экстра 1/9</button>
+        <button type="button" class="chip" id="btnZoneSwing" aria-pressed="false"
+          title="Качалка зоны: после выхода базы ping-pong в коричневой зоне (L вых…S вых, обычно 4.0…5.8%). Long вышел → Short на верхней границе, выход на нижней; Short вышел → Long на нижней, выход на верхней. Только Тест (касание 1м), не Prod AUTO.">качалка зоны</button>
+        <button type="button" class="chip" id="btnAdaptCorridor" hidden aria-hidden="true"
+          aria-pressed="false"
+          title="Пока скрыт: коридор на Тесте не торгуем и не рисуем.">адапт. коридор</button>
       </div>
       <button type="button" class="btn btn-sm btn-primary" id="btnRefreshMoex" title="Дотянуть хвост с MOEX ISS и обновить бары теста">Обновить MOEX</button>
       <span class="moex-last-bar" id="moexLastBarTs" title="Последний бар в данных теста (M15)"></span>
@@ -129,14 +150,20 @@
       </div>
     </header>
 
-    <div class="status-bar trade-only" id="tradeStatus">Торговля · загрузка…</div>
+    <div class="status-bar status-bar--groups trade-only" id="tradeStatus">Торговля · загрузка…</div>
+    <div class="status-bar status-bar--groups status-bar--rules trade-only" id="tradeRulesStatus" aria-label="Активные правила торговли"></div>
     <div class="status-bar history-only" id="historyStatus">История · загрузка…</div>
     <div class="status-bar account-only" id="liveStatus">Счёт · не подключено</div>
-    <div class="status-bar replay-only" id="status">—</div>
+    <div class="status-bar status-bar-with-fs replay-only" id="statusBar">
+      <div class="status-bar-text" id="status">—</div>
+      <button type="button" class="pane-collapse-btn" id="btnExpandReplay" aria-pressed="false" title="На весь экран">⛶</button>
+    </div>
 
     <!-- —— Торговля (главный стол) —— -->
     <main class="trade-desk trade-only" id="tradeView">
       <div class="trade-charts">
+        <button type="button" class="trade-mid-restore-btn" id="btnRestoreMidPanel" hidden
+          title="Показать чеклист и параметры">◀</button>
         <section class="live-card trade-chart-head">
           <div class="live-row" style="justify-content:space-between;align-items:center;margin:0">
             <div class="chip-group" id="tradePeriodChips">
@@ -165,8 +192,8 @@
               <div id="tradeZChart" class="trade-pane-z"></div>
             </div>
           </div>
-          <div class="split-divider-h" id="tradeSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота графиков спреда" title="Перетащите · двойной клик — сброс"></div>
-          <div class="trade-pane-spread-wrap" id="tradeSpreadPane">
+          <div class="split-divider-h trade-mtlr-ui" id="tradeSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота графиков спреда" title="Перетащите · двойной клик — сброс" hidden></div>
+          <div class="trade-pane-spread-wrap trade-mtlr-ui" id="tradeSpreadPane" hidden>
             <div class="pnl-head">
               <div class="pnl-label" id="tradeSpreadChartLabel">Мечел · спред % · m15</div>
               <div class="pnl-head-right">
@@ -261,29 +288,17 @@
       </div>
 
       <div class="trade-mid-col">
-        <aside class="trade-side trade-mid-tabs-shell live-card" id="tradeMidTabsPanel" aria-label="Чеклист, зависания и параметры">
-          <div class="chip-group trade-mid-tabs" id="tradeMidTabs" role="tablist" aria-label="Разделы">
-            <button type="button" class="chip active" data-mid-tab="check" role="tab" aria-selected="true" aria-controls="tradeChecklistPanel" id="tradeMidTabCheck">Чеклист</button>
-            <button type="button" class="chip" data-mid-tab="hang" role="tab" aria-selected="false" aria-controls="tradeHangPanel" id="tradeMidTabHang">Кто завис</button>
-            <button type="button" class="chip" data-mid-tab="params" role="tab" aria-selected="false" aria-controls="tradeParamsPanel" id="tradeMidTabParams">Параметры</button>
+        <aside class="trade-side trade-mid-tabs-shell live-card" id="tradeMidTabsPanel" aria-label="Чеклист и параметры">
+          <div class="trade-mid-tabs-head">
+            <div class="chip-group trade-mid-tabs" id="tradeMidTabs" role="tablist" aria-label="Разделы">
+              <button type="button" class="chip active" data-mid-tab="check" role="tab" aria-selected="true" aria-controls="tradeChecklistPanel" id="tradeMidTabCheck">Чеклист</button>
+              <button type="button" class="chip" data-mid-tab="params" role="tab" aria-selected="false" aria-controls="tradeParamsPanel" id="tradeMidTabParams">Параметры</button>
+            </div>
+            <button type="button" class="pane-collapse-btn trade-mid-collapse-btn" id="btnCollapseMidPanel"
+              aria-expanded="true" aria-controls="tradeMidTabsPanel" title="Скрыть панель вправо">▶</button>
           </div>
           <div class="trade-mid-tab-panes">
             <div class="trade-mid-tab-pane trade-checklist active" data-mid-pane="check" id="tradeChecklistPanel" role="tabpanel" aria-labelledby="tradeMidTabCheck">
-              <div class="trade-mtlr-card" id="tradeMtlrCard" aria-label="Мечел m15" hidden>
-                <div class="trade-mtlr-head">
-                  <span class="trade-mtlr-title">Мечел</span>
-                  <span class="trade-mtlr-badge" id="tradeMtlrBadge">m15</span>
-                </div>
-                <div class="trade-mtlr-row" id="tradeMtlrMain">—</div>
-                <div class="trade-mtlr-meta" id="tradeMtlrMeta">Short 8.9→8.4 · Long 3.2→4.3</div>
-                <div class="trade-mtlr-open" id="tradeMtlrOpen" hidden></div>
-                <div class="trade-mtlr-sig" id="tradeMtlrSig"></div>
-                <div class="trade-mtlr-actions" id="tradeMtlrActions">
-                  <button type="button" class="btn btn-sm btn-long" id="tradeMtlrBtnLong" disabled title="Ручной Long Мечел (отдельно от Татнефть)">Long</button>
-                  <button type="button" class="btn btn-sm btn-short" id="tradeMtlrBtnShort" disabled title="Ручной Short Мечел">Short</button>
-                  <button type="button" class="btn btn-sm btn-close-all" id="tradeMtlrBtnClose" disabled title="Закрыть спред Мечел на брокере">Закрыть</button>
-                </div>
-              </div>
               <div class="trade-check-hint" id="tradeCheckHint">ожидание данных…</div>
               <div class="trade-check-section">
                 <div class="trade-check-title">Общее</div>
@@ -299,113 +314,341 @@
               </div>
             </div>
 
-            <div class="trade-mid-tab-pane trade-hang-panel" data-mid-pane="hang" id="tradeHangPanel" role="tabpanel" aria-labelledby="tradeMidTabHang" aria-label="Кто завис" hidden>
-              <div class="trade-hang-head">
-                <button type="button" class="btn btn-sm" id="tradeHangRefresh" title="Обновить с дневных закрытий ISS">Обновить</button>
-              </div>
-              <div class="trade-hang-meta" id="tradeHangMeta">ожидание…</div>
-              <div class="trade-hang-table-wrap">
-                <table class="trade-hang-table" id="tradeHangTable">
-                  <thead>
-                    <tr>
-                      <th>Пара</th>
-                      <th>S%</th>
-                      <th>мед.</th>
-                      <th>p10</th>
-                      <th>p90</th>
-                      <th>дней</th>
-                      <th>статус</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tradeHangBody">
-                    <tr><td colspan="7" class="trade-hang-empty">—</td></tr>
-                  </tbody>
-                </table>
-              </div>
-              <div class="trade-hang-rules" id="tradeHangRules"></div>
-            </div>
-
             <div class="trade-mid-tab-pane trade-params-panel" data-mid-pane="params" id="tradeParamsPanel" role="tabpanel" aria-labelledby="tradeMidTabParams" hidden>
-              <div class="trade-deposit-row">
-                <label class="trade-deposit-label" title="Депозит, от которого считаются лоты на вход (не больше cash на счёте)">Депозит на вход ₽
-                  <input type="number" id="tradeEntryDeposit" min="1000" max="10000000" step="1000" value="10000" />
+              <header class="tp-hero">
+                <h3 class="tp-hero-title">Параметры Prod</h3>
+                <p class="tp-hero-sub">TATN tip1m · уровни спреда · монитор AUTO</p>
+              </header>
+
+              <section class="tp-card tp-card-levels" aria-labelledby="tpLevelsTitle">
+                <div class="tp-card-head">
+                  <span class="tp-card-icon tp-card-icon--levels" aria-hidden="true"></span>
+                  <div>
+                    <h4 class="tp-card-title" id="tpLevelsTitle">Пороги спреда %</h4>
+                    <p class="tp-card-desc">Вход при касании уровня · выход при достижении второго</p>
+                  </div>
+                </div>
+                <div class="tp-levels-grid">
+                  <div class="tp-level-col tp-level-col--long">
+                    <div class="tp-level-head">
+                      <span class="tp-pill tp-pill--long">Long</span>
+                      <span class="tp-level-arrow" aria-hidden="true">→</span>
+                    </div>
+                    <label class="tp-field">
+                      <span class="tp-field-k">L1 · вход</span>
+                      <span class="tp-field-h">спред ≤</span>
+                      <input type="number" id="tradeSpreadEnterNarrow" class="tp-input" min="0.1" max="20" step="0.1" value="3.2" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                    <label class="tp-field">
+                      <span class="tp-field-k">L2 · выход</span>
+                      <span class="tp-field-h">спред ≥</span>
+                      <input type="number" id="tradeSpreadExitNarrow" class="tp-input" min="0.1" max="20" step="0.1" value="4.0" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                  </div>
+                  <div class="tp-level-col tp-level-col--short">
+                    <div class="tp-level-head">
+                      <span class="tp-pill tp-pill--short">Short</span>
+                      <span class="tp-level-arrow" aria-hidden="true">→</span>
+                    </div>
+                    <label class="tp-field">
+                      <span class="tp-field-k">S1 · вход</span>
+                      <span class="tp-field-h">спред ≥</span>
+                      <input type="number" id="tradeSpreadEnterWide" class="tp-input" min="0.1" max="20" step="0.1" value="6.2" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                    <label class="tp-field">
+                      <span class="tp-field-k">S2 · выход</span>
+                      <span class="tp-field-h">спред ≤</span>
+                      <input type="number" id="tradeSpreadExitWide" class="tp-input" min="0.1" max="20" step="0.1" value="5.8" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <section class="tp-card" aria-labelledby="tpCapitalTitle">
+                <div class="tp-card-head">
+                  <span class="tp-card-icon tp-card-icon--capital" aria-hidden="true"></span>
+                  <div>
+                    <h4 class="tp-card-title" id="tpCapitalTitle">Капитал</h4>
+                    <p class="tp-card-desc">Доли 40 / 30 / 30 от того, что сейчас на счёте. Прибыль остаётся — ноги растут</p>
+                  </div>
+                </div>
+                <label class="tp-auto-toggle tp-addon-toggle">
+                  <input type="checkbox" id="tradeCompound" checked />
+                  <span class="tp-auto-label">Капитализация</span>
                 </label>
-                <button type="button" class="btn btn-sm btn-primary" id="tradeBtnSaveDeposit" title="Сохранить депозит на вход">Сохранить</button>
-                <span class="trade-params-status" id="tradeDepositStatus" aria-live="polite"></span>
-              </div>
-              <div class="trade-params">
-                <label>Плечо
-                  <input type="number" id="tradeLeverage" min="1" max="30" step="0.5" value="7" />
-                </label>
-              </div>
-              <div class="live-row live-actions trade-params-actions">
-                <label class="trade-tp-inline" title="Take-profit: закрыть, когда MTM PnL (% от депозита×плечо) ≥ порога — как Testing tip1m">ТП
-                  <select id="tradeTpSel">
-                    <option value="0" selected>выкл</option>
-                    <option value="1">1%</option>
-                    <option value="2">2%</option>
-                    <option value="3">3%</option>
-                  </select>
-                </label>
-                <label class="live-check">
-                  <input type="checkbox" id="tradeAutoExec" />
-                  Авто
-                </label>
-                <button type="button" class="btn btn-sm btn-primary" id="tradeBtnSaveParams" title="Сохранить ТП, плечо и Авто на сервер (монитор Prod tip1m, уровни спреда всегда)">Сохранить</button>
-                <span class="trade-params-status" id="tradeParamsStatus" aria-live="polite"></span>
-              </div>
-              <div class="trade-params-mtlr" id="tradeParamsMtlr">
-                <div class="trade-params-mtlr-title">Мечел (MTLR/MTLRP)</div>
-                <div class="live-row live-actions trade-params-actions">
-                  <label class="live-check" title="Показывать сигналы Мечела по 15м">
-                    <input type="checkbox" id="tradeMtlrEnabled" checked />
-                    Тень Мечел
+                <div class="tp-capital-grid">
+                  <label class="tp-field tp-field--wide">
+                    <span class="tp-field-k">База</span>
+                    <div class="tp-input-row">
+                      <input type="number" id="tradeEntryDeposit" class="tp-input" min="1000" max="10000000" step="1000" value="40000" />
+                      <span class="tp-field-u">₽</span>
+                      <button type="button" class="btn btn-sm tp-btn-inline" id="tradeBtnSaveDeposit" title="Сохранить депозиты">OK</button>
+                    </div>
+                    <span class="trade-params-status tp-inline-status" id="tradeDepositStatus" aria-live="polite"></span>
                   </label>
-                  <label class="live-check" title="Ордера Мечела по m15 (отдельно от Авто Татнефть). По умолчанию выкл.">
-                    <input type="checkbox" id="tradeMtlrAuto" />
-                    Авто Мечел
+                  <label class="tp-field">
+                    <span class="tp-field-k">Добор</span>
+                    <div class="tp-input-row">
+                      <input type="number" id="tradeAddonDeposit" class="tp-input" min="1000" max="10000000" step="1000" value="30000" />
+                      <span class="tp-field-u">₽</span>
+                    </div>
                   </label>
-                  <label class="live-field trade-mtlr-deposit" title="Депозит на вход Мечела (малый размер для prod)">
-                    <span>Депозит Мечел ₽</span>
-                    <input type="number" id="tradeMtlrDeposit" min="1000" max="10000000" step="500" value="12000" />
+                  <label class="tp-field">
+                    <span class="tp-field-k">Экстра</span>
+                    <div class="tp-input-row">
+                      <input type="number" id="tradeExtraDeposit" class="tp-input" min="1000" max="10000000" step="1000" value="30000" />
+                      <span class="tp-field-u">₽</span>
+                    </div>
+                  </label>
+                  <label class="tp-field">
+                    <span class="tp-field-k">Плечо</span>
+                    <input type="number" id="tradeLeverage" class="tp-input" min="1" max="30" step="0.5" value="7" />
                   </label>
                 </div>
-                <div class="meta trade-params-mtlr-hint">Уровни Short 8.9→8.4 · Long 3.2→4.3 · m15 · корзина ≤2 · ТП общий (параметр выше) · Татнефть tip1m отдельно</div>
-              </div>
+              </section>
+
+              <section class="tp-card" aria-labelledby="tpHoldTitle">
+                <div class="tp-card-head">
+                  <span class="tp-card-icon tp-card-icon--hold" aria-hidden="true"></span>
+                  <div>
+                    <h4 class="tp-card-title" id="tpHoldTitle">Выходы по времени</h4>
+                    <p class="tp-card-desc">Как в лучшем режиме бэктеста · ТП + нет хода 5д</p>
+                  </div>
+                </div>
+                <div class="tp-hold-grid">
+                  <label class="tp-field" title="Закрыть при MTM ≥ порога от депозита">
+                    <span class="tp-field-k">ТП</span>
+                    <select id="tradeTpSel" class="tp-select tp-select--wide">
+                      <option value="0">выкл</option>
+                      <option value="1">1%</option>
+                      <option value="2" selected>2%</option>
+                      <option value="3">3%</option>
+                    </select>
+                  </label>
+                  <label class="tp-field" title="Закрыть, если за N календарных дней спред не ушёл к выходу ≥0,2 п.п. и MTM &lt; 0">
+                    <span class="tp-field-k">Нет хода</span>
+                    <select id="tradeHoldNoTrendSel" class="tp-select tp-select--wide">
+                      <option value="0">выкл</option>
+                      <option value="5" selected>5д</option>
+                      <option value="7">7д</option>
+                      <option value="10">10д</option>
+                    </select>
+                  </label>
+                  <label class="tp-field" title="Закрыть, если N календарных дней в минусе">
+                    <span class="tp-field-k">В минусе</span>
+                    <select id="tradeHoldLosingSel" class="tp-select tp-select--wide">
+                      <option value="0" selected>выкл</option>
+                      <option value="7">7д</option>
+                      <option value="10">10д</option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+
+              <section class="tp-card" aria-labelledby="tpAddonTitle">
+                <div class="tp-card-head">
+                  <span class="tp-card-icon tp-card-icon--addon" aria-hidden="true"></span>
+                  <div>
+                    <h4 class="tp-card-title" id="tpAddonTitle">Добор</h4>
+                    <p class="tp-card-desc">Вторая нога при открытой базе · лучший баланс 2 / 7</p>
+                  </div>
+                </div>
+                <label class="tp-auto-toggle tp-addon-toggle">
+                  <input type="checkbox" id="tradeAddonMode" checked />
+                  <span class="tp-auto-label">Добор вкл</span>
+                </label>
+                <div class="tp-levels-grid tp-addon-levels">
+                  <div class="tp-level-col tp-level-col--long">
+                    <div class="tp-level-head">
+                      <span class="tp-pill tp-pill--long">Long</span>
+                    </div>
+                    <label class="tp-field">
+                      <span class="tp-field-k">вход</span>
+                      <span class="tp-field-h">спред ≤</span>
+                      <input type="number" id="tradeAddonEnterNarrow" class="tp-input" min="0.1" max="20" step="0.1" value="2.0" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                    <label class="tp-field">
+                      <span class="tp-field-k">выход</span>
+                      <span class="tp-field-h">спред ≥</span>
+                      <input type="number" id="tradeAddonExitNarrow" class="tp-input" min="0.1" max="20" step="0.1" value="3.2" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                  </div>
+                  <div class="tp-level-col tp-level-col--short">
+                    <div class="tp-level-head">
+                      <span class="tp-pill tp-pill--short">Short</span>
+                    </div>
+                    <label class="tp-field">
+                      <span class="tp-field-k">вход</span>
+                      <span class="tp-field-h">спред ≥</span>
+                      <input type="number" id="tradeAddonEnterWide" class="tp-input" min="0.1" max="20" step="0.1" value="7.0" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                    <label class="tp-field">
+                      <span class="tp-field-k">выход</span>
+                      <span class="tp-field-h">спред ≤</span>
+                      <input type="number" id="tradeAddonExitWide" class="tp-input" min="0.1" max="20" step="0.1" value="6.2" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <section class="tp-card" aria-labelledby="tpExtraTitle">
+                <div class="tp-card-head">
+                  <span class="tp-card-icon tp-card-icon--addon" aria-hidden="true"></span>
+                  <div>
+                    <h4 class="tp-card-title" id="tpExtraTitle">Экстра</h4>
+                    <p class="tp-card-desc">Если уже есть база или добор · Long ≤1→2 · Short ≥9→7</p>
+                  </div>
+                </div>
+                <label class="tp-auto-toggle tp-addon-toggle">
+                  <input type="checkbox" id="tradeExtraAddonMode" checked />
+                  <span class="tp-auto-label">Экстра вкл</span>
+                </label>
+                <div class="tp-levels-grid tp-addon-levels">
+                  <div class="tp-level-col tp-level-col--long">
+                    <div class="tp-level-head">
+                      <span class="tp-pill tp-pill--long">Long</span>
+                    </div>
+                    <label class="tp-field">
+                      <span class="tp-field-k">вход</span>
+                      <span class="tp-field-h">спред ≤</span>
+                      <input type="number" id="tradeExtraEnterNarrow" class="tp-input" min="0.1" max="20" step="0.1" value="1.0" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                    <label class="tp-field">
+                      <span class="tp-field-k">выход</span>
+                      <span class="tp-field-h">спред ≥</span>
+                      <input type="number" id="tradeExtraExitNarrow" class="tp-input" min="0.1" max="20" step="0.1" value="2.0" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                  </div>
+                  <div class="tp-level-col tp-level-col--short">
+                    <div class="tp-level-head">
+                      <span class="tp-pill tp-pill--short">Short</span>
+                    </div>
+                    <label class="tp-field">
+                      <span class="tp-field-k">вход</span>
+                      <span class="tp-field-h">спред ≥</span>
+                      <input type="number" id="tradeExtraEnterWide" class="tp-input" min="0.1" max="20" step="0.1" value="9.0" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                    <label class="tp-field">
+                      <span class="tp-field-k">выход</span>
+                      <span class="tp-field-h">спред ≤</span>
+                      <input type="number" id="tradeExtraExitWide" class="tp-input" min="0.1" max="20" step="0.1" value="7.0" inputmode="decimal" />
+                      <span class="tp-field-u">%</span>
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <section class="tp-card tp-card--actions" aria-labelledby="tpExecTitle">
+                <div class="tp-card-head tp-card-head--compact">
+                  <span class="tp-card-icon tp-card-icon--auto" aria-hidden="true"></span>
+                  <h4 class="tp-card-title" id="tpExecTitle">Исполнение</h4>
+                </div>
+                <div class="tp-actions-row">
+                  <label class="tp-auto-toggle">
+                    <input type="checkbox" id="tradeAutoExec" />
+                    <span class="tp-auto-label">AUTO tip1m</span>
+                  </label>
+                  <button type="button" class="btn btn-sm btn-primary tp-save-btn" id="tradeBtnSaveParams" title="Сохранить параметры на сервер">Сохранить</button>
+                </div>
+                <span class="trade-params-status tp-save-status" id="tradeParamsStatus" aria-live="polite"></span>
+              </section>
             </div>
           </div>
         </aside>
       </div>
 
-      <aside class="trade-side live-card" id="tradeSidePanel">
-        <h2>Сделка</h2>
-        <div id="tradeProfitToast" class="trade-profit-toast" role="status" hidden></div>
-        <div class="trade-side-status" id="tradeSideStatus"><span class="badge-pos-flat">FLAT</span></div>
-        <div class="account-funds" id="tradeFundsBox" title="Средства на подключённом счёте T‑Invest">
-          <div class="account-funds-label">Средства на счёте</div>
-          <div class="account-funds-total" id="tradeFundsTotal">—</div>
-          <div class="account-funds-cash" id="tradeFundsCash">cash —</div>
-          <div class="account-funds-at-open" id="tradeFundsAtOpen" hidden></div>
-          <div class="account-funds-forecast" id="tradeCloseForecast" hidden>
-            <div class="account-funds-forecast-main" id="tradeCloseForecastMain">Прогноз после закрытия ≈ —</div>
-            <div class="account-funds-forecast-delta" id="tradeCloseForecastDelta" hidden></div>
-            <div class="account-funds-forecast-exit" id="tradeCloseForecastExit" hidden></div>
-            <div class="account-funds-forecast-ovn" id="tradeCloseForecastOvn" hidden></div>
-            <div class="account-funds-forecast-sub" id="tradeCloseForecastSub"></div>
+      <aside class="trade-side live-card trade-side-tabs-shell" id="tradeSidePanel" aria-label="Счёт и ситуация">
+        <div class="trade-side-tabs-head">
+          <div class="chip-group trade-side-tabs" id="tradeSideTabs" role="tablist" aria-label="Разделы правой панели">
+            <button type="button" class="chip active" data-side-tab="account" role="tab" aria-selected="true" aria-controls="tradeSideAccountPane" id="tradeSideTabAccount">Счёт</button>
+            <button type="button" class="chip" data-side-tab="situation" role="tab" aria-selected="false" aria-controls="tradeSideSituationPane" id="tradeSideTabSituation">Ситуация</button>
           </div>
         </div>
+        <div class="trade-side-tab-panes">
+          <div class="trade-side-tab-pane active" data-side-pane="account" id="tradeSideAccountPane" role="tabpanel" aria-labelledby="tradeSideTabAccount">
+            <div id="tradeProfitToast" class="trade-profit-toast" role="status" hidden></div>
+            <div class="trade-side-status" id="tradeSideStatus"><span class="badge-pos-flat">FLAT</span></div>
+            <div class="account-funds" id="tradeFundsBox" title="Средства на подключённом счёте T‑Invest">
+              <div class="account-funds-label">Средства на счёте</div>
+              <div class="account-funds-total" id="tradeFundsTotal">—</div>
+              <div class="account-funds-cash" id="tradeFundsCash">cash —</div>
+              <div class="account-funds-at-open" id="tradeFundsAtOpen" hidden></div>
+              <div class="account-funds-forecast" id="tradeCloseForecast" hidden>
+                <div class="account-funds-forecast-main" id="tradeCloseForecastMain">Прогноз после закрытия ≈ —</div>
+                <div class="account-funds-forecast-delta" id="tradeCloseForecastDelta" hidden></div>
+                <div class="account-funds-forecast-exit" id="tradeCloseForecastExit" hidden></div>
+                <div class="account-funds-forecast-ovn" id="tradeCloseForecastOvn" hidden></div>
+                <div class="account-funds-forecast-sub" id="tradeCloseForecastSub"></div>
+              </div>
+            </div>
 
-        <div class="trade-open-box" id="tradeOpenBox">
-          <div class="trade-open-empty">Нет открытой позиции</div>
+            <div class="trade-open-box" id="tradeOpenBox">
+              <div class="trade-open-empty">Нет открытой позиции</div>
+            </div>
+
+            <div id="tradeCommentPopup" class="trade-comment-popup hidden" role="dialog" aria-labelledby="tradeCommentTitle" aria-modal="false" hidden>
+              <div class="trade-comment-popup-inner">
+                <label class="trade-comment-label" id="tradeCommentTitle" for="tradeCommentInput">Комментарий</label>
+                <textarea id="tradeCommentInput" class="trade-comment-input" rows="2" maxlength="2000" placeholder="почему открыл / закрыл…" autocomplete="off"></textarea>
+                <div class="trade-comment-actions">
+                  <button type="button" class="btn btn-sm btn-primary" id="tradeCommentSave">Сохранить</button>
+                  <span class="trade-comment-hint meta" id="tradeCommentHint">10 с без ввода — закроется</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="live-row live-actions trade-side-close-row">
+              <button type="button" class="btn btn-trade btn-long" id="tradeBtnLong" disabled title="Ручной вход Long (как на вкладке Счёт)">Открыть Long</button>
+              <button type="button" class="btn btn-trade btn-short" id="tradeBtnShort" disabled title="Ручной вход Short (как на вкладке Счёт)">Открыть Short</button>
+              <button type="button" class="btn btn-trade btn-close-all" id="tradeBtnClose" disabled title="Закрыть открытый спрэд на брокере">Закрыть сделку</button>
+            </div>
+
+            <div class="trade-broker" id="tradeBrokerBox" hidden></div>
+          </div>
+
+          <div class="trade-side-tab-pane" data-side-pane="situation" id="tradeSideSituationPane" role="tabpanel" aria-labelledby="tradeSideTabSituation" hidden>
+            <div class="trade-narrow-zone" id="tradeNarrowZoneBox"
+              title="Позиция спреда в узкой полосе 1%…Long-вход (обычно 3,2%). Не меняет пороги Prod. %K/%D — стохастик по спреду m15.">
+              <div class="trade-narrow-zone-label">Узкая зона · позиция</div>
+              <div class="trade-narrow-zone-meter" aria-hidden="true">
+                <div class="trade-narrow-zone-fill" id="tradeNarrowZoneFill"></div>
+                <div class="trade-narrow-zone-mark" id="tradeNarrowZoneMark"></div>
+              </div>
+              <div class="trade-narrow-zone-vals" id="tradeNarrowZoneVals">—</div>
+            </div>
+
+            <div class="trade-corridor" id="tradeCorridorBox"
+              title="Адаптивный коридор спреда по дневкам (~6–12д). Фильтр внимания — пороги Prod AUTO не меняет.">
+              <div class="trade-corridor-head">
+                <span class="trade-corridor-label">Коридор S</span>
+                <span class="trade-corridor-badge" id="tradeCorridorBadge">—</span>
+              </div>
+              <div class="trade-corridor-status" id="tradeCorridorStatus">—</div>
+              <div class="trade-corridor-meter-wrap">
+                <div class="trade-corridor-meter" id="tradeCorridorMeter" aria-hidden="true">
+                  <div class="trade-corridor-band" id="tradeCorridorBand"></div>
+                  <div class="trade-corridor-mark" id="tradeCorridorMark"></div>
+                </div>
+                <div class="trade-corridor-meter-scale">
+                  <span class="trade-corridor-edge" id="tradeCorridorEdgeLo">—</span>
+                  <span class="trade-corridor-edge" id="tradeCorridorEdgeHi">—</span>
+                </div>
+              </div>
+              <div class="trade-corridor-grid" id="tradeCorridorGrid"></div>
+            </div>
+          </div>
         </div>
-
-        <div class="live-row live-actions trade-side-close-row">
-          <button type="button" class="btn btn-trade btn-long" id="tradeBtnLong" disabled title="Ручной вход Long (как на вкладке Счёт)">Открыть Long</button>
-          <button type="button" class="btn btn-trade btn-short" id="tradeBtnShort" disabled title="Ручной вход Short (как на вкладке Счёт)">Открыть Short</button>
-          <button type="button" class="btn btn-trade btn-close-all" id="tradeBtnClose" disabled title="Закрыть открытый спрэд на брокере">Закрыть сделку</button>
-        </div>
-
-        <div class="trade-broker" id="tradeBrokerBox" hidden></div>
       </aside>
     </main>
 
@@ -518,12 +761,22 @@
 
     <!-- —— Replay —— -->
     <main class="main replay-only" id="mainSplit">
-      <div class="chart-wrap">
+      <button type="button" class="charts-restore-btn" id="btnRestoreCharts" hidden
+        title="Показать график">▶</button>
+      <div class="chart-wrap" id="chartWrap">
         <div class="chart-stack" id="chartStack">
-          <div class="chart-pane-z-wrap">
-            <div class="pnl-label test-primary-chart-label" id="testPrimaryChartLabel">Спред %</div>
-            <div id="openTradeOverlay" class="open-trade-overlay hidden"></div>
-            <div id="chart" class="chart-pane-z"></div>
+          <div class="chart-pane-z-wrap" id="testChartPane">
+            <div class="pnl-head test-chart-head">
+              <div class="pnl-label test-primary-chart-label" id="testPrimaryChartLabel">Спред %</div>
+              <div class="pnl-head-right">
+                <button type="button" class="pane-collapse-btn" id="btnCollapseCharts" aria-expanded="true" aria-controls="chartWrap" title="Скрыть график">−</button>
+                <button type="button" class="pane-collapse-btn" id="btnExpandTestChart" aria-pressed="false" title="На весь экран">⛶</button>
+              </div>
+            </div>
+            <div class="test-chart-body">
+              <div id="openTradeOverlay" class="open-trade-overlay hidden"></div>
+              <div id="chart" class="chart-pane-z"></div>
+            </div>
           </div>
           <div class="split-divider-h" id="deltaSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота графиков Z / Дельта ПП" title="Перетащите · двойной клик — сброс"></div>
           <div class="delta-wrap" id="deltaPane">
@@ -536,11 +789,12 @@
           <div class="split-divider-h" id="chartSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота графиков Дельта / PnL" title="Перетащите · двойной клик — сброс"></div>
           <div class="pnl-wrap" id="pnlPane">
             <div class="pnl-head">
-              <div class="pnl-label" id="pnlLabel">PnL · % от пика капитала · Просадка 0% (0 ₽)</div>
+              <div class="pnl-label" id="pnlLabel">Счёт · от 10 000 ₽ · сейчас 10 000 ₽ · просадка 0%</div>
               <div class="pnl-head-right">
                 <div class="chip-group pnl-mode-chips" id="pnlModeChips">
-                  <button type="button" class="chip active" data-pnl-mode="total">Общий</button>
-                  <button type="button" class="chip" data-pnl-mode="trade">Сделка</button>
+                  <button type="button" class="chip active" data-pnl-mode="account" title="Кривая депозита: старт → сделки → итог (₽)">Счёт</button>
+                  <button type="button" class="chip" data-pnl-mode="total" title="Кумулятивный PnL в % от пика капитала">PnL %</button>
+                  <button type="button" class="chip" data-pnl-mode="trade" title="PnL только текущей открытой сделки (между сделками — 0)">Сделка</button>
                 </div>
                 <button type="button" class="pane-collapse-btn" id="btnCollapsePnl" aria-expanded="true" aria-controls="pnlChart" title="Скрыть">−</button>
               </div>
@@ -587,15 +841,16 @@
                 <button type="button" class="chip risk-filter" data-risk-filter="hit2" title="Сделки, где MTM PnL достигал ≥ 2% от вложения">≥2%</button>
                 <button type="button" class="chip risk-filter" data-risk-filter="hit3" title="Сделки, где MTM PnL достигал ≥ 3% от вложения">≥3%</button>
               </div>
-              <button type="button" class="pane-collapse-btn" id="btnCollapseRiskCompare" aria-expanded="true" aria-controls="riskCompareScroll" title="Скрыть">−</button>
+              <button type="button" class="pane-collapse-btn" id="btnCollapseRiskCompare" hidden aria-expanded="true" aria-controls="riskCompareScroll" title="Скрыть">−</button>
             </div>
-            <div class="trades-collapsible-body">
-              <div class="risk-compare-scroll" id="riskCompareScroll" title="Risk exit — сравнение по группам (остальные группы зафиксированы)">
+            <div class="trades-collapsible-body" hidden>
+              <!-- Сравнение Risk exit (T48/H48/Money…) снято — неактуально при уровнях спреда -->
+              <div class="risk-compare-scroll" id="riskCompareScroll" hidden>
                 <div class="tp-compare risk-compare" id="riskCompare"></div>
               </div>
             </div>
           </div>
-          <div class="split-divider-h" id="riskCompareSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота таблицы Правило" title="Вверх — меньше · вниз — больше · двойной клик — сброс"></div>
+          <div class="split-divider-h" id="riskCompareSplitDividerH" hidden role="separator" aria-orientation="horizontal" aria-label="Высота таблицы Правило" title="Вверх — меньше · вниз — больше · двойной клик — сброс"></div>
           <div class="trades-collapsible trades-collapsible-grow" id="tradesSummaryPane">
             <div class="trades-section-head">
               <div class="trades-section-label">Итого PnL</div>
@@ -730,14 +985,14 @@
 
   <script src="/static/lightweight-charts.standalone.production.js?v=20260723a12"></script>
   <!-- replay engine split (load order matters) -->
-  <script src="/static/replay-sim.js?v=20260817spreadRisk1"></script>
-  <script src="/static/replay-equity.js?v=20260807spread1"></script>
-  <script src="/static/replay-signals.js?v=20260817noZlab1"></script>
-  <script src="/static/replay-engine-core.js?v=20260817noZm15"></script>
-  <script src="/static/chart.js?v=20260807spread1"></script>
-  <script src="/static/trade.js?v=20260817mtlr6m"></script>
-  <script src="/static/history.js?v=20260817spreadRisk1"></script>
+  <script src="/static/replay-sim.js?v=20260830ref100k"></script>
+  <script src="/static/replay-equity.js?v=20260831nocorr1"></script>
+  <script src="/static/replay-signals.js?v=20260829dropRisk1"></script>
+  <script src="/static/replay-engine-core.js?v=20260828tradeIdFix1"></script>
+  <script src="/static/chart.js?v=20260831nocorr1"></script>
+  <script src="/static/trade.js?v=20260831sideTab1"></script>
+  <script src="/static/history.js?v=20260829comment1"></script>
   <script src="/static/live.js?v=20260726otc2"></script>
-  <script src="/static/app.js?v=20260817noZlab1"></script>
+  <script src="/static/app.js?v=20260831nocorr1"></script>
 </body>
 </html>

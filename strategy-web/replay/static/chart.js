@@ -114,8 +114,14 @@ class ReplayChart {
     this.priceLines = [];
     /** Baseline fills for spread-level mode (parity Trade desk). */
     this.spreadBands = { narrow: null, transition: null, wide: null };
+    /** Линии коридора S (forming / formed) — как Trade desk. */
+    this._corridorSeries = [];
+    this._corridorDataFp = '';
+    this._corridorWindowFp = '';
     this._primaryMetric = 'z';
     this._lastSpreadBandTimes = [];
+    this._cascadeVlines = [];
+    this._vlineLayer = null;
     this.pnlZeroLine = null;
     this.pnlMinLine = null;
     this.pnlMaxLine = null;
@@ -124,8 +130,12 @@ class ReplayChart {
     this.deltaMaxLine = null;
     this._lastEquityPct = [];
     this._lastEquityRub = [];
+    this._equityFp = '';
     this._lastDeltaPp = [];
     this._pnlBasisRub = 10_000;
+    /** total | trade | account — что рисовать на нижнем графике. */
+    this._pnlChartMode = 'account';
+    this._accountBaseRub = 10_000;
     this.replayCursorLine = null;
     this._resizeObserver = null;
     this._lastMaxVisibleBars = 200;
@@ -244,6 +254,7 @@ class ReplayChart {
     this._ensureSpreadBands({
       enter_wide: 6.2, exit_wide: 5.8, enter_narrow: 3.2, exit_narrow: 4.0,
     });
+    this._ensureVlineOverlay();
     this.series = this._addSeries(LightweightCharts.CandlestickSeries, {
       upColor: TV.up,
       downColor: TV.down,
@@ -372,6 +383,291 @@ class ReplayChart {
       this.spreadBands.transition?.setData(times.length ? mk(b.transHi) : []);
       this.spreadBands.wide?.setData(times.length ? mk(b.wideHi) : []);
     } catch (_) { /* */ }
+  }
+
+  _clearCorridorSeries() {
+    if (!this.chart) {
+      this._corridorSeries = [];
+      return;
+    }
+    for (const s of this._corridorSeries) {
+      try { this.chart.removeSeries(s); } catch (_) { /* ignore */ }
+    }
+    this._corridorSeries = [];
+  }
+
+  _corridorLineStyle(raw) {
+    const LS = LightweightCharts.LineStyle;
+    if (raw === 1 || raw === 'dotted') return LS?.Dotted ?? 1;
+    if (raw === 2 || raw === 'dashed') return LS?.Dashed ?? 2;
+    if (raw === 3 || raw === 'largeDashed') return LS?.LargeDashed ?? 3;
+    return LS?.Solid ?? 0;
+  }
+
+  _corridorLineTypeSteps() {
+    return LightweightCharts.LineType?.WithSteps ?? 1;
+  }
+
+  _sanitizeCorridorPoints(pts) {
+    const out = [];
+    for (const p of pts || []) {
+      if (!p || p.time == null || !Number.isFinite(Number(p.value))) continue;
+      const t = Number(p.time);
+      const v = Number(p.value);
+      if (!out.length) {
+        out.push({ time: t, value: v });
+        continue;
+      }
+      const prev = out[out.length - 1];
+      if (t < prev.time) continue;
+      if (t === prev.time) {
+        prev.value = v;
+        continue;
+      }
+      out.push({ time: t, value: v });
+    }
+    return out;
+  }
+
+  _buildDayRangeMap(candlePts) {
+    const map = new Map();
+    for (const p of candlePts || []) {
+      if (!p || p.time == null) continue;
+      const d = new Date(p.time * 1000).toLocaleDateString('sv-SE', { timeZone: CHART_TZ_MSK });
+      const prev = map.get(d);
+      if (!prev) map.set(d, { from: p.time, to: p.time });
+      else {
+        if (p.time < prev.from) prev.from = p.time;
+        if (p.time > prev.to) prev.to = p.time;
+      }
+    }
+    return map;
+  }
+
+  _buildCorridorBoundPoints(rows, dayRangeMap, key, chartFirstSec, chartLastSec, liveVal, extendToLive) {
+    const pts = [];
+    const chartStart = Number(chartFirstSec);
+    for (const row of rows || []) {
+      const dkey = String(row.date || '').slice(0, 10);
+      const range = dayRangeMap && dayRangeMap.get(dkey);
+      if (!range) continue;
+      if (range.to < chartStart) continue;
+      const val = Number(row[key]);
+      if (!Number.isFinite(val)) continue;
+      let t0 = range.from;
+      let t1 = range.to;
+      if (t0 < chartStart) t0 = chartStart;
+      if (t1 < t0) t1 = t0;
+      pts.push({ time: t0, value: val });
+      if (t1 > t0) pts.push({ time: t1, value: val });
+    }
+    if (extendToLive && Number.isFinite(liveVal) && Number.isFinite(chartLastSec)) {
+      if (!pts.length) {
+        pts.push({ time: chartFirstSec, value: liveVal });
+        pts.push({ time: chartLastSec, value: liveVal });
+      } else if (pts[pts.length - 1].time < chartLastSec) {
+        pts.push({ time: chartLastSec, value: liveVal });
+      } else {
+        pts[pts.length - 1].value = liveVal;
+      }
+    }
+    return this._sanitizeCorridorPoints(pts);
+  }
+
+  _corridorRowsForChart(history) {
+    const out = [];
+    let formedRun = 0;
+    for (const row of history || []) {
+      const ph = row && row.phase;
+      if (ph !== 'forming' && ph !== 'formed') {
+        formedRun = 0;
+        continue;
+      }
+      let draw = ph;
+      if (ph === 'formed') {
+        formedRun += 1;
+        if (formedRun <= 2) draw = 'forming';
+      } else {
+        formedRun = 0;
+        draw = 'forming';
+      }
+      out.push(Object.assign({}, row, { phase: draw }));
+    }
+    return out;
+  }
+
+  _splitCorridorHistory(history) {
+    const segments = [];
+    let cur = null;
+    for (const row of history || []) {
+      const ph = row && row.phase;
+      const segmentId = row && row.segment_id;
+      if (ph !== 'forming' && ph !== 'formed') {
+        if (cur) { segments.push(cur); cur = null; }
+        continue;
+      }
+      if (!cur || cur.phase !== ph
+        || (segmentId != null && cur.segmentId != null && segmentId !== cur.segmentId)) {
+        if (cur) segments.push(cur);
+        cur = { phase: ph, segmentId, rows: [] };
+      }
+      cur.rows.push(row);
+    }
+    if (cur) segments.push(cur);
+    return segments;
+  }
+
+  _applyCorridorAutoscale(lo, hi, candles) {
+    if (!this.series) return;
+    const vals = [];
+    for (const c of candles || []) {
+      if (!c) continue;
+      for (const k of ['low', 'high', 'close']) {
+        const v = Number(c[k]);
+        if (Number.isFinite(v)) vals.push(v);
+      }
+    }
+    // 3 года = сотни тысяч значений; spread-аргументы переполняют стек JS.
+    let minV = Number.isFinite(lo) ? lo : 0;
+    let maxV = Number.isFinite(hi) ? hi : 1;
+    if (vals.length) {
+      minV = vals[0];
+      maxV = vals[0];
+      for (let i = 1; i < vals.length; i += 1) {
+        if (vals[i] < minV) minV = vals[i];
+        if (vals[i] > maxV) maxV = vals[i];
+      }
+    }
+    if (Number.isFinite(lo) && Number.isFinite(hi)) {
+      minV = Math.min(minV, lo, hi);
+      maxV = Math.max(maxV, lo, hi);
+    }
+    const span = Math.max(maxV - minV, 0.5);
+    const pad = Math.max(0.25, span * 0.08);
+    try {
+      this.series.applyOptions({
+        autoscaleInfoProvider: () => ({
+          priceRange: {
+            minValue: minV - pad,
+            maxValue: maxV + pad,
+          },
+        }),
+      });
+    } catch (_) { /* ignore */ }
+  }
+
+  /**
+   * Коридор S на графике Теста — как Trade: оранжевый пунктир (формируется),
+   * тонкая зелёная сплошная (сформирован).
+   */
+  _updateCorridorOnChart(corridor, candles, enabled) {
+    this._clearCorridorSeries();
+    if (!enabled || !this.chart || !candles || !candles.length) {
+      try {
+        this.series?.applyOptions({ autoscaleInfoProvider: undefined });
+      } catch (_) { /* ignore */ }
+      return;
+    }
+    const phase = String(corridor && corridor.phase || '');
+    const liveLo = Number(corridor && corridor.lo);
+    const liveHi = Number(corridor && corridor.hi);
+    const currentActive = (phase === 'forming' || phase === 'formed')
+      && Number.isFinite(liveLo) && Number.isFinite(liveHi);
+    const sourceHistory = (corridor && corridor.history) || [];
+    // Старые коридоры должны оставаться видимыми, даже если на последнем
+    // баре текущего набора фаза уже none/broken.
+    if (!currentActive && !sourceHistory.length) return;
+
+    const styles = {
+      forming: { color: '#fbbf24', width: 1, lineStyle: 1, marker: 'Ф' },
+      formed: { color: '#34d399', width: 1, lineStyle: 0, marker: 'С' },
+    };
+
+    const firstSec = candles[0].time;
+    const lastSec = candles[candles.length - 1].time;
+    const dayRangeMap = this._buildDayRangeMap(candles);
+    let rows = [...sourceHistory];
+    if (currentActive) {
+      const today = corridor.last_date
+        || new Date().toLocaleDateString('sv-SE', { timeZone: CHART_TZ_MSK });
+      const lastRow = rows[rows.length - 1];
+      const todayRow = {
+        date: today,
+        lo: liveLo,
+        hi: liveHi,
+        phase,
+        segment_id: lastRow && lastRow.segment_id,
+      };
+      if (lastRow && lastRow.date === today) rows[rows.length - 1] = todayRow;
+      else rows.push(todayRow);
+    }
+
+    const segments = this._splitCorridorHistory(this._corridorRowsForChart(rows));
+    if (!segments.length) return;
+
+    const paint = (style, data) => {
+      if (!data || data.length < 2) return null;
+      const s = this._addSeries(LightweightCharts.LineSeries, {
+        color: style.color,
+        lineWidth: style.width,
+        lineStyle: this._corridorLineStyle(style.lineStyle),
+        lineType: this._corridorLineTypeSteps(),
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        autoscaleInfoProvider: () => null,
+      });
+      if (!s) return null;
+      try {
+        s.setData(data);
+      } catch (err) {
+        try { this.chart.removeSeries(s); } catch (_) { /* ignore */ }
+        console.warn('test corridor setData failed', err);
+        return null;
+      }
+      this._corridorSeries.push(s);
+      return s;
+    };
+
+    let anyOk = false;
+    segments.forEach((seg, idx) => {
+      const style = styles[seg.phase];
+      if (!style) return;
+      const isLast = currentActive && idx === segments.length - 1;
+      const loData = this._buildCorridorBoundPoints(
+        seg.rows, dayRangeMap, 'lo', firstSec, lastSec, liveLo, isLast,
+      );
+      const hiData = this._buildCorridorBoundPoints(
+        seg.rows, dayRangeMap, 'hi', firstSec, lastSec, liveHi, isLast,
+      );
+      const loS = paint(style, loData);
+      const hiS = paint(style, hiData);
+      if (loS || hiS) anyOk = true;
+      if (loS && loData[0] && idx === 0) {
+        try {
+          loS.setMarkers([{
+            time: loData[0].time,
+            position: 'aboveBar',
+            color: style.color,
+            shape: 'circle',
+            text: style.marker || '',
+          }]);
+        } catch (_) { /* ignore */ }
+      }
+    });
+
+    if (anyOk && currentActive) this._applyCorridorAutoscale(liveLo, liveHi, candles);
+    try {
+      window.__testCorridorChartDebug = {
+        phase,
+        currentActive,
+        liveLo,
+        liveHi,
+        history: sourceHistory.length,
+        series: this._corridorSeries.length,
+        ts: Date.now(),
+      };
+    } catch (_) { /* ignore */ }
   }
 
   _initDeltaChart() {
@@ -610,6 +906,7 @@ class ReplayChart {
     if (!this.pnlChart || !this.pnlSeries) return;
     const pctLabel = (pct) => this._formatPnlPctLabel(pct);
     const rubLabel = (rub) => ReplayChart._formatPnlRubAxis(rub);
+    const accountLabel = (rub) => ReplayChart._formatAccountRubAxis(rub);
     const pctFmt = {
       type: 'custom',
       minMove: 1,
@@ -622,8 +919,33 @@ class ReplayChart {
       formatter: rubLabel,
       tickmarksFormatter: (prices) => prices.map((p) => rubLabel(p)),
     };
+    const accountFmt = {
+      type: 'custom',
+      minMove: 1,
+      formatter: accountLabel,
+      tickmarksFormatter: (prices) => prices.map((p) => accountLabel(p)),
+    };
 
-    this.pnlSeries.applyOptions({ priceFormat: pctFmt });
+    if (this._pnlChartMode === 'account') {
+      this.pnlSeries.applyOptions({
+        priceFormat: accountFmt,
+        color: TV.pnlLine,
+        lineWidth: 2,
+        lastValueVisible: true,
+      });
+      try {
+        this.pnlChart.priceScale('left').applyOptions({ visible: false });
+        this.pnlChart.priceScale('right').applyOptions({
+          visible: true,
+          minimumWidth: CHART_SCALE_RIGHT_W,
+          borderColor: TV.grid,
+        });
+      } catch (_) {}
+      if (this._lastEquityRub.length) this.pnlSeries.setData(this._lastEquityRub);
+      return;
+    }
+
+    this.pnlSeries.applyOptions({ priceFormat: pctFmt, color: TV.pnlLine, lineWidth: 2 });
     if (this.pnlRubSeries) {
       this.pnlRubSeries.applyOptions({ priceFormat: rubFmt });
     }
@@ -672,6 +994,16 @@ class ReplayChart {
     return `${sign}${Math.round(abs)}₽`;
   }
 
+  /** Абсолютный баланс счёта на оси (без «+» как у PnL). */
+  static _formatAccountRubAxis(rub) {
+    if (typeof rub !== 'number' || Number.isNaN(rub)) return '—';
+    const sign = rub < 0 ? '−' : '';
+    const abs = Math.abs(rub);
+    if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M₽`;
+    if (abs >= 1000) return `${sign}${abs >= 10000 ? Math.round(abs / 1000) : (abs / 1000).toFixed(1)}k₽`;
+    return `${sign}${Math.round(abs)}₽`;
+  }
+
   static _formatPnlRub(rub) {
     if (typeof rub !== 'number' || Number.isNaN(rub)) return '—';
     const sign = rub > 0 ? '+' : rub < 0 ? '−' : '';
@@ -686,9 +1018,142 @@ class ReplayChart {
     return (rub / basis) * 100;
   }
 
+  /** Unix-секунды: не смешивать мс и секунды на одной оси. */
+  static _unixSec(t) {
+    const n = Number(t);
+    if (!Number.isFinite(n)) return null;
+    if (n > 1e12) return Math.floor(n / 1000);
+    if (n > 1e9) return Math.floor(n);
+    return n;
+  }
+
+  /**
+   * PnL по свечам: догон по времени.
+   * Одна точка на свечу — иначе pane «Счёт» короче свечей, логический диапазон
+   * шкалы схлопывает кривую в вертикальный скачок слева.
+   */
+  _fillEquitySeries(candles, equityPoints) {
+    const pts = [];
+    for (const p of equityPoints || []) {
+      if (!p || p.time == null) continue;
+      const time = ReplayChart._unixSec(p.time);
+      const v = Number(p.value);
+      if (time == null || !Number.isFinite(v)) continue;
+      pts.push({ time, value: v });
+    }
+    pts.sort((a, b) => a.time - b.time);
+    let i = 0;
+    let lastVal = 0;
+    const filled = [];
+    for (const c of candles || []) {
+      const ct = ReplayChart._unixSec(c.time);
+      if (ct == null) continue;
+      while (i < pts.length && pts[i].time <= ct) {
+        lastVal = pts[i].value;
+        i += 1;
+      }
+      filled.push({ time: ct, value: lastVal });
+    }
+    return filled;
+  }
+
+  _applyPnlChartData(payload, { appendLast = false, canAppend = false } = {}) {
+    if (!this.pnlChart || !this.pnlSeries) return;
+    this._pnlBasisRub = payload.pnlBasisRub > 0 ? payload.pnlBasisRub : 10_000;
+    this._pnlChartMode = payload.pnlChartMode || 'account';
+    this._accountBaseRub = payload.accountBaseRub > 0 ? payload.accountBaseRub : 10_000;
+
+    const pnlFilled = this._fillEquitySeries(payload.candles, payload.equity);
+    const equityPct = pnlFilled.map((p) => ({
+      time: p.time,
+      value: this._rubToPnlPct(p.value),
+    }));
+    const accountData = pnlFilled.map((p) => ({
+      time: p.time,
+      value: this._accountBaseRub + p.value,
+    }));
+
+    const useAccount = this._pnlChartMode === 'account';
+    const primary = useAccount ? accountData : equityPct;
+    const secondary = useAccount ? [] : pnlFilled;
+
+    let appended = false;
+    if (appendLast && primary.length) {
+      const last = primary[primary.length - 1];
+      try {
+        this.pnlSeries.update(last);
+        if (!useAccount && this.pnlRubSeries && secondary.length) {
+          this.pnlRubSeries.update(secondary[secondary.length - 1]);
+        }
+        if (this._lastEquityRub) {
+          if (canAppend) {
+            this._lastEquityRub.push(useAccount ? last : secondary[secondary.length - 1]);
+            this._lastEquityPct.push(useAccount ? pnlFilled[pnlFilled.length - 1] : last);
+          } else {
+            this._lastEquityRub[this._lastEquityRub.length - 1] = useAccount ? last : secondary[secondary.length - 1];
+            this._lastEquityPct[this._lastEquityPct.length - 1] = useAccount ? pnlFilled[pnlFilled.length - 1] : last;
+          }
+        }
+        appended = true;
+      } catch (_) {
+        appended = false;
+      }
+    }
+
+    if (!appended) {
+      this._lastEquityRub = useAccount ? accountData : pnlFilled;
+      this._lastEquityPct = useAccount ? pnlFilled : equityPct;
+      this.pnlSeries.setData(primary);
+      if (this.pnlRubSeries) {
+        this.pnlRubSeries.setData(useAccount ? [] : secondary);
+      }
+      this._applyPnlScaleFormatters();
+      this._updatePnlReferenceLine();
+      try {
+        this.pnlChart.priceScale('right').applyOptions({ autoScale: true });
+      } catch (_) { /* ignore */ }
+    }
+    this._updatePnlMinMaxLines(this._lastLogicalRange);
+  }
+
+  _updatePnlReferenceLine() {
+    if (!this.pnlSeries) return;
+    if (this._pnlChartMode === 'account') {
+      const dep = this._accountBaseRub;
+      const title = `старт ${ReplayChart._formatPnlRubParen(dep)}₽`;
+      if (this.pnlZeroLine) {
+        this.pnlZeroLine.applyOptions({ price: dep, color: '#616161', title });
+        return;
+      }
+      this.pnlZeroLine = this.pnlSeries.createPriceLine({
+        price: dep,
+        color: '#616161',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title,
+      });
+      return;
+    }
+    if (this.pnlZeroLine) {
+      this.pnlZeroLine.applyOptions({ price: 0, color: '#616161', title: '0% (0₽)' });
+      return;
+    }
+    this.pnlZeroLine = this.pnlSeries.createPriceLine({
+      price: 0,
+      color: '#616161',
+      lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: '0% (0₽)',
+    });
+  }
+
   _setPnlGuideLine(refKey, price, color, label) {
     if (!this.pnlSeries) return;
-    const title = `${label} ${this._formatPnlPctLabel(price)}`;
+    const title = this._pnlChartMode === 'account'
+      ? `${label} ${ReplayChart._formatAccountRubAxis(price)}`
+      : `${label} ${this._formatPnlPctLabel(price)}`;
     if (this[refKey]) {
       this[refKey].applyOptions({ price, color, title });
       return;
@@ -705,7 +1170,9 @@ class ReplayChart {
 
   _updatePnlMinMaxLines(visibleRange) {
     if (!this.pnlSeries) return;
-    if (!this._lastEquityPct.length) {
+    const useAccount = this._pnlChartMode === 'account';
+    const src = useAccount ? this._lastEquityRub : this._lastEquityPct;
+    if (!src.length) {
       if (this.pnlMinLine) {
         try { this.pnlSeries.removePriceLine(this.pnlMinLine); } catch (_) {}
         this.pnlMinLine = null;
@@ -717,11 +1184,11 @@ class ReplayChart {
       return;
     }
 
-    let slice = this._lastEquityPct;
+    let slice = src;
     if (visibleRange) {
       const from = Math.max(0, Math.floor(visibleRange.from));
-      const to = Math.min(this._lastEquityPct.length - 1, Math.ceil(visibleRange.to));
-      if (to >= from) slice = this._lastEquityPct.slice(from, to + 1);
+      const to = Math.min(src.length - 1, Math.ceil(visibleRange.to));
+      if (to >= from) slice = src.slice(from, to + 1);
     }
     if (!slice.length) return;
 
@@ -732,8 +1199,10 @@ class ReplayChart {
       if (p.value > max) max = p.value;
     }
 
-    this._setPnlGuideLine('pnlMinLine', min, TV.down, 'min эквити');
-    this._setPnlGuideLine('pnlMaxLine', max, TV.up, 'max эквити');
+    const minLabel = useAccount ? 'min счёт' : 'min эквити';
+    const maxLabel = useAccount ? 'max счёт' : 'max эквити';
+    this._setPnlGuideLine('pnlMinLine', min, TV.down, minLabel);
+    this._setPnlGuideLine('pnlMaxLine', max, TV.up, maxLabel);
   }
 
   _setDeltaGuideLine(refKey, price, color, label) {
@@ -812,6 +1281,7 @@ class ReplayChart {
     this._syncLogicalRangeToCharts(range, source);
     // Markers resize with viewport — refresh only after pan/zoom settles.
     this._scheduleRefreshMarkers();
+    this._drawCascadeVlines();
   }
 
   _syncLogicalRangeToCharts(range, source = null) {
@@ -1359,6 +1829,7 @@ class ReplayChart {
       if (range) this._syncLogicalRangeToCharts(range, 'z');
     } catch (_) {}
     this._scheduleRefreshMarkers();
+    this._drawCascadeVlines();
   }
 
   _clearPriceLines() {
@@ -1372,6 +1843,66 @@ class ReplayChart {
     if (this.replayCursorLine) {
       try { this.series.removePriceLine(this.replayCursorLine); } catch (_) {}
       this.replayCursorLine = null;
+    }
+  }
+
+  _ensureVlineOverlay() {
+    if (this._vlineLayer || !this.container) return;
+    const cs = window.getComputedStyle(this.container);
+    if (cs.position === 'static' || !cs.position) {
+      this.container.style.position = 'relative';
+    }
+    const layer = document.createElement('div');
+    layer.className = 'chart-vline-layer';
+    layer.setAttribute('aria-hidden', 'true');
+    this.container.appendChild(layer);
+    this._vlineLayer = layer;
+  }
+
+  _setCascadeVlines(vlines) {
+    this._cascadeVlines = Array.isArray(vlines) ? vlines : [];
+    this._drawCascadeVlines();
+  }
+
+  _drawCascadeVlines() {
+    this._ensureVlineOverlay();
+    const layer = this._vlineLayer;
+    if (!layer) return;
+    layer.innerHTML = '';
+    if (!this.chart || !this._cascadeVlines.length) return;
+    const ts = this.chart.timeScale();
+    for (const v of this._cascadeVlines) {
+      const t = Number(v.time);
+      if (!Number.isFinite(t)) continue;
+      let x;
+      try {
+        x = ts.timeToCoordinate(t);
+      } catch (_) {
+        x = null;
+      }
+      if (x == null || !Number.isFinite(x)) continue;
+      const isZone = v.family === 'zone' || (!!v.zone && v.direction !== 'up' && v.direction !== 'down');
+      const kind = v.kind === 'end' ? 'end' : 'start';
+      const el = document.createElement('div');
+      if (isZone) {
+        const zk = String(v.zone || v.direction || 'middle');
+        el.className = `chart-vline chart-vline-zone chart-vline-zone-${zk} chart-vline-${kind}`;
+      } else {
+        const dir = v.direction === 'up' ? 'up' : 'down';
+        el.className = `chart-vline chart-vline-${kind} chart-vline-${dir}`;
+      }
+      el.style.left = `${Math.round(x)}px`;
+      if (v.title) el.title = String(v.title);
+      const lab = document.createElement('span');
+      lab.className = 'chart-vline-label';
+      lab.textContent = String(
+        v.label
+        || (isZone
+          ? (kind === 'start' ? 'зона' : 'зона · выход')
+          : (kind === 'start' ? 'каскад · начало' : 'каскад · конец')),
+      );
+      el.appendChild(lab);
+      layer.appendChild(el);
     }
   }
 
@@ -1430,6 +1961,10 @@ class ReplayChart {
     ].join('|');
     const sameCandles = candleFp === this._candleFp && !metricChanged;
     const light = !!payload.light;
+    const eq = payload.equity || [];
+    const equityFp = `${eq.length}|${eq[0]?.time}|${eq[0]?.value}|${eq[eq.length - 1]?.time}|${eq[eq.length - 1]?.value}`;
+    const equityChanged = equityFp !== this._equityFp;
+    this._equityFp = equityFp;
     const canAppend = light
       && this._lastCandleCount > 0
       && payload.candles.length === this._lastCandleCount + 1
@@ -1490,6 +2025,39 @@ class ReplayChart {
     } else if (canAppend && primaryMetric === 'spread' && payload.candles.length) {
       // Append: extend band fills to new bar time
       this._updateSpreadBands(payload.candles, payload.spreadLevels || null, true);
+    }
+
+    // Пока: Тест не рисует коридор (полка/адапт. линии). Торговля — свой график в trade.js.
+    const DRAW_TEST_CORRIDOR = false;
+    const corridorEnabled = DRAW_TEST_CORRIDOR && primaryMetric === 'spread' && !!payload.corridor;
+    const corridorDataFp = corridorEnabled
+      ? [
+        payload.corridor.phase,
+        payload.corridor.lo,
+        payload.corridor.hi,
+        (payload.corridor.history || []).length,
+        payload.corridor.last_date,
+        (payload.corridor.history && payload.corridor.history[0] && payload.corridor.history[0].date) || '',
+        (payload.corridor.history && payload.corridor.history.length
+          && payload.corridor.history[payload.corridor.history.length - 1].date) || '',
+      ].join('|')
+      : 'off';
+    const corridorWindowFp = corridorEnabled
+      ? [
+        payload.candles[0]?.time,
+        payload.candles[payload.candles.length - 1]?.time,
+        payload.candles.length,
+      ].join('|')
+      : '';
+    // Не пересоздавать серии на каждый light-кадр replay — из-за этого зависал Тест.
+    const corridorNeedsPaint = corridorDataFp !== this._corridorDataFp
+      || (!light && corridorEnabled && corridorWindowFp !== this._corridorWindowFp)
+      || metricChanged;
+    if (corridorNeedsPaint) {
+      this._corridorDataFp = corridorDataFp;
+      this._corridorWindowFp = corridorWindowFp;
+      if (!corridorEnabled) this._updateCorridorOnChart(null, null, false);
+      else this._updateCorridorOnChart(payload.corridor, payload.candles, true);
     }
     const last = payload.candles[payload.candles.length - 1];
     if (this.replayCursorLine) {
@@ -1575,59 +2143,18 @@ class ReplayChart {
       if (!light) {
         this.pnlChart.timeScale().applyOptions({ rightOffset: CHART_RIGHT_OFFSET_BARS });
       }
-      this._pnlBasisRub = payload.pnlBasisRub > 0 ? payload.pnlBasisRub : 10_000;
-      if ((canAppend || (light && sameCandles)) && payload.equity?.length) {
-        const lastE = payload.equity[payload.equity.length - 1];
-        const lastC = payload.candles[payload.candles.length - 1];
-        const rub = { time: lastC.time, value: typeof lastE.value === 'number' ? lastE.value : 0 };
-        const pct = { time: lastC.time, value: this._rubToPnlPct(rub.value) };
-        try {
-          this.pnlSeries.update(pct);
-          if (this.pnlRubSeries) this.pnlRubSeries.update(rub);
-          if (this._lastEquityRub) {
-            if (canAppend) {
-              this._lastEquityRub.push(rub);
-              this._lastEquityPct.push(pct);
-            } else {
-              this._lastEquityRub[this._lastEquityRub.length - 1] = rub;
-              this._lastEquityPct[this._lastEquityPct.length - 1] = pct;
-            }
-          }
-        } catch (_) {
-          const byTimeRub = new Map();
-          for (const p of payload.equity || []) byTimeRub.set(p.time, p.value);
-          const equityRub = payload.candles.map((c) => ({
-            time: c.time,
-            value: byTimeRub.has(c.time) ? byTimeRub.get(c.time) : 0,
-          }));
-          const equityPct = equityRub.map((p) => ({ time: p.time, value: this._rubToPnlPct(p.value) }));
-          this._lastEquityRub = equityRub;
-          this._lastEquityPct = equityPct;
-          this.pnlSeries.setData(equityPct);
-          if (this.pnlRubSeries) this.pnlRubSeries.setData(equityRub);
-        }
-      } else {
-        const byTimeRub = new Map();
-        for (const p of payload.equity || []) {
-          byTimeRub.set(p.time, p.value);
-        }
-        const equityRub = payload.candles.map((c) => ({
-          time: c.time,
-          value: byTimeRub.has(c.time) ? byTimeRub.get(c.time) : 0,
-        }));
-        const equityPct = equityRub.map((p) => ({
-          time: p.time,
-          value: this._rubToPnlPct(p.value),
-        }));
-        this._lastEquityRub = equityRub;
-        this._lastEquityPct = equityPct;
-        this.pnlSeries.setData(equityPct);
-        if (this.pnlRubSeries) this.pnlRubSeries.setData(equityRub);
-        this._applyPnlScaleFormatters();
-      }
+      const canPnlAppend = (canAppend || (light && sameCandles))
+        && payload.equity?.length
+        && !equityChanged;
+      this._applyPnlChartData(payload, {
+        appendLast: !!canPnlAppend,
+        canAppend: !!canAppend,
+      });
     }
 
-    const followEdge = this._followRightEdge || !!payload.playing;
+    // Play включает follow через followReplayEdge(true), но ручная прокрутка
+    // (_onLogicalRangeChanged) должна его отключать даже во время воспроизведения.
+    const followEdge = this._followRightEdge;
     if (payload.fitFull) {
       this.fitFullRange();
     } else if (followEdge) {
@@ -1659,6 +2186,11 @@ class ReplayChart {
       this._updateHighlightLine();
       this._scheduleRefreshMarkers();
       setTimeout(() => this._refreshMarkers(), 120);
+    }
+    if (!light || payload.cascadeVlinesChanged !== false) {
+      this._setCascadeVlines(payload.cascadeVlines || []);
+    } else {
+      this._drawCascadeVlines();
     }
   }
 }

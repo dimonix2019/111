@@ -4,9 +4,33 @@
   font-weight: 600;
 }
 
-#edgeModeChips .chip[data-edge-mode="tip1m"].active {
-  border-color: #38bdf8;
-  color: #e0f2fe;
+#addonModeChips .chip.active,
+#btnAddon27.active {
+  border-color: #c084fc;
+  color: #f3e8ff;
+  background: rgba(124, 58, 237, 0.28);
+}
+
+#btnExtra19.active {
+  border-color: #fb7185;
+  color: #ffe4e6;
+  background: rgba(225, 29, 72, 0.28);
+}
+
+#btnZoneSwing.active {
+  border-color: #fb923c;
+  color: #ffedd5;
+  background: rgba(194, 65, 12, 0.28);
+}
+
+#btnAdaptCorridor {
+  display: none;
+}
+
+#btnAdaptCorridor.active {
+  border-color: #34d399;
+  color: #ecfdf5;
+  background: rgba(5, 150, 105, 0.28);
 }
 
 .trades-table tbody tr.trade-row-selected {
@@ -25,6 +49,121 @@
   color: var(--red);
 }
 
+/* Каскад: вертикали «начало» / «конец» на графике Теста */
+.chart-vline-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  overflow: hidden;
+}
+
+.chart-vline {
+  position: absolute;
+  top: 0;
+  bottom: 22px;
+  width: 0;
+  border-left: 1.5px dashed rgba(192, 132, 252, 0.85);
+  transform: translateX(-0.5px);
+}
+
+.chart-vline-up {
+  border-left-color: rgba(74, 222, 128, 0.9);
+}
+
+.chart-vline-down {
+  border-left-color: rgba(251, 146, 60, 0.95);
+}
+
+.chart-vline-end {
+  border-left-style: dotted;
+  opacity: 0.92;
+}
+
+.chart-vline-label {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  max-width: 120px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  color: #f5f3ff;
+  background: rgba(76, 29, 149, 0.82);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.chart-vline-up .chart-vline-label {
+  background: rgba(21, 128, 61, 0.85);
+  color: #ecfdf5;
+}
+
+.chart-vline-down .chart-vline-label {
+  background: rgba(154, 52, 18, 0.88);
+  color: #fff7ed;
+}
+
+.chart-vline-end .chart-vline-label {
+  top: auto;
+  bottom: 4px;
+}
+
+/* Зоны карты Prod — вход в эпизод ≥60 мин-баров */
+.chart-vline-zone {
+  border-left-style: solid;
+  border-left-width: 1px;
+  opacity: 0.88;
+}
+
+.chart-vline-zone .chart-vline-label {
+  font-size: 9px;
+  font-weight: 600;
+  max-width: 90px;
+}
+
+.chart-vline-zone-below {
+  border-left-color: rgba(34, 211, 238, 0.75);
+}
+.chart-vline-zone-below .chart-vline-label {
+  background: rgba(14, 116, 144, 0.88);
+  color: #e0f2fe;
+}
+
+.chart-vline-zone-lower {
+  border-left-color: rgba(74, 222, 128, 0.8);
+}
+.chart-vline-zone-lower .chart-vline-label {
+  background: rgba(21, 128, 61, 0.88);
+  color: #ecfdf5;
+}
+
+.chart-vline-zone-middle {
+  border-left-color: rgba(156, 163, 175, 0.7);
+}
+.chart-vline-zone-middle .chart-vline-label {
+  background: rgba(55, 65, 81, 0.9);
+  color: #e5e7eb;
+}
+
+.chart-vline-zone-upper {
+  border-left-color: rgba(251, 146, 60, 0.85);
+}
+.chart-vline-zone-upper .chart-vline-label {
+  background: rgba(154, 52, 18, 0.88);
+  color: #ffedd5;
+}
+
+.chart-vline-zone-above {
+  border-left-color: rgba(248, 113, 113, 0.85);
+}
+.chart-vline-zone-above .chart-vline-label {
+  background: rgba(153, 27, 27, 0.9);
+  color: #fee2e2;
+}
+
 .trades-panel {
   flex: 0 0 var(--trades-panel-width);
   width: var(--trades-panel-width);
@@ -35,6 +174,13 @@
   min-height: 0;
   background: var(--panel);
   min-width: 0;
+}
+
+.main.charts-collapsed .trades-panel {
+  flex: 1 1 auto;
+  width: auto;
+  max-width: none;
+  padding-left: 22px;
 }
 
 .trades-panel-head {
@@ -306,6 +452,8 @@ tr:hover td { background: rgba(41, 98, 255, 0.08); }
 
 .side-long { color: var(--green); }
 .side-short { color: #ffab91; }
+.src-manual { color: #ce93d8; font-weight: 600; }
+.src-auto { color: #94a3b8; }
 
 .tone-short { color: var(--green); }
 .tone-long { color: #e57373; }
@@ -314,12 +462,21 @@ tr:hover td { background: rgba(41, 98, 255, 0.08); }
 .cost { color: #ffab91; }
 .risk-flagged { color: #ffcc80; font-size: 10px; }
 .risk-red { color: #ef9a9a; font-weight: 600; }
+.comment-cell {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #b0bec5;
+}
 
 tr.trade-row-red td {
   background: rgba(239, 83, 80, 0.08);
 }
 
-.trades-table td.metric-cell {
+.trades-table td.metric-cell,
+.trades-table td.risk-tip-cell {
   cursor: help;
 }
 
@@ -484,6 +641,38 @@ tr.trade-row-red td {
 .trade-metric-tip .tm-regime-narrow { color: #6ee7b7; }
 .trade-metric-tip .tm-regime-transition { color: #fbbf24; }
 .trade-metric-tip .tm-regime-wide { color: #93c5fd; }
+
+.trade-metric-tip .tm-risk-summary {
+  margin: 8px 0 10px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.trade-metric-tip .tm-risk-red { color: #f87171; }
+.trade-metric-tip .tm-risk-warn { color: #fbbf24; }
+.trade-metric-tip .tm-risk-ok { color: #6ee7b7; }
+
+.trade-metric-tip .tm-risk-flags {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.trade-metric-tip .tm-risk-flags li {
+  margin-bottom: 4px;
+}
+
+.trade-metric-tip .tm-risk-flags strong {
+  color: #fca5a5;
+  font-weight: 700;
+}
+
+.trade-metric-tip .tm-risk-none {
+  color: var(--muted);
+  list-style: none;
+  margin-left: -18px;
+}
 
 .trades-summary {
   flex: 1 1 auto;
@@ -1300,6 +1489,49 @@ body.z-heatmap-fs-open {
   overflow: hidden;
 }
 
+/* Fullscreen overlay for primary Test chart (spread / Z) */
+.chart-pane-z-wrap.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border-radius: 0;
+  background: #0c0f14;
+  border: none;
+  box-shadow: none;
+  max-height: none;
+  min-height: 0;
+  flex: none !important;
+  overflow: hidden;
+}
+
+.chart-pane-z-wrap.is-fullscreen .test-chart-head {
+  padding: 0 0 8px;
+}
+
+.chart-pane-z-wrap.is-fullscreen .test-primary-chart-label {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.chart-pane-z-wrap.is-fullscreen .test-chart-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.chart-pane-z-wrap.is-fullscreen .chart-pane-z {
+  flex: 1 1 auto;
+  height: auto !important;
+  min-height: 0;
+}
+
+body.test-chart-fs-open {
+  overflow: hidden;
+}
+
 .tp-compare {
   flex: 0 1 auto;
   min-height: 0;
@@ -1386,6 +1618,13 @@ body.z-heatmap-fs-open {
   max-width: 118px;
 }
 
+body.edge-tip1m .z-thresh-only,
+.z-thresh-only,
+body.edge-tip1m #riskExitGroups,
+body.edge-tip1m #hmRiskExitGroups {
+  display: none;
+}
+
 input[type="date"],
 input[type="number"] {
   background: #2a2e39;
@@ -1394,6 +1633,23 @@ input[type="number"] {
   border-radius: 4px;
   padding: 3px 6px;
   font-size: 12px;
+}
+
+.window-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.window-range-sep {
+  color: var(--muted);
+  font-size: 12px;
+  user-select: none;
+}
+
+.window-range input[type="date"] {
+  min-width: 0;
 }
 
 #notionalSel {

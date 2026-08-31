@@ -134,6 +134,12 @@ const TRADE_COLUMNS = [
   { key: 'Direction', title: 'Напр.', width: 40 },
   { key: 'Lots', title: 'Лоты', width: 40, hint: 'Лоты спреда (Prod); в Тесте —' },
   { key: 'Source', title: 'Src', width: 52, hint: 'Источник: AUTO / BROKER / … (Prod); в Тесте —' },
+  {
+    key: 'Comment',
+    title: 'Коммент.',
+    width: 140,
+    hint: 'Комментарий к сделке (вход / выход). Не путать с «Ком.» = комиссия',
+  },
   { key: 'Entry', title: 'Вход', width: 96 },
   { key: 'Exit', title: 'Выход', width: 96 },
   { key: 'EntryZ', title: 'Zвх', width: 44, hint: 'Z-score на баре входа' },
@@ -405,18 +411,97 @@ function isFridayEntryMsk(entryDate) {
 /**
  * Оценка риска сделки — parity Android buildTradeRiskAssessmentFromInputs.
  * Красная зона = High/Critical (score ≥ 4).
+ * Геометрия спреда (S≈вход / S против / нет хода) вместо старых Z<1 и ~порог Z.
  */
-function assessTradeRisk(entryDate, exitDate, entryZ, overnightRub, entryThreshold) {
+const DEFAULT_SPREAD_RISK_LEVELS = {
+  enter_wide: 6.2,
+  exit_wide: 5.8,
+  enter_narrow: 3.2,
+  exit_narrow: 4.0,
+};
+const SPREAD_RISK_WEAK_ENTRY_PP = 0.15;
+const SPREAD_RISK_NO_PROGRESS_PP = 0.20;
+const SPREAD_RISK_AGAINST_PP = 0.20;
+
+function normalizeSpreadRiskLevels(src) {
+  const d = DEFAULT_SPREAD_RISK_LEVELS;
+  if (!src || typeof src !== 'object') return { ...d };
+  const pick = (...keys) => {
+    for (const k of keys) {
+      const x = Number(src[k]);
+      if (Number.isFinite(x)) return x;
+    }
+    return null;
+  };
+  return {
+    enter_wide: pick('enter_wide', 'spread_enter_wide') ?? d.enter_wide,
+    exit_wide: pick('exit_wide', 'spread_exit_wide') ?? d.exit_wide,
+    enter_narrow: pick('enter_narrow', 'spread_enter_narrow') ?? d.enter_narrow,
+    exit_narrow: pick('exit_narrow', 'spread_exit_narrow') ?? d.exit_narrow,
+  };
+}
+
+function spreadLevelsForTrade(t, settings) {
+  const pair = String(t?.pair_id || t?.pair || t?.ord_ticker || '').toUpperCase();
+  if (pair.includes('MTLR')) {
+    const s = settings || {};
+    const n = (k, fb) => {
+      const x = Number(s[k]);
+      return Number.isFinite(x) ? x : fb;
+    };
+    return {
+      enter_wide: n('mtlr_enter_wide', 8.9),
+      exit_wide: n('mtlr_exit_wide', 8.4),
+      enter_narrow: n('mtlr_enter_narrow', 3.2),
+      exit_narrow: n('mtlr_exit_narrow', 4.3),
+    };
+  }
+  return normalizeSpreadRiskLevels(settings);
+}
+
+function spreadRiskFlags({ direction, entrySpread, spreadNow, holdHours, levels }) {
+  const flags = [];
+  let score = 0;
+  const d = String(direction || '').toUpperCase();
+  const isShort = d.includes('SHORT');
+  const isLong = d.includes('LONG');
+  const e = Number(entrySpread);
+  const n = Number(spreadNow);
+  const hold = Number(holdHours) || 0;
+  const lv = normalizeSpreadRiskLevels(levels);
+  let depth = null;
+  let progress = null;
+  if (Number.isFinite(e) && (isLong || isShort)) {
+    depth = isLong ? lv.enter_narrow - e : e - lv.enter_wide;
+  }
+  if (Number.isFinite(e) && Number.isFinite(n) && (isLong || isShort)) {
+    progress = isLong ? n - e : e - n;
+  }
+  if (depth != null && depth >= 0 && depth < SPREAD_RISK_WEAK_ENTRY_PP && hold >= 6) {
+    flags.push('S≈вход');
+    score += 1;
+  }
+  if (progress != null && progress <= -SPREAD_RISK_AGAINST_PP) {
+    flags.push('S против');
+    score += 2;
+  } else if (progress != null && progress < SPREAD_RISK_NO_PROGRESS_PP && hold >= 24) {
+    flags.push('нет хода');
+    score += 1;
+  }
+  return { flags, score };
+}
+
+function assessTradeRisk(entryDate, exitDate, entryZ, overnightRub, entryThreshold, extra) {
   const entryMs = parseTradeMs(entryDate);
   const exitMs = parseTradeMs(exitDate);
   const durationMs = entryMs != null && exitMs != null ? exitMs - entryMs : null;
   const flags = [];
   let holdPoints = 0;
   let overnightPoints = 0;
-  let weakEntryZPoints = 0;
+  let weakEntrySpreadPoints = 0;
   let entryHourPoints = 0;
   let fridayLongHoldPoints = 0;
-  let nearThresholdPoints = 0;
+  let spreadPathPoints = 0;
   const dayMs = 24 * 60 * 60 * 1000;
   const sixH = 6 * 60 * 60 * 1000;
 
@@ -434,10 +519,18 @@ function assessTradeRisk(entryDate, exitDate, entryZ, overnightRub, entryThresho
     flags.push('Ovn50');
     overnightPoints = 2;
   }
-  if (entryZ != null && Math.abs(entryZ) < 1.0 && durationMs != null && durationMs > sixH) {
-    flags.push('Z<1');
-    weakEntryZPoints = 1;
-  }
+  const holdHours = durationMs != null ? durationMs / 3600000 : 0;
+  const geo = spreadRiskFlags({
+    direction: extra && extra.direction,
+    entrySpread: extra && extra.entrySpread,
+    spreadNow: extra && (extra.exitSpread != null ? extra.exitSpread : extra.spreadNow),
+    holdHours,
+    levels: extra && extra.levels,
+  });
+  for (const f of geo.flags) flags.push(f);
+  if (geo.flags.includes('S≈вход')) weakEntrySpreadPoints = 1;
+  if (geo.flags.includes('S против')) spreadPathPoints = 2;
+  else if (geo.flags.includes('нет хода')) spreadPathPoints = 1;
   if (durationMs != null && durationMs > sixH) {
     const h = entryHourMsk(entryDate);
     if (h === 13) {
@@ -452,29 +545,72 @@ function assessTradeRisk(entryDate, exitDate, entryZ, overnightRub, entryThresho
     flags.push('Пт>2д');
     fridayLongHoldPoints = 1;
   }
-  if (
-    entryZ != null
-    && Math.abs(entryZ) < entryThreshold + 0.05
-    && durationMs != null
-    && durationMs > dayMs
-  ) {
-    nearThresholdPoints = 1;
-    flags.push('~порог');
-  }
 
-  const score = holdPoints + overnightPoints + weakEntryZPoints
-    + entryHourPoints + fridayLongHoldPoints + nearThresholdPoints;
+  const score = holdPoints + overnightPoints + weakEntrySpreadPoints
+    + entryHourPoints + fridayLongHoldPoints + spreadPathPoints;
   const level = score >= 6 ? 'Critical' : score >= 4 ? 'High' : score >= 3 ? 'Elevated' : 'None';
   return {
     flagsText: flags.length ? flags.join(' ') : '—',
     score,
     level,
     isRed: score >= 4,
+    flags,
   };
 }
 
-function buildTradeRiskFlags(entryDate, exitDate, entryZ, overnightRub, entryThreshold) {
-  return assessTradeRisk(entryDate, exitDate, entryZ, overnightRub, entryThreshold).flagsText;
+/** Расшифровка флагов риска для tooltip столбца «Риск». */
+const TRADE_RISK_FLAG_HELP = {
+  '>5д': { text: 'Сделка длилась более 5 календарных дней', points: 4 },
+  '>2д': { text: 'Сделка длилась более 2 календарных дней', points: 3 },
+  Ovn100: { text: 'Overnight больше 100 ₽', points: 2 },
+  Ovn50: { text: 'Overnight больше 50 ₽ при сделке длиннее суток', points: 2 },
+  'S≈вход': { text: 'Спред почти у входа — слабое движение от порога (≥6 ч)', points: 1 },
+  'S против': { text: 'Спред пошёл против позиции (≥0,2 п.п.)', points: 2 },
+  'нет хода': { text: 'За 24+ ч нет прогресса к уровню выхода', points: 1 },
+  '13ч': { text: 'Вход около 13:00 МСК', points: 1 },
+  '12–14': { text: 'Вход в интервале 12:00–14:00 МСК', points: 1 },
+  'Пт>2д': { text: 'Вход в пятницу и удержание более 2 дней', points: 1 },
+};
+
+const TRADE_RISK_LEVEL_RU = {
+  Critical: 'Критический',
+  High: 'Высокий',
+  Elevated: 'Повышенный',
+  None: 'Норма',
+};
+
+/**
+ * HTML-подсказка по флагам риска одной сделки (столбец «Риск»).
+ * @param {{ risk: string, riskScore?: number, riskLevel?: string, riskRed?: boolean }} row
+ */
+function buildTradeRiskTipHtml(row) {
+  if (!row || !row.risk || row.risk === '—') return '';
+  const flags = String(row.risk).split(/\s+/).filter(Boolean);
+  const score = Number(row.riskScore) || 0;
+  const levelKey = String(row.riskLevel || 'None');
+  const levelRu = TRADE_RISK_LEVEL_RU[levelKey] || levelKey;
+  const zoneCls = row.riskRed ? 'tm-risk-red' : (score >= 3 ? 'tm-risk-warn' : 'tm-risk-ok');
+  const items = flags.length
+    ? flags.map((f) => {
+      const h = TRADE_RISK_FLAG_HELP[f];
+      if (!h) return `<li><strong>${f}</strong></li>`;
+      const pts = h.points ? ` (+${h.points})` : '';
+      return `<li><strong>${f}</strong>${pts} — ${h.text}</li>`;
+    }).join('')
+    : '<li class="tm-risk-none">Флагов нет — score 0</li>';
+  return (
+    `<div class="tm-title">Риск · <strong>${row.risk}</strong></div>`
+    + `<div class="tm-risk-summary ${zoneCls}">`
+    + `Уровень: ${levelRu} · score ${score}`
+    + (row.riskRed ? ' · красная зона' : '')
+    + `</div>`
+    + `<ul class="tm-risk-flags">${items}</ul>`
+    + `<div class="tm-meta">Красная зона: score ≥ 4 (High / Critical). S≈вход / S против — геометрия спреда.</div>`
+  );
+}
+
+function buildTradeRiskFlags(entryDate, exitDate, entryZ, overnightRub, entryThreshold, extra) {
+  return assessTradeRisk(entryDate, exitDate, entryZ, overnightRub, entryThreshold, extra).flagsText;
 }
 
 /**
@@ -750,12 +886,35 @@ function buildTradeSimSummary(rows, notionalRub = getSimNotionalRub()) {
   const profitFactor = grossLossAbs > 0 ? grossWin / grossLossAbs : (grossWin > 0 ? Infinity : null);
   const retPct = notionalRub > 0 ? (totalPnl / notionalRub) * 100 : 0;
 
+  const REF_ACCOUNT = 100000;
+  const refClosed = closed.filter(
+    (r) => r.netRef100kValue != null && Number.isFinite(r.netRef100kValue),
+  );
+  let totalPnlRef100k = 0;
+  let maxDdRef100k = 0;
+  let retPctRef100k = null;
+  if (refClosed.length) {
+    let cum = 0;
+    let peak = 0;
+    for (const t of refClosed) {
+      cum += t.netRef100kValue;
+      if (cum > peak) peak = cum;
+      const dd = peak - cum;
+      if (dd > maxDdRef100k) maxDdRef100k = dd;
+    }
+    totalPnlRef100k = cum;
+    retPctRef100k = (totalPnlRef100k / REF_ACCOUNT) * 100;
+  }
+
   return {
     closedCount: closed.length,
     openCount: open.length,
     redCount: redClosed.length,
     totalPnl,
     retPct,
+    totalPnlRef100k,
+    retPctRef100k,
+    maxDdRef100k,
     maxDd,
     maxDdPct,
     winCount: wins.length,
@@ -779,11 +938,49 @@ const MONTH_SHORT_RU = [
   'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек',
 ];
 
+/** Calendar month index for sort / gap fill (year*12 + month-1). */
+function monthKeyToIndex(ymKey) {
+  const [ys, ms] = String(ymKey).split('-');
+  const y = parseInt(ys, 10);
+  const m = parseInt(ms, 10);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return NaN;
+  return y * 12 + (m - 1);
+}
+
+function indexToMonthKey(idx) {
+  const y = Math.floor(idx / 12);
+  const m = (idx % 12) + 1;
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+/** Insert zero-PnL months between first and last trade month (continuous timeline). */
+function fillMonthlyGaps(monthBuckets) {
+  if (!monthBuckets.length) return monthBuckets;
+  const sorted = [...monthBuckets].sort((a, b) => monthKeyToIndex(a.key) - monthKeyToIndex(b.key));
+  const first = monthKeyToIndex(sorted[0].key);
+  const last = monthKeyToIndex(sorted[sorted.length - 1].key);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last <= first) return sorted;
+  const byKey = new Map(sorted.map((m) => [m.key, m]));
+  const out = [];
+  for (let i = first; i <= last; i += 1) {
+    const key = indexToMonthKey(i);
+    out.push(byKey.get(key) || { key, pnl: 0, count: 0 });
+  }
+  return out;
+}
+
 /** Calendar YYYY-MM from trade date label (MSK), or null. */
 function tradeMonthKeyFromLabel(label) {
   if (label == null || label === '—') return null;
   const s = String(label).trim().replace('T', ' ');
-  if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
+  const iso = s.match(/^(\d{4})-(\d{1,2})/);
+  if (iso) {
+    const y = parseInt(iso[1], 10);
+    const m = parseInt(iso[2], 10);
+    if (Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12) {
+      return `${y}-${String(m).padStart(2, '0')}`;
+    }
+  }
   const ms = parseTradeMs(s);
   if (ms == null) return null;
   // Labels are MSK (+03); derive calendar month in that zone.
@@ -831,7 +1028,7 @@ function buildMonthlyPnl(rows, opts) {
     cur.count += 1;
     map.set(key, cur);
   }
-  const months = Array.from(map.values()).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const months = fillMonthlyGaps(Array.from(map.values()));
   let maxAbs = 0;
   let cumPnl = 0;
   const enriched = [];
@@ -872,7 +1069,7 @@ function decodeTradeColumns(raw) {
  * Однократная миграция: добавить новые столбцы в сохранение пользователя.
  * version bump только когда реально появляются новые колонки.
  */
-const TRADE_COLUMNS_MIG_VERSION = 12;
+const TRADE_COLUMNS_MIG_VERSION = 13;
 
 function migrateTradeColumnsOnce(keys) {
   let next = [...keys];
@@ -931,10 +1128,25 @@ function migrateTradeColumnsOnce(keys) {
     // Вложения перед Чист. (канон TRADE_COLUMNS)
     next = regroupTradeColumnKeys(next);
   }
+  if (ver < 13) {
+    next = insertAfter(next, 'Comment', 'Source');
+    next = regroupTradeColumnKeys(next);
+  }
   try {
     localStorage.setItem('moexReplay.tradeColumnsMig', String(TRADE_COLUMNS_MIG_VERSION));
   } catch (_) { /* ignore */ }
   return next;
+}
+
+/** Текст комментария: entry_comment / close_comment → одна ячейка. */
+function formatTradeCommentText(entryComment, closeComment) {
+  const e = String(entryComment || '').trim();
+  const c = String(closeComment || '').trim();
+  if (e && c) {
+    if (e === c) return e;
+    return `вход: ${e} · выход: ${c}`;
+  }
+  return e || c || '';
 }
 
 function encodeTradeColumns(keys) {
@@ -1025,6 +1237,12 @@ function buildTradeRows(edges, entryThreshold = 0.7, allPoints = [], cursorIndex
         openEntry.bar.zScore,
         ovn,
         entryThreshold,
+        {
+          direction: dir,
+          entrySpread,
+          exitSpread,
+          levels: opts.spreadLevels,
+        },
       );
       rows.push(makeTradeRow({
         index: tradeNo,
@@ -1233,14 +1451,27 @@ function makeTradeRow(t) {
       }
     } else if (hasNet) {
       netTitle = `модель: вал − ком. − overnight` + (bits.length ? ` · ${bits.join(' · ')}` : '');
+      const ab = t.accountBefore != null && Number.isFinite(Number(t.accountBefore))
+        ? Number(t.accountBefore) : null;
+      const aa = t.accountAfter != null && Number.isFinite(Number(t.accountAfter))
+        ? Number(t.accountAfter) : null;
+      if (ab != null && aa != null) {
+        const accDelta = aa - ab;
+        if (Math.abs(accDelta - Number(t.net)) > 500) {
+          netTitle += ` · Δ счёта ${formatRub(accDelta)} (пополнение/вывод не в Чист.)`;
+        }
+      }
     }
   }
   const investValue = resolveTradeInvestRub(t, t._settings || {});
+  const commentRaw = formatTradeCommentText(t.entryComment, t.closeComment);
   return {
     index: t.index,
     direction: t.direction,
     lots: t.lots ?? null,
     source: t.source || null,
+    comment: commentRaw || '—',
+    commentTitle: commentRaw || '',
     notional: t.notional != null && Number.isFinite(Number(t.notional))
       ? Number(t.notional)
       : null,
@@ -1252,10 +1483,16 @@ function makeTradeRow(t) {
     exitTitle: t.exitTitle || '',
     duration: closed ? formatSimTradeDuration(t.entryDate, t.exitDate) : '—',
     durationTone: closed ? durationTone(t.entryDate, t.exitDate) : 'neutral',
-    net: closed && hasNet ? formatRub(t.net) : '—',
+    net: closed && hasNet
+      ? formatNetWithInvestPct(Number(t.net), investValue)
+      : '—',
     netValue: hasNet ? Number(t.net) : null,
-    netTitle,
+    netRef100kValue: t.netRef100k != null && Number.isFinite(Number(t.netRef100k))
+      ? Number(t.netRef100k)
+      : null,
+    netTitle: t.netTitle || netTitle,
     netFromAccount,
+    chistFromModel: !!t.chistFromModel,
     modelNet: closed && hasModelNet ? formatRub(modelNetNum) : '—',
     modelNetValue: hasModelNet ? modelNetNum : null,
     accountBefore: t.accountBefore != null && Number.isFinite(Number(t.accountBefore))
@@ -1324,6 +1561,7 @@ function makeTradeRow(t) {
  * Чист. ≈ Δ «Сумма после» по хронологии. Не трогает netFromAccount.
  * Между сделками (пополнение и т.п.) этот fallback врёт — поэтому API
  * обязан отдавать account_before/delta.
+ * Не перетираем Чист., уже выбранный как модель при выводе/пополнении.
  */
 function applyAccountDeltaNetToRows(rows) {
   if (!rows || !rows.length) return rows;
@@ -1345,7 +1583,8 @@ function applyAccountDeltaNetToRows(rows) {
         r.accountBefore = formatAccountRub(prev);
       }
     }
-    if (r.netFromAccount) {
+    // Уже посчитано в liveClosedToTradeRow (Δ счёта или модель при выводе) — не трогаем.
+    if (r.netFromAccount || r.chistFromModel) {
       if (after != null && Number.isFinite(after)) prev = after;
       continue;
     }
@@ -1353,12 +1592,25 @@ function applyAccountDeltaNetToRows(rows) {
       const delta = after - prev;
       if (r.modelNetValue == null && r.netValue != null) r.modelNetValue = r.netValue;
       if (r.modelNetValue != null) r.modelNet = formatRub(r.modelNetValue);
-      r.netValue = delta;
-      r.net = formatRub(delta);
-      r.netFromAccount = true;
-      r.netTitle = 'Δ счёта (legacy: после − prev после)';
-      if (r.modelNetValue != null && Math.abs(r.modelNetValue - delta) > 0.5) {
-        r.netTitle += ` · оценка по спреду ${formatRub(r.modelNetValue)}`;
+      // Если Δ кошелька сильно расходится с моделью — это вывод/пополнение, не PnL.
+      if (
+        r.modelNetValue != null
+        && Number.isFinite(r.modelNetValue)
+        && Math.abs(delta - r.modelNetValue) > Math.max(5000, Math.abs(r.modelNetValue) * 3 + 1000)
+      ) {
+        r.netValue = r.modelNetValue;
+        r.net = formatRub(r.modelNetValue);
+        r.chistFromModel = true;
+        r.netFromAccount = false;
+        r.netTitle = `Чист. по модели спреда ${formatRub(r.modelNetValue)} · Δ счёта ${formatRub(delta)} (пополнение/вывод)`;
+      } else {
+        r.netValue = delta;
+        r.net = formatRub(delta);
+        r.netFromAccount = true;
+        r.netTitle = 'Δ счёта (legacy: после − prev после)';
+        if (r.modelNetValue != null && Math.abs(r.modelNetValue - delta) > 0.5) {
+          r.netTitle += ` · оценка по спреду ${formatRub(r.modelNetValue)}`;
+        }
       }
       if (r.accountBeforeValue == null) {
         r.accountBeforeValue = prev;
@@ -1391,13 +1643,28 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3, settings = {}) {
     ? Number(t.spread_pnl_rub)
     : null;
   const storedPnl = t.pnl_rub != null && Number.isFinite(Number(t.pnl_rub)) ? Number(t.pnl_rub) : null;
-  // Чист. = деньги на счёте (account_delta), иначе model/API pnl_rub
-  const net = accountDelta != null ? accountDelta : storedPnl;
-  const modelNet = spreadPnl != null
-    ? spreadPnl
-    : (accountDelta != null && storedPnl != null && Math.abs(storedPnl - accountDelta) > 0.05
-      ? storedPnl
-      : (accountDelta == null ? storedPnl : null));
+  // Модель по спреду (вал−ком−овн), если есть
+  let modelNet = spreadPnl;
+  if (modelNet == null && storedPnl != null && accountDelta != null
+      && Math.abs(storedPnl - accountDelta) > 0.05) {
+    modelNet = storedPnl;
+  }
+  // Чист.: Δ счёта, но при пополнении/выводе (|Δ − модель| велик) — модель
+  let net = accountDelta != null ? accountDelta : storedPnl;
+  let chistFromModel = !!(t.chist_from_model || t.chistFromModel);
+  if (accountDelta != null && modelNet != null && Number.isFinite(modelNet)) {
+    const dep = Number(t.entry_deposit_rub ?? t.entryDepositRub ?? t.notional_rub ?? 10000) || 10000;
+    const gap = Math.abs(accountDelta - modelNet);
+    const thr = Math.max(5000, Math.abs(dep) * 0.5, Math.abs(modelNet) * 3 + 1000);
+    if (gap > thr) {
+      net = modelNet;
+      chistFromModel = true;
+    }
+  }
+  if (modelNet == null && accountDelta == null) modelNet = storedPnl;
+  if (modelNet == null) modelNet = (accountDelta != null && storedPnl != null && Math.abs(storedPnl - accountDelta) > 0.05)
+    ? storedPnl
+    : (accountDelta == null ? storedPnl : null);
   const gross = t.gross_rub != null && Number.isFinite(Number(t.gross_rub))
     ? Number(t.gross_rub)
     : (modelNet != null ? modelNet : null);
@@ -1415,16 +1682,34 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3, settings = {}) {
     ? Number(t.entry_slip_pts)
     : null;
   const exitFill = t.exit_fill_time || t.exitFillTime || null;
+  const exitSignal = t.exit_signal_time || t.exitSignalTime || t.exit_time || null;
+  // Выход в UI: фактическое закрытие (fill), иначе бар сигнала
+  const exitDisplay = (() => {
+    const fill = exitFill ? String(exitFill) : '';
+    const sig = t.exit_time ? String(t.exit_time) : '';
+    if (fill && (!sig || fill.slice(0, 16) !== sig.slice(0, 16))) return fill;
+    return sig || fill || t.entry_time;
+  })();
   let exitTitle = '';
-  if (exitFill && t.exit_time && String(exitFill).slice(0, 16) !== String(t.exit_time).slice(0, 16)) {
-    exitTitle = `Сигнал ${String(t.exit_time).slice(0, 16)} · fill ${String(exitFill).slice(0, 16)}`;
+  if (exitFill && exitSignal && String(exitFill).slice(0, 16) !== String(exitSignal).slice(0, 16)) {
+    exitTitle = `Закрытие ${String(exitFill).slice(0, 16)} · сигнал/бар ${String(exitSignal).slice(0, 16)}`;
+  }
+  if (chistFromModel && accountDelta != null && modelNet != null) {
+    const tip = `Чист. по модели спреда ${formatRub(modelNet)} · Δ счёта ${formatRub(accountDelta)} (пополнение/вывод)`;
+    exitTitle = exitTitle ? `${exitTitle} · ${tip}` : tip;
   }
   const risk = assessTradeRisk(
     t.entry_time,
-    t.exit_time || t.entry_time,
+    exitDisplay || t.exit_time || t.entry_time,
     entryZ,
     overnight || 0,
     entryThreshold,
+    {
+      direction,
+      entrySpread,
+      exitSpread,
+      levels: spreadLevelsForTrade(t, settings),
+    },
   );
   let accountBefore = t.account_before_rub != null && Number.isFinite(Number(t.account_before_rub))
     ? Number(t.account_before_rub)
@@ -1450,8 +1735,10 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3, settings = {}) {
     direction,
     lots: t.quantity_lots != null ? Number(t.quantity_lots) : null,
     source: t.source || null,
+    entryComment: t.entry_comment || t.entryComment || null,
+    closeComment: t.close_comment || t.closeComment || null,
     entryDate: t.entry_time,
-    exitDate: t.exit_time || '—',
+    exitDate: exitDisplay || t.exit_time || '—',
     exitFillDate: exitFill,
     exitTitle,
     entryZ,
@@ -1465,7 +1752,8 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3, settings = {}) {
     overnight,
     net,
     modelNet,
-    netFromAccount: accountDelta != null,
+    netFromAccount: accountDelta != null && !chistFromModel,
+    chistFromModel,
     accountBefore,
     accountAfter,
     pnlMin,
@@ -1503,6 +1791,7 @@ function tradeSortValue(row, colKey) {
     case 'Direction': return row.direction === 'Long' ? 0 : 1;
     case 'Lots': return row.lots;
     case 'Source': return row.source || null;
+    case 'Comment': return row.commentTitle || null;
     case 'Entry': return parseTradeMs(row.entryDate);
     case 'Exit':
       if (row.exitDate === '—') return null;
@@ -1755,16 +2044,33 @@ function tradeCellTitle(row, colKey) {
   if (colKey === 'Invest' && row.investValue != null) {
     return `Вложения ${formatAccountRub(row.investValue)} · депозит на пару (база %)`;
   }
+  if (colKey === 'Direction' && row.source === 'добор') {
+    return row.direction === 'Long'
+      ? 'добор Long · вход 2% · выход 3.2'
+      : 'добор Short · вход 7% · выход 6.2';
+  }
+  if (colKey === 'Source' && row.source === 'добор') {
+    return 'вторая нога варианта 2 (пока база открыта)';
+  }
+  if (colKey === 'Source' && row.source === 'база') {
+    return 'базовая нога (Short 6.2/5.8 · Long 3.2/4.0)';
+  }
   if (colKey === 'Exit' && row.exitTitle) return row.exitTitle;
+  if (colKey === 'Comment' && row.commentTitle) return row.commentTitle;
   return '';
 }
 
 function tradeCellValue(row, colKey) {
   switch (colKey) {
     case 'Index': return String(row.index);
-    case 'Direction': return row.direction === 'Long' ? 'L' : 'S';
+    case 'Direction': {
+      const addon = row.source === 'добор';
+      if (row.direction === 'Long') return addon ? 'L+' : 'L';
+      return addon ? 'S+' : 'S';
+    }
     case 'Lots': return row.lots != null ? String(row.lots) : '—';
     case 'Source': return row.source || '—';
+    case 'Comment': return row.comment || '—';
     case 'Entry': return compactTradeDateTime(row.entryDate);
     case 'Exit': return row.exitDate === '—' ? '—' : compactTradeDateTime(row.exitDate);
     case 'EntryZ': return row.entryZText;
@@ -1793,6 +2099,12 @@ function tradeCellValue(row, colKey) {
 
 function tradeCellClass(row, colKey) {
   if (colKey === 'Direction') return row.direction === 'Long' ? 'side-long' : 'side-short';
+  if (colKey === 'Source') {
+    const s = String(row.source || '').toUpperCase();
+    if (s === 'MANUAL' || s === 'BROKER') return 'src-manual';
+    if (s === 'AUTO' || s === 'AUTO_TP' || s === 'AUTO_MTLR' || s === 'AUTO_MTLR_TP') return 'src-auto';
+  }
+  if (colKey === 'Comment' && row.comment && row.comment !== '—') return 'comment-cell';
   if (colKey === 'Duration') {
     if (row.durationTone === 'short') return 'tone-short';
     if (row.durationTone === 'long') return 'tone-long';
@@ -2165,6 +2477,509 @@ function classifySpreadWidthRegime(spreadPct) {
     shortLabel: 'переход',
     title: `${SPREAD_WIDTH_NARROW_MAX}% ≤ спред ≤ ${SPREAD_WIDTH_WIDE_MIN}%`,
   };
+}
+
+/** Карта зон Prod: 3.2 / 4.0 / 5.8 / 6.2 (полосы владеют своими уровнями). */
+const SPREAD_ZONE_LO = 3.2;
+const SPREAD_ZONE_MID_LO = 4.0;
+const SPREAD_ZONE_MID_HI = 5.8;
+const SPREAD_ZONE_HI = 6.2;
+
+const SPREAD_ZONE_RU = {
+  below: 'ниже низа',
+  lower: 'нижняя полоса',
+  middle: 'середина',
+  upper: 'верхняя полоса',
+  above: 'выше верха',
+  na: '—',
+};
+
+/** Типичный выход из зоны (sticky≥15, 3г TATN) — подсказка на бейдже. */
+const SPREAD_ZONE_TYPICAL_EXIT = {
+  below: 'обычно → нижняя полоса',
+  lower: 'обычно → ниже (55%) / середина (45%)',
+  middle: 'обычно → верхняя (78%) / нижняя (19%)',
+  upper: 'обычно → середина (59%) / выше (41%)',
+  above: 'обычно → верхняя полоса',
+};
+
+function barSpreadPct(b) {
+  if (!b) return NaN;
+  const sp = b.spreadPercent != null
+    ? Number(b.spreadPercent)
+    : (b.spread != null ? Number(b.spread) : NaN);
+  return Number.isFinite(sp) ? sp : NaN;
+}
+
+function classifySpreadMapZone(spreadPct) {
+  const sp = Number(spreadPct);
+  if (!Number.isFinite(sp)) {
+    return { key: 'na', label: '—', shortLabel: '—', title: '' };
+  }
+  if (sp < SPREAD_ZONE_LO) {
+    return {
+      key: 'below',
+      label: SPREAD_ZONE_RU.below,
+      shortLabel: 'ниже',
+      title: `S < ${SPREAD_ZONE_LO}`,
+    };
+  }
+  if (sp <= SPREAD_ZONE_MID_LO) {
+    return {
+      key: 'lower',
+      label: SPREAD_ZONE_RU.lower,
+      shortLabel: 'нижн.',
+      title: `${SPREAD_ZONE_LO} ≤ S ≤ ${SPREAD_ZONE_MID_LO}`,
+    };
+  }
+  if (sp < SPREAD_ZONE_MID_HI) {
+    return {
+      key: 'middle',
+      label: SPREAD_ZONE_RU.middle,
+      shortLabel: 'серед.',
+      title: `${SPREAD_ZONE_MID_LO} < S < ${SPREAD_ZONE_MID_HI}`,
+    };
+  }
+  if (sp <= SPREAD_ZONE_HI) {
+    return {
+      key: 'upper',
+      label: SPREAD_ZONE_RU.upper,
+      shortLabel: 'верхн.',
+      title: `${SPREAD_ZONE_MID_HI} ≤ S ≤ ${SPREAD_ZONE_HI}`,
+    };
+  }
+  return {
+    key: 'above',
+    label: SPREAD_ZONE_RU.above,
+    shortLabel: 'выше',
+    title: `S > ${SPREAD_ZONE_HI}`,
+  };
+}
+
+function spreadMapZoneBounds(key) {
+  switch (key) {
+    case 'below':
+      return { lo: -Infinity, hi: SPREAD_ZONE_LO };
+    case 'lower':
+      return { lo: SPREAD_ZONE_LO, hi: SPREAD_ZONE_MID_LO };
+    case 'middle':
+      return { lo: SPREAD_ZONE_MID_LO, hi: SPREAD_ZONE_MID_HI };
+    case 'upper':
+      return { lo: SPREAD_ZONE_MID_HI, hi: SPREAD_ZONE_HI };
+    case 'above':
+      return { lo: SPREAD_ZONE_HI, hi: Infinity };
+    default:
+      return { lo: NaN, hi: NaN };
+  }
+}
+
+function formatZoneEpisodeDuration(bars) {
+  const n = Math.max(0, Math.round(Number(bars) || 0));
+  if (n < 60) return `${n} мин`;
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  if (h < 24) return m > 0 ? `${h} ч ${m} мин` : `${h} ч`;
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh > 0 ? `${d} д ${rh} ч` : `${d} д`;
+}
+
+/**
+ * Текущая зона карты Prod на последнем баре + длина эпизода (минутные бары подряд).
+ * @param {Array} bars bars up to cursor
+ */
+function detectSpreadMapZone(bars, opts = {}) {
+  const empty = {
+    on: false,
+    key: 'na',
+    label: '',
+    shortLabel: '',
+    title: '',
+    spread: null,
+    barsInZone: 0,
+    distToEdge: null,
+    nearWall: false,
+    typicalExit: '',
+  };
+  if (!Array.isArray(bars) || !bars.length) return empty;
+  const last = bars[bars.length - 1];
+  const sp = barSpreadPct(last);
+  const z = classifySpreadMapZone(sp);
+  if (z.key === 'na') return empty;
+
+  let barsInZone = 1;
+  const maxScan = Math.max(60, Number(opts.maxDwellScan) || 20000);
+  for (let i = bars.length - 2; i >= 0 && barsInZone < maxScan; i -= 1) {
+    const spi = barSpreadPct(bars[i]);
+    if (!Number.isFinite(spi)) break;
+    if (classifySpreadMapZone(spi).key !== z.key) break;
+    barsInZone += 1;
+  }
+  const dwellCapped = barsInZone >= maxScan;
+
+  const bounds = spreadMapZoneBounds(z.key);
+  let distToEdge = null;
+  let nearWall = false;
+  const wallEps = opts.wallEps != null ? Number(opts.wallEps) : 0.15;
+  if (Number.isFinite(bounds.lo) && Number.isFinite(bounds.hi)) {
+    if (!Number.isFinite(bounds.lo) || bounds.lo === -Infinity) {
+      distToEdge = bounds.hi - sp;
+      nearWall = distToEdge <= wallEps;
+    } else if (!Number.isFinite(bounds.hi) || bounds.hi === Infinity) {
+      distToEdge = sp - bounds.lo;
+      nearWall = distToEdge <= wallEps;
+    } else {
+      const dLo = sp - bounds.lo;
+      const dHi = bounds.hi - sp;
+      distToEdge = Math.min(dLo, dHi);
+      nearWall = distToEdge <= wallEps;
+    }
+  } else if (bounds.hi === Infinity) {
+    distToEdge = sp - bounds.lo;
+    nearWall = distToEdge <= wallEps;
+  } else if (bounds.lo === -Infinity) {
+    distToEdge = bounds.hi - sp;
+    nearWall = distToEdge <= wallEps;
+  }
+
+  const dur = formatZoneEpisodeDuration(barsInZone);
+  const durShow = dwellCapped ? `>${dur}` : dur;
+  const distTxt = distToEdge != null && Number.isFinite(distToEdge)
+    ? ` · до края ${distToEdge.toFixed(2)} п.п.`
+    : '';
+  const typical = SPREAD_ZONE_TYPICAL_EXIT[z.key] || '';
+  const title = [
+    `${z.label} · S=${sp.toFixed(2)}`,
+    `эпизод ${durShow}${dwellCapped ? '+' : ''} (${barsInZone}${dwellCapped ? '+' : ''} бар)`,
+    distTxt.replace(/^ · /, ''),
+    nearWall ? 'у стенки зоны' : '',
+    typical,
+  ].filter(Boolean).join(' · ');
+
+  const badgeCore = nearWall
+    ? `${z.shortLabel} · у стенки · ${durShow}`
+    : `${z.shortLabel} · ${durShow}`;
+
+  return {
+    on: true,
+    key: z.key,
+    label: z.label,
+    shortLabel: z.shortLabel,
+    badgeText: badgeCore,
+    title,
+    spread: sp,
+    barsInZone,
+    durationLabel: durShow,
+    distToEdge: distToEdge != null && Number.isFinite(distToEdge)
+      ? Math.round(distToEdge * 1000) / 1000
+      : null,
+    nearWall,
+    typicalExit: typical,
+  };
+}
+
+/**
+ * Устойчивые эпизоды зоны (подряд ≥ minBars минутных баров).
+ * @returns {Array<{ key: string, startIdx: number, endIdx: number, bars: number, startTime: number, endTime: number, startDate: string, endDate: string }>}
+ */
+function listSpreadMapZoneEpisodes(bars, opts = {}) {
+  const minBars = Math.max(1, Number(opts.minBars) || 60);
+  if (!Array.isArray(bars) || bars.length < minBars) return [];
+
+  const barUnix = (b) => {
+    if (!b) return null;
+    const ms = Number(b.timestampMs);
+    if (Number.isFinite(ms) && ms > 0) return Math.floor(ms / 1000);
+    const lab = String(b.tradeDate || b.trade_date || '').trim();
+    if (!lab) return null;
+    if (typeof labelToUnixSec === 'function') return labelToUnixSec(lab);
+    return null;
+  };
+
+  const out = [];
+  let i = 0;
+  while (i < bars.length) {
+    const sp0 = barSpreadPct(bars[i]);
+    const key0 = classifySpreadMapZone(sp0).key;
+    if (key0 === 'na') {
+      i += 1;
+      continue;
+    }
+    let j = i + 1;
+    while (j < bars.length) {
+      const spj = barSpreadPct(bars[j]);
+      if (classifySpreadMapZone(spj).key !== key0) break;
+      j += 1;
+    }
+    const barsN = j - i;
+    if (barsN >= minBars) {
+      const startT = barUnix(bars[i]);
+      const endT = barUnix(bars[j - 1]);
+      if (startT != null && endT != null) {
+        out.push({
+          key: key0,
+          startIdx: i,
+          endIdx: j - 1,
+          bars: barsN,
+          startTime: startT,
+          endTime: endT,
+          startDate: String(bars[i].tradeDate || bars[i].trade_date || '').slice(0, 16),
+          endDate: String(bars[j - 1].tradeDate || bars[j - 1].trade_date || '').slice(0, 16),
+        });
+      }
+    }
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * Вертикали: вход в устойчивую зону (≥ minBars). Только kind=start, чтобы не дублировать.
+ * @returns {Array<{ time: number, kind: string, direction: string, family: string, zone: string, label: string, title: string }>}
+ */
+function buildSpreadZoneChartVlines(bars, opts = {}) {
+  const minBars = Math.max(1, Number(opts.minBars) || 60);
+  const maxLines = Math.max(10, Number(opts.maxLines) || 40);
+  const tMin = opts.tMin != null ? Number(opts.tMin) : -Infinity;
+  const tMax = opts.tMax != null ? Number(opts.tMax) : Infinity;
+  const episodes = listSpreadMapZoneEpisodes(bars, { minBars });
+  const short = {
+    below: 'ниже',
+    lower: 'нижн.',
+    middle: 'серед.',
+    upper: 'верхн.',
+    above: 'выше',
+  };
+  const lines = [];
+  for (const ep of episodes) {
+    if (ep.startTime < tMin || ep.startTime > tMax) continue;
+    const name = SPREAD_ZONE_RU[ep.key] || ep.key;
+    lines.push({
+      time: ep.startTime,
+      kind: 'start',
+      direction: ep.key,
+      family: 'zone',
+      zone: ep.key,
+      label: `зона · ${short[ep.key] || ep.key}`,
+      title: `${name}: вход ${ep.startDate} · ${ep.bars} бар · ${SPREAD_ZONE_TYPICAL_EXIT[ep.key] || ''}`,
+    });
+  }
+  if (lines.length > maxLines) {
+    return lines.slice(lines.length - maxLines);
+  }
+  return lines;
+}
+
+/**
+ * Каскад смены режима: за ~10 торговых дней спред прошёл обе границы (3.5 и 5.5)
+ * в одну сторону. По истории TATN — лучший precision (~75%) среди опережающих флагов.
+ * Это фильтр внимания / подтверждение, не автовход Prod.
+ *
+ * @param {Array<{tradeDate?: string, trade_date?: string, spread?: number, spreadPercent?: number}>} bars
+ * @param {{ lookbackDays?: number, narrowMax?: number, wideMin?: number }} [opts]
+ */
+function detectSpreadRegimeCascade(bars, opts = {}) {
+  const lookback = Math.max(5, Number(opts.lookbackDays) || 10);
+  const narrowMax = opts.narrowMax != null ? Number(opts.narrowMax) : SPREAD_WIDTH_NARROW_MAX;
+  const wideMin = opts.wideMin != null ? Number(opts.wideMin) : SPREAD_WIDTH_WIDE_MIN;
+  const empty = {
+    on: false,
+    key: 'off',
+    label: '',
+    title: '',
+    direction: null,
+    hi: null,
+    lo: null,
+    days: 0,
+  };
+  if (!Array.isArray(bars) || bars.length < 3) return empty;
+
+  const byDay = new Map();
+  for (const b of bars) {
+    const td = String(b.tradeDate || b.trade_date || '').trim().slice(0, 10);
+    if (td.length < 10) continue;
+    const sp = b.spreadPercent != null
+      ? Number(b.spreadPercent)
+      : (b.spread != null ? Number(b.spread) : NaN);
+    if (!Number.isFinite(sp)) continue;
+    byDay.set(td, sp);
+  }
+  const days = Array.from(byDay.keys()).sort();
+  if (days.length < 6) return empty;
+
+  const useN = Math.min(lookback, days.length - 1);
+  const sliceDays = days.slice(-(useN + 1));
+  const vals = sliceDays.map((d) => byDay.get(d));
+  const s0 = vals[0];
+  const s1 = vals[vals.length - 1];
+  let hi = -Infinity;
+  let lo = Infinity;
+  for (const v of vals) {
+    if (v > hi) hi = v;
+    if (v < lo) lo = v;
+  }
+  if (!(hi >= wideMin && lo <= narrowMax)) return empty;
+
+  const n = sliceDays.length;
+  if (s1 < s0 - 0.05) {
+    return {
+      on: true,
+      key: 'down',
+      label: 'каскад ↓',
+      direction: 'down',
+      hi,
+      lo,
+      days: n,
+      title: `За ${n}д спред ${hi.toFixed(2)}→${lo.toFixed(2)} п.п.: прошёл ${wideMin} и ${narrowMax} вниз (к узкому). Фильтр внимания, не автовход.`,
+    };
+  }
+  if (s1 > s0 + 0.05) {
+    return {
+      on: true,
+      key: 'up',
+      label: 'каскад ↑',
+      direction: 'up',
+      hi,
+      lo,
+      days: n,
+      title: `За ${n}д спред ${lo.toFixed(2)}→${hi.toFixed(2)} п.п.: прошёл ${narrowMax} и ${wideMin} вверх (к широкому). Фильтр внимания, не автовход.`,
+    };
+  }
+  return empty;
+}
+
+/**
+ * Эпизоды каскада по дневным закрытиям: непрерывные отрезки, где флаг «on».
+ * Для графика Теста: вертикали «начало» / «конец» (unix sec, как у свечей).
+ *
+ * @param {Array<{tradeDate?: string, trade_date?: string, timestampMs?: number, spread?: number, spreadPercent?: number}>} bars
+ * @param {{ lookbackDays?: number, narrowMax?: number, wideMin?: number }} [opts]
+ * @returns {Array<{ startDate: string, endDate: string, key: string, direction: string, startTime: number, endTime: number, labelStart: string, labelEnd: string }>}
+ */
+function listSpreadRegimeCascadeEpisodes(bars, opts = {}) {
+  const lookback = Math.max(5, Number(opts.lookbackDays) || 10);
+  const narrowMax = opts.narrowMax != null ? Number(opts.narrowMax) : SPREAD_WIDTH_NARROW_MAX;
+  const wideMin = opts.wideMin != null ? Number(opts.wideMin) : SPREAD_WIDTH_WIDE_MIN;
+  if (!Array.isArray(bars) || bars.length < 3) return [];
+
+  const byDay = new Map();
+  const firstBarByDay = new Map();
+  const lastBarByDay = new Map();
+  for (const b of bars) {
+    const td = String(b.tradeDate || b.trade_date || '').trim().slice(0, 10);
+    if (td.length < 10) continue;
+    const sp = b.spreadPercent != null
+      ? Number(b.spreadPercent)
+      : (b.spread != null ? Number(b.spread) : NaN);
+    if (!Number.isFinite(sp)) continue;
+    byDay.set(td, sp);
+    if (!firstBarByDay.has(td)) firstBarByDay.set(td, b);
+    lastBarByDay.set(td, b);
+  }
+  const days = Array.from(byDay.keys()).sort();
+  if (days.length < 6) return [];
+
+  const flagAt = (dayIdx) => {
+    const useN = Math.min(lookback, dayIdx);
+    if (useN < 5) return { on: false, key: 'off', direction: null };
+    const sliceDays = days.slice(dayIdx - useN, dayIdx + 1);
+    const vals = sliceDays.map((d) => byDay.get(d));
+    const s0 = vals[0];
+    const s1 = vals[vals.length - 1];
+    let hi = -Infinity;
+    let lo = Infinity;
+    for (const v of vals) {
+      if (v > hi) hi = v;
+      if (v < lo) lo = v;
+    }
+    if (!(hi >= wideMin && lo <= narrowMax)) return { on: false, key: 'off', direction: null };
+    if (s1 < s0 - 0.05) return { on: true, key: 'down', direction: 'down' };
+    if (s1 > s0 + 0.05) return { on: true, key: 'up', direction: 'up' };
+    return { on: false, key: 'off', direction: null };
+  };
+
+  const barUnix = (b) => {
+    if (!b) return null;
+    const ms = Number(b.timestampMs);
+    if (Number.isFinite(ms) && ms > 0) return Math.floor(ms / 1000);
+    const lab = String(b.tradeDate || b.trade_date || '').trim();
+    if (!lab) return null;
+    if (typeof labelToUnixSec === 'function') return labelToUnixSec(lab);
+    return null;
+  };
+
+  const episodes = [];
+  let cur = null;
+  for (let i = 0; i < days.length; i++) {
+    const flag = flagAt(i);
+    if (flag.on) {
+      if (!cur || cur.key !== flag.key) {
+        if (cur) episodes.push(cur);
+        cur = {
+          startDate: days[i],
+          endDate: days[i],
+          key: flag.key,
+          direction: flag.direction,
+        };
+      } else {
+        cur.endDate = days[i];
+      }
+    } else if (cur) {
+      episodes.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) episodes.push(cur);
+
+  const out = [];
+  for (const ep of episodes) {
+    const startT = barUnix(firstBarByDay.get(ep.startDate));
+    const endT = barUnix(lastBarByDay.get(ep.endDate));
+    if (startT == null || endT == null) continue;
+    const arrow = ep.direction === 'up' ? '↑' : '↓';
+    out.push({
+      startDate: ep.startDate,
+      endDate: ep.endDate,
+      key: ep.key,
+      direction: ep.direction,
+      startTime: startT,
+      endTime: endT,
+      labelStart: `каскад ${arrow} · начало`,
+      labelEnd: `каскад ${arrow} · конец`,
+    });
+  }
+  return out;
+}
+
+/**
+ * Вертикали графика: начало и конец каждого эпизода каскада (до курсора).
+ * @param {Array} bars bars up to cursor
+ * @returns {Array<{ time: number, kind: string, direction: string, label: string, title: string }>}
+ */
+function buildCascadeChartVlines(bars, opts = {}) {
+  const episodes = listSpreadRegimeCascadeEpisodes(bars, opts);
+  const lines = [];
+  for (const ep of episodes) {
+    const title =
+      `${ep.startDate} → ${ep.endDate}: ${ep.direction === 'up' ? 'к широкому' : 'к узкому'}`;
+    lines.push({
+      time: ep.startTime,
+      kind: 'start',
+      direction: ep.direction,
+      label: ep.labelStart,
+      title,
+    });
+    if (ep.endTime !== ep.startTime) {
+      lines.push({
+        time: ep.endTime,
+        kind: 'end',
+        direction: ep.direction,
+        label: ep.labelEnd,
+        title,
+      });
+    }
+  }
+  return lines;
 }
 
 /** Y ticks 0 … maxBin for metric histogram tip. */

@@ -340,6 +340,19 @@
     max-height: none;
   }
 
+  .trade-side.trade-side-tabs-shell {
+    overflow: visible;
+  }
+
+  .trade-side-tab-panes {
+    overflow: visible;
+  }
+
+  .trade-side-tab-pane {
+    overflow: visible;
+    max-height: none;
+  }
+
   .trade-mid-col {
     order: 2;
     overflow: visible;
@@ -358,10 +371,6 @@
   .trade-mid-tab-pane {
     overflow: visible;
     max-height: none;
-  }
-
-  .trade-hang-table-wrap {
-    max-height: 220px;
   }
 
   #tradeSidePanel {
@@ -408,6 +417,22 @@
     min-width: 0;
     height: auto;
     overflow: visible;
+  }
+
+  .app[data-view="replay"] .main.charts-collapsed .chart-wrap {
+    display: none;
+  }
+
+  .app[data-view="replay"] .main.charts-collapsed .trades-panel {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: none;
+    padding-left: 22px;
+  }
+
+  .app[data-view="replay"] .main.charts-collapsed .charts-restore-btn {
+    top: 12px;
+    transform: none;
   }
 
   .app[data-view="replay"] .chart-stack {
