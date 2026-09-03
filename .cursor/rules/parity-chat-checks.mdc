@@ -1,0 +1,24 @@
+---
+description: Test↔Prod parity — chat loops OFF unless user asks
+alwaysApply: true
+---
+
+# Parity checks in chat (Test↔Prod)
+
+**Отчёты сверки в чат выключены** (просьба 17.08.2026: после перехода на уровни спреда расхождений нет). **Cursor Automation не использовать.**
+
+Durable hourly digest по-прежнему пишет **MoexLiveWatchdog** в `strategy-web/data/parity-hourly.log` / `parity-hourly-latest.json` — это не чат, не отключать.
+
+## Не запускать
+
+- `parity_recon_agent_loop.ps1`
+- `parity_trade_chat_wake.ps1`
+- `parity_digest_chat_wake.ps1` (deprecated stub)
+
+Если в сессии уже крутятся `parity_*wake*` / `parity_recon_agent_loop` — остановить. Не поднимать заново.
+
+Уровни спреда Prod (TATN Short 6.2/5.8 · Long 3.2/4.0) не менять без явной просьбы. Старые Z ±1.6/±1.3 — не пороги Prod.
+
+## Включить снова
+
+Только если пользователь явно просит («включи сверку», «петли в чат»). Тогда: один `parity_recon_agent_loop.ps1` + один `parity_trade_chat_wake.ps1`, без дубликатов.

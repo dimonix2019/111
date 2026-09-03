@@ -235,44 +235,91 @@ internal suspend fun resolveSignalMonitorOpenTrade(
     return signalMonitorOpenTradeSnapshot(enriched)
 }
 
-/** Текст ongoing-уведомления фонового монитора в шторке. */
+/** Основное live-значение спреда для шторки: «S 2,83%». */
+internal fun formatSignalMonitorSpreadPart(spreadPercent: Double): String =
+    formatShadeSpreadMetric(spreadPercent)
+
+/** Текст ongoing-уведомления: краткий спред/режим/остаток (+ иконка чеклиста). */
 internal fun formatSignalMonitorForegroundText(
     monitorEnabled: Boolean,
     serviceLastTickMs: Long,
     serviceAgeSec: Long,
-    zScore: Double?,
+    spreadPercent: Double?,
     openTrade: SignalMonitorOpenTradeSnapshot? = null,
+    deskShade: WebDeskShadeSnapshot? = null,
 ): String = when {
     !monitorEnabled -> "Монитор выключен"
     serviceLastTickMs <= 0L -> "Ожидание данных…"
-    openTrade != null && zScore != null -> {
-        val zPart = "Z=${"%.2f".format(Locale.US, zScore)}"
-        "$zPart | ${formatSignalMonitorOpenTradeLine(openTrade)}"
+    deskShade != null && deskShade.briefLine.isNotBlank() -> {
+        val ico = deskShade.icon.takeIf { it.isNotBlank() }?.let { "$it " }.orEmpty()
+        "$ico${deskShade.briefLine}"
     }
+    deskShade != null && deskShade.statusLine.isNotBlank() -> {
+        val s = deskShade.spreadPercent ?: spreadPercent
+        val ico = deskShade.icon.takeIf { it.isNotBlank() }?.let { "$it " }.orEmpty()
+        val metric = s?.let { " · ${formatSignalMonitorSpreadPart(it)}" }.orEmpty()
+        "$ico${deskShade.statusLine}$metric"
+    }
+    openTrade != null && spreadPercent != null ->
+        "${formatSignalMonitorSpreadPart(spreadPercent)} | ${formatSignalMonitorOpenTradeLine(openTrade)}"
     openTrade != null -> formatSignalMonitorOpenTradeLine(openTrade)
-    zScore != null ->
-        "Z = ${"%.2f".format(Locale.US, zScore)} · ${formatWatchdogAgeSec(serviceAgeSec)} назад"
+    spreadPercent != null ->
+        "${formatSignalMonitorSpreadPart(spreadPercent)} · ${formatWatchdogAgeSec(serviceAgeSec)} назад"
     else -> "Обновлено ${formatWatchdogAgeSec(serviceAgeSec)} назад"
 }
 
-/** Развёрнутый текст в шторке (две строки при открытой сделке). */
+/** Развёрнутый текст в шторке: краткая метрика + при необходимости чеклист. */
 internal fun formatSignalMonitorForegroundBigText(
     monitorEnabled: Boolean,
     serviceLastTickMs: Long,
     serviceAgeSec: Long,
-    zScore: Double?,
+    spreadPercent: Double?,
     openTrade: SignalMonitorOpenTradeSnapshot?,
+    deskShade: WebDeskShadeSnapshot? = null,
 ): String {
+    if (!monitorEnabled || serviceLastTickMs <= 0L) {
+        return formatSignalMonitorForegroundText(
+            monitorEnabled,
+            serviceLastTickMs,
+            serviceAgeSec,
+            spreadPercent,
+            openTrade,
+            deskShade,
+        )
+    }
+    if (deskShade != null &&
+        (deskShade.briefLine.isNotBlank() || deskShade.statusLine.isNotBlank())
+    ) {
+        val ico = deskShade.icon.takeIf { it.isNotBlank() }?.let { "$it " }.orEmpty()
+        val primary = deskShade.briefLine.ifBlank {
+            val s = deskShade.spreadPercent ?: spreadPercent
+            val metric = s?.let { " · ${formatSignalMonitorSpreadPart(it)}" }.orEmpty()
+            "${deskShade.statusLine}$metric"
+        }
+        return buildString {
+            append("$ico$primary")
+            val checklist = deskShade.statusLine.trim()
+            if (checklist.isNotBlank() &&
+                deskShade.briefLine.isNotBlank() &&
+                checklist != deskShade.briefLine &&
+                deskShade.icon.isNotBlank()
+            ) {
+                append('\n')
+                append("• $checklist")
+            }
+        }
+    }
     val collapsed = formatSignalMonitorForegroundText(
         monitorEnabled,
         serviceLastTickMs,
         serviceAgeSec,
-        zScore,
+        spreadPercent,
         openTrade,
+        deskShade = null,
     )
-    if (openTrade == null || zScore == null) return collapsed
+    if (openTrade == null || spreadPercent == null) return collapsed
     return buildString {
-        append("Z=${"%.2f".format(Locale.US, zScore)} · ${formatWatchdogAgeSec(serviceAgeSec)} назад")
+        append("${formatSignalMonitorSpreadPart(spreadPercent)} · ${formatWatchdogAgeSec(serviceAgeSec)} назад")
         append('\n')
         append(formatSignalMonitorOpenTradeLine(openTrade))
     }

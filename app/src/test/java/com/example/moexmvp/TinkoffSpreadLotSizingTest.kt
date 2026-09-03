@@ -37,7 +37,7 @@ class TinkoffSpreadLotSizingTest {
     }
 
     @Test
-    fun computeSpreadQuantityLots_capsAtEighty() {
+    fun computeSpreadQuantityLots_noEightyCapUsesLeverage() {
         val sizing = computeSpreadQuantityLots(
             SpreadLotSizingInput(
                 cashRub = 500_000.0,
@@ -48,7 +48,9 @@ class TinkoffSpreadLotSizingTest {
                 leverageForNotional = 7.0,
             )
         )
-        assertEquals(80, sizing.quantityLots)
+        assertEquals(3130, sizing.lotsFromLeverage)
+        assertEquals(3130, sizing.quantityLots)
+        assertTrue(sizing.quantityLots > 80)
     }
 
     @Test

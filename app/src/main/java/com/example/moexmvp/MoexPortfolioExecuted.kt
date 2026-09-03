@@ -58,7 +58,9 @@ internal data class PortfolioTradeGroupRow(
     val entrySignalBarTimeMsk: String = "—",
     val entrySignalReceivedMsk: String = "—",
     val orders: List<PortfolioOrderTableRow>,
-    val isOpen: Boolean = false
+    val isOpen: Boolean = false,
+    val entrySpreadPercent: Double = Double.NaN,
+    val lastSpreadPercent: Double = Double.NaN,
 )
 
 /** Один ордер (нога спрэда) внутри сделки. */

@@ -1,0 +1,307 @@
+{
+  "asof": "2026-08-14",
+  "definition": {
+    "source": "live/pref_hang_screener.py classify_status",
+    "S": "(ordinary/pref − 1)×100 daily TQBR close",
+    "полка": "trailing days near S_now within hang_band ≥ 8 AND away from own median (norm_band); hang_band=max(0.35, 0.12×(p90−p10)); norm_band=max(0.35, 0.25×width)",
+    "note": "Не daily-median soft shelf у зоны входа; именно статус «полка» панели зависания на каждый день.",
+    "lookback_days": 1125
+  },
+  "now": {
+    "MTLR": {
+      "s_now": -0.373,
+      "s_date": "2026-08-13",
+      "median": -1.925,
+      "p10": -12.605,
+      "p90": 8.815,
+      "status": "норма",
+      "days_hang": 9,
+      "days_compression": 0,
+      "width_pp": 21.42
+    },
+    "TATN": {
+      "s_now": 2.561,
+      "s_date": "2026-08-13",
+      "median": 2.988,
+      "p10": 0.088,
+      "p90": 6.894,
+      "status": "норма",
+      "days_hang": 4,
+      "days_compression": 0,
+      "width_pp": 6.807
+    }
+  },
+  "window_3y": {
+    "MTLR": {
+      "pair": "MTLR/MTLRP",
+      "n_days": 756,
+      "from": "2023-08-25",
+      "to": "2026-08-13",
+      "shelf_days": 148,
+      "shelf_day_share": 0.1958,
+      "episodes": {
+        "n_episodes": 47,
+        "p50_days": 2.0,
+        "p90_days": 4.4,
+        "mean_days": 3.15,
+        "max_days": 28,
+        "top": [
+          {
+            "start": "2025-04-14",
+            "end": "2025-05-23",
+            "days": 28
+          },
+          {
+            "start": "2024-11-26",
+            "end": "2024-12-10",
+            "days": 11
+          },
+          {
+            "start": "2024-10-01",
+            "end": "2024-10-11",
+            "days": 9
+          },
+          {
+            "start": "2024-11-11",
+            "end": "2024-11-21",
+            "days": 9
+          },
+          {
+            "start": "2026-02-24",
+            "end": "2026-03-02",
+            "days": 5
+          },
+          {
+            "start": "2024-02-13",
+            "end": "2024-02-16",
+            "days": 4
+          },
+          {
+            "start": "2024-10-31",
+            "end": "2024-11-05",
+            "days": 4
+          },
+          {
+            "start": "2024-12-16",
+            "end": "2024-12-19",
+            "days": 4
+          }
+        ]
+      }
+    },
+    "TATN": {
+      "pair": "TATN/TATNP",
+      "n_days": 756,
+      "from": "2023-08-25",
+      "to": "2026-08-13",
+      "shelf_days": 58,
+      "shelf_day_share": 0.0767,
+      "episodes": {
+        "n_episodes": 37,
+        "p50_days": 1.0,
+        "p90_days": 3.0,
+        "mean_days": 1.57,
+        "max_days": 5,
+        "top": [
+          {
+            "start": "2024-04-09",
+            "end": "2024-04-15",
+            "days": 5
+          },
+          {
+            "start": "2025-11-10",
+            "end": "2025-11-14",
+            "days": 5
+          },
+          {
+            "start": "2026-06-09",
+            "end": "2026-06-15",
+            "days": 4
+          },
+          {
+            "start": "2023-10-13",
+            "end": "2023-10-17",
+            "days": 3
+          },
+          {
+            "start": "2026-01-14",
+            "end": "2026-01-16",
+            "days": 3
+          },
+          {
+            "start": "2026-02-06",
+            "end": "2026-02-10",
+            "days": 3
+          },
+          {
+            "start": "2026-02-25",
+            "end": "2026-02-27",
+            "days": 3
+          },
+          {
+            "start": "2025-10-03",
+            "end": "2025-10-06",
+            "days": 2
+          }
+        ]
+      }
+    },
+    "overlap": {
+      "n_common_days": 756,
+      "from": "2023-08-25",
+      "to": "2026-08-13",
+      "mtlr_shelf_days": 148,
+      "tatn_shelf_days": 58,
+      "both_shelf_days": 11,
+      "only_mtlr": 137,
+      "only_tatn": 47,
+      "neither": 561,
+      "pct_mtlr_shelf_days_also_tatn": 7.4,
+      "pct_tatn_shelf_days_also_mtlr": 19.0,
+      "corr_in_shelf_flags": -0.0044,
+      "independent_expected_both_days": 11.4,
+      "lift_vs_independent": 0.97
+    }
+  },
+  "window_1y": {
+    "MTLR": {
+      "pair": "MTLR/MTLRP",
+      "n_days": 254,
+      "from": "2025-08-14",
+      "to": "2026-08-13",
+      "shelf_days": 53,
+      "shelf_day_share": 0.2087,
+      "episodes": {
+        "n_episodes": 26,
+        "p50_days": 2.0,
+        "p90_days": 4.0,
+        "mean_days": 2.04,
+        "max_days": 5,
+        "top": [
+          {
+            "start": "2026-02-24",
+            "end": "2026-03-02",
+            "days": 5
+          },
+          {
+            "start": "2025-11-13",
+            "end": "2025-11-18",
+            "days": 4
+          },
+          {
+            "start": "2026-02-16",
+            "end": "2026-02-19",
+            "days": 4
+          },
+          {
+            "start": "2026-04-23",
+            "end": "2026-04-28",
+            "days": 4
+          },
+          {
+            "start": "2025-08-14",
+            "end": "2025-08-18",
+            "days": 3
+          },
+          {
+            "start": "2026-01-12",
+            "end": "2026-01-14",
+            "days": 3
+          },
+          {
+            "start": "2026-03-06",
+            "end": "2026-03-10",
+            "days": 3
+          },
+          {
+            "start": "2025-08-21",
+            "end": "2025-08-22",
+            "days": 2
+          }
+        ]
+      }
+    },
+    "TATN": {
+      "pair": "TATN/TATNP",
+      "n_days": 254,
+      "from": "2025-08-14",
+      "to": "2026-08-13",
+      "shelf_days": 42,
+      "shelf_day_share": 0.1654,
+      "episodes": {
+        "n_episodes": 27,
+        "p50_days": 1.0,
+        "p90_days": 3.0,
+        "mean_days": 1.56,
+        "max_days": 5,
+        "top": [
+          {
+            "start": "2025-11-10",
+            "end": "2025-11-14",
+            "days": 5
+          },
+          {
+            "start": "2026-06-09",
+            "end": "2026-06-15",
+            "days": 4
+          },
+          {
+            "start": "2026-01-14",
+            "end": "2026-01-16",
+            "days": 3
+          },
+          {
+            "start": "2026-02-06",
+            "end": "2026-02-10",
+            "days": 3
+          },
+          {
+            "start": "2026-02-25",
+            "end": "2026-02-27",
+            "days": 3
+          },
+          {
+            "start": "2025-10-03",
+            "end": "2025-10-06",
+            "days": 2
+          },
+          {
+            "start": "2026-06-01",
+            "end": "2026-06-02",
+            "days": 2
+          },
+          {
+            "start": "2025-08-26",
+            "end": "2025-08-26",
+            "days": 1
+          }
+        ]
+      }
+    },
+    "overlap": {
+      "n_common_days": 254,
+      "from": "2025-08-14",
+      "to": "2026-08-13",
+      "mtlr_shelf_days": 53,
+      "tatn_shelf_days": 42,
+      "both_shelf_days": 11,
+      "only_mtlr": 42,
+      "only_tatn": 31,
+      "neither": 170,
+      "pct_mtlr_shelf_days_also_tatn": 20.8,
+      "pct_tatn_shelf_days_also_mtlr": 26.2,
+      "corr_in_shelf_flags": 0.0583,
+      "independent_expected_both_days": 8.8,
+      "lift_vs_independent": 1.26
+    }
+  },
+  "verdict_ru": {
+    "mtlr_has_shelves": true,
+    "coincidence_1y": "низкая",
+    "coincidence_3y": "низкая",
+    "pct_mtlr_shelf_also_tatn_1y": 20.8,
+    "pct_mtlr_shelf_also_tatn_3y": 7.4,
+    "corr_1y": 0.0583,
+    "corr_3y": -0.0044
+  }
+}

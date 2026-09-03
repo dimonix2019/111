@@ -144,6 +144,15 @@ internal fun buildIntraday1mZScoreSeries(
     return Intraday1mZSeries(labels, zScores)
 }
 
+/** Live спред % из последних 1м close TATN/TATNP (шторка монитора). */
+internal fun liveSpreadPercentFromIntraday1m(
+    snap: MarketsIntraday1mSnapshot,
+): Double? {
+    val tatnClose = snap.tatn.lastOrNull()?.close ?: return null
+    val tatnpClose = snap.tatnp.lastOrNull()?.close ?: return null
+    return spreadPercentFromPairCloses(tatnClose, tatnpClose)
+}
+
 /** Live Z из 1м TATN/TATNP поверх кэшированного 15м ряда (сводка, шторка, монитор). */
 internal fun liveZScoreFromIntraday1m(
     m15Points: List<DataPoint>,

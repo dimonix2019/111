@@ -69,7 +69,7 @@ class MoexPortfolioTradeRiskTest {
         assertEquals(assessment.score, assessment.breakdown.totalScore)
         assertEquals(3, assessment.breakdown.holdPoints)
         assertEquals(2, assessment.breakdown.overnightPoints)
-        assertEquals(1, assessment.breakdown.weakEntryZPoints)
+        assertEquals(0, assessment.breakdown.weakEntrySpreadPoints)
         assertTrue(assessment.score >= 5)
     }
 

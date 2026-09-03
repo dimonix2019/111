@@ -184,16 +184,21 @@ internal fun AppUpdateDialogHost(
                                 try {
                                     val dest = appUpdateApkFile(context)
                                     withContext(Dispatchers.IO) {
-                                        downloadAppUpdateApk(update, dest) { p ->
-                                            scope.launch(Dispatchers.Main.immediate) {
-                                                if (p == null) {
-                                                    downloadIndeterminate = true
-                                                } else {
-                                                    downloadIndeterminate = false
-                                                    downloadProgress = p
+                                        downloadAppUpdateApk(
+                                            update,
+                                            dest,
+                                            onProgress = { p ->
+                                                scope.launch(Dispatchers.Main.immediate) {
+                                                    if (p == null) {
+                                                        downloadIndeterminate = true
+                                                    } else {
+                                                        downloadIndeterminate = false
+                                                        downloadProgress = p
+                                                    }
                                                 }
-                                            }
-                                        }
+                                            },
+                                            context = context,
+                                        )
                                     }
                                     when (val validation = validateDownloadedAppUpdateApk(context, dest)) {
                                         is AppUpdateApkValidation.Valid -> readyApk = dest
