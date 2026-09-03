@@ -208,6 +208,7 @@ internal enum class SpreadScaleMode(val label: String) {
 
 internal enum class MainTab(val label: String) {
     Markets("Рынок"),
+    Trade("Сделка"),
     /** Hidden from nav (v2.0+); kept for legacy effects / tests. */
     Portfolio("Портфель"),
     /** Hidden from nav (v2.0+); kept for legacy effects / tests. */
@@ -219,8 +220,8 @@ internal enum class MainTab(val label: String) {
     About("О приложении");
 
     companion object {
-        /** Вкладки телефона: стол web, рынок (свечи спреда), песочница, о приложении. */
-        val navTabs: List<MainTab> = listOf(WebDesk, Markets, Sandbox, About)
+        /** Вкладки телефона: рынок, сделка, песочница, стол web (крайняя справа), о приложении. */
+        val navTabs: List<MainTab> = listOf(Markets, Trade, Sandbox, WebDesk, About)
     }
 }
 

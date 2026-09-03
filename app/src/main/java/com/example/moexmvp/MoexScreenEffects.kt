@@ -624,6 +624,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                                 ?.let { maybeNotifySpreadLevelAlerts(context.applicationContext, it) }
                         }
                     }
+                    refreshTradeScreenFromBroker()
                 }.onFailure { t ->
                     MoexDiagnostics.logError(context, "broker_poll", t, "foreground poll")
                 }

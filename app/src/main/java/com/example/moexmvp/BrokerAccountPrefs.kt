@@ -7,6 +7,7 @@ private const val KEY_LAST_SIDE = "last_side"
 private const val KEY_LAST_FINGERPRINT = "last_fingerprint"
 private const val KEY_SEEDED = "seeded"
 private const val KEY_EQUITY_AT_OPEN = "equity_at_open"
+private const val KEY_ENTRY_TIME_MSK = "entry_time_msk"
 private const val KEY_PROFIT_2_FP = "profit_alert_2_fp"
 private const val KEY_PROFIT_3_FP = "profit_alert_3_fp"
 private const val KEY_LAST_YIELD = "last_yield_rub"
@@ -36,6 +37,14 @@ internal object BrokerAccountPrefs {
 
     fun equityAtOpenRub(context: Context): Double =
         prefs(context).getFloat(KEY_EQUITY_AT_OPEN, 0f).toDouble()
+
+    fun entryTimeMskAtOpen(context: Context): String? =
+        prefs(context).getString(KEY_ENTRY_TIME_MSK, null)?.takeIf { it.isNotBlank() }
+
+    fun saveEntryTimeAtOpen(context: Context, entryTimeMsk: String) {
+        if (entryTimeMsk.isBlank()) return
+        prefs(context).edit().putString(KEY_ENTRY_TIME_MSK, entryTimeMsk.trim()).apply()
+    }
 
     fun profit2Fingerprint(context: Context): String =
         prefs(context).getString(KEY_PROFIT_2_FP, "").orEmpty()
@@ -67,6 +76,7 @@ internal object BrokerAccountPrefs {
         }
         if (side == ZStrategyPosition.Flat) {
             ed.putFloat(KEY_EQUITY_AT_OPEN, 0f)
+            ed.putString(KEY_ENTRY_TIME_MSK, "")
             ed.putString(KEY_PROFIT_2_FP, "")
             ed.putString(KEY_PROFIT_3_FP, "")
         }

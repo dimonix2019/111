@@ -16,7 +16,7 @@ internal class MoexScreenState(val context: Context) {
     val strategyTestSimMutex = Mutex()
 
     var pendingAppUpdate by mutableStateOf<AppRemoteUpdate?>(null)
-    var selectedTab by mutableStateOf(MainTab.WebDesk)
+    var selectedTab by mutableStateOf(MainTab.Markets)
     var confirmedPortfolioMetrics by mutableStateOf<PortfolioMetrics?>(null)
     var confirmedPortfolioTableRows by mutableStateOf<List<PortfolioConfirmedTradeTableRow>>(emptyList())
     var strategyTestCompoundReturns by mutableStateOf(false)
@@ -139,4 +139,7 @@ internal class MoexScreenState(val context: Context) {
     var portfolioTabUiBuiltKey: Long = 0L
     /** Период 15м «Рынок», для которого уже есть in-memory ряд. */
     var marketsM15LoadedPeriod: Period? = null
+    /** Снимок открытой сделки TATN/TATNP (вкладка «Сделка»). */
+    var tradeScreenSnapshot by mutableStateOf<TradeScreenSnapshot?>(null)
+    var tradeScreenLoading by mutableStateOf(false)
 }

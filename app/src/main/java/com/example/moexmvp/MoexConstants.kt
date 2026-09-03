@@ -79,9 +79,10 @@ internal const val SPREAD_LOT_MARGIN_RATE_PER_LEG = 0.30
 /** Буфер на комиссию/slippage от номинала пары. */
 internal const val SPREAD_LOT_COMMISSION_BUFFER_FRACTION = 0.002
 internal const val SPREAD_LOT_MIN_LOTS = 1
-internal const val SPREAD_LOT_MAX_LOTS = 80
-/** «Тест страт.» без Prod-cap: верхняя граница лотов для проекции крупного депозита. */
-internal const val STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED = 999
+/** Не потолок сделок: размер по плечу (пустой счёт) / запасу маржи (уже в позиции). */
+internal const val SPREAD_LOT_MAX_LOTS = 10_000_000
+/** «Тест страт.»: тот же верх, что и Торговля (потолка 80 нет). */
+internal const val STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED = SPREAD_LOT_MAX_LOTS
 /** Prod: доля номинала пары на прирост скорректированной маржи (эмпирика ~10+10 → 5.4k). */
 internal const val SPREAD_LOT_MARGIN_PAIR_FRACTION = 0.50
 /** Prod: плечо для расчёта целевого номинала = liquid × leverage / pairNotional. */
@@ -185,6 +186,10 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+2.0.18 — «Сделка»: время входа (журнал / GetOperations / prefs); прогноз «при выходе ТП …» (parity close_forecast).
+2.0.17 — «Сделка»: индикатор запаса до маржин-колла (₽ и %, зелёный/жёлтый/красный) по GetMarginAttributes.
+2.0.16 — Вкладка «Сделка» (T‑Invest Prod): открытая пара TATN/TATNP, PnL, маржа; «Рынок» по умолчанию; «Стол web» справа.
+2.0.15 — Лоты спреда без потолка 80: размер = депозит × плечо / цена пары (как ~66 акций TATN на 10 000); запас маржи только если счёт уже в позиции.
 2.0.14 — Алерты спреда: отключение всех или отдельных уровней (0,5 / 1 / 2 / 2,5%) в «О приложении» и из журнала push.
 2.0.13 — Push при пересечении спреда 0,5 / 1 / 2 / 2,5% (вверх и вниз); монитор и вкладка «Рынок».
 2.0.12 — Риск сделок по спреду: вместо старых флагов «слабый вход по Z» — S≈вход, S против, нет хода (глубина и ход к уровню выхода).

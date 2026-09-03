@@ -1167,10 +1167,35 @@ private data class BrokerPositionRow(
 private fun parsePositionCurrentPriceRub(position: JSONObject): Double? {
     val priceObj = position.optJSONObject("currentPrice")
         ?: position.optJSONObject("current_price")
-        ?: position.optJSONObject("averagePositionPrice")
+        ?: return null
+    return quotationUnitsToDouble(priceObj)
+}
+
+private fun parsePositionAveragePriceRub(position: JSONObject): Double? {
+    val priceObj = position.optJSONObject("averagePositionPrice")
         ?: position.optJSONObject("average_position_price")
         ?: return null
     return quotationUnitsToDouble(priceObj)
+}
+
+internal data class SpreadLegAveragePrices(
+    val tatnAvgPriceRub: Double?,
+    val tatnpAvgPriceRub: Double?,
+)
+
+/** Средние цены входа по ногам TATN/TATNP из GetPortfolio. */
+internal fun parseSpreadLegAveragePrices(portfolioJson: JSONObject): SpreadLegAveragePrices {
+    var tatnAvg: Double? = null
+    var tatnpAvg: Double? = null
+    for (pos in collectPortfolioPositions(portfolioJson)) {
+        val ticker = pos.positionTicker() ?: continue
+        val avg = parsePositionAveragePriceRub(pos) ?: continue
+        when (ticker) {
+            "TATN" -> tatnAvg = avg
+            "TATNP" -> tatnpAvg = avg
+        }
+    }
+    return SpreadLegAveragePrices(tatnAvgPriceRub = tatnAvg, tatnpAvgPriceRub = tatnpAvg)
 }
 
 private fun parsePositionQuantityUnits(position: JSONObject): Int {

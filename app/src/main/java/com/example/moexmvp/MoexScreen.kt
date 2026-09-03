@@ -33,10 +33,10 @@ internal fun MoexScreen() {
         onDispose { MoexMemoryPressure.unregisterTrimHandler() }
     }
 
-    // Уводим с скрытых вкладок (Портфель / Тест страт. / Журнал) на стол web.
+    // Уводим с скрытых вкладок (Портфель / Тест страт. / Журнал) на «Рынок».
     LaunchedEffect(screen.selectedTab) {
         if (screen.selectedTab !in MainTab.navTabs) {
-            screen.selectedTab = MainTab.WebDesk
+            screen.selectedTab = MainTab.Markets
         }
     }
 
@@ -80,6 +80,7 @@ internal fun MoexScreen() {
                 MainTab.Sandbox -> MoexScreenTabSandbox(screen, scope, Modifier.weight(1f).fillMaxSize())
                 MainTab.WebDesk -> MoexScreenTabWebDesk(screen, scope, Modifier.weight(1f).fillMaxSize())
                 MainTab.Markets -> MoexScreenTabMarketsPhone(screen, scope, Modifier.weight(1f).fillMaxSize())
+                MainTab.Trade -> MoexScreenTabTrade(screen, scope, Modifier.weight(1f).fillMaxSize())
                 else -> Box(Modifier.weight(1f).fillMaxSize())
             }
         }

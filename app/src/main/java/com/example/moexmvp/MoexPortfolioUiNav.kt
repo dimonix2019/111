@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -43,6 +44,7 @@ internal fun MainTabSelector(
             val isSel = tab == selected
             val icon = when (tab) {
                 MainTab.Markets -> Icons.Filled.ShowChart
+                MainTab.Trade -> Icons.Filled.SwapHoriz
                 MainTab.Sandbox -> Icons.Filled.AccountBalance
                 MainTab.WebDesk -> Icons.Filled.Language
                 MainTab.About -> Icons.Filled.Info
