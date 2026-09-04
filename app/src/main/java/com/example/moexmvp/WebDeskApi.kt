@@ -126,7 +126,9 @@ internal object WebDeskApi {
                         error("HTTP ${resp.code}")
                     }
                     val body = resp.body?.string().orEmpty()
-                    buildWebDeskShadeSnapshot(JSONObject(body))
+                    val root = JSONObject(body)
+                    cacheEntryAlertLevelsFromDeskRoot(context, root)
+                    buildWebDeskShadeSnapshot(root)
                 }
             }
         }

@@ -84,7 +84,6 @@ internal fun StrategyTestTabContent(
     onMaxLossDdPercentChange: (Double) -> Unit,
     onEntryThresholdChange: (Double) -> Unit,
     onExitThresholdChange: (Double) -> Unit,
-    onExportCompareCsv: () -> Unit = {},
     dailyReconciliation: DailyPortfolioReconciliation? = null,
 ) {
     val (displayTradeItems, displayRiskAssessments) = remember(
@@ -303,14 +302,6 @@ internal fun StrategyTestTabContent(
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f),
                     )
-                    OutlinedButton(
-                        onClick = onExportCompareCsv,
-                        enabled = tradeItems.isNotEmpty(),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF80CBC4)),
-                    ) {
-                        Text("CSV сравнение", fontSize = 10.sp)
-                    }
                 }
                 if (excludeRedZone && displayTradeItems.size < tradeItems.size) {
                     Text(

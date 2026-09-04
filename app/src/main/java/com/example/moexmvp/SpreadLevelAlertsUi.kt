@@ -35,6 +35,20 @@ internal fun SpreadLevelAlertsSettingsCard(
     var tick by remember { mutableIntStateOf(0) }
     val master = remember(tick) { SpreadLevelAlertSettings.isMasterEnabled(context) }
     val levels = remember(tick) { SpreadLevelAlertSettings.levelStates(context) }
+    val longEnabled = remember(tick) {
+        EntryLevelAlertSettings.isEnabled(context, EntryAlertSide.Long)
+    }
+    val shortEnabled = remember(tick) {
+        EntryLevelAlertSettings.isEnabled(context, EntryAlertSide.Short)
+    }
+    val longTradeAt = remember(tick) {
+        EntryLevelAlertSettings.tradeOpenedAtMillis(context, EntryAlertSide.Long)
+    }
+    val shortTradeAt = remember(tick) {
+        EntryLevelAlertSettings.tradeOpenedAtMillis(context, EntryAlertSide.Short)
+    }
+    val longEnterPct = remember(tick) { EntryLevelAlertSettings.longEnterPct(context) }
+    val shortEnterPct = remember(tick) { EntryLevelAlertSettings.shortEnterPct(context) }
     val bump = {
         tick++
         onChanged()
@@ -48,10 +62,44 @@ internal fun SpreadLevelAlertsSettingsCard(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
+            text = "Вход",
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = "Push при касании порогов входа стратегии. После открытия сделки алерт выключается.",
+            color = Color(0xFF9E9E9E),
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+        )
+        EntryAlertSideRow(
+            side = EntryAlertSide.Long,
+            levelPct = longEnterPct,
+            enabled = longEnabled,
+            tradeAtMillis = longTradeAt,
+            onToggle = { on ->
+                EntryLevelAlertSettings.setEnabled(context, EntryAlertSide.Long, on)
+                bump()
+            },
+        )
+        EntryAlertSideRow(
+            side = EntryAlertSide.Short,
+            levelPct = shortEnterPct,
+            enabled = shortEnabled,
+            tradeAtMillis = shortTradeAt,
+            onToggle = { on ->
+                EntryLevelAlertSettings.setEnabled(context, EntryAlertSide.Short, on)
+                bump()
+            },
+        )
+
+        Text(
             text = "Алерты спреда",
             color = Color.White,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 8.dp),
         )
         Text(
             text = "Push при пересечении 0,5 / 1 / 2 / 2,5%. Отключите уровень, если алертов слишком много.",
@@ -112,6 +160,50 @@ internal fun SpreadLevelAlertsSettingsCard(
                 Text("Отключить все уровни", color = Color(0xFFFFAB91), fontSize = 11.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun EntryAlertSideRow(
+    side: EntryAlertSide,
+    levelPct: Double,
+    enabled: Boolean,
+    tradeAtMillis: Long?,
+    onToggle: (Boolean) -> Unit,
+) {
+    val sideLabel = when (side) {
+        EntryAlertSide.Long -> "Long"
+        EntryAlertSide.Short -> "Short"
+    }
+    val levelText = formatRuSignedNumber(levelPct)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(
+                text = "$sideLabel вход $levelText%",
+                color = Color(0xFFB0BEC5),
+                fontSize = 12.sp,
+            )
+            if (!enabled && tradeAtMillis != null) {
+                Text(
+                    text = formatEntryAlertTradeLabel(tradeAtMillis),
+                    color = Color(0xFFFFCC80),
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+        Switch(
+            checked = enabled,
+            onCheckedChange = onToggle,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Color(0xFF1565C0),
+            ),
+        )
     }
 }
 

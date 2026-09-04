@@ -39,6 +39,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val ABOUT_EVENT_LOG_TAIL = 15
+
 @Composable
 internal fun AboutTabContent(
     modifier: Modifier = Modifier,
@@ -185,7 +187,7 @@ internal fun AboutTabContent(
                 .fillMaxWidth()
                 .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
                 .padding(10.dp),
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             entries.forEach { entry ->
                 Column {
@@ -229,7 +231,8 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
     }
     LaunchedEffect(Unit) {
         val (text, count) = withContext(Dispatchers.IO) {
-            MoexDiagnostics.formatForDisplay(context, tail = 12) to MoexDiagnostics.lineCount(context)
+            MoexDiagnostics.formatForDisplay(context, tail = ABOUT_EVENT_LOG_TAIL) to
+                MoexDiagnostics.lineCount(context)
         }
         preview = text
         lineCount = count
@@ -247,7 +250,7 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
             fontSize = 14.sp
         )
         Text(
-            text = "Записей: $lineCount · ANR «не отвечает» и вылеты пишутся в файл",
+            text = "Записей: $lineCount · показаны последние $ABOUT_EVENT_LOG_TAIL · ANR и вылеты пишутся в файл",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 4.dp)
@@ -356,103 +359,6 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
                 Text("Текст", fontSize = 12.sp)
             }
         }
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    val csv = withContext(Dispatchers.IO) { TradeExecutionLog.exportCsv(context) }
-                    if (csv.lines().size <= 1) {
-                        Toast.makeText(context, "Лог сделок пуст", Toast.LENGTH_SHORT).show()
-                        return@launch
-                    }
-                    val clip = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-                        as android.content.ClipboardManager
-                    clip.setPrimaryClip(
-                        android.content.ClipData.newPlainText("moex_trade_log.csv", csv)
-                    )
-                    Toast.makeText(
-                        context,
-                        "CSV лога сделок (${csv.lines().size - 1} ног) в буфере",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
-            },
-            modifier = Modifier
-                .padding(top = 6.dp)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF80CBC4)),
-        ) {
-            Text("CSV лог сделок (цена/slip/частично)", fontSize = 12.sp)
-        }
-        Text(
-            text = "Сравнение Prod vs Тест страт.",
-            color = Color.White,
-            fontWeight = FontWeight.Medium,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 10.dp),
-        )
-        Text(
-            text = "Одинаковые столбцы CSV — удобно искать расхождения в Excel перед запуском на больших суммах.",
-            color = Color(0xFF9E9E9E),
-            fontSize = 10.sp,
-            lineHeight = 14.sp,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-        Row(
-            modifier = Modifier
-                .padding(top = 6.dp)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        val csv = withContext(Dispatchers.IO) { exportProdTradesCompareCsv(context) }
-                        if (!copyCsvToClipboard(context, csv, "moex_prod_trades.csv")) {
-                            Toast.makeText(context, "Нет закрытых Prod-сделок", Toast.LENGTH_SHORT).show()
-                            return@launch
-                        }
-                        Toast.makeText(
-                            context,
-                            "CSV Prod (${tradeCompareRowCount(csv)} сделок) в буфере",
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA)),
-            ) {
-                Text("CSV Prod", fontSize = 11.sp)
-            }
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        val csv = withContext(Dispatchers.IO) {
-                            StrategyTestExportStore.loadCompareCsv(context)
-                        }
-                        if (csv == null || !copyCsvToClipboard(context, csv, "moex_sim_trades.csv")) {
-                            Toast.makeText(
-                                context,
-                                "Сначала откройте «Тест страт.» и дождитесь симуляции",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                            return@launch
-                        }
-                        Toast.makeText(
-                            context,
-                            "CSV Тест страт. (${tradeCompareRowCount(csv)} сделок) в буфере",
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF80CBC4)),
-            ) {
-                Text("CSV Тест страт.", fontSize = 11.sp)
-            }
-        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End
@@ -461,7 +367,7 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
                 onClick = {
                     scope.launch {
                         val (text, count) = withContext(Dispatchers.IO) {
-                            MoexDiagnostics.formatForDisplay(context, tail = 12) to
+                            MoexDiagnostics.formatForDisplay(context, tail = ABOUT_EVENT_LOG_TAIL) to
                                 MoexDiagnostics.lineCount(context)
                         }
                         preview = text
@@ -476,7 +382,7 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
                     scope.launch {
                         withContext(Dispatchers.IO) { MoexDiagnostics.clear(context) }
                         val (text, count) = withContext(Dispatchers.IO) {
-                            MoexDiagnostics.formatForDisplay(context, tail = 12) to
+                            MoexDiagnostics.formatForDisplay(context, tail = ABOUT_EVENT_LOG_TAIL) to
                                 MoexDiagnostics.lineCount(context)
                         }
                         preview = text

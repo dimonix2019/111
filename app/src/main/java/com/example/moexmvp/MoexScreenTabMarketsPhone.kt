@@ -35,23 +35,23 @@ import java.util.Locale
 private const val MARKETS_PHONE_SPREAD_POLL_MS = 30_000L
 private const val MARKETS_PHONE_CHART_HEIGHT_DP = 280
 
-/** Prod AUTO уровни спреда % (Short 6.2/5.8 · Long 3.2/4.0) — только визуализация. */
+/** Уровни спреда % (Short 6.1/5.8 · Long 3.2/4.0) — только визуализация. */
 private val MARKETS_PHONE_SPREAD_LEVEL_LINES = listOf(
-    ChartReferenceLine(6.2, Color(0xFF2962FF), "S вх 6,2"),
+    ChartReferenceLine(DEFAULT_SPREAD_ENTER_WIDE, Color(0xFF2962FF), "S вх 6,1"),
     ChartReferenceLine(5.8, Color(0xFF26A69A), "S вых 5,8"),
     ChartReferenceLine(4.0, Color(0xFF26A69A), "L вых 4"),
-    ChartReferenceLine(3.2, Color(0xFF2962FF), "L вх 3,2"),
+    ChartReferenceLine(DEFAULT_SPREAD_ENTER_NARROW, Color(0xFF2962FF), "L вх 3,2"),
 )
 
 /**
  * Зоны спреда как на web Trade Desk (`SPREAD_REGIME_BAND_COLORS` в trade.js):
- * Long 3.2…4.0 cyan, переход 4.0…5.8 коричневая, Short 5.8…6.2 бордово-красная.
+ * Long 3.2…4.0 cyan, переход 4.0…5.8 коричневая, Short 5.8…6.1 бордово-красная.
  * Alpha: 0.20 / 0.20 / 0.22.
  */
 private val MARKETS_PHONE_SPREAD_ZONE_FILLS = listOf(
-    ChartZoneFill(3.2, 4.0, Color(0x3300BCD4)), // rgba(0,188,212,0.20)
+    ChartZoneFill(DEFAULT_SPREAD_ENTER_NARROW, 4.0, Color(0x3300BCD4)), // rgba(0,188,212,0.20)
     ChartZoneFill(4.0, 5.8, Color(0x33B76E2D)), // rgba(183,110,45,0.20)
-    ChartZoneFill(5.8, 6.2, Color(0x38880E4F)), // rgba(136,14,79,0.22)
+    ChartZoneFill(5.8, DEFAULT_SPREAD_ENTER_WIDE, Color(0x38880E4F)), // rgba(136,14,79,0.22)
 )
 
 /** Псевдо‑точки для привязки маркеров сделок к свечам спреда %. */

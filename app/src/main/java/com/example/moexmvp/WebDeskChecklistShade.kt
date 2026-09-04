@@ -1,5 +1,6 @@
 package com.example.moexmvp
 
+import android.content.Context
 import org.json.JSONObject
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -52,9 +53,22 @@ internal fun shadeSpreadRegimeRu(spreadPercent: Double?): String {
     }
 }
 
+internal fun cacheEntryAlertLevelsFromDeskRoot(context: Context, root: JSONObject) {
+    val settings = root.optJSONObject("settings") ?: JSONObject()
+    val sl = root.optJSONObject("spread_levels") ?: JSONObject()
+    val levels = sl.optJSONObject("levels")
+    val enterW = numOr(settings, "spread_enter_wide", levels, "enter_wide", DEFAULT_SPREAD_ENTER_WIDE)
+    val enterN = numOr(settings, "spread_enter_narrow", levels, "enter_narrow", DEFAULT_SPREAD_ENTER_NARROW)
+    EntryLevelAlertSettings.cacheEnterLevels(
+        context = context,
+        longEnterPct = enterN,
+        shortEnterPct = enterW,
+    )
+}
+
 /**
  * Разбор lite `/api/trade/desk` → статус чеклиста + спред (без Z как основной метрики).
- * Логика фаз — parity с `buildTradePhase` / hint в trade.js.
+ * Логика фаз — как `buildTradePhase` / hint в trade.js.
  */
 internal fun buildWebDeskShadeSnapshot(
     root: JSONObject,
@@ -83,9 +97,9 @@ internal fun buildWebDeskShadeSnapshot(
     val monOn = mon.optBoolean("running", false)
 
     val levels = sl.optJSONObject("levels")
-    val enterW = numOr(settings, "spread_enter_wide", levels, "enter_wide", 6.2)
+    val enterW = numOr(settings, "spread_enter_wide", levels, "enter_wide", DEFAULT_SPREAD_ENTER_WIDE)
     val exitW = numOr(settings, "spread_exit_wide", levels, "exit_wide", 5.8)
-    val enterNlv = numOr(settings, "spread_enter_narrow", levels, "enter_narrow", 3.2)
+    val enterNlv = numOr(settings, "spread_enter_narrow", levels, "enter_narrow", DEFAULT_SPREAD_ENTER_NARROW)
     val exitNlv = numOr(settings, "spread_exit_narrow", levels, "exit_narrow", 4.0)
     val entryN = settings.optDouble("entry_z", 1.6).takeIf { settings.has("entry_z") } ?: 1.6
     val exitN = settings.optDouble("exit_z", 1.3).takeIf { settings.has("exit_z") } ?: 1.3
@@ -382,8 +396,8 @@ private fun buildTradePhaseForShade(
     needExitLong: Double?,
     needExitShort: Double?,
     spreadOn: Boolean = false,
-    enterNarrow: Double = 3.2,
-    enterWide: Double = 6.2,
+    enterNarrow: Double = DEFAULT_SPREAD_ENTER_NARROW,
+    enterWide: Double = DEFAULT_SPREAD_ENTER_WIDE,
     exitNarrow: Double = 4.0,
     exitWide: Double = 5.8,
 ): ShadePhase {

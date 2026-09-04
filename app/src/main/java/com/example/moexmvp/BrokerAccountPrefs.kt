@@ -12,7 +12,7 @@ private const val KEY_PROFIT_2_FP = "profit_alert_2_fp"
 private const val KEY_PROFIT_3_FP = "profit_alert_3_fp"
 private const val KEY_LAST_YIELD = "last_yield_rub"
 
-/** Состояние минутного опроса T‑Invest Prod для push open/close/2%/3%. */
+/** Состояние опроса T‑Invest (~15 с) для push open/close/2%/3%. */
 internal object BrokerAccountPrefs {
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(BROKER_POLL_PREFS, Context.MODE_PRIVATE)

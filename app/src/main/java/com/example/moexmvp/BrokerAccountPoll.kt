@@ -3,13 +3,13 @@ package com.example.moexmvp
 import android.content.Context
 import java.util.Locale
 
-internal const val BROKER_ACCOUNT_POLL_MS = 60_000L
+internal const val BROKER_ACCOUNT_POLL_MS = 15_000L
 private const val BROKER_PUSH_BASE_ID = 43_100
 internal const val BROKER_PROFIT_ALERT_PCT_2 = 2.0
 internal const val BROKER_PROFIT_ALERT_PCT_3 = 3.0
 
 /**
- * Минутный опрос портфеля T‑Invest Prod: push при открытии/закрытии пары
+ * Опрос портфеля T‑Invest (~15 с): push при открытии/закрытии пары
  * и при прибыли ≥2% / ≥3% от вложения (по одному разу на открытую позицию).
  */
 internal suspend fun pollBrokerAccountAndNotify(context: Context) {
@@ -89,6 +89,7 @@ internal suspend fun pollBrokerAccountAndNotify(context: Context) {
                 skipDuplicateCheck = true,
                 correlationTag = "broker_open_${snap.fingerprint}",
             )
+            markEntryAlertTradeOpened(app, snap.side)
             BrokerAccountPrefs.saveSnap(
                 app,
                 side = snap.side,

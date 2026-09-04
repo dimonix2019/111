@@ -191,14 +191,24 @@ internal fun showSpreadLevelAlertPushNotification(
 internal fun maybeNotifySpreadLevelAlerts(context: Context, spreadPercent: Double?) {
     val curr = spreadPercent?.takeIf { it.isFinite() } ?: return
     val app = context.applicationContext
-    if (!SpreadLevelAlertSettings.isMasterEnabled(app)) return
     val prev = SpreadLevelAlertSettings.lastSpread(app)
     if (prev == null) {
         SpreadLevelAlertSettings.setLastSpread(app, curr)
         return
     }
-    val crosses = detectSpreadLevelCrosses(prev, curr)
+    // Алерты «Вход» до обновления lastSpread (тот же prev→curr тик).
+    val entryCrosses = detectEntryLevelCrosses(
+        prevSpread = prev,
+        currSpread = curr,
+        longEnterPct = EntryLevelAlertSettings.longEnterPct(app),
+        shortEnterPct = EntryLevelAlertSettings.shortEnterPct(app),
+    )
+    for (side in entryCrosses) {
+        showEntryLevelAlertPushNotification(app, side, curr)
+    }
     SpreadLevelAlertSettings.setLastSpread(app, curr)
+    if (!SpreadLevelAlertSettings.isMasterEnabled(app)) return
+    val crosses = detectSpreadLevelCrosses(prev, curr)
     for (cross in crosses) {
         showSpreadLevelAlertPushNotification(app, cross, curr)
     }

@@ -246,48 +246,6 @@ internal fun MoexScreenTabStrategyTest(
                             }
                             markStrategyTestSimParamsStale()
                         },
-                        onExportCompareCsv = {
-                            scope.launch {
-                                val thresholds = resolveStrategyTestSimThresholds()
-                                val comm = buildStrategyTestCommissionPercentPerSide(
-                                    context,
-                                    portfolioCommissionPercent,
-                                )
-                                val csv = withContext(Dispatchers.IO) {
-                                    buildStrategyTestCompareCsvFromState(
-                                        context = context,
-                                        metrics = strategyTestPortfolioMetrics,
-                                        tradeItems = strategyTestTradeItems,
-                                        accountSizeRub = strategyTestAccountSizeRub,
-                                        capitalUsagePercent = strategyTestCapitalUsagePercent,
-                                        leverageForLots = portfolioLeverage,
-                                        commissionPercentPerSide = comm,
-                                        entryThreshold = thresholds.entry,
-                                        exitThreshold = thresholds.exit,
-                                        compoundReturns = strategyTestCompoundReturns,
-                                        maxLossDdPercent = strategyTestMaxLossDdPercent,
-                                        usePortfolioThresholds = strategyTestUsePortfolioThresholds,
-                                        useLiveZSignals = strategyTestUseLiveZSignals,
-                                        thresholdSource = thresholds.source.name,
-                                    )?.also { persist ->
-                                        StrategyTestExportStore.saveCompareCsv(context, persist)
-                                    }
-                                }
-                                if (csv == null || !copyCsvToClipboard(context, csv, "moex_sim_trades.csv")) {
-                                    Toast.makeText(
-                                        context,
-                                        "Нет сделок для выгрузки",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                    return@launch
-                                }
-                                Toast.makeText(
-                                    context,
-                                    "CSV Тест страт. (${tradeCompareRowCount(csv)} сделок) в буфере — сравните с Prod",
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            }
-                        },
                         dailyReconciliation = dailyReconciliation,
                     )
                 }

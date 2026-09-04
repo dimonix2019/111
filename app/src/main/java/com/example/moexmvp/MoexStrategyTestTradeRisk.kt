@@ -17,9 +17,9 @@ private const val MS_PER_SIX_HOURS = 6 * MS_PER_HOUR
 private const val MS_PER_DAY = 24 * MS_PER_HOUR
 
 internal data class SpreadRiskLevels(
-    val enterWide: Double = 6.2,
+    val enterWide: Double = DEFAULT_SPREAD_ENTER_WIDE,
     val exitWide: Double = 5.8,
-    val enterNarrow: Double = 3.2,
+    val enterNarrow: Double = DEFAULT_SPREAD_ENTER_NARROW,
     val exitNarrow: Double = 4.0,
 )
 

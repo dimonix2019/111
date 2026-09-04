@@ -111,6 +111,7 @@ private fun notifyOpenTradeChange(app: Context, snap: WebDeskStatusSnapshot) {
                 skipDuplicateCheck = true,
                 correlationTag = "web_desk_open_$openId",
             )
+            markEntryAlertTradeOpenedFromDirection(app, dir)
             WebDeskPrefs.setHadOpen(app, true)
             WebDeskPrefs.setLastOpenId(app, openId)
         }
