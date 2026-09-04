@@ -196,7 +196,7 @@ internal fun maybeNotifySpreadLevelAlerts(context: Context, spreadPercent: Doubl
         SpreadLevelAlertSettings.setLastSpread(app, curr)
         return
     }
-    // Алерты «Вход» до обновления lastSpread (тот же prev→curr тик).
+    // Алерты «Вход» / «Добор и экстра» до обновления lastSpread (тот же prev→curr тик).
     val entryCrosses = detectEntryLevelCrosses(
         prevSpread = prev,
         currSpread = curr,
@@ -205,6 +205,26 @@ internal fun maybeNotifySpreadLevelAlerts(context: Context, spreadPercent: Doubl
     )
     for (side in entryCrosses) {
         showEntryLevelAlertPushNotification(app, side, curr)
+    }
+    val addonCrosses = detectAddonExtraLevelCrosses(
+        prevSpread = prev,
+        currSpread = curr,
+        kind = AddonExtraKind.Addon,
+        longEnterPct = AddonExtraLevelAlertSettings.enterPct(app, AddonExtraAlertSlot.AddonLong),
+        shortEnterPct = AddonExtraLevelAlertSettings.enterPct(app, AddonExtraAlertSlot.AddonShort),
+    )
+    for (slot in addonCrosses) {
+        showAddonExtraLevelAlertPushNotification(app, slot, curr)
+    }
+    val extraCrosses = detectAddonExtraLevelCrosses(
+        prevSpread = prev,
+        currSpread = curr,
+        kind = AddonExtraKind.Extra,
+        longEnterPct = AddonExtraLevelAlertSettings.enterPct(app, AddonExtraAlertSlot.ExtraLong),
+        shortEnterPct = AddonExtraLevelAlertSettings.enterPct(app, AddonExtraAlertSlot.ExtraShort),
+    )
+    for (slot in extraCrosses) {
+        showAddonExtraLevelAlertPushNotification(app, slot, curr)
     }
     SpreadLevelAlertSettings.setLastSpread(app, curr)
     if (!SpreadLevelAlertSettings.isMasterEnabled(app)) return

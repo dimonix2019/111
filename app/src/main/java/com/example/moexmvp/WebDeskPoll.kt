@@ -55,6 +55,7 @@ internal suspend fun pollWebDeskAndNotify(context: Context) {
         .filter { it.id > lastId }
         .sortedBy { it.id }
     for (ev in fresh) {
+        markAddonExtraAlertTradeOpenedFromDeskMessage(app, ev.message)
         if (!webDeskEventShouldNotify(ev)) continue
         val isProfit = ev.message.contains("Прибыль ≥3%") ||
             ev.message.contains("Прибыль >=3%")

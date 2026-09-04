@@ -49,6 +49,42 @@ internal fun SpreadLevelAlertsSettingsCard(
     }
     val longEnterPct = remember(tick) { EntryLevelAlertSettings.longEnterPct(context) }
     val shortEnterPct = remember(tick) { EntryLevelAlertSettings.shortEnterPct(context) }
+    val addonLongEnabled = remember(tick) {
+        AddonExtraLevelAlertSettings.isEnabled(context, AddonExtraAlertSlot.AddonLong)
+    }
+    val addonShortEnabled = remember(tick) {
+        AddonExtraLevelAlertSettings.isEnabled(context, AddonExtraAlertSlot.AddonShort)
+    }
+    val extraLongEnabled = remember(tick) {
+        AddonExtraLevelAlertSettings.isEnabled(context, AddonExtraAlertSlot.ExtraLong)
+    }
+    val extraShortEnabled = remember(tick) {
+        AddonExtraLevelAlertSettings.isEnabled(context, AddonExtraAlertSlot.ExtraShort)
+    }
+    val addonLongTradeAt = remember(tick) {
+        AddonExtraLevelAlertSettings.tradeOpenedAtMillis(context, AddonExtraAlertSlot.AddonLong)
+    }
+    val addonShortTradeAt = remember(tick) {
+        AddonExtraLevelAlertSettings.tradeOpenedAtMillis(context, AddonExtraAlertSlot.AddonShort)
+    }
+    val extraLongTradeAt = remember(tick) {
+        AddonExtraLevelAlertSettings.tradeOpenedAtMillis(context, AddonExtraAlertSlot.ExtraLong)
+    }
+    val extraShortTradeAt = remember(tick) {
+        AddonExtraLevelAlertSettings.tradeOpenedAtMillis(context, AddonExtraAlertSlot.ExtraShort)
+    }
+    val addonLongPct = remember(tick) {
+        AddonExtraLevelAlertSettings.enterPct(context, AddonExtraAlertSlot.AddonLong)
+    }
+    val addonShortPct = remember(tick) {
+        AddonExtraLevelAlertSettings.enterPct(context, AddonExtraAlertSlot.AddonShort)
+    }
+    val extraLongPct = remember(tick) {
+        AddonExtraLevelAlertSettings.enterPct(context, AddonExtraAlertSlot.ExtraLong)
+    }
+    val extraShortPct = remember(tick) {
+        AddonExtraLevelAlertSettings.enterPct(context, AddonExtraAlertSlot.ExtraShort)
+    }
     val bump = {
         tick++
         onChanged()
@@ -90,6 +126,60 @@ internal fun SpreadLevelAlertsSettingsCard(
             tradeAtMillis = shortTradeAt,
             onToggle = { on ->
                 EntryLevelAlertSettings.setEnabled(context, EntryAlertSide.Short, on)
+                bump()
+            },
+        )
+
+        Text(
+            text = "Добор и экстра",
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            text = "Push при касании порогов добора (2/7) и экстра (1/9). После открытия ноги алерт выключается.",
+            color = Color(0xFF9E9E9E),
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+        )
+        AddonExtraAlertSlotRow(
+            slot = AddonExtraAlertSlot.AddonLong,
+            levelPct = addonLongPct,
+            enabled = addonLongEnabled,
+            tradeAtMillis = addonLongTradeAt,
+            onToggle = { on ->
+                AddonExtraLevelAlertSettings.setEnabled(context, AddonExtraAlertSlot.AddonLong, on)
+                bump()
+            },
+        )
+        AddonExtraAlertSlotRow(
+            slot = AddonExtraAlertSlot.AddonShort,
+            levelPct = addonShortPct,
+            enabled = addonShortEnabled,
+            tradeAtMillis = addonShortTradeAt,
+            onToggle = { on ->
+                AddonExtraLevelAlertSettings.setEnabled(context, AddonExtraAlertSlot.AddonShort, on)
+                bump()
+            },
+        )
+        AddonExtraAlertSlotRow(
+            slot = AddonExtraAlertSlot.ExtraLong,
+            levelPct = extraLongPct,
+            enabled = extraLongEnabled,
+            tradeAtMillis = extraLongTradeAt,
+            onToggle = { on ->
+                AddonExtraLevelAlertSettings.setEnabled(context, AddonExtraAlertSlot.ExtraLong, on)
+                bump()
+            },
+        )
+        AddonExtraAlertSlotRow(
+            slot = AddonExtraAlertSlot.ExtraShort,
+            levelPct = extraShortPct,
+            enabled = extraShortEnabled,
+            tradeAtMillis = extraShortTradeAt,
+            onToggle = { on ->
+                AddonExtraLevelAlertSettings.setEnabled(context, AddonExtraAlertSlot.ExtraShort, on)
                 bump()
             },
         )
@@ -176,6 +266,43 @@ private fun EntryAlertSideRow(
         EntryAlertSide.Short -> "Short"
     }
     val levelText = formatRuSignedNumber(levelPct)
+    AlertToggleRow(
+        label = "$sideLabel вход $levelText%",
+        enabled = enabled,
+        tradeAtMillis = tradeAtMillis,
+        onToggle = onToggle,
+    )
+}
+
+@Composable
+private fun AddonExtraAlertSlotRow(
+    slot: AddonExtraAlertSlot,
+    levelPct: Double,
+    enabled: Boolean,
+    tradeAtMillis: Long?,
+    onToggle: (Boolean) -> Unit,
+) {
+    val kindRu = addonExtraKindLabelRu(slot.kind())
+    val sideLabel = when (slot.side()) {
+        EntryAlertSide.Long -> "Long"
+        EntryAlertSide.Short -> "Short"
+    }
+    val levelText = formatRuSignedNumber(levelPct)
+    AlertToggleRow(
+        label = "$kindRu $sideLabel $levelText%",
+        enabled = enabled,
+        tradeAtMillis = tradeAtMillis,
+        onToggle = onToggle,
+    )
+}
+
+@Composable
+private fun AlertToggleRow(
+    label: String,
+    enabled: Boolean,
+    tradeAtMillis: Long?,
+    onToggle: (Boolean) -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -183,7 +310,7 @@ private fun EntryAlertSideRow(
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
             Text(
-                text = "$sideLabel вход $levelText%",
+                text = label,
                 color = Color(0xFFB0BEC5),
                 fontSize = 12.sp,
             )

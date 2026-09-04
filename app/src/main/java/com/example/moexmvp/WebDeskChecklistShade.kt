@@ -64,6 +64,18 @@ internal fun cacheEntryAlertLevelsFromDeskRoot(context: Context, root: JSONObjec
         longEnterPct = enterN,
         shortEnterPct = enterW,
     )
+    fun settingOrDefault(key: String, default: Double): Double {
+        if (!settings.has(key) || settings.isNull(key)) return default
+        val v = settings.optDouble(key, Double.NaN)
+        return v.takeIf { it.isFinite() } ?: default
+    }
+    AddonExtraLevelAlertSettings.cacheEnterLevels(
+        context = context,
+        addonLong = settingOrDefault("addon_enter_narrow", DEFAULT_ADDON_ENTER_NARROW),
+        addonShort = settingOrDefault("addon_enter_wide", DEFAULT_ADDON_ENTER_WIDE),
+        extraLong = settingOrDefault("extra_enter_narrow", DEFAULT_EXTRA_ENTER_NARROW),
+        extraShort = settingOrDefault("extra_enter_wide", DEFAULT_EXTRA_ENTER_WIDE),
+    )
 }
 
 /**
