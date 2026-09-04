@@ -19,6 +19,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -216,6 +219,9 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var preview by remember { mutableStateOf("Загрузка журнала…") }
     var lineCount by remember { mutableIntStateOf(0) }
+    var writingEnabled by remember {
+        mutableStateOf(MoexDiagnostics.isEventLogWritingEnabled(context))
+    }
     val saveAsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/plain"),
     ) { uri ->
@@ -236,6 +242,7 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
         }
         preview = text
         lineCount = count
+        writingEnabled = MoexDiagnostics.isEventLogWritingEnabled(context)
     }
     Column(
         modifier = modifier
@@ -249,8 +256,50 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
             fontWeight = FontWeight.Medium,
             fontSize = 14.sp
         )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    text = "Запись в журнал",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 12.sp,
+                )
+                Text(
+                    text = if (writingEnabled) {
+                        "Вкл — новые события пишутся в файл"
+                    } else {
+                        "Выкл — новые события не копятся (по умолчанию)"
+                    },
+                    color = Color(0xFF9E9E9E),
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Switch(
+                checked = writingEnabled,
+                onCheckedChange = { enabled ->
+                    MoexDiagnostics.setEventLogWritingEnabled(context, enabled)
+                    writingEnabled = enabled
+                    Toast.makeText(
+                        context,
+                        if (enabled) "Запись в журнал включена" else "Запись в журнал выключена",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = Color(0xFF2E7D32),
+                ),
+            )
+        }
         Text(
-            text = "Записей: $lineCount · показаны последние $ABOUT_EVENT_LOG_TAIL · ANR и вылеты пишутся в файл",
+            text = "Записей: $lineCount · показаны последние $ABOUT_EVENT_LOG_TAIL",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 4.dp)
