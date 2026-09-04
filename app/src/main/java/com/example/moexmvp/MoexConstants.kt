@@ -113,6 +113,16 @@ internal const val CHART_X_LABEL_BASELINE_FROM_BOTTOM_PX = 10f
 internal const val CHART_X_LABEL_ROTATION_DEG = -42f
 /** Макс. длина фитиля Z-свечи за пределами тела (в единицах Z). Без cap σ→0 раздувает тени. */
 internal const val CHART_Z_INTRABAR_WICK_MAX = 0.22
+/**
+ * Спред TATN/TATNP % на графике «Рынок» 1м: вне диапазона — битая нога / дыра в ценах.
+ * Типичный преф ~2–8%; запас под шоки, без 0%/100% от нулевых close.
+ */
+internal const val SPREAD_1M_CHART_MIN_PERCENT = -2.0
+internal const val SPREAD_1M_CHART_MAX_PERCENT = 20.0
+/** Скачок close относительно медианы соседних баров (п.п.) → бар пропускаем. */
+internal const val SPREAD_1M_OUTLIER_JUMP_PP = 2.5
+/** Окно соседей (±N) для медианы при отбраковке outlier. */
+internal const val SPREAD_1M_OUTLIER_NEIGHBOR_RADIUS = 5
 /** Z-свеча «формируется» на «Рынок» (live Z из 1м). */
 internal const val CHART_FORMING_BAR_BORDER_HEX = "#FBBF24"
 internal const val CHART_FORMING_BAR_BODY_UP_HEX = "#B45309"
@@ -186,9 +196,9 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+2.0.22 — «Рынок»: свечи спреда 1м без ложных шипов (не скрещивать high/low ног; битые бары отбрасываются).
 2.0.21 — «О приложении»: тумблер записи в журнал событий (по умолчанию выкл); превью по-прежнему последние 15 строк.
 2.0.20 — Алерты «Добор и экстра» (добор Long/Short 2/7, экстра 1/9); автовыкл при открытии ноги + «Сделка, дата время».
 2.0.19 — Алерты «Вход» (Long/Short по порогам стратегии); опрос счёта 15 с; «О приложении»: журнал 15 строк, без CSV сделок и сверки.
 2.0.18 — «Сделка»: время входа (журнал / GetOperations / prefs); прогноз «при выходе ТП …» (parity close_forecast).
-2.0.17 — «Сделка»: индикатор запаса до маржин-колла (₽ и %, зелёный/жёлтый/красный) по GetMarginAttributes.
 """
