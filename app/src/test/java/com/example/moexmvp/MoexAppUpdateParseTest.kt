@@ -68,25 +68,38 @@ class MoexAppUpdateParseTest {
     }
 
     @Test
-    fun apkDownloadUrlCandidates_prefersGhPagesFirst() {
+    fun apkDownloadUrlCandidates_prefersPrimaryFirst() {
         val urls = apkDownloadUrlCandidates(APK_DOWNLOAD_DIRECT_URL)
-        assertEquals(APP_UPDATE_PUBLIC_APK_URL, urls.first())
-        assertTrue(urls.contains(APK_DOWNLOAD_DIRECT_URL))
+        assertEquals(APK_DOWNLOAD_DIRECT_URL, urls.first())
+        assertTrue(urls.contains(APP_UPDATE_PUBLIC_APK_URL))
     }
 
     @Test
-    fun preferredInAppApkDownloadUrl_usesGhPagesForReleaseLink() {
+    fun preferredInAppApkDownloadUrl_keepsReleaseLink() {
         assertEquals(
-            APP_UPDATE_PUBLIC_APK_URL,
+            APK_DOWNLOAD_DIRECT_URL,
             preferredInAppApkDownloadUrl(APK_DOWNLOAD_DIRECT_URL),
         )
     }
 
     @Test
-    fun selectBestRemoteAppUpdate_rewritesDownloadToGhPages() {
+    fun selectBestRemoteAppUpdate_keepsReleaseUrlWhenNewerThanGhPages() {
         val best = selectBestRemoteAppUpdate(
             listOf(
-                AppRemoteUpdate(135, "1.7.17", APK_DOWNLOAD_DIRECT_URL),
+                AppRemoteUpdate(433, "2.0.5", APP_UPDATE_PUBLIC_APK_URL),
+                AppRemoteUpdate(434, "2.0.6", APK_DOWNLOAD_DIRECT_URL),
+            )
+        )
+        assertEquals(434, best!!.versionCode)
+        assertEquals(APK_DOWNLOAD_DIRECT_URL, best.apkDownloadUrl)
+    }
+
+    @Test
+    fun selectBestRemoteAppUpdate_prefersGhPagesWhenSameVersionCode() {
+        val best = selectBestRemoteAppUpdate(
+            listOf(
+                AppRemoteUpdate(434, "2.0.6", APK_DOWNLOAD_DIRECT_URL),
+                AppRemoteUpdate(434, "2.0.6", APP_UPDATE_PUBLIC_APK_URL),
             )
         )
         assertEquals(APP_UPDATE_PUBLIC_APK_URL, best!!.apkDownloadUrl)
@@ -143,7 +156,21 @@ class MoexAppUpdateParseTest {
     @Test
     fun appUpdateManifestUrlCandidates_prefersReleaseManifest() {
         val urls = appUpdateManifestUrlCandidates()
-        assertEquals(APP_UPDATE_MANIFEST_URL, urls.first())
+        assertTrue(urls.first().startsWith(APP_UPDATE_MANIFEST_URL))
+        assertTrue(urls.first().contains("v="))
+    }
+
+    @Test
+    fun parseAppUpdateManifestJson_publicMirrorWithCacheBustStillUsesGhPagesApk() {
+        val json = """
+            {"versionCode":136,"versionName":"1.7.18","apkUrl":"https://example.com/x.apk"}
+        """.trimIndent()
+        val u = parseAppUpdateManifestJson(
+            json,
+            manifestUrl = "$APP_UPDATE_PUBLIC_MANIFEST_URL?v=136",
+        )
+        assertNotNull(u)
+        assertEquals(APP_UPDATE_PUBLIC_APK_URL, u!!.apkDownloadUrl)
     }
 
     @Test

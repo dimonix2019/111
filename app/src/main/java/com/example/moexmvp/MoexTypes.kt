@@ -44,6 +44,13 @@ internal data class ChartReferenceLine(
     val dashOffPx: Float = 8f
 )
 
+/** Полупрозрачная горизонтальная полоса между двумя уровнями Y (как на Trade Desk). */
+internal data class ChartZoneFill(
+    val yLow: Double,
+    val yHigh: Double,
+    val color: Color,
+)
+
 internal data class ChartPointMarker(
     val index: Int,
     val value: Double,
@@ -201,11 +208,21 @@ internal enum class SpreadScaleMode(val label: String) {
 
 internal enum class MainTab(val label: String) {
     Markets("Рынок"),
+    Trade("Сделка"),
+    /** Hidden from nav (v2.0+); kept for legacy effects / tests. */
     Portfolio("Портфель"),
+    /** Hidden from nav (v2.0+); kept for legacy effects / tests. */
     StrategyTest("Тест страт."),
+    /** Hidden from nav (v2.0+); kept for legacy effects / tests. */
     Journal("Журнал"),
     Sandbox("Песочница"),
-    About("О приложении")
+    WebDesk("Стол web"),
+    About("О приложении");
+
+    companion object {
+        /** Вкладки телефона: рынок, сделка, песочница, стол web (крайняя справа), о приложении. */
+        val navTabs: List<MainTab> = listOf(Markets, Trade, Sandbox, WebDesk, About)
+    }
 }
 
 /** UI for virtual-trade card: whether sandbox market orders can run. */

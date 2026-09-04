@@ -62,7 +62,6 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
     points: List<DataPoint>,
     workId: Int,
     reason: String,
-    persistExport: Boolean = true,
 ) {
     if (!isStrategyTestWorkCurrent(workId)) return
     strategyTestSimComputing = true
@@ -150,26 +149,6 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                 spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
             )
         }
-        if (metrics != null && persistExport) {
-            withContext(Dispatchers.IO) {
-                val tradeItems = buildStrategyTestTradeListFromSimulation(metrics.closedTrades)
-                val exportConfig = buildStrategyTestExportConfig(
-                    context = context,
-                    accountSizeRub = strategyTestAccountSizeRub,
-                    capitalUsagePercent = strategyTestCapitalUsagePercent,
-                    leverageForLots = portfolioLeverage,
-                    commissionPercentPerSide = commissionPct,
-                    entryThreshold = entry,
-                    exitThreshold = exit,
-                    compoundReturns = strategyTestCompoundReturns,
-                    maxLossDdPercent = strategyTestMaxLossDdPercent,
-                    usePortfolioThresholds = strategyTestUsePortfolioThresholds,
-                    useLiveZSignals = strategyTestUseLiveZSignals,
-                    thresholdSource = simThresholds.source.name,
-                )
-                persistStrategyTestCompareExport(context, metrics, tradeItems, exportConfig)
-            }
-        }
         val trades = metrics?.closedTrades?.size ?: 0
         MoexDiagnostics.log(context, "st_sim", "done id=$workId trades=$trades chartTail=${chartTail.size}")
     } catch (e: OutOfMemoryError) {
@@ -253,7 +232,6 @@ internal suspend fun MoexScreenState.scheduleStrategyTestResimOnly(reason: Strin
             points = strategyTestM15SessionCache,
             workId = workId,
             reason = reason,
-            persistExport = false,
         )
     }
 }

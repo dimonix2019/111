@@ -64,6 +64,7 @@ internal fun CandlestickChart(
     onSelectIndex: (Int?) -> Unit,
     modifier: Modifier = Modifier,
     referenceLines: List<ChartReferenceLine> = emptyList(),
+    zoneFills: List<ChartZoneFill> = emptyList(),
     pointMarkers: List<ChartPointMarker> = emptyList(),
     enableZoomPan: Boolean = false,
     markerScale: Float = 1f,
@@ -324,6 +325,22 @@ internal fun CandlestickChart(
             right = leftPadding + w,
             bottom = topPadding + h
         ) {
+            // Зоны под данными (как BaselineSeries bands на Trade Desk).
+            zoneFills.forEach { zone ->
+                val lo = min(zone.yLow, zone.yHigh)
+                val hi = max(zone.yLow, zone.yHigh)
+                val yTop = yForValue(hi)
+                val yBottom = yForValue(lo)
+                val top = min(yTop, yBottom)
+                val bottom = max(yTop, yBottom)
+                if (bottom > top) {
+                    drawRect(
+                        color = zone.color,
+                        topLeft = Offset(leftPadding, top),
+                        size = Size(w, bottom - top),
+                    )
+                }
+            }
             referenceLines.forEach { reference ->
                 val y = yForValue(reference.value)
                 drawLine(

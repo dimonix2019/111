@@ -1,0 +1,32 @@
+---
+description: Любые правки Android MVP — всегда коммит, push и PR
+alwaysApply: true
+---
+
+# Android MVP — всегда принудительный PR
+
+«Принудительный PR» = **обязательно** после правок Android (не force-push на main/master).
+
+## Когда срабатывает
+
+Любые изменения Android MVP: `app/`, связанные Kotlin/ресурсы, `app/build.gradle.kts`, правила/доки только под Android-релиз — если затронут код или версия приложения.
+
+## Обязательный порядок
+
+1. Реализовать правки в `app/` (и только нужные связанные файлы).
+2. Bump `versionCode` / `versionName` в `app/build.gradle.kts` и запись в `APP_CHANGELOG` (`MoexConstants.kt`) — см. `AGENTS.md`.
+3. Собрать `assembleDebug`, если возможно.
+4. **Коммит** на feature-ветку (не в main/master напрямую).
+5. **Push** в `origin`.
+6. **`gh pr create`** (или обновить существующий PR пушем) — в ответе пользователю дать **URL PR**.
+
+## В ответе пользователю
+
+- Ссылка на PR
+- Ссылка APK: https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk
+- Номер `versionCode` / `versionName`
+
+## Запрещено
+
+- Force-push на `main` / `master`
+- Оставлять Android-правки только локально без коммита/PR

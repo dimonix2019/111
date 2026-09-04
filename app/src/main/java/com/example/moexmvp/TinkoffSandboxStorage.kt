@@ -132,8 +132,13 @@ internal object TinkoffSandboxStorage {
         }.apply()
     }
 
-    fun getProdToken(context: Context): String? =
-        prefs(context).getString(KEY_PROD_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
+    fun getProdToken(context: Context): String? {
+        val primary = prefs(context).getString(KEY_PROD_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return null
+        val norm = normalizeStoredCredential(primary)
+        if (norm != primary) setProdToken(context, norm.takeIf { it.isNotEmpty() })
+        return norm.takeIf { it.isNotEmpty() }
+    }
 
     fun setProdToken(context: Context, token: String?) {
         val t = normalizeInvestToken(token?.trim().orEmpty())

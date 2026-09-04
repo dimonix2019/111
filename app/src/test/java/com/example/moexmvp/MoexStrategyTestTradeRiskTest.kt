@@ -39,7 +39,7 @@ class MoexStrategyTestTradeRiskTest {
         val assessment = buildStrategyTestTradeRiskAssessment(trade, points, zoneId = zone)
 
         assertFalse(strategyTestTradeRiskIsFlagged(assessment))
-        assertFalse(StrategyTestTradeRiskFlag.WeakEntryZ in assessment.flags)
+        assertFalse(StrategyTestTradeRiskFlag.WeakEntrySpread in assessment.flags)
     }
 
     @Test
@@ -79,6 +79,36 @@ class MoexStrategyTestTradeRiskTest {
         assertTrue(summary.flaggedLossRate > summary.baselineLossRate)
     }
 
+    @Test
+    fun buildStrategyTestTradeRiskAssessment_shallowSpreadEntryIsFlaggedAfterSixHours() {
+        val trade = trade(
+            entry = "2026-05-19 10:00",
+            exit = "2026-05-19 18:00",
+            overnight = 0.0,
+            pnl = 10.0,
+        ).copy(entrySpreadPercent = 3.12, exitSpreadPercent = 3.20)
+        val points = listOf(point("2026-05-19 10:00", z = -1.5))
+        val assessment = buildStrategyTestTradeRiskAssessment(trade, points, zoneId = zone)
+
+        assertTrue(StrategyTestTradeRiskFlag.WeakEntrySpread in assessment.flags)
+        assertEquals(1, assessment.breakdown.weakEntrySpreadPoints)
+    }
+
+    @Test
+    fun buildStrategyTestTradeRiskAssessment_spreadAgainstAddsTwoPoints() {
+        val trade = trade(
+            entry = "2026-05-19 10:00",
+            exit = "2026-05-19 18:00",
+            overnight = 0.0,
+            pnl = -80.0,
+        ).copy(entrySpreadPercent = 3.10, exitSpreadPercent = 2.80)
+        val points = listOf(point("2026-05-19 10:00", z = -1.5))
+        val assessment = buildStrategyTestTradeRiskAssessment(trade, points, zoneId = zone)
+
+        assertTrue(StrategyTestTradeRiskFlag.SpreadAgainst in assessment.flags)
+        assertEquals(2, assessment.breakdown.spreadPathPoints)
+    }
+
     private fun trade(
         entry: String,
         exit: String,
@@ -88,8 +118,8 @@ class MoexStrategyTestTradeRiskTest {
         direction = ZStrategyPosition.Long,
         entryDate = entry,
         exitDate = exit,
-        entrySpreadPercent = 5.0,
-        exitSpreadPercent = 4.9,
+        entrySpreadPercent = 3.00,
+        exitSpreadPercent = 3.50,
         pnlSpreadPoints = -0.1,
         grossPnlRubApprox = pnl + 560.0,
         commissionRubApprox = 560.0,

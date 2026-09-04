@@ -1,0 +1,6 @@
+/* Backward-compatible entry: prefer explicit links in index.html */
+@import url("./css-shell.css");
+@import url("./css-testing.css");
+@import url("./css-replay-ui.css");
+@import url("./css-trade-desk.css");
+@import url("./css-mobile.css");

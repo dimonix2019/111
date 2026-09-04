@@ -532,4 +532,41 @@ class MoexTradingViewChartTest {
         assertEquals(0.7, openSeg.exitZ!!, 1e-9)
         assertEquals(points.last().timestampMillis / 1000L, openSeg.exitTimeSec)
     }
+
+    @Test
+    fun buildTradingViewReplayCursorJson_includesCandlesMarkersAndPlayingFlag() {
+        val candles = listOf(
+            CandlePoint("2026-05-19 10:00", open = 0.0, high = 0.1, low = -0.1, close = 0.05),
+            CandlePoint("2026-05-19 10:15", open = 0.05, high = 0.2, low = 0.0, close = 0.1),
+        )
+        val points = candles.map { c ->
+            val ts = LocalDateTime.parse(c.label, portfolio15mLabelFormatter)
+                .atZone(ZoneId.of("Europe/Moscow")).toInstant().toEpochMilli()
+            DataPoint(ts, c.label, 100.0, 90.0, 10.0, 10.0, c.close)
+        }
+        val markers = listOf(
+            ChartPointMarker(
+                index = 0,
+                value = 0.0,
+                color = Color(0xFF69F0AE),
+                label = "Вх Long",
+                shape = ChartMarkerShape.TriangleUp,
+                badgeText = "1А",
+            ),
+        )
+        val json = JSONObject(
+            buildTradingViewReplayCursorJson(
+                candles = candles,
+                displayPoints = points,
+                referenceLines = listOf(ChartReferenceLine(0.7, Color.White, "+Entry")),
+                pointMarkers = markers,
+                playing = true,
+            ),
+        )
+        assertEquals(2, json.getJSONArray("candles").length())
+        assertEquals(1, json.getJSONArray("hlines").length())
+        assertEquals(1, json.getJSONArray("markers").length())
+        assertTrue(json.getBoolean("playing"))
+        assertEquals(1.0, json.getDouble("windowWidth"), 0.001)
+    }
 }
