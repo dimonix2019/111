@@ -213,6 +213,7 @@ internal fun MoexScreenTabMarketsPhone(
         if (candles.isNotEmpty()) {
             TradingViewZScoreChartCard(
                 title = "Спред TATN/TATNP, % · 1м · неделя (TradingView)",
+                showOhlcLegend = true,
                 candles = candles,
                 displayPoints = markerPoints,
                 chartHeightDp = MARKETS_PHONE_CHART_HEIGHT_DP,

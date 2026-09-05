@@ -75,6 +75,9 @@
     let lastMarkers = [];
     let lastTrades = [];
     let lastCandleTimes = [];
+    let lastCandles = [];
+    let ohlcBound = false;
+    let lastPushedOhlcKey = '';
     let selectedTradeId = null;
     let selectedMarkerKey = null;
     let clickBound = false;
@@ -306,6 +309,53 @@
       }
     }
 
+    function ohlcKey(c) {
+      if (!c) return '';
+      return [c.time, c.open, c.high, c.low, c.close].join('|');
+    }
+
+    function lastCandle() {
+      return lastCandles.length ? lastCandles[lastCandles.length - 1] : null;
+    }
+
+    function candleAtParam(param) {
+      if (param && series && param.seriesData) {
+        try {
+          const d = param.seriesData.get(series);
+          if (d && typeof d.open === 'number') return d;
+        } catch (e) {}
+      }
+      if (param && param.time != null) {
+        for (let i = lastCandles.length - 1; i >= 0; i--) {
+          if (lastCandles[i].time === param.time) return lastCandles[i];
+        }
+      }
+      return null;
+    }
+
+    function pushOhlc(c) {
+      if (!c || typeof c.open !== 'number') return;
+      const key = ohlcKey(c);
+      if (key === lastPushedOhlcKey) return;
+      lastPushedOhlcKey = key;
+      try {
+        if (window.MoexChartBridge && MoexChartBridge.onOhlc) {
+          MoexChartBridge.onOhlc(c.open, c.high, c.low, c.close);
+        }
+      } catch (e) {}
+    }
+
+    function onCrosshairMove(param) {
+      const hovered = candleAtParam(param);
+      pushOhlc(hovered || lastCandle());
+    }
+
+    function bindOhlcCrosshair() {
+      if (!chart || ohlcBound) return;
+      ohlcBound = true;
+      chart.subscribeCrosshairMove(onCrosshairMove);
+    }
+
     function onChartClick(param) {
       if (!param.point || param.point.x < 0 || param.point.y < 0) {
         applyMarkerSelection(null);
@@ -431,6 +481,7 @@
         chart.subscribeClick(onChartClick);
         clickBound = true;
       }
+      bindOhlcCrosshair();
 
       bindViewportMarkerRefresh();
 
@@ -558,7 +609,9 @@
       }
 
       series.setData(candles);
+      lastCandles = candles;
       lastCandleTimes = candles.map((c) => c.time);
+      pushOhlc(lastCandle());
       updateFormingBarHint(data);
       if (markersPlugin) {
         try { markersPlugin.detach(); } catch (e) {}
@@ -662,7 +715,9 @@
         replayMode = true;
         document.getElementById('err').style.display = 'none';
         series.setData(candles);
+        lastCandles = candles;
         lastCandleTimes = candles.map((c) => c.time);
+        pushOhlc(lastCandle());
         lastMarkers = (data.markers || []).map((m) => ({
           time: m.time,
           position: m.position,
