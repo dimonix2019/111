@@ -1,0 +1,14 @@
+---
+description: After web-desk UI or related API changes, add/run Playwright UI tests
+globs: strategy-web/replay/static/**/*,strategy-web/ui_tests/**/*
+alwaysApply: false
+---
+
+# Desk UI tests (Playwright)
+
+После правок UI стола (`strategy-web/replay/static/*`) или связанного API, которые видны на http://127.0.0.1:8765:
+
+1. Добавь или обнови тест в `strategy-web/ui_tests/` (Playwright, headless Chromium).
+2. Прогон: `cd strategy-web && pytest ui_tests -q` (сервер на `:8765` должен быть жив).
+3. Unit-тесты Python **не** заменяют UI-тест.
+4. В ответе пользователю: **Ctrl+F5**. Рестарт `MoexLiveWatchdog` — только если трогали Python live (см. moex-live-service-restart.mdc).
