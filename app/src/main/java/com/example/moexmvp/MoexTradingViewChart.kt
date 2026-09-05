@@ -13,6 +13,7 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,10 +39,24 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDateTime
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
 
 internal const val TRADINGVIEW_ASSET_BASE = "file:///android_asset/tradingview/"
 private const val LW_CHARTS_INJECT_MARKER = "<!-- INJECT_LIGHTWEIGHT_CHARTS -->"
+private val TRADINGVIEW_OHLC_LEGEND_COLOR = Color(0xFFFDE68A)
+
+/** Шапка графика: O/H/L/C текущей или наведённой свечи (как на web-столе). */
+internal fun formatTradingViewOhlcLegend(
+    open: Double,
+    high: Double,
+    low: Double,
+    close: Double,
+): String {
+    val loc = Locale("ru", "RU")
+    fun n(v: Double) = String.format(loc, "%.2f", v)
+    return "O ${n(open)}  H ${n(high)}  L ${n(low)}  C ${n(close)}"
+}
 
 internal data class TradingViewTradeSegment(
     val id: String,
@@ -575,11 +590,16 @@ private fun pushTradingViewPayload(webView: WebView, payloadJson: String) {
 internal fun TradingViewZScoreChart(
     payloadJson: String,
     modifier: Modifier = Modifier,
+    onOhlcFromChart: ((open: Double, high: Double, low: Double, close: Double) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val html = remember { loadTradingViewChartHtml(context.applicationContext) }
     var pageReady by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    val ohlcListener = remember {
+        AtomicReference<(Double, Double, Double, Double) -> Unit> { _, _, _, _ -> }
+    }
+    ohlcListener.set { o, h, l, c -> onOhlcFromChart?.invoke(o, h, l, c) }
     fun deliverPayload() {
         val view = webViewRef ?: return
         if (!pageReady) return
@@ -611,6 +631,11 @@ internal fun TradingViewZScoreChart(
                         @JavascriptInterface
                         fun onReady() {
                             post { pageReady = true }
+                        }
+
+                        @JavascriptInterface
+                        fun onOhlc(open: Double, high: Double, low: Double, close: Double) {
+                            post { ohlcListener.get().invoke(open, high, low, close) }
                         }
                     },
                     "MoexChartBridge",
@@ -662,8 +687,21 @@ internal fun TradingViewZScoreChartCard(
     areaFillColor: String? = null,
     formingBarHint: MarketsFormingBarHint? = null,
     formingBarHintText: String? = null,
+    showOhlcLegend: Boolean = false,
 ) {
     if (candles.isEmpty()) return
+    var ohlcLegendText by remember {
+        mutableStateOf(
+            candles.lastOrNull()?.let {
+                formatTradingViewOhlcLegend(it.open, it.high, it.low, it.close)
+            },
+        )
+    }
+    LaunchedEffect(candles) {
+        ohlcLegendText = candles.lastOrNull()?.let {
+            formatTradingViewOhlcLegend(it.open, it.high, it.low, it.close)
+        }
+    }
     val payload = remember(
         candles,
         displayPoints,
@@ -698,7 +736,12 @@ internal fun TradingViewZScoreChartCard(
             .then(if (landscapeMinimal) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
             .background(Color(0xFF131722), RoundedCornerShape(if (landscapeMinimal) 0.dp else 12.dp)),
     ) {
-        if (!landscapeMinimal && (title.isNotBlank() || !formingBarHintText.isNullOrBlank())) {
+        if (!landscapeMinimal && (
+                title.isNotBlank() ||
+                    !formingBarHintText.isNullOrBlank() ||
+                    (showOhlcLegend && !ohlcLegendText.isNullOrBlank())
+                )
+        ) {
             Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                 if (title.isNotBlank()) {
                     Text(
@@ -708,12 +751,23 @@ internal fun TradingViewZScoreChartCard(
                         fontSize = 14.sp,
                     )
                 }
+                if (showOhlcLegend && !ohlcLegendText.isNullOrBlank()) {
+                    Text(
+                        text = ohlcLegendText.orEmpty(),
+                        color = TRADINGVIEW_OHLC_LEGEND_COLOR,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(
+                            top = if (title.isNotBlank()) 4.dp else 0.dp,
+                        ),
+                    )
+                }
                 if (!formingBarHintText.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         text = formingBarHintText,
                         color = Color(0xFFFBBF24),
                         fontSize = 11.sp,
-                        modifier = Modifier.padding(top = if (title.isNotBlank()) 4.dp else 0.dp),
                     )
                 }
             }
@@ -729,6 +783,13 @@ internal fun TradingViewZScoreChartCard(
             TradingViewZScoreChart(
                 payloadJson = payload,
                 modifier = Modifier.fillMaxSize(),
+                onOhlcFromChart = if (showOhlcLegend) {
+                    { o, h, l, c ->
+                        ohlcLegendText = formatTradingViewOhlcLegend(o, h, l, c)
+                    }
+                } else {
+                    null
+                },
             )
         }
     }

@@ -5,6 +5,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -98,6 +99,30 @@ class MoexTradingViewChartTest {
         assertEquals(1, json.getJSONArray("markers").length())
         assertEquals(3.2, json.getJSONArray("zones").getJSONObject(0).getDouble("low"), 0.001)
         assertTrue(json.getJSONArray("zones").getJSONObject(0).getString("color").startsWith("rgba("))
+    }
+
+    @Test
+    fun formatTradingViewOhlcLegend_usesRussianDecimalsAndOhlcLabels() {
+        assertEquals(
+            "O 3,40  H 3,55  L 3,38  C 3,50",
+            formatTradingViewOhlcLegend(open = 3.4, high = 3.55, low = 3.38, close = 3.5),
+        )
+        val last = CandlePoint("2026-09-05 12:01", open = 4.01, high = 4.20, low = 3.90, close = 4.10)
+        assertEquals(
+            "O 4,01  H 4,20  L 3,90  C 4,10",
+            formatTradingViewOhlcLegend(last.open, last.high, last.low, last.close),
+        )
+    }
+
+    @Test
+    fun zChartHtml_hooksCrosshairOhlcToBridge() {
+        val html = listOf(
+            File("src/main/assets/tradingview/z_chart.html"),
+            File("app/src/main/assets/tradingview/z_chart.html"),
+        ).first { it.exists() }.readText()
+        assertTrue(html.contains("subscribeCrosshairMove"))
+        assertTrue(html.contains("MoexChartBridge.onOhlc"))
+        assertTrue(html.contains("function pushOhlc"))
     }
 
     @Test
