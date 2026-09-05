@@ -61,9 +61,11 @@
     const MARKER_HIT_RADIUS_PX = 48;
     const MARKER_HIT_RADIUS_X_PX = 44;
     const MARKER_ENTRY_HIT_RADIUS_X_PX = 56;
+    const MAX_ZONE_SERIES = 6;
 
     let chart = null;
     let series = null;
+    let zoneSeries = [];
     let highlightSeries = null;
     let markersPlugin = null;
     let priceLines = [];
@@ -390,6 +392,16 @@
         },
       });
 
+      for (let i = 0; i < MAX_ZONE_SERIES; i++) {
+        zoneSeries.push(chart.addSeries(LightweightCharts.HistogramSeries, {
+          color: 'rgba(0,0,0,0)',
+          base: 0,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        }));
+      }
+
       series = chart.addSeries(LightweightCharts.CandlestickSeries, {
         upColor: TV.up,
         downColor: TV.down,
@@ -520,6 +532,25 @@
         exitZ: t.exitZ === null || t.exitZ === undefined ? null : t.exitZ,
         open: !!t.open,
       }));
+
+      const zones = (data.zones || []).slice(0, MAX_ZONE_SERIES);
+      for (let i = 0; i < zoneSeries.length; i++) {
+        const zs = zoneSeries[i];
+        const zone = zones[i];
+        if (!zone) {
+          zs.setData([]);
+          continue;
+        }
+        zs.applyOptions({
+          color: zone.color || 'rgba(0,0,0,0)',
+          base: zone.low,
+        });
+        zs.setData(candles.map((c) => ({
+          time: c.time,
+          value: zone.high,
+          color: zone.color || 'rgba(0,0,0,0)',
+        })));
+      }
 
       if (prevTradeId && !tradeById(prevTradeId)) {
         selectedTradeId = null;

@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,7 +74,7 @@ internal fun spreadCandlesToMarkerPoints(candles: List<CandlePoint>): List<DataP
         )
     }
 
-/** Телефонная вкладка «Рынок»: свечи спреда 1м за неделю + экстренное закрытие. */
+/** Телефонная вкладка «Рынок»: TradingView-свечи спреда 1м за текущую неделю. */
 @Composable
 internal fun MoexScreenTabMarketsPhone(
     screen: MoexScreenState,
@@ -122,15 +120,15 @@ internal fun MoexScreenTabMarketsPhone(
     val weekStartMs = remember {
         currentWeekMondayMsk().atStartOfDay(moexZoneId).toInstant().toEpochMilli()
     }
-    val chartMarkers by produceState(
-        initialValue = emptyList<ChartPointMarker>(),
+    val chartOverlay by produceState(
+        initialValue = ZChartPortfolioOverlay(emptyList(), emptyList()),
         markerPoints,
         screen.sandboxSpreadExecReload,
         screen.portfolioLeverage,
         screen.portfolioCommissionPercent,
     ) {
         if (markerPoints.size < 2) {
-            value = emptyList()
+            value = ZChartPortfolioOverlay(emptyList(), emptyList())
             return@produceState
         }
         value = withContext(Dispatchers.IO) {
@@ -149,7 +147,20 @@ internal fun MoexScreenTabMarketsPhone(
                 val exitMs = parsePortfolioExecutionTableMsk(row.exitTimeMsk) ?: 0L
                 entryMs >= weekStartMs || exitMs >= weekStartMs
             }
-            zScoreChartMarkersFromPortfolioTrades(markerPoints, weekOpens, weekClosed)
+            val spreadMarkers = zScoreChartMarkersFromPortfolioTrades(
+                markerPoints,
+                weekOpens,
+                weekClosed,
+            ).map { marker ->
+                marker.copy(value = markerPoints.getOrNull(marker.index)?.zScore ?: marker.value)
+            }
+            ZChartPortfolioOverlay(
+                markers = spreadMarkers,
+                tradeSegments = remapTradingViewTradeSegmentsToDisplayValues(
+                    buildTradingViewTradeSegments(weekOpens, weekClosed, markerPoints),
+                    markerPoints,
+                ),
+            )
         }
     }
 
@@ -199,37 +210,18 @@ internal fun MoexScreenTabMarketsPhone(
             Text("Ошибка: $it", color = Color(0xFFFFAB91), fontSize = 12.sp)
         }
 
-        Button(
-            onClick = { screen.showCloseAllPortfolioDialog = true },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFC62828),
-                contentColor = Color.White,
-            ),
-        ) {
-            Text(
-                "Экстренное закрытие пары",
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-            )
-        }
-
         if (candles.isNotEmpty()) {
-            CandlestickChartCard(
-                title = "Спред % · 1м · текущая неделя (МСК)",
+            TradingViewZScoreChartCard(
+                title = "Спред TATN/TATNP, % · 1м · неделя (TradingView)",
                 candles = candles,
+                displayPoints = markerPoints,
                 chartHeightDp = MARKETS_PHONE_CHART_HEIGHT_DP,
                 referenceLines = spreadRefs,
                 zoneFills = MARKETS_PHONE_SPREAD_ZONE_FILLS,
-                pointMarkers = chartMarkers,
-                enableZoomPan = true,
-                showZoomHint = true,
-                showLegend = true,
-                showMinMax = true,
-                compactLayout = true,
+                pointMarkers = chartOverlay.markers,
+                tradeSegments = chartOverlay.tradeSegments,
                 initialWindowWidth = window.first,
                 initialWindowStart = window.second,
-                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
             )
         } else if (!loading) {
             Text(
@@ -240,8 +232,8 @@ internal fun MoexScreenTabMarketsPhone(
         }
 
         Text(
-            text = "Маркеры — входы/выходы сделок за неделю. Опрос брокера раз в минуту (фон) " +
-                "и обновление графика ~30 с на этой вкладке.",
+            text = "Pinch — масштаб, drag — панорамирование, шкала справа — масштаб цены. " +
+                "Маркеры — входы/выходы сделок за неделю. График обновляется ~30 с.",
             color = Color(0xFF757575),
             fontSize = 11.sp,
         )

@@ -37,6 +37,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDateTime
+import java.util.Locale
 import kotlin.math.roundToInt
 
 internal const val TRADINGVIEW_ASSET_BASE = "file:///android_asset/tradingview/"
@@ -261,12 +262,33 @@ internal fun buildTradingViewTradeSegments(
     return segments
 }
 
+/** Переносит Y сделок с Z-score на фактические значения отображаемого ряда (например, spread %). */
+internal fun remapTradingViewTradeSegmentsToDisplayValues(
+    segments: List<TradingViewTradeSegment>,
+    displayPoints: List<DataPoint>,
+): List<TradingViewTradeSegment> {
+    if (displayPoints.isEmpty()) return segments
+    fun valueAt(timeSec: Long?): Double? {
+        val time = timeSec ?: return null
+        return displayPoints.minByOrNull {
+            kotlin.math.abs(it.timestampMillis / 1000L - time)
+        }?.zScore
+    }
+    return segments.map { segment ->
+        segment.copy(
+            entryZ = valueAt(segment.entryTimeSec) ?: segment.entryZ,
+            exitZ = valueAt(segment.exitTimeSec) ?: segment.exitZ,
+        )
+    }
+}
+
 /** JSON для WebView lightweight-charts (parity strategy-web /m). */
 internal fun buildTradingViewChartPayloadJson(
     candles: List<CandlePoint>,
     displayPoints: List<DataPoint>,
     referenceLines: List<ChartReferenceLine>,
     pointMarkers: List<ChartPointMarker>,
+    zoneFills: List<ChartZoneFill> = emptyList(),
     tradeSegments: List<TradingViewTradeSegment> = emptyList(),
     strategyTestTradeItems: List<StrategyTestTradeItem> = emptyList(),
     openPosition: PortfolioOpenPosition? = null,
@@ -301,6 +323,15 @@ internal fun buildTradingViewChartPayloadJson(
                 .put("value", hl.value)
                 .put("color", composeColorToHex(hl.color))
                 .put("title", hl.label)
+        )
+    }
+    val zones = JSONArray()
+    for (zone in zoneFills) {
+        zones.put(
+            JSONObject()
+                .put("low", minOf(zone.yLow, zone.yHigh))
+                .put("high", maxOf(zone.yLow, zone.yHigh))
+                .put("color", composeColorToCssRgba(zone.color))
         )
     }
     val markers = JSONArray()
@@ -393,6 +424,7 @@ internal fun buildTradingViewChartPayloadJson(
     val root = JSONObject()
         .put("candles", candleArr)
         .put("hlines", hlines)
+        .put("zones", zones)
         .put("markers", markers)
         .put("trades", trades)
         .put(
@@ -481,6 +513,18 @@ internal fun tradingViewMarkerFromChartMarker(
 internal fun composeColorToHex(color: Color): String =
     String.format("#%06X", 0xFFFFFF and color.toArgb())
 
+internal fun composeColorToCssRgba(color: Color): String {
+    val argb = color.toArgb()
+    return String.format(
+        Locale.US,
+        "rgba(%d,%d,%d,%.3f)",
+        (argb shr 16) and 0xFF,
+        (argb shr 8) and 0xFF,
+        argb and 0xFF,
+        ((argb ushr 24) and 0xFF) / 255.0,
+    )
+}
+
 /** Подпись маркера на canvas: латиница (А→A, Р→R) — читаемо в WebView. */
 internal fun tradingViewMarkerDisplayText(text: String): String =
     text
@@ -508,9 +552,13 @@ internal fun loadTradingViewChartHtml(context: Context): String {
     val js = context.assets.open("tradingview/lightweight-charts.standalone.production.js")
         .bufferedReader()
         .use { it.readText() }
+    return injectTradingViewLibrary(template, js)
+}
+
+internal fun injectTradingViewLibrary(template: String, libraryJs: String): String {
     return template.replace(
         LW_CHARTS_INJECT_MARKER,
-        "<script>\n$js\n</script>",
+        "<script>\n$libraryJs\n</script>",
     )
 }
 
@@ -603,6 +651,7 @@ internal fun TradingViewZScoreChartCard(
     chartHeightDp: Int,
     referenceLines: List<ChartReferenceLine>,
     pointMarkers: List<ChartPointMarker>,
+    zoneFills: List<ChartZoneFill> = emptyList(),
     tradeSegments: List<TradingViewTradeSegment> = emptyList(),
     strategyTestTradeItems: List<StrategyTestTradeItem> = emptyList(),
     openPosition: PortfolioOpenPosition? = null,
@@ -620,6 +669,7 @@ internal fun TradingViewZScoreChartCard(
         displayPoints,
         referenceLines,
         pointMarkers,
+        zoneFills,
         tradeSegments,
         strategyTestTradeItems,
         openPosition,
@@ -633,6 +683,7 @@ internal fun TradingViewZScoreChartCard(
             displayPoints = displayPoints,
             referenceLines = referenceLines,
             pointMarkers = pointMarkers,
+            zoneFills = zoneFills,
             tradeSegments = tradeSegments,
             strategyTestTradeItems = strategyTestTradeItems,
             openPosition = openPosition,

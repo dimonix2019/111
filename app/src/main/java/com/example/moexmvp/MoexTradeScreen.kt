@@ -261,6 +261,21 @@ internal fun MoexScreenTabTrade(
             }
         }
 
+        Button(
+            onClick = { screen.showCloseAllPortfolioDialog = true },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFC62828),
+                contentColor = Color.White,
+            ),
+        ) {
+            Text(
+                "Экстренное закрытие пары",
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+            )
+        }
+
         if (loading && snap == null) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.CenterHorizontally).padding(24.dp),

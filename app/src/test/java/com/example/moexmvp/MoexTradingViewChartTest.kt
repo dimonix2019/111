@@ -57,6 +57,82 @@ class MoexTradingViewChartTest {
     }
 
     @Test
+    fun buildTradingViewChartPayloadJson_includesSpreadLevelsZonesAndCurrentPrice() {
+        val candles = listOf(
+            CandlePoint("2026-09-04 10:00", 3.4, 3.5, 3.4, 3.5),
+            CandlePoint("2026-09-04 10:01", 3.5, 3.6, 3.5, 3.6),
+        )
+        val points = candles.map { point(it.label, it.close) }
+        val json = JSONObject(
+            buildTradingViewChartPayloadJson(
+                candles = candles,
+                displayPoints = points,
+                referenceLines = listOf(
+                    ChartReferenceLine(3.2, Color.Blue, "L вх 3,2"),
+                    ChartReferenceLine(4.0, Color.Green, "L вых 4"),
+                    ChartReferenceLine(5.8, Color.Green, "S вых 5,8"),
+                    ChartReferenceLine(6.1, Color.Blue, "S вх 6,1"),
+                    ChartReferenceLine(3.6, Color.Yellow, "3,60"),
+                ),
+                pointMarkers = listOf(
+                    ChartPointMarker(
+                        index = 1,
+                        value = 3.6,
+                        color = Color.Green,
+                        label = "Вх 1А",
+                        shape = ChartMarkerShape.TriangleUp,
+                        badgeText = "1А",
+                    )
+                ),
+                zoneFills = listOf(
+                    ChartZoneFill(3.2, 4.0, Color(0x3300BCD4)),
+                    ChartZoneFill(4.0, 5.8, Color(0x33B76E2D)),
+                    ChartZoneFill(5.8, 6.1, Color(0x38880E4F)),
+                ),
+            )
+        )
+
+        assertEquals(2, json.getJSONArray("candles").length())
+        assertEquals(5, json.getJSONArray("hlines").length())
+        assertEquals(3, json.getJSONArray("zones").length())
+        assertEquals(1, json.getJSONArray("markers").length())
+        assertEquals(3.2, json.getJSONArray("zones").getJSONObject(0).getDouble("low"), 0.001)
+        assertTrue(json.getJSONArray("zones").getJSONObject(0).getString("color").startsWith("rgba("))
+    }
+
+    @Test
+    fun injectTradingViewLibrary_buildsSelfContainedHtml() {
+        val html = injectTradingViewLibrary(
+            "<html><!-- INJECT_LIGHTWEIGHT_CHARTS --><script>window.updateMoexChart={}</script></html>",
+            "window.LightweightCharts={};",
+        )
+
+        assertTrue(html.contains("window.LightweightCharts={};"))
+        assertTrue(html.contains("window.updateMoexChart"))
+        assertTrue(!html.contains("INJECT_LIGHTWEIGHT_CHARTS"))
+    }
+
+    @Test
+    fun remapTradingViewTradeSegmentsToDisplayValues_usesSpreadPercent() {
+        val points = listOf(
+            point("2026-09-04 10:00", 3.4),
+            point("2026-09-04 10:01", 3.6),
+        )
+        val segment = TradingViewTradeSegment(
+            id = "1A",
+            entryTimeSec = m15CandleLabelToUnixSec("2026-09-04 10:00"),
+            exitTimeSec = m15CandleLabelToUnixSec("2026-09-04 10:01"),
+            entryZ = -1.6,
+            exitZ = -1.3,
+            isOpen = false,
+        )
+
+        val remapped = remapTradingViewTradeSegmentsToDisplayValues(listOf(segment), points).single()
+        assertEquals(3.4, remapped.entryZ, 0.001)
+        assertEquals(3.6, remapped.exitZ ?: Double.NaN, 0.001)
+    }
+
+    @Test
     fun tradingViewZChartRightOffsetBars_usesTenPercentVisibleBars() {
         assertEquals(12, tradingViewZChartRightOffsetBars(barCount = 50, windowWidth = 0.2f))
         assertEquals(20, tradingViewZChartRightOffsetBars(barCount = 200, windowWidth = 1f))
