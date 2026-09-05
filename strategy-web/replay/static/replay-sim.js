@@ -324,10 +324,26 @@ function parseDay(ts) {
 }
 
 function parseTradeMs(ts) {
+  if (ts == null || ts === '' || ts === '—') return null;
+  if (typeof ts === 'number') {
+    if (!Number.isFinite(ts) || ts <= 0) return null;
+    if (ts > 1e12) return ts;
+    if (ts > 1e9) return ts * 1000;
+    return null;
+  }
   const s = String(ts).trim().replace('T', ' ');
-  const iso = s.length >= 16 ? `${s.slice(0, 16).replace(' ', 'T')}:00+03:00` : `${s}+03:00`;
+  if (!s || s === '—') return null;
+  let iso;
+  if (s.length >= 16) {
+    iso = `${s.slice(0, 16).replace(' ', 'T')}:00+03:00`;
+  } else if (s.length >= 10 && s[4] === '-' && s[7] === '-') {
+    // sqlite date-only ("2026-03-03"): "…+03:00" → Invalid Date / NaN в LC.
+    iso = `${s.slice(0, 10)}T00:00:00+03:00`;
+  } else {
+    return null;
+  }
   const ms = new Date(iso).getTime();
-  return Number.isNaN(ms) ? null : ms;
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 
 function formatDurationMinutes(totalMinutes) {

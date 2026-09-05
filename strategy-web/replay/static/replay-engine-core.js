@@ -439,6 +439,7 @@ function buildZCandles(points) {
     const open = i > 0 ? points[i - 1].zScore : close;
     return {
       label: p.tradeDate,
+      timestampMs: p.timestampMs,
       open,
       high: Math.max(open, close),
       low: Math.min(open, close),
@@ -456,6 +457,7 @@ function buildSpreadCandles(points) {
     const c = Number.isFinite(close) ? close : open;
     return {
       label: p.tradeDate,
+      timestampMs: p.timestampMs,
       open,
       high: Math.max(open, c),
       low: Math.min(open, c),
@@ -464,10 +466,16 @@ function buildSpreadCandles(points) {
   });
 }
 
+/** Unix UTC-секунды для lightweight-charts. null — не time (NaN / 0 / date-only без parse). */
 function labelToUnixSec(label) {
-  const s = label.trim().replace('T', ' ');
-  const iso = s.length >= 16 ? `${s.slice(0, 16).replace(' ', 'T')}:00+03:00` : `${s}+03:00`;
-  return Math.floor(new Date(iso).getTime() / 1000);
+  const ms = typeof parseTradeMs === 'function' ? parseTradeMs(label) : NaN;
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const sec = Math.floor(ms / 1000);
+  return sec > 1e9 ? sec : null;
+}
+
+function isUtcChartTime(t) {
+  return typeof t === 'number' && Number.isFinite(t) && Number.isInteger(t) && t > 1e9;
 }
 
 /** Подпись направления — как столбец «Напр.» в таблице (L / S). */
@@ -504,9 +512,13 @@ function buildTradeSegments(edges, currentPoint) {
       const direction = tradeDirectionFromSignal(openEntry.signal);
       segments.push({
         id: tradeSelectId(tradeNo),
-        entryTime: labelToUnixSec(openEntry.bar.tradeDate),
+        entryTime: (typeof unixSecFromBar === 'function'
+          ? unixSecFromBar(openEntry.bar)
+          : labelToUnixSec(openEntry.bar.tradeDate)),
         entryZ: openEntry.bar.zScore ?? 0,
-        exitTime: labelToUnixSec(edge.bar.tradeDate),
+        exitTime: (typeof unixSecFromBar === 'function'
+          ? unixSecFromBar(edge.bar)
+          : labelToUnixSec(edge.bar.tradeDate)),
         exitZ: edge.bar.zScore ?? 0,
         entrySpread: spOf(openEntry.bar),
         exitSpread: spOf(edge.bar),
@@ -520,9 +532,13 @@ function buildTradeSegments(edges, currentPoint) {
     const direction = tradeDirectionFromSignal(openEntry.signal);
     segments.push({
       id: tradeSelectId(tradeNo),
-      entryTime: labelToUnixSec(openEntry.bar.tradeDate),
+      entryTime: (typeof unixSecFromBar === 'function'
+        ? unixSecFromBar(openEntry.bar)
+        : labelToUnixSec(openEntry.bar.tradeDate)),
       entryZ: openEntry.bar.zScore ?? 0,
-      exitTime: labelToUnixSec(currentPoint.tradeDate),
+      exitTime: (typeof unixSecFromBar === 'function'
+        ? unixSecFromBar(currentPoint)
+        : labelToUnixSec(currentPoint.tradeDate)),
       exitZ: currentPoint.zScore ?? 0,
       entrySpread: spOf(openEntry.bar),
       exitSpread: spOf(currentPoint),
@@ -538,7 +554,13 @@ function buildMarkers(edges, windowPoints) {
   const windowLabels = new Set(windowPoints.map((p) => p.tradeDate));
   for (const edge of edges) {
     const inWindow = windowLabels.has(edge.bar.tradeDate);
-    const time = labelToUnixSec(edge.bar.tradeDate);
+    const time = typeof unixSecFromBar === 'function'
+      ? unixSecFromBar(edge.bar)
+      : labelToUnixSec(edge.bar.tradeDate);
+    if (!isUtcChartTime(time)) {
+      if (edge.signal === 'EnterLong' || edge.signal === 'EnterShort') tradeNo++;
+      continue;
+    }
     switch (edge.signal) {
       case 'EnterLong':
         tradeNo++;
@@ -658,8 +680,10 @@ function buildPnlMilestoneMarkers(edges, allPoints, windowPoints, cursorIndex) {
         : level === 2
           ? { color: '#40C4FF', text: '▲2%', size: 2.2 }
           : { color: '#E040FB', text: '▲3%', size: 2.4 };
+      const t = labelToUnixSec(date);
+      if (!isUtcChartTime(t)) return;
       markers.push({
-        time: labelToUnixSec(date),
+        time: t,
         position: 'aboveBar',
         color: style.color,
         shape: 'square',

@@ -174,6 +174,42 @@ def test_merge_zero_timestamp_does_not_hide_2023():
     assert out[-1]["tradeDate"].startswith("2026-09")
 
 
+def test_sim_tip1m_3y_chart_filter_does_not_empty_trades():
+    """Фильтр time графика не должен резать sim_tip1m (ожидание ~515 сделок на 3y)."""
+    from replay.tip_touch import CACHE_1M, DATA_DIR, sim_tip1m
+
+    if not CACHE_1M.is_file():
+        import pytest
+
+        pytest.skip("нет cache_1m_tatn_spread.parquet")
+    if not (DATA_DIR / "m15_tatn_1095d.csv").is_file():
+        import pytest
+
+        pytest.skip("нет m15_tatn_1095d.csv")
+    sim = sim_tip1m(
+        csv="m15_tatn_1095d.csv",
+        entry=1.6,
+        exit_z=1.3,
+        slip=0.02,
+        notional=100_000.0,
+        compound=True,
+        take_profit_pct=2.0,
+        spread_level_mode=True,
+        addon_mode=True,
+        extreme_addon_mode=True,
+        shelf_floor_ceiling_mode=True,
+        max_hold_days_no_exit_trend=7.0,
+    )
+    trades = sim.get("trades") or []
+    closed = [t for t in trades if str(t.get("status") or "") != "Открыта"]
+    n = len(closed)
+    # Эталон full_hold7 ≈515; фильтр графика не должен обнулить/укоротить сим.
+    assert n >= 480, f"3y sim закрытых={n}, фильтр графика не должен резать сим"
+    summary_n = (sim.get("summary") or {}).get("trades")
+    if summary_n is not None:
+        assert int(summary_n) >= 480
+
+
 def test_truncated_3y_prep_is_rejected():
     import numpy as np
     from replay.tip_touch import DATA_DIR, PreparedTips, _prep_covers_named_lookback

@@ -31,8 +31,10 @@ function equitySeriesToWindow(allPoints, windowPoints, cursorIndex, equityByMs) 
   const seen = new Set();
   for (const p of windowPoints) {
     if (p.timestampMs > cursorMs) break;
-    const time = labelToUnixSec(p.tradeDate);
-    if (seen.has(time)) continue;
+    const time = typeof unixSecFromBar === 'function'
+      ? unixSecFromBar(p)
+      : labelToUnixSec(p.tradeDate);
+    if (!isUtcChartTime(time) || seen.has(time)) continue;
     seen.add(time);
     out.push({
       time,
@@ -138,7 +140,7 @@ function resolvePnlPctBasisRub(equityTotalSeries, notionalRub = getSimNotionalRu
  */
 function unixSecFromBar(p) {
   const fromLabel = unixSecFromTradeDate(p && p.tradeDate);
-  if (fromLabel != null) return fromLabel;
+  if (fromLabel != null && fromLabel > 1e9) return fromLabel;
   const ms = Number(p && p.timestampMs);
   if (Number.isFinite(ms) && ms > 1e12) return Math.floor(ms / 1000);
   if (Number.isFinite(ms) && ms > 1e9 && ms < 1e12) return Math.floor(ms);
@@ -377,8 +379,10 @@ function buildChartPayload(candles, entry, exit, markers, trades, playing, opts 
   const candleArr = [];
   const seen = new Set();
   for (const c of candles) {
-    const time = labelToUnixSec(c.label);
-    if (seen.has(time)) continue;
+    const time = typeof unixSecFromBar === 'function'
+      ? unixSecFromBar({ tradeDate: c.label, timestampMs: c.timestampMs })
+      : labelToUnixSec(c.label);
+    if (!isUtcChartTime(time) || seen.has(time)) continue;
     seen.add(time);
     candleArr.push({
       time,
@@ -415,15 +419,16 @@ function buildChartPayload(candles, entry, exit, markers, trades, playing, opts 
       { value: 0, color: '#616161', title: '0' },
     ];
   }
+  const keepUtc = (pts) => (pts || []).filter((p) => p && isUtcChartTime(p.time));
   return {
     candles: candleArr,
     hlines,
     primaryMetric,
     spreadLevels,
-    markers,
+    markers: keepUtc(markers),
     trades,
-    equity: opts.equity || [],
-    deltaPp: opts.deltaPp || [],
+    equity: keepUtc(opts.equity || []),
+    deltaPp: keepUtc(opts.deltaPp || []),
     pnlBasisRub: typeof opts.pnlBasisRub === 'number' ? opts.pnlBasisRub : getSimNotionalRub(),
     pnlChartMode: opts.pnlChartMode || 'account',
     accountBaseRub: typeof opts.accountBaseRub === 'number' ? opts.accountBaseRub : getSimNotionalRub(),

@@ -8,7 +8,7 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 BASE_URL = os.environ.get("MOEX_DESK_URL", "http://127.0.0.1:8765").rstrip("/")
-CACHE_BUST = "20260905xhSync1"
+CACHE_BUST = "20260905utcTs1"
 
 
 def _stub_tip1m(route: Route) -> None:
@@ -79,7 +79,7 @@ def test_test_spread_and_account_charts_exist(page: Page) -> None:
           return src ? src.getAttribute('src') : '';
         }"""
     )
-    assert "xhSync1" in (cache or ""), f"cache-bust chart.js: {cache}"
+    assert "utcTs1" in (cache or ""), f"cache-bust chart.js: {cache}"
     assert not errors, f"pageerror: {errors}"
 
 

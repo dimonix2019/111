@@ -424,6 +424,7 @@ class ReplayChart {
       if (!p || p.time == null || !Number.isFinite(Number(p.value))) continue;
       const t = Number(p.time);
       const v = Number(p.value);
+      if (!Number.isFinite(t) || t <= 1e9) continue;
       if (!out.length) {
         out.push({ time: t, value: v });
         continue;
@@ -1282,13 +1283,54 @@ class ReplayChart {
     return (rub / basis) * 100;
   }
 
-  /** Unix-секунды: не смешивать мс и секунды на одной оси. */
+  /** Unix UTC-секунды: не смешивать мс, 0, NaN, ISO-строки и business day. */
   static _unixSec(t) {
+    if (t == null) return null;
+    if (typeof t === 'object') return null;
+    if (typeof t === 'string') {
+      if (typeof labelToUnixSec === 'function') {
+        const s = labelToUnixSec(t);
+        return (typeof s === 'number' && s > 1e9) ? s : null;
+      }
+      return null;
+    }
     const n = Number(t);
-    if (!Number.isFinite(n)) return null;
-    if (n > 1e12) return Math.floor(n / 1000);
-    if (n > 1e9) return Math.floor(n);
-    return n;
+    if (!Number.isFinite(n) || n <= 0) return null;
+    let sec;
+    if (n > 1e12) sec = Math.floor(n / 1000);
+    else if (n > 1e9) sec = Math.floor(n);
+    else return null;
+    return sec > 1e9 ? sec : null;
+  }
+
+  /** Пропуск time<=0 / NaN / не-integer — иначе LC: time must be of type isUTCTimestamp. */
+  static sanitizeUtcBars(items) {
+    const out = [];
+    let last = 0;
+    for (const it of items || []) {
+      if (!it) continue;
+      const time = ReplayChart._unixSec(it.time);
+      if (time == null) continue;
+      if (time < last) continue;
+      if (time === last && out.length) {
+        out[out.length - 1] = { ...it, time };
+        continue;
+      }
+      out.push({ ...it, time });
+      last = time;
+    }
+    return out;
+  }
+
+  _safeSetData(series, data) {
+    if (!series) return false;
+    try {
+      series.setData(Array.isArray(data) ? data : []);
+      return true;
+    } catch (err) {
+      console.warn('chart setData skipped bad time', err && err.message);
+      return false;
+    }
   }
 
   /**
@@ -1367,9 +1409,9 @@ class ReplayChart {
     if (!appended) {
       this._lastEquityRub = useAccount ? accountData : pnlFilled;
       this._lastEquityPct = useAccount ? pnlFilled : equityPct;
-      this.pnlSeries.setData(primary);
+      this._safeSetData(this.pnlSeries, primary);
       if (this.pnlRubSeries) {
-        this.pnlRubSeries.setData(useAccount ? [] : secondary);
+        this._safeSetData(this.pnlRubSeries, useAccount ? [] : secondary);
       }
       this._applyPnlScaleFormatters();
       this._updatePnlReferenceLine();
@@ -1806,11 +1848,11 @@ class ReplayChart {
     const exitV = useSpread
       ? (trade.exitSpread ?? trade.entrySpread ?? trade.exitZ ?? trade.entryZ)
       : (trade.exitZ ?? trade.entryZ);
-    const data = [
+    const data = ReplayChart.sanitizeUtcBars([
       { time: trade.entryTime, value: entryV },
       { time: exitTime, value: exitV },
-    ].sort((a, b) => a.time - b.time);
-    this.highlightSeries.setData(data);
+    ]).sort((a, b) => a.time - b.time);
+    this._safeSetData(this.highlightSeries, data);
   }
 
   _applyMarkerSelection(marker, sticky = false) {
@@ -2177,6 +2219,15 @@ class ReplayChart {
 
   setReplay(payload) {
     if (!this.series || !payload?.candles?.length) return;
+    const candles = ReplayChart.sanitizeUtcBars(payload.candles);
+    if (!candles.length) return;
+    payload = {
+      ...payload,
+      candles,
+      equity: ReplayChart.sanitizeUtcBars(payload.equity || []),
+      deltaPp: ReplayChart.sanitizeUtcBars(payload.deltaPp || []),
+      markers: ReplayChart.sanitizeUtcBars(payload.markers || []),
+    };
     const { w: zw, h: zh } = this._measureZ();
     if (zw > 0 && zh > 0) this.chart.applyOptions({ width: zw, height: zh });
     if (this.pnlChart && this.pnlContainer) {
@@ -2246,15 +2297,15 @@ class ReplayChart {
         this.series.update(lastC);
         if (this._zLeftSpacer) this._zLeftSpacer.update({ time: lastC.time, value: 0 });
       } catch (_) {
-        this.series.setData(payload.candles);
+        this._safeSetData(this.series, payload.candles);
       }
       this.lastCandleTimes.push(lastC.time);
       this._lastCandleCount = payload.candles.length;
       this._candleFp = candleFp;
     } else if (!sameCandles) {
-      this.series.setData(payload.candles);
+      this._safeSetData(this.series, payload.candles);
       if (this._zLeftSpacer) {
-        this._zLeftSpacer.setData(payload.candles.map((c) => ({ time: c.time, value: 0 })));
+        this._safeSetData(this._zLeftSpacer, payload.candles.map((c) => ({ time: c.time, value: 0 })));
       }
       this.lastCandleTimes = payload.candles.map((c) => c.time);
       this._lastCandleCount = payload.candles.length;
@@ -2263,7 +2314,7 @@ class ReplayChart {
       try {
         this.series.update(payload.candles[payload.candles.length - 1]);
       } catch (_) {
-        this.series.setData(payload.candles);
+        this._safeSetData(this.series, payload.candles);
       }
     }
     this._lastMaxVisibleBars = typeof payload.maxVisibleBars === 'number'
@@ -2386,7 +2437,7 @@ class ReplayChart {
             return { time: c.time, value, color: value >= 0 ? TV.up : TV.down };
           });
           this._lastDeltaPp = deltaPp.map((p) => ({ time: p.time, value: p.value }));
-          this.deltaSeries.setData(deltaPp);
+          this._safeSetData(this.deltaSeries, deltaPp);
         }
       } else {
         const byTime = new Map();
@@ -2402,9 +2453,9 @@ class ReplayChart {
           };
         });
         this._lastDeltaPp = deltaPp.map((p) => ({ time: p.time, value: p.value }));
-        this.deltaSeries.setData(deltaPp);
+        this._safeSetData(this.deltaSeries, deltaPp);
         if (this._deltaRightSpacer) {
-          this._deltaRightSpacer.setData(deltaPp.map((p) => ({ time: p.time, value: 0 })));
+          this._safeSetData(this._deltaRightSpacer, deltaPp.map((p) => ({ time: p.time, value: 0 })));
         }
       }
     }

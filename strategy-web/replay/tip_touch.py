@@ -6715,6 +6715,19 @@ def _select_chart_bar_indices(
     return idx, minutes
 
 
+def _repair_chart_timestamp_ms(ms: Any, trade_date: Any) -> int:
+    """0 / пусто из sqlite не должно попасть в LC как time=0 / NaN."""
+    try:
+        n = int(ms or 0)
+    except (TypeError, ValueError):
+        n = 0
+    if n > 0:
+        return n
+    from replay.replay_data import parse_ts_ms
+
+    return int(parse_ts_ms(str(trade_date or "")))
+
+
 def _thin_chart_bars(
     bars: list[dict[str, Any]],
     *,
@@ -6723,16 +6736,32 @@ def _thin_chart_bars(
     """Оставляем последний бар корзины N минут, чтобы график Теста не вис."""
     n = len(bars)
     if n <= max(1, int(max_bars)):
-        return bars, 1
+        repaired: list[dict[str, Any]] = []
+        for b in bars:
+            ms = _repair_chart_timestamp_ms(
+                b.get("timestampMs"), b.get("tradeDate") or b.get("time")
+            )
+            if ms <= 0:
+                continue
+            if int(b.get("timestampMs") or 0) != ms:
+                b = {**b, "timestampMs": ms}
+            repaired.append(b)
+        return repaired, 1
     minutes = _chart_thin_minutes(n, max_bars)
     bucket = int(minutes) * 60_000
     out: list[dict[str, Any]] = []
     cur_key: int | None = None
     for b in bars:
         try:
-            ms = int(b.get("timestampMs") or 0)
+            raw_ms = b.get("timestampMs")
+            ms = int(raw_ms or 0)
         except (TypeError, ValueError):
             continue
+        if ms <= 0:
+            ms = _repair_chart_timestamp_ms(0, b.get("tradeDate") or b.get("time"))
+            if ms <= 0:
+                continue
+            b = {**b, "timestampMs": ms}
         key = ms // bucket
         if key != cur_key:
             out.append(b)
@@ -6895,15 +6924,21 @@ def bars1m_chart(
     bar_idx, step_min_pre = _select_chart_bar_indices(
         prep.ts_ms, lo, hi, max_bars=CHART_UI_MAX_BARS,
     )
-    out_bars: list[dict[str, Any]] = [
-        {
-            "timestampMs": int(prep.ts_ms[int(i)]),
-            "tradeDate": prep.trade_dates[int(i)],
-            "zScore": float(prep.z[int(i)]),
-            "spreadPercent": float(prep.spread[int(i)]),
-        }
-        for i in bar_idx
-    ]
+    out_bars: list[dict[str, Any]] = []
+    for i in bar_idx:
+        ii = int(i)
+        td = prep.trade_dates[ii]
+        ms = _repair_chart_timestamp_ms(int(prep.ts_ms[ii]), td)
+        if ms <= 0:
+            continue
+        out_bars.append(
+            {
+                "timestampMs": ms,
+                "tradeDate": td,
+                "zScore": float(prep.z[ii]),
+                "spreadPercent": float(prep.spread[ii]),
+            }
+        )
     live_meta: dict[str, Any] = {
         "as_live": False,
         "locked_count": 0,

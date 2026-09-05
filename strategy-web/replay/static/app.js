@@ -1741,7 +1741,7 @@
 
   function barTimestampMs(p) {
     const ms = p?.timestampMs;
-    if (ms != null && Number.isFinite(Number(ms))) return Number(ms);
+    if (ms != null && Number.isFinite(Number(ms)) && Number(ms) > 0) return Number(ms);
     const td = String(p?.tradeDate || '').replace('T', ' ').trim();
     if (td.length >= 16) return new Date(`${td.slice(0, 16).replace(' ', 'T')}:00+03:00`).getTime();
     if (td.length >= 10) return new Date(`${td.slice(0, 10)}T00:00:00+03:00`).getTime();
@@ -3905,8 +3905,9 @@
     if (!td || td === '—') return null;
     const idx = findIndexByTradeDate(td);
     if (idx >= 0) return allPoints[idx];
-    const ms = typeof labelToUnixSec === 'function'
-      ? labelToUnixSec(td) * 1000
+    const sec = typeof labelToUnixSec === 'function' ? labelToUnixSec(td) : null;
+    const ms = (typeof sec === 'number' && Number.isFinite(sec) && sec > 0)
+      ? sec * 1000
       : NaN;
     return {
       tradeDate: td,
@@ -4600,7 +4601,11 @@
               : null),
         },
       );
-      chart.setReplay(payload);
+      try {
+        chart.setReplay(payload);
+      } catch (e) {
+        console.warn('chart.setReplay skipped bad time', e && e.message);
+      }
       const chartLab = $('testPrimaryChartLabel');
       if (chartLab) {
         chartLab.textContent = tipMode ? 'Спред % · tip1m' : 'Спред %';
@@ -5455,7 +5460,11 @@
       if (!background && sub) {
         sub.textContent = `${data.count || 0} баров · касание 1м…`;
       }
-      refreshUi();
+      try {
+        refreshUi();
+      } catch (paintErr) {
+        console.error(paintErr);
+      }
       if (isTip1mMode()) {
         tipSimCache = { key: '', rows: null, meta: null, summary: null };
         clearTipManualOverrides();

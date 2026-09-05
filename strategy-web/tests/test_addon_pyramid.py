@@ -258,6 +258,29 @@ def test_thin_chart_bars_keeps_last_in_bucket():
     assert out[-1]["i"] == 19
 
 
+def test_thin_chart_bars_repairs_zero_timestamp_date_only():
+    from replay.replay_data import parse_ts_ms
+    from replay.tip_touch import _repair_chart_timestamp_ms, _thin_chart_bars
+
+    repaired = _repair_chart_timestamp_ms(0, "2026-03-03")
+    assert repaired == parse_ts_ms("2026-03-03")
+    assert repaired > 1_000_000_000_000
+
+    bars = [
+        {"timestampMs": 0, "tradeDate": "2026-03-03", "i": 0},
+        {
+            "timestampMs": parse_ts_ms("2026-03-03 12:00"),
+            "tradeDate": "2026-03-03 12:00",
+            "i": 1,
+        },
+        {"timestampMs": 0, "tradeDate": "", "i": 2},
+    ]
+    out, step = _thin_chart_bars(bars, max_bars=100)
+    assert step == 1
+    assert all(int(b["timestampMs"]) > 0 for b in out)
+    assert [b["i"] for b in out] == [0, 1]
+
+
 def test_select_chart_bar_indices_covers_full_span():
     from replay.tip_touch import _select_chart_bar_indices
 

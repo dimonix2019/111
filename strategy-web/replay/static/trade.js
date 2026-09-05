@@ -747,6 +747,7 @@
       if (!p || p.time == null || !Number.isFinite(Number(p.value))) continue;
       const t = Number(p.time);
       const v = Number(p.value);
+      if (!Number.isFinite(t) || t <= 1e9) continue;
       if (!out.length) {
         out.push({ time: t, value: v });
         continue;
@@ -2163,16 +2164,24 @@
    * явно +03:00, без Date.parse без зоны (браузер иначе сдвигает на несколько часов).
    */
   function toChartTime(tradeDate, timestampMs) {
-    if (timestampMs != null && Number.isFinite(Number(timestampMs))) {
-      return Math.floor(Number(timestampMs) / 1000);
+    const ms = Number(timestampMs);
+    if (Number.isFinite(ms) && ms > 0) {
+      if (ms > 1e12) return Math.floor(ms / 1000);
+      if (ms > 1e9) return Math.floor(ms);
+    }
+    if (typeof labelToUnixSec === 'function') {
+      const t = labelToUnixSec(tradeDate);
+      return (typeof t === 'number' && t > 1e9) ? t : null;
     }
     if (!tradeDate) return null;
     const s = String(tradeDate).trim().replace('T', ' ');
-    const iso = s.length >= 16
-      ? `${s.slice(0, 16).replace(' ', 'T')}:00+03:00`
-      : `${s}+03:00`;
-    const ms = new Date(iso).getTime();
-    return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
+    let iso;
+    if (s.length >= 16) iso = `${s.slice(0, 16).replace(' ', 'T')}:00+03:00`;
+    else if (s.length >= 10 && s[4] === '-' && s[7] === '-') iso = `${s.slice(0, 10)}T00:00:00+03:00`;
+    else return null;
+    const parsed = new Date(iso).getTime();
+    const sec = Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null;
+    return (sec != null && sec > 1e9) ? sec : null;
   }
 
   /** Подписи оси/кроссхейра в MSK — как chart-frame.html */
