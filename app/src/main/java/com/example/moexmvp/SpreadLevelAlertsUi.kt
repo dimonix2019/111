@@ -6,23 +6,33 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -192,7 +202,7 @@ internal fun SpreadLevelAlertsSettingsCard(
             modifier = Modifier.padding(top = 8.dp),
         )
         Text(
-            text = "Push при пересечении 0,5 / 1 / 2 / 2,5%. Отключите уровень, если алертов слишком много.",
+            text = "Четыре порога спреда % — задайте сами (по умолчанию 0,5 / 1 / 2 / 2,5). Push при пересечении вверх и вниз.",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp,
             lineHeight = 15.sp,
@@ -215,14 +225,20 @@ internal fun SpreadLevelAlertsSettingsCard(
                 ),
             )
         }
-        levels.forEach { (levelPct, enabled) ->
+        levels.forEach { state ->
             SpreadLevelAlertLevelRow(
-                levelPct = levelPct,
-                enabled = enabled && master,
+                slot = state.slot,
+                levelPct = state.levelPct,
+                enabled = state.enabled && master,
                 masterEnabled = master,
                 onToggle = { on ->
-                    SpreadLevelAlertSettings.setLevelEnabled(context, levelPct, on)
+                    SpreadLevelAlertSettings.setSlotEnabled(context, state.slot, on)
                     bump()
+                },
+                onLevelCommit = { pct ->
+                    if (SpreadLevelAlertSettings.setLevelPct(context, state.slot, pct)) {
+                        bump()
+                    }
                 },
             )
         }
@@ -236,7 +252,7 @@ internal fun SpreadLevelAlertsSettingsCard(
                     SpreadLevelAlertSettings.setMasterEnabled(context, true)
                     bump()
                 },
-                enabled = !master || levels.any { !it.second },
+                enabled = !master || levels.any { !it.enabled },
             ) {
                 Text("Включить все", color = Color(0xFF81D4FA), fontSize = 11.sp)
             }
@@ -245,7 +261,7 @@ internal fun SpreadLevelAlertsSettingsCard(
                     SpreadLevelAlertSettings.setAllLevelsEnabled(context, false)
                     bump()
                 },
-                enabled = master && levels.any { it.second },
+                enabled = master && levels.any { it.enabled },
             ) {
                 Text("Отключить все уровни", color = Color(0xFFFFAB91), fontSize = 11.sp)
             }
@@ -336,21 +352,82 @@ private fun AlertToggleRow(
 
 @Composable
 private fun SpreadLevelAlertLevelRow(
+    slot: Int,
     levelPct: Double,
     enabled: Boolean,
     masterEnabled: Boolean,
     onToggle: (Boolean) -> Unit,
+    onLevelCommit: (Double) -> Unit,
 ) {
-    val label = formatRuSignedNumber(levelPct)
+    var draft by remember(slot, levelPct) {
+        mutableStateOf(formatRuSignedNumber(levelPct, 1))
+    }
+    var editing by remember(slot) { mutableStateOf(false) }
+    LaunchedEffect(levelPct, editing) {
+        if (!editing) draft = formatRuSignedNumber(levelPct, 1)
+    }
+    fun commitDraft() {
+        editing = false
+        val parsed = parseSpreadLevelAlertPctInput(draft)
+        val sanitized = parsed?.let { sanitizeSpreadLevelAlertPct(it) }
+        if (sanitized != null) {
+            onLevelCommit(sanitized)
+            draft = formatRuSignedNumber(sanitized, 1)
+        } else {
+            draft = formatRuSignedNumber(levelPct, 1)
+        }
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Уровень $label%",
-            color = if (masterEnabled) Color(0xFFB0BEC5) else Color(0xFF616161),
-            fontSize = 12.sp,
+            text = "№${slot + 1}",
+            color = if (masterEnabled) Color(0xFF90A4AE) else Color(0xFF616161),
+            fontSize = 11.sp,
+            modifier = Modifier.width(28.dp),
+        )
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { raw ->
+                editing = true
+                draft = raw.filter { ch ->
+                    ch.isDigit() || ch == '.' || ch == ','
+                }.take(6)
+            },
+            modifier = Modifier
+                .weight(1f)
+                .onFocusChanged { focus ->
+                    if (focus.isFocused) {
+                        editing = true
+                    } else if (editing) {
+                        commitDraft()
+                    }
+                },
+            enabled = masterEnabled,
+            singleLine = true,
+            suffix = {
+                Text("%", color = Color(0xFFBDBDBD), fontSize = 12.sp)
+            },
+            textStyle = androidx.compose.ui.text.TextStyle(
+                color = Color.White,
+                fontSize = 13.sp,
+            ),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Decimal,
+                imeAction = ImeAction.Done,
+            ),
+            keyboardActions = KeyboardActions(onDone = { commitDraft() }),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF81D4FA),
+                unfocusedBorderColor = Color(0xFF424242),
+                disabledBorderColor = Color(0xFF303030),
+                cursorColor = Color(0xFF81D4FA),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                disabledTextColor = Color(0xFF757575),
+            ),
         )
         Switch(
             checked = enabled,

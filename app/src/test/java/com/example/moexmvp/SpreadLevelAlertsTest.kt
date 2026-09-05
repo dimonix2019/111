@@ -69,4 +69,36 @@ class SpreadLevelAlertsTest {
         val csv = formatDisabledSpreadLevelKeysCsv(keys)
         assertEquals(keys, parseDisabledSpreadLevelKeysCsv(csv))
     }
+
+    @Test
+    fun parseDisabledSpreadLevelSlotsCsv_roundTrip() {
+        val slots = setOf(0, 2, 3)
+        assertEquals(slots, parseDisabledSpreadLevelSlotsCsv(formatDisabledSpreadLevelSlotsCsv(slots)))
+    }
+
+    @Test
+    fun parseSpreadLevelAlertPctInput_acceptsCommaAndDot() {
+        assertEquals(2.5, parseSpreadLevelAlertPctInput("2,5")!!, 1e-9)
+        assertEquals(2.5, parseSpreadLevelAlertPctInput("2.5")!!, 1e-9)
+        assertEquals(null, parseSpreadLevelAlertPctInput("abc"))
+    }
+
+    @Test
+    fun sanitizeSpreadLevelAlertPct_roundsAndClamps() {
+        assertEquals(2.5, sanitizeSpreadLevelAlertPct(2.54)!!, 1e-9)
+        assertEquals(null, sanitizeSpreadLevelAlertPct(0.0))
+        assertEquals(null, sanitizeSpreadLevelAlertPct(50.0))
+    }
+
+    @Test
+    fun detectSpreadLevelCrosses_customLevels() {
+        val crosses = detectSpreadLevelCrosses(3.0, 3.6, listOf(3.2, 3.5))
+        assertEquals(
+            listOf(
+                SpreadLevelCross(3.2, SpreadLevelCrossDirection.Up),
+                SpreadLevelCross(3.5, SpreadLevelCrossDirection.Up),
+            ),
+            crosses,
+        )
+    }
 }
