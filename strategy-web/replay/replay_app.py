@@ -288,6 +288,12 @@ def api_sim_tip1m(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str
             shelf_floor_ceiling_mode=tip_touch.parse_shelf_floor_ceiling_mode(
                 body.get("shelf_floor_ceiling_mode", body.get("shelfFloorCeilingMode"))
             ),
+            base_mode=tip_touch.parse_base_mode(
+                body.get(
+                    "enable_base",
+                    body.get("baseMode", body.get("base")),
+                )
+            ),
             weekend_trading=weekend_trading,
         )
     except FileNotFoundError as e:

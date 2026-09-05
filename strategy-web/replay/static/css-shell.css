@@ -90,6 +90,7 @@ html, body {
 .status-bar .badge-tip-lag,
 .status-bar .badge-addon27,
 .status-bar .badge-extra19,
+.status-bar .badge-base,
 .status-bar .badge-ref100k,
 .status-bar .badge-zoneswing,
 .status-bar .badge-adaptcor,
@@ -142,6 +143,12 @@ html, body {
   color: #faf5ff;
   background: #7c3aed;
   border: 1px solid #6d28d9;
+}
+
+.badge-base {
+  color: #ecfeff;
+  background: #0e7490;
+  border: 1px solid #155e75;
 }
 
 .badge-ref100k {

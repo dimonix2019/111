@@ -2751,6 +2751,24 @@ def ui_trade_risk_score(
     }
 
 
+def parse_base_mode(raw: Any) -> bool:
+    """Тест «База»: AUTO-ноги 3.2/6.1. По умолчанию ВКЛ.
+
+    Выкл — не открывать новые базовые ноги. Добор/экстра по текущим правилам
+    только при открытой базе; полка может жить отдельно (кошелёк базы).
+    """
+    if raw is None:
+        return True
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in ("0", "false", "no", "off", "none", "выкл", ""):
+            return False
+        if s in ("1", "true", "yes", "on", "base", "база"):
+            return True
+        return True
+    return bool(raw)
+
+
 def parse_addon_mode(raw: Any) -> bool:
     """Тест «вариант 2 / добор 2/7». По умолчанию выкл."""
     if raw is None:
@@ -2827,6 +2845,7 @@ def run_base_plus_addon(
     settle_sec: float | None = None,
     enable_addon: bool = True,
     enable_extreme: bool = False,
+    enable_base: bool = True,
     main_notional: float | None = None,
     addon_notional: float | None = None,
     extra_notional: float | None = None,
@@ -2847,6 +2866,8 @@ def run_base_plus_addon(
     стороны, вход по зоне (в том числе на том же баре, что база).
     При ``compound`` размер ноги = кошелёк этой ноги + её закрытый PnL.
     Пол–потолок берёт кошелёк базы; если база открыта — сначала выход базы.
+    ``enable_base`` False: не открывать новые AUTO-ноги (main / 3.2/6.1);
+    добор и экстра без открытой базы не входят; полка живёт отдельно.
     ``trail_arm_pct`` / ``trail_stop_pct``: эксперимент — вместо фикс. ТП
     (trailing stop = скользящий стоп). Пик = max MTM% с входа; после arm
     выход, если откат от пика ≥ trail п.п. Не Prod AUTO.
@@ -2863,8 +2884,9 @@ def run_base_plus_addon(
     use_addon = bool(enable_addon)
     use_extreme = bool(enable_extreme)
     use_shelf = bool(enable_shelf_ff)
+    use_base = bool(enable_base)
     if not use_addon and not use_extreme and not use_shelf:
-        use_addon = True
+        use_addon = bool(use_base)
 
     lv = levels_from_settings(spread_levels) if spread_levels else SpreadLevels()
     mode_3d = _norm_3d_mode(force_close_3d_mode)
@@ -3255,6 +3277,8 @@ def run_base_plus_addon(
     shelf = _Leg()
 
     def _skip_main_open(sig: int, i: int) -> bool:
+        if not use_base:
+            return True
         if not pol:
             return False
         tip = float(sp_arr[i])
@@ -3630,7 +3654,7 @@ def run_base_plus_addon(
         trades_out.append(ext.snapshot_open(last_i))
     if shelf.pos and shelf.entry_td:
         trades_out.append(shelf.snapshot_open(last_i))
-    bits = ["база"]
+    bits = ["база"] if use_base else ["без базы"]
     if use_addon:
         bits.append("добор 2/7")
     if use_extreme:
@@ -3697,6 +3721,8 @@ def run_base_plus_addon(
             "spreadLevels": lv.as_dict(),
             "addonMode": use_addon,
             "extremeAddonMode": use_extreme,
+            "baseMode": use_base,
+            "enableBase": use_base,
             "shelfFloorCeilingMode": use_shelf,
             "addonExtraExitMode": "tp_or_level",
             "addonExtraOrTpPct": float(ADDON_EXTRA_OR_TP_PCT),
@@ -5710,6 +5736,7 @@ def _sim_key(
     transition_swing_mode: bool = False,
     adaptive_corridor_mode: bool = False,
     shelf_floor_ceiling_mode: bool = False,
+    base_mode: bool = True,
     wallet_main: float | None = None,
     wallet_addon: float | None = None,
     wallet_extra: float | None = None,
@@ -5729,10 +5756,11 @@ def _sim_key(
     # v27: потолки пула в долях (база ≤60%, резерв 40%) — при капитализации растут с пулом.
     # v28: hold + доли dyn-пула в ключе (UI Тест 6.1/5.8 · hold=10 · dyn 0.60/0.40).
     # v32: Hit/Max/ТП = Чист.% (вход+выход+овернайт) / депозит.
+    # v33: Тест чип «База» — выкл не открывает новые AUTO-ноги 3.2/6.1.
     return (
-        f"{tip_key}|v32|as={int(as_live)}|rp={int(replay_prod)}|"
+        f"{tip_key}|v33|as={int(as_live)}|rp={int(replay_prod)}|"
         f"sl={int(spread_level_mode)}|rz={int(regime_z_mode)}|ad={int(addon_mode)}|"
-        f"xe={int(extreme_addon_mode)}|"
+        f"xe={int(extreme_addon_mode)}|ba={int(base_mode)}|"
         f"zs={int(transition_swing_mode)}|ac={int(adaptive_corridor_mode)}|"
         f"ff={int(shelf_floor_ceiling_mode)}|we={int(weekend_trading)}|"
         f"e={entry:.4f}|x={exit_z:.4f}|s={slip:.4f}|"
@@ -5967,6 +5995,7 @@ def sim_tip1m(
     transition_swing_mode: bool = False,
     adaptive_corridor_mode: bool = False,
     shelf_floor_ceiling_mode: bool = False,
+    base_mode: bool = True,
     main_notional: float | None = None,
     addon_notional: float | None = None,
     extra_notional: float | None = None,
@@ -5993,6 +6022,8 @@ def sim_tip1m(
     (не замена; пересечения по времени у полки отсекаются). Не Prod AUTO.
     ``shelf_floor_ceiling_mode``: Testing добавка пол–потолок по каузальной широкой полке
     (кошелёк базы; если база открыта — сначала выход базы, потом вход полки).
+    ``base_mode``: Testing чип «База». По умолчанию ВКЛ. Выкл — не открывать новые
+    AUTO-ноги (main / 3.2/6.1). Не Prod AUTO.
     """
     csv = resolve_csv_for_window(csv, start, end)
     prep, meta = ensure_tip_series(csv, start=start, end=end)
@@ -6026,6 +6057,7 @@ def sim_tip1m(
     )
     use_pyramid = use_addon or use_extreme
     use_shelf = bool(shelf_floor_ceiling_mode) and not use_replay
+    use_base = bool(base_mode) if not use_replay else True
     mode_raw = str(wallet_mode or "").strip().lower()
     use_dyn_pool = use_pyramid and mode_raw in ("dynamic_pool", "dynamic", "pool", "")
     if use_pyramid and mode_raw not in ("", "dynamic_pool", "dynamic", "pool"):
@@ -6096,6 +6128,7 @@ def sim_tip1m(
         spread_level_mode=use_spread,
         addon_mode=use_addon,
         extreme_addon_mode=use_extreme,
+        base_mode=use_base,
         transition_swing_mode=use_swing,
         adaptive_corridor_mode=use_adapt,
         shelf_floor_ceiling_mode=use_shelf,
@@ -6115,7 +6148,11 @@ def sim_tip1m(
             "Те же правила и settle +10с, что Prod tip1m AUTO."
         )
         if use_pyramid:
-            parts = ["база Short ≥6.2 / ≤5.8 · Long ≤3.2 / ≥4.0"]
+            parts = (
+                ["база Short ≥6.2 / ≤5.8 · Long ≤3.2 / ≥4.0"]
+                if use_base
+                else ["без базы (AUTO-ноги выкл)"]
+            )
             if use_addon:
                 parts.append("добор 2/7 (Long→3.2, Short→6.2)")
             if use_extreme:
@@ -6162,6 +6199,11 @@ def sim_tip1m(
             "нет хода / вынос; берёт кошелёк базы: если база открыта — "
             "сначала выход базы, потом вход полки)."
         )
+    if not use_base:
+        note_geo += (
+            " База выкл: новые AUTO-ноги (касание 3.2/6.1) не открываются; "
+            "добор/экстра без открытой базы не входят; полка живёт отдельно."
+        )
     note_prod = (
         "как Прод: входы/выходы из decision_bars + закрытых Prod-сделок "
         "(как вкладка История; пороги Z в симе не двигают edges)."
@@ -6192,6 +6234,8 @@ def sim_tip1m(
             "tip1mSettleSec": settle_meta,
             "addonMode": use_addon,
             "extremeAddonMode": use_extreme,
+            "baseMode": use_base,
+            "enableBase": use_base,
             "transitionSwingMode": use_swing,
             "adaptiveCorridorMode": use_adapt,
             "shelfFloorCeilingMode": use_shelf,
@@ -6264,7 +6308,31 @@ def sim_tip1m(
             force_close_3d_mode=mode_3d,
             enable_addon=use_addon,
             enable_extreme=use_extreme,
+            enable_base=use_base,
             enable_shelf_ff=use_shelf,
+            main_notional=dep_main,
+            addon_notional=dep_addon,
+            extra_notional=dep_extra,
+            leg_deposit_fn=dyn_fn,
+        )
+    elif not use_base:
+        result = run_base_plus_addon(
+            prep,
+            slip=slip,
+            notional=dep_main,
+            compound=compound,
+            window_start_ms=wms,
+            window_end_ms=wems,
+            spread_levels=spread_levels,
+            take_profit_pct=take_profit_pct,
+            max_hold_days_if_losing=hold_lose,
+            max_hold_days_no_exit_trend=hold_no_trend,
+            force_close_3d=use_close_3d,
+            force_close_3d_mode=mode_3d,
+            enable_addon=False,
+            enable_extreme=False,
+            enable_base=False,
+            enable_shelf_ff=False,
             main_notional=dep_main,
             addon_notional=dep_addon,
             extra_notional=dep_extra,
@@ -6319,6 +6387,8 @@ def sim_tip1m(
     apply_ref_100k_metrics(result)
     result.setdefault("params", {})
     result["params"]["weekendTrading"] = use_weekend
+    result["params"]["baseMode"] = use_base
+    result["params"]["enableBase"] = use_base
     if not use_replay:
         attach_wallet_summary(
             result,
@@ -6343,6 +6413,8 @@ def sim_tip1m(
         "tip1mSettleSec": settle_meta,
         "addonMode": use_addon,
         "extremeAddonMode": use_extreme,
+        "baseMode": use_base,
+        "enableBase": use_base,
         "transitionSwingMode": use_swing,
         "adaptiveCorridorMode": use_adapt,
         "shelfFloorCeilingMode": use_shelf,

@@ -66,6 +66,7 @@
     edgeMode: 'moexReplay.edgeMode',
     addonMode27: 'moexReplay.addonMode27',
     extremeAddonMode: 'moexReplay.extremeAddonMode',
+    baseMode: 'moexReplay.baseMode',
     weekendTrading: 'moexReplay.weekendTrading',
     transitionSwingMode: 'moexReplay.transitionSwingMode',
     adaptiveCorridorMode: 'moexReplay.adaptiveCorridorMode',
@@ -4711,6 +4712,9 @@
     const modeText = isTip1mMode()
       ? ' · <span class="badge-online" title="Касание 1м · уровни спреда как Prod · пауза +10с">касание 1м</span>'
       : '';
+    const baseText = isBaseMode()
+      ? ' · <span class="badge-base" title="База AUTO: Short 6.1/5.8 · Long 3.2/4.0. Выкл — новые базовые ноги не открываются. Не Prod AUTO.">база</span>'
+      : '';
     const addonText = isAddon27Mode()
       ? (isTip1mMode()
         ? ' · <span class="badge-addon27" title="Вариант 2: база + добор на 2% (Long→3.2) и 7% (Short→6.1). Капит. учитывается. Без базы добор не входит. Не Prod AUTO.">добор 2/7</span>'
@@ -4788,7 +4792,7 @@
     }
     const zBit = '';
     $('status').innerHTML =
-      `${frame.barLabel}   ·   ${zBit}Спред ${spHover}${regimeHtml}${zoneHtml}${cascadeHtml}   ·   ${tipPos}   ·   сигн. ${sigCount}   ·   ${threshText}${tpText}${holdText}${riskText}${capText}${slipText}${modeText}${addonText}${extraText}${weekendText}${swingText}${adaptText}${shelfFfText}${tipNote}`;
+      `${frame.barLabel}   ·   ${zBit}Спред ${spHover}${regimeHtml}${zoneHtml}${cascadeHtml}   ·   ${tipPos}   ·   сигн. ${sigCount}   ·   ${threshText}${tpText}${holdText}${riskText}${capText}${slipText}${modeText}${baseText}${addonText}${extraText}${weekendText}${swingText}${adaptText}${shelfFfText}${tipNote}`;
 
     const pct = Math.round(engine.progressFraction * 100);
     $('progress').textContent = `${pct}%`;
@@ -4855,6 +4859,7 @@
     if (localStorage.getItem(LS.transitionSwingMode) === '1') {
       localStorage.setItem(LS.transitionSwingMode, '');
     }
+    syncBaseModeChip();
     syncAddon27Chip();
     syncExtra19Chip();
     syncWeekendTradingChip();
@@ -4862,6 +4867,11 @@
     syncAdaptCorridorChip();
     syncShelfFloorCeilingChip();
     syncChartOverlayChips();
+  }
+
+  /** База AUTO 3.2/6.1: по умолчанию ВКЛ (ключ отсутствует или не «0»). */
+  function isBaseMode() {
+    return localStorage.getItem(LS.baseMode) !== '0';
   }
 
   function isAddon27Mode() {
@@ -4887,6 +4897,12 @@
 
   function isShelfFloorCeilingMode() {
     return localStorage.getItem(LS.shelfFloorCeilingMode) === '1';
+  }
+
+  function setBaseMode(on) {
+    localStorage.setItem(LS.baseMode, on ? '1' : '0');
+    syncBaseModeChip();
+    return !!on;
   }
 
   function setAddon27Mode(on) {
@@ -4953,6 +4969,15 @@
     localStorage.setItem(LS.shelfFloorCeilingMode, on ? '1' : '');
     syncShelfFloorCeilingChip();
     return !!on;
+  }
+
+  function syncBaseModeChip() {
+    const on = isBaseMode();
+    const btn = $('btnBaseMode');
+    if (btn) {
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
   }
 
   function syncAddon27Chip() {
@@ -5093,7 +5118,7 @@
     const slip = typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0;
     const lv = readHmSelectedSpreadLevels();
     return [
-      'v12extra19',
+      'v13baseMode',
       $('csvSel')?.value || '',
       $('startDate')?.value || '',
       readWindowEndYmd(),
@@ -5102,6 +5127,7 @@
       getSimNotionalRub(), getSimCompound() ? 1 : 0, slip,
       'final',
       isTip1mMode() ? 1 : 0,
+      isBaseMode() ? 1 : 0,
       isAddon27Mode() ? 1 : 0,
       isExtremeAddonMode() ? 1 : 0,
       isWeekendTradingMode() ? 1 : 0,
@@ -5255,6 +5281,9 @@
       regime_z_mode: 0,
       spread_level_mode: 1,
       spread_levels: readHmSelectedSpreadLevels(),
+      base: isBaseMode(),
+      enable_base: isBaseMode() ? 1 : 0,
+      baseMode: isBaseMode() ? 1 : 0,
       addon_mode: isAddon27Mode() ? 1 : 0,
       extreme_addon_mode: isExtremeAddonMode() ? 1 : 0,
       weekend_trading: isWeekendTradingMode(),
@@ -6166,6 +6195,18 @@
 
     $('btnRefreshMoex')?.addEventListener('click', () => {
       refreshMoexForTesting().catch(() => {});
+    });
+
+    $('btnBaseMode')?.addEventListener('click', () => {
+      const next = !isBaseMode();
+      setBaseMode(next);
+      applyStrategyParamsChange();
+      const st = $('status');
+      if (st) {
+        st.textContent = next
+          ? 'база · пересчёт сделок…'
+          : 'база выкл · только усилители · пересчёт…';
+      }
     });
 
     $('btnAddon27')?.addEventListener('click', () => {

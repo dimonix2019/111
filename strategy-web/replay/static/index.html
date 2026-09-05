@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MOEX · Торговля / История / Счёт / Тестирование</title>
-  <link rel="stylesheet" href="/static/css-shell.css?v=20260905manualRisk1" />
-  <link rel="stylesheet" href="/static/css-testing.css?v=20260905chartOv1" />
+  <link rel="stylesheet" href="/static/css-shell.css?v=20260905baseChip1" />
+  <link rel="stylesheet" href="/static/css-testing.css?v=20260905baseChip1" />
   <link rel="stylesheet" href="/static/css-replay-ui.css?v=20260829gap1" />
     <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260905manualRisk1" />
   <link rel="stylesheet" href="/static/css-mobile.css?v=20260831sideTab1" />
@@ -134,6 +134,8 @@
         </select>
       </label>
       <div class="chip-group" id="addonModeChips" role="group" aria-label="Варианты теста">
+        <button type="button" class="chip chip-base-mode active" id="btnBaseMode" aria-pressed="true"
+          title="База AUTO: Short 6.1/5.8 · Long 3.2/4.0. По умолчанию вкл. Выкл — не открывать новые базовые ноги (касание 3.2/6.1). Добор и экстра без открытой базы не входят; полка живёт отдельно (кошелёк базы). Эксперимент «только усилители»: База выкл, добор/экстра/полка вкл. Только Тест, не Prod AUTO.">База</button>
         <button type="button" class="chip" id="btnAddon27" aria-pressed="false"
           title="Вариант 2: база (Short 6.1/5.8 · Long 3.2/4.0) плюс добор той же ногой. Long+касание 2% → вторая Long, выход 3.2. Short+касание 7% → вторая Short, выход 6.1. Без базы добор не входит. Капит. ON — размер ноги = депозит + закрытый PnL. Только Тест (касание 1м), не Prod AUTO.">добор 2/7</button>
         <button type="button" class="chip" id="btnExtra19" aria-pressed="false"
@@ -1010,6 +1012,6 @@
   <script src="/static/trade.js?v=20260905utcTs1"></script>
   <script src="/static/history.js?v=20260829comment1"></script>
   <script src="/static/live.js?v=20260726otc2"></script>
-  <script src="/static/app.js?v=20260905utcTs1"></script>
+  <script src="/static/app.js?v=20260905baseChip1"></script>
 </body>
 </html>

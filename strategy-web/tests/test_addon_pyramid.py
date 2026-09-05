@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from replay.tip_touch import PreparedTips, run_base_plus_addon, run_touch_1m_trades
+from replay.tip_touch import PreparedTips, parse_base_mode, run_base_plus_addon, run_touch_1m_trades
 
 
 def _prep(dates, spread) -> PreparedTips:
@@ -421,4 +421,92 @@ def test_addon_or_level_exit_when_no_tp_hit():
     closed = _closed(r)
     addon = [t for t in closed if t.get("tag") == "addon"][0]
     assert addon["exitReason"] == "addon_exit"
+
+
+def test_parse_base_mode_default_on():
+    assert parse_base_mode(None) is True
+    assert parse_base_mode(True) is True
+    assert parse_base_mode(1) is True
+    assert parse_base_mode("true") is True
+    assert parse_base_mode(False) is False
+    assert parse_base_mode(0) is False
+    assert parse_base_mode("false") is False
+    assert parse_base_mode("0") is False
+
+
+def test_base_off_addon_on_no_main_or_addon_opens():
+    """База выкл + добор вкл: новых AUTO-ног нет, добор без базы не входит.
+
+    Экстра тоже только при хозяине main/addon (не от полки). Если полка вкл —
+    возможны только сделки shelf_ff (кошелёк базы), не main/addon/extra.
+    """
+    dates = [
+        "2024-01-02 10:00",
+        "2024-01-02 10:01",
+        "2024-01-02 10:02",
+        "2024-01-02 10:03",
+        "2024-01-02 10:04",
+        "2024-01-02 10:05",
+        "2024-01-02 10:06",
+    ]
+    spread = [4.5, 3.2, 2.0, 3.2, 4.0, 4.0, 4.0]
+    r = run_base_plus_addon(
+        prep=_prep(dates, spread),
+        slip=0.02,
+        notional=10_000.0,
+        take_profit_pct=99.0,
+        enable_addon=True,
+        enable_extreme=True,
+        enable_base=False,
+    )
+    tags = [t.get("tag") for t in r["trades"]]
+    assert "main" not in tags
+    assert "addon" not in tags
+    assert "extra" not in tags
+    assert r["summary"]["addonOpens"] == 0
+    assert r["summary"].get("extraOpens", 0) == 0
+    assert r["params"]["baseMode"] is False
+    assert r["summary"]["openMain"] == 0
+
+
+def test_base_off_shelf_on_only_shelf_trades():
+    """База выкл + полка вкл: полка живёт отдельно, main не открывается."""
+    dates = [
+        "2024-02-01 10:00",
+        "2024-02-01 10:01",
+        "2024-02-01 10:02",
+        "2024-02-01 10:03",
+        "2024-02-01 10:04",
+        "2024-02-01 10:05",
+        "2024-02-01 10:06",
+    ]
+    spread = [4.5, 3.2, 3.10, 3.00, 3.40, 4.50, 4.50]
+    by = {
+        d[:10]: {
+            "as_of": d[:10],
+            "phase": "formed",
+            "lo": 3.0,
+            "hi": 4.5,
+            "width": 1.5,
+        }
+        for d in dates
+    }
+    r = run_base_plus_addon(
+        prep=_prep(dates, spread),
+        slip=0.02,
+        notional=10_000.0,
+        enable_addon=True,
+        enable_extreme=True,
+        enable_base=False,
+        enable_shelf_ff=True,
+        shelf_by_date=by,
+        take_profit_pct=99.0,
+        settle_sec=0.0,
+    )
+    tags = [t.get("tag") for t in r["trades"]]
+    assert "main" not in tags
+    assert "addon" not in tags
+    assert "extra" not in tags
+    assert "shelf_ff" in tags
+    assert r["params"]["baseMode"] is False
 

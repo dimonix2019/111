@@ -11,6 +11,13 @@
   background: rgba(124, 58, 237, 0.28);
 }
 
+#addonModeChips .chip.chip-base-mode.active,
+#btnBaseMode.active {
+  border-color: #22d3ee;
+  color: #ecfeff;
+  background: rgba(8, 145, 178, 0.38);
+}
+
 #btnExtra19.active {
   border-color: #fb7185;
   color: #ffe4e6;
