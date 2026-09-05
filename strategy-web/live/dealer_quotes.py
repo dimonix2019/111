@@ -147,7 +147,9 @@ def attach_spread_live_status(
         payload["bars_count"] = len(series)
     if live:
         payload.pop("spread_frozen_reason", None)
-        return payload
+        from live.spread_1m_spikes import guard_live_quote_against_spike
+
+        return guard_live_quote_against_spike(payload, series)
     payload["spread_frozen_reason"] = SPREAD_LIVE_FROZEN_REASON
     last_good: dict[str, Any] | None = None
     for b in reversed(series):
@@ -425,24 +427,18 @@ def _spread_ohlc_from_legs(
     o_n: float, h_n: float, l_n: float, c_n: float,
     o_p: float, h_p: float, l_p: float, c_p: float,
 ) -> tuple[float, float, float, float] | None:
-    """Spread % OHLC from TATN/TATNP OHLC; high/low = min/max of corner Z-points."""
-    pts: list[float] = []
-    for tn, tp in (
-        (o_n, o_p),
-        (h_n, h_p),
-        (l_n, l_p),
-        (c_n, c_p),
-        (h_n, l_p),  # max-spread corner
-        (l_n, h_p),  # min-spread corner
-    ):
-        sp = spread_percent(tn, tp)
-        if sp is not None:
-            pts.append(sp)
+    """Spread % OHLC from TATN/TATNP OHLC.
+
+    Body only (open/close). Leg high/low are not simultaneous across TATN/TATNP
+    and paint fake wicks (Android 2.0.22). Isolated close needles are flattened
+    later by ``sanitize_dealer_spread_bars``.
+    """
     sp_o = spread_percent(o_n, o_p)
     sp_c = spread_percent(c_n, c_p)
-    if sp_o is None or sp_c is None or not pts:
+    if sp_o is None or sp_c is None:
         return None
-    return sp_o, max(pts), min(pts), sp_c
+    _ = (h_n, l_n, h_p, l_p)
+    return sp_o, max(sp_o, sp_c), min(sp_o, sp_c), sp_c
 
 
 def build_dealer_1m_spread_bars(
@@ -536,7 +532,9 @@ def build_dealer_1m_spread_bars(
                 out[-1] = tip
             elif not out or out[-1]["timestampMs"] < tip_ms:
                 out.append(tip)
-    return strip_after_hours_tip_bars(out)
+    from live.spread_1m_spikes import sanitize_dealer_spread_bars
+
+    return sanitize_dealer_spread_bars(strip_after_hours_tip_bars(out), dealer_legs=True)
 
 
 def fetch_dealer_1m_candles(

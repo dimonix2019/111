@@ -707,6 +707,40 @@ def with_weekend_trading_session(
     )
 
 
+def _prep_without_spread_spikes(
+    prep: PreparedTips, *, dealer_legs: bool = False
+) -> PreparedTips:
+    """Replace one-bar dealer/ISS needles so TP and levels do not fire on garbage."""
+    if prep.n < 2:
+        return prep
+    from live.spread_1m_spikes import sanitize_spread_arrays
+
+    tn = prep.tatn if getattr(prep, "tatn", None) is not None and len(prep.tatn) == prep.n else None
+    tp = prep.tatnp if getattr(prep, "tatnp", None) is not None and len(prep.tatnp) == prep.n else None
+    cleaned = sanitize_spread_arrays(
+        prep.spread,
+        prep.ts_ms,
+        z=prep.z,
+        tatn=tn,
+        tatnp=tp,
+        dealer_legs=bool(dealer_legs) and tn is not None and tp is not None,
+    )
+    if not cleaned["copied"]:
+        return prep
+    return PreparedTips(
+        ts_ms=prep.ts_ms,
+        z=cleaned["z"] if cleaned["z"] is not None else prep.z,
+        spread=cleaned["spread"],
+        day_ord=prep.day_ord,
+        session=prep.session,
+        trade_dates=prep.trade_dates,
+        edge_i=prep.edge_i,
+        n=prep.n,
+        tatn=cleaned["tatn"] if cleaned["tatn"] is not None else prep.tatn,
+        tatnp=cleaned["tatnp"] if cleaned["tatnp"] is not None else prep.tatnp,
+    )
+
+
 def build_tip_series(m15: list[dict], m1: pd.DataFrame) -> list[TipPoint]:
     """1m tip Z using rolling window of completed M15 + tip as last observation.
 
@@ -5757,8 +5791,9 @@ def _sim_key(
     # v28: hold + доли dyn-пула в ключе (UI Тест 6.1/5.8 · hold=10 · dyn 0.60/0.40).
     # v32: Hit/Max/ТП = Чист.% (вход+выход+овернайт) / депозит.
     # v33: Тест чип «База» — выкл не открывает новые AUTO-ноги 3.2/6.1.
+    # v34: однобарные иглы спреда (дилер 4.73% и т.п.) не кормят ТП/уровни.
     return (
-        f"{tip_key}|v33|as={int(as_live)}|rp={int(replay_prod)}|"
+        f"{tip_key}|v34|as={int(as_live)}|rp={int(replay_prod)}|"
         f"sl={int(spread_level_mode)}|rz={int(regime_z_mode)}|ad={int(addon_mode)}|"
         f"xe={int(extreme_addon_mode)}|ba={int(base_mode)}|"
         f"zs={int(transition_swing_mode)}|ac={int(adaptive_corridor_mode)}|"
@@ -6032,6 +6067,7 @@ def sim_tip1m(
     use_replay = bool(replay_prod) or bool(as_live)
     use_weekend = bool(weekend_trading) and not use_replay
     prep = with_weekend_trading_session(prep, enabled=use_weekend)
+    prep = _prep_without_spread_spikes(prep, dealer_legs=use_weekend)
     # Spread levels / regime only on geometric path (as_live ignores thresholds).
     use_spread = bool(spread_level_mode) and not use_replay
     use_regime = bool(regime_z_mode) and not use_replay and not use_spread
@@ -6993,22 +7029,24 @@ def bars1m_chart(
             applied_days = days
 
     # Не собираем 700k dict: прореживаем индексы, затем только их.
+    # Иглы спреда режем на полном ряде (не на прореженном), иначе сосед пропадает.
+    chart_prep = _prep_without_spread_spikes(prep, dealer_legs=False)
     bar_idx, step_min_pre = _select_chart_bar_indices(
-        prep.ts_ms, lo, hi, max_bars=CHART_UI_MAX_BARS,
+        chart_prep.ts_ms, lo, hi, max_bars=CHART_UI_MAX_BARS,
     )
     out_bars: list[dict[str, Any]] = []
     for i in bar_idx:
         ii = int(i)
-        td = prep.trade_dates[ii]
-        ms = _repair_chart_timestamp_ms(int(prep.ts_ms[ii]), td)
+        td = chart_prep.trade_dates[ii]
+        ms = _repair_chart_timestamp_ms(int(chart_prep.ts_ms[ii]), td)
         if ms <= 0:
             continue
         out_bars.append(
             {
                 "timestampMs": ms,
                 "tradeDate": td,
-                "zScore": float(prep.z[ii]),
-                "spreadPercent": float(prep.spread[ii]),
+                "zScore": float(chart_prep.z[ii]),
+                "spreadPercent": float(chart_prep.spread[ii]),
             }
         )
     live_meta: dict[str, Any] = {
