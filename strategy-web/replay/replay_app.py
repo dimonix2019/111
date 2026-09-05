@@ -37,6 +37,16 @@ async def lifespan(_app: FastAPI):
     """Always-on live monitor (daemon thread), matching APK intent."""
     live_engine.start_monitor()
     try:
+        from replay import tip_touch
+
+        tip_touch.kick_tip_prep_warm(
+            "m15_tatn_1095d.csv",
+            "m15_tatn_365d.csv",
+            "m15_tatn_255d.csv",
+        )
+    except Exception:
+        pass
+    try:
         yield
     finally:
         # Не сбрасываем monitor_running — иначе после рестарта сервиса/watchdog
@@ -399,8 +409,17 @@ def api_sim_tip1m_heatmap(body: dict[str, Any] = Body(default_factory=dict)) -> 
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
+async def health() -> dict[str, str]:
+    """DB-free liveness. async — не стоит в очереди threadpool за sim/bars1m."""
     return {"status": "ok"}
+
+
+@app.get("/api/tip/busy")
+async def tip_busy() -> dict[str, Any]:
+    """Фаза Load+sim без I/O: локи, кэш, секунды текущей фазы."""
+    from replay import tip_touch
+
+    return tip_touch.tip_busy_snapshot()
 
 
 @app.get("/api/health/live")

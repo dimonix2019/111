@@ -5294,6 +5294,30 @@
     const timeoutMs = tip1mFetchTimeoutMs(csv);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const started = Date.now();
+    const timeoutSec = Math.round(timeoutMs / 1000);
+    const tickBusy = async () => {
+      const sec = Math.round((Date.now() - started) / 1000);
+      let phase = '';
+      try {
+        const br = await fetch('/api/tip/busy', { signal: AbortSignal.timeout(800) });
+        if (br.ok) {
+          const b = await br.json();
+          if (b && b.phaseRu && b.phase !== 'idle') {
+            phase = ` · ${b.phaseRu}`;
+            if (b.tipBuildLock) phase += ' · ждёт лок 3г';
+          }
+        }
+      } catch (_) { /* health/busy не должен ронять сим */ }
+      const line = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · считаю на сервере… ${sec}/${timeoutSec} с${phase}`;
+      if (st) st.textContent = line;
+      const grid = $('tradesSummaryGrid');
+      if (grid && !tipSimCache.rows) {
+        grid.innerHTML = `<div class="trades-summary-note wide">${line}</div>`;
+      }
+    };
+    tickBusy();
+    const tickTimer = setInterval(tickBusy, 500);
     try {
       const res = await fetch('/api/sim/tip1m', {
         method: 'POST',
@@ -5318,6 +5342,19 @@
       };
       refreshTradesTable();
       refreshUi({ afterParams: true });
+      if (st) {
+        const m = data.meta || {};
+        const simS = m.simSec != null ? Number(m.simSec) : null;
+        const ensS = m.ensureSec != null ? Number(m.ensureSec) : null;
+        const bits = [];
+        if (m.simCacheHit) bits.push('кэш сделок');
+        else if (simS != null) bits.push(`сим ${simS}с`);
+        if (ensS != null && ensS >= 0.05) bits.push(`ряд ${ensS}с`);
+        if (m.cacheTier) bits.push(String(m.cacheTier));
+        st.textContent =
+          `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · готово`
+          + (bits.length ? ` · ${bits.join(' · ')}` : '');
+      }
       if (!isZHeatmapHidden()) scheduleZHeatmapUpdate(engine?.cursor, { immediate: true });
     } catch (e) {
       if (jobId !== tipSimJobId) return;
@@ -5337,6 +5374,7 @@
       }
       if (!timedOut) alert('Касание 1м (сервер): ' + msg);
     } finally {
+      clearInterval(tickTimer);
       clearTimeout(timer);
     }
   }
@@ -5441,10 +5479,38 @@
     const background = !!opts.background;
     const title = $('loadingTitle');
     const sub = $('loadingSub');
+    const tip1m = isTip1mMode();
     try {
       if (!background) {
         $('loading').classList.remove('hidden');
         $('app').classList.add('hidden');
+      }
+      if (tip1m) {
+        tipSimCache = { key: '', rows: null, meta: null, summary: null };
+        clearTipManualOverrides();
+        if (!background && title) title.textContent = 'Касание 1м…';
+        if (!background && sub) {
+          sub.textContent = 'сделки и график 90д сразу, M15 в фоне';
+        }
+        if (!chart) {
+          chart = new ReplayChart($('chart'), {
+            onSelectionChange: (id) => {
+              selectedTradeId = id;
+              refreshTradesTable();
+            },
+          });
+        }
+        scheduleTipSimFetch({ immediate: true });
+        if (isChartsHidden()) pendingChartRepaint = true;
+        else activateTip1mChart().catch((e) => console.error(e));
+        if (!background) {
+          $('loading').classList.add('hidden');
+          $('app').classList.remove('hidden');
+          requestAnimationFrame(() => {
+            reapplyLayoutFromStorage();
+            chart?.resize();
+          });
+        }
       }
       const data = await loadBars(csv);
       const windowBars = sliceBarsToEnd(data.bars || [], readWindowEndYmd());
@@ -5454,7 +5520,12 @@
       }
       // Кэш хранит ряд от start до хвоста CSV; конец окна режем локально.
       rememberBarsCache(csv, data.bars);
-      allPoints = windowBars;
+      const tipChartActive = !!(tip1m && tip1mChartMeta && tip1mChartMeta._active);
+      if (tipChartActive) {
+        m15PointsStash = windowBars;
+      } else {
+        allPoints = windowBars;
+      }
       updateMoexLastBarHint(allPoints.length ? allPoints[allPoints.length - 1]?.tradeDate : data.last);
       if (!opts.keepSelection) {
         chartFocusIndex = null;
@@ -5467,12 +5538,14 @@
           : '<span class="badge-online">online</span>')
         : '<span class="badge-offline">offline</span>';
       const csvSafe = String(data.csv || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      $('meta').innerHTML = `TATN/TATNP · ${allPoints.length} баров · ${csvSafe} · ${src} · ${netBadge}`;
-      rebuildEngine();
-      // Full reload of bars window: jump to end so СДЕЛКИ/PnL cover the whole period
-      // (keepSelection=true for MOEX tail refresh — preserve scrubber).
-      if (!opts.keepSelection && engine) engine.seekToEnd();
-      chart?.followReplayEdge(true);
+      if (!tipChartActive) {
+        $('meta').innerHTML = `TATN/TATNP · ${allPoints.length} баров · ${csvSafe} · ${src} · ${netBadge}`;
+        rebuildEngine();
+        // Full reload of bars window: jump to end so СДЕЛКИ/PnL cover the whole period
+        // (keepSelection=true for MOEX tail refresh — preserve scrubber).
+        if (!opts.keepSelection && engine) engine.seekToEnd();
+        chart?.followReplayEdge(true);
+      }
       reapplyLayoutFromStorage();
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       if (!chart) {
@@ -5495,12 +5568,12 @@
         console.error(paintErr);
       }
       if (isTip1mMode()) {
-        tipSimCache = { key: '', rows: null, meta: null, summary: null };
-        clearTipManualOverrides();
-        scheduleTipSimFetch({ immediate: true });
+        if (!tipSimCache.rows) {
+          scheduleTipSimFetch({ immediate: true });
+        }
         if (isChartsHidden()) {
           pendingChartRepaint = true;
-        } else {
+        } else if (!(tip1mChartMeta && tip1mChartMeta._active)) {
           // Не держим чёрный экран на JSON минуток: 1м догружается после показа UI.
           activateTip1mChart().catch((e) => console.error(e));
         }

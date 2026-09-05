@@ -93,6 +93,19 @@ _EXTEND_MIN_INTERVAL_SEC = 90.0
 _lock = threading.Lock()
 _tip_build_lock = threading.Lock()
 _window_build_lock = threading.Lock()
+_busy: dict[str, Any] = {
+    "phase": "idle",
+    "t0": 0.0,
+    "csv": None,
+    "detail": "",
+}
+_PHASE_RU = {
+    "idle": "готово",
+    "npz": "читаю кэш 1м",
+    "build": "собираю ряд 1м",
+    "sim": "считаю сделки",
+    "chart": "график 1м",
+}
 _tip_cache: dict[str, Any] = {
     "key": None,
     "prep": None,
@@ -108,6 +121,7 @@ _parquet_frame_cache: dict[str, Any] = {"mtime": None, "df": None}
 _SHORT_WINDOW_MAX_DAYS = 45
 _WINDOW_LOOKBACK_DAYS = 50
 _WINDOW_CACHE_TTL_SEC = 45.0
+DEFAULT_CHART_DAYS = 90
 _window_tip_cache: dict[str, Any] = {
     "key": None,
     "prep": None,
@@ -116,6 +130,35 @@ _window_tip_cache: dict[str, Any] = {
 }
 _extend_last_attempt = 0.0
 _extend_bg_started = False
+
+
+def _busy_set(phase: str, *, csv: str | None = None, detail: str = "") -> None:
+    _busy["phase"] = phase or "idle"
+    if phase and phase != "idle":
+        _busy["t0"] = time.monotonic()
+    else:
+        _busy["t0"] = 0.0
+    if csv is not None:
+        _busy["csv"] = csv
+    _busy["detail"] = detail
+
+
+def tip_busy_snapshot() -> dict[str, Any]:
+    """Лёгкий снимок для UI/watchdog: локи и фаза, без I/O."""
+    t0 = float(_busy.get("t0") or 0.0)
+    elapsed = (time.monotonic() - t0) if t0 else 0.0
+    phase = str(_busy.get("phase") or "idle")
+    return {
+        "phase": phase,
+        "phaseRu": _PHASE_RU.get(phase, phase),
+        "elapsedSec": round(elapsed, 1),
+        "csv": _busy.get("csv"),
+        "detail": str(_busy.get("detail") or ""),
+        "tipBuildLock": _tip_build_lock.locked(),
+        "windowBuildLock": _window_build_lock.locked(),
+        "hasMemPrep": _tip_cache.get("prep") is not None,
+        "simCacheN": int(len(_sim_cache)),
+    }
 
 
 def _kick_extend_1m_background(*, until: datetime | None = None) -> None:
@@ -1437,6 +1480,25 @@ def _prep_meta_from_disk(name: str, disk: PreparedTips, *, src: str = "disk") ->
     }
 
 
+def _window_cache_hit(
+    wkey: str,
+) -> tuple[PreparedTips, dict[str, Any]] | None:
+    now = time.monotonic()
+    hit_prep = _window_tip_cache.get("prep")
+    hit_key = _window_tip_cache.get("key")
+    hit_at = float(_window_tip_cache.get("built_at") or 0.0)
+    if (
+        hit_prep is not None
+        and hit_key == wkey
+        and (now - hit_at) < _WINDOW_CACHE_TTL_SEC
+    ):
+        meta = dict(_window_tip_cache.get("meta") or {})
+        meta["cacheHit"] = True
+        meta["cacheTier"] = "window-mem"
+        return hit_prep, meta
+    return None
+
+
 def _ensure_window_tip_series(
     csv_name: str, start: str | None, end: str | None
 ) -> tuple[PreparedTips, dict[str, Any]]:
@@ -1445,21 +1507,12 @@ def _ensure_window_tip_series(
     lookback = max(int(Z_SCORE_ROLLING_LOOKBACK_DAYS), int(_WINDOW_LOOKBACK_DAYS))
     load_from = _ymd_shift(start, -lookback) or str(start or "")[:10]
     wkey = f"{name}|{start or ''}|{end or ''}|{lookback}"
-    now = time.monotonic()
     with _window_build_lock:
-        hit_prep = _window_tip_cache.get("prep")
-        hit_key = _window_tip_cache.get("key")
-        hit_at = float(_window_tip_cache.get("built_at") or 0.0)
-        if (
-            hit_prep is not None
-            and hit_key == wkey
-            and (now - hit_at) < _WINDOW_CACHE_TTL_SEC
-        ):
-            meta = dict(_window_tip_cache.get("meta") or {})
-            meta["cacheHit"] = True
-            meta["cacheTier"] = "window-mem"
-            return hit_prep, meta
-
+        hit = _window_cache_hit(wkey)
+        if hit is not None:
+            return hit
+    _busy_set("chart", csv=name, detail="window-io")
+    try:
         m15, src = load_m15_ui(name, start_date=load_from or None)
         end_day = str(end or "").strip()[:10]
         if end_day:
@@ -1492,6 +1545,12 @@ def _ensure_window_tip_series(
             "mode": "tip1m",
             "logicRu": "касание порога на 1м tip-Z (не ждём close M15)",
         }
+    finally:
+        _busy_set("idle")
+    with _window_build_lock:
+        hit = _window_cache_hit(wkey)
+        if hit is not None:
+            return hit
         _window_tip_cache["key"] = wkey
         _window_tip_cache["prep"] = prep
         _window_tip_cache["meta"] = meta
@@ -1509,6 +1568,53 @@ def _ymd_shift(ymd: str | None, days: int) -> str | None:
     return (d + timedelta(days=days)).isoformat()
 
 
+def isolated_chart_window(
+    start: str | None,
+    end: str | None,
+    chart_days: int | None,
+) -> tuple[str, str] | None:
+    """Хвост графика, если сим-окно длинное. None — обычный ensure_tip_series.
+
+    График 90д при окне 3г не должен брать ``_tip_build_lock`` полного ряда.
+    """
+    days = DEFAULT_CHART_DAYS if chart_days is None else int(chart_days)
+    if days <= 0:
+        return None
+    if _is_short_test_window(start, end):
+        return None
+    end_s = str(end or "").strip()[:10] or date.today().isoformat()
+    tail_start = _ymd_shift(end_s, -(max(days, 1) - 1))
+    if not tail_start:
+        return None
+    if start:
+        req = str(start).strip()[:10]
+        if req and req > tail_start:
+            tail_start = req
+    return tail_start, end_s
+
+
+def _publish_full_tip(
+    name: str,
+    key: str,
+    mtime: float,
+    prep: PreparedTips,
+    meta: dict[str, Any],
+) -> tuple[PreparedTips, dict[str, Any]]:
+    with _lock:
+        if _tip_cache.get("csv") == name and _tip_cache.get("prep") is not None:
+            hit_meta = dict(_tip_cache["meta"] or {})
+            hit_meta["cacheHit"] = True
+            hit_meta["cacheTier"] = "mem"
+            return _tip_cache["prep"], hit_meta
+        _tip_cache["key"] = key
+        _tip_cache["csv"] = name
+        _tip_cache["mtime"] = mtime
+        _tip_cache["prep"] = prep
+        _tip_cache["built_at"] = time.time()
+        _tip_cache["meta"] = meta
+        return prep, meta
+
+
 def _ensure_full_tip_series(csv_name: str) -> tuple[PreparedTips, dict[str, Any]]:
     """Полный ряд CSV (3 года): RAM → npz, без обязательной загрузки всех M15."""
     name = Path(csv_name).name
@@ -1516,109 +1622,112 @@ def _ensure_full_tip_series(csv_name: str) -> tuple[PreparedTips, dict[str, Any]
     if peeked is not None:
         return peeked
 
+    # npz вне _tip_build_lock: график 90д и /api/health не ждут распаковку 3 лет.
+    _busy_set("npz", csv=name, detail="disk")
+    try:
+        disk = _load_prep_disk(name, "")
+    finally:
+        _busy_set("idle")
+    if disk is not None:
+        meta = _prep_meta_from_disk(name, disk)
+        return _publish_full_tip(
+            name, str(_tip_cache.get("key") or "disk"), _parquet_mtime(), disk, meta
+        )
+
     with _tip_build_lock:
         peeked = _peek_mem_tip(name)
         if peeked is not None:
             return peeked
 
-        # Сначала диск.v3 — не тащить 3 года M15 из sqlite, пока Tesт ждёт.
         disk = _load_prep_disk(name, "")
         if disk is not None:
             meta = _prep_meta_from_disk(name, disk)
+            return _publish_full_tip(
+                name, str(_tip_cache.get("key") or "disk"), _parquet_mtime(), disk, meta
+            )
+
+        _busy_set("build", csv=name, detail="cold")
+        try:
+            m15, src = load_m15_ui(name)
+            key = _light_tip_key(name, m15)
+            mtime = _parquet_mtime()
             with _lock:
-                _tip_cache["key"] = str(_tip_cache.get("key") or "disk")
-                _tip_cache["csv"] = name
-                _tip_cache["mtime"] = _parquet_mtime()
-                _tip_cache["prep"] = disk
-                _tip_cache["built_at"] = time.time()
-                _tip_cache["meta"] = meta
-            return disk, meta
+                if _tip_cache["key"] == key and _tip_cache["prep"] is not None:
+                    meta = dict(_tip_cache["meta"] or {})
+                    meta["cacheHit"] = True
+                    meta["cacheTier"] = "mem"
+                    _tip_cache["csv"] = name
+                    _tip_cache["mtime"] = mtime
+                    return _tip_cache["prep"], meta
 
-        m15, src = load_m15_ui(name)
-        key = _light_tip_key(name, m15)
-        mtime = _parquet_mtime()
-        with _lock:
-            if _tip_cache["key"] == key and _tip_cache["prep"] is not None:
-                meta = dict(_tip_cache["meta"] or {})
-                meta["cacheHit"] = True
-                meta["cacheTier"] = "mem"
-                _tip_cache["csv"] = name
-                _tip_cache["mtime"] = mtime
-                return _tip_cache["prep"], meta
+            disk = _load_prep_disk(name, key)
+            if disk is not None:
+                meta = {
+                    **_prep_meta_from_disk(name, disk, src=src),
+                    "m15Bars": len(m15),
+                    "m15From": m15[0]["tradeDate"] if m15 else None,
+                    "m15To": m15[-1]["tradeDate"] if m15 else None,
+                }
+                return _publish_full_tip(name, key, mtime, disk, meta)
 
-        disk = _load_prep_disk(name, key)
-        if disk is not None:
+            def _m15_ms(b: dict[str, Any]) -> int:
+                try:
+                    return int(b.get("timestampMs") or 0)
+                except (TypeError, ValueError):
+                    return 0
+
+            ordered = [b for b in m15 if _m15_ms(b) > 0]
+            if not ordered:
+                ordered = list(m15)
+            first_b = min(ordered, key=_m15_ms)
+            last_b = max(ordered, key=_m15_ms)
+            end_dt = _parse_td(last_b["tradeDate"])
+            start_dt = _parse_td(first_b["tradeDate"]) - timedelta(days=40)
+            try:
+                cached = _read_parquet_cached()
+                if cached is not None and not cached.empty:
+                    cmax = _naive_ts(cached["timestamp"].max())
+                    end_naive = end_dt.replace(tzinfo=None) if end_dt.tzinfo else end_dt
+                    lag_min = (end_naive - cmax).total_seconds() / 60.0
+                    if lag_min >= 45.0:
+                        _kick_extend_1m_background(until=end_dt)
+            except Exception:
+                pass
+            m1 = load_1m_from_cache(start_dt, end_dt, extend=False)
+
+            t0 = time.time()
+            prep = build_prepared_tips(m15, m1)
             meta = {
-                **_prep_meta_from_disk(name, disk, src=src),
+                "csv": name,
+                "dataSourceM15": src,
+                "dataSource1m": CACHE_1M.name,
                 "m15Bars": len(m15),
+                "m1Rows": len(m1),
+                "tipPoints": prep.n,
+                "edgeCount": int(len(prep.edge_i)),
                 "m15From": m15[0]["tradeDate"] if m15 else None,
                 "m15To": m15[-1]["tradeDate"] if m15 else None,
+                "m1From": str(m1["timestamp"].iloc[0]) if len(m1) else None,
+                "m1To": str(m1["timestamp"].iloc[-1]) if len(m1) else None,
+                "buildSec": round(time.time() - t0, 2),
+                "cacheHit": False,
+                "cacheTier": "build",
+                "mode": "tip1m",
+                "logicRu": "касание порога на 1м tip-Z (не ждём close M15)",
             }
+            _save_prep_disk(name, key, prep)
             with _lock:
                 _tip_cache["key"] = key
                 _tip_cache["csv"] = name
                 _tip_cache["mtime"] = mtime
-                _tip_cache["prep"] = disk
+                _tip_cache["prep"] = prep
                 _tip_cache["built_at"] = time.time()
                 _tip_cache["meta"] = meta
-            return disk, meta
-
-        def _m15_ms(b: dict[str, Any]) -> int:
-            try:
-                return int(b.get("timestampMs") or 0)
-            except (TypeError, ValueError):
-                return 0
-
-        ordered = [b for b in m15 if _m15_ms(b) > 0]
-        if not ordered:
-            ordered = list(m15)
-        first_b = min(ordered, key=_m15_ms)
-        last_b = max(ordered, key=_m15_ms)
-        end_dt = _parse_td(last_b["tradeDate"])
-        start_dt = _parse_td(first_b["tradeDate"]) - timedelta(days=40)
-        try:
-            cached = _read_parquet_cached()
-            if cached is not None and not cached.empty:
-                cmax = _naive_ts(cached["timestamp"].max())
-                end_naive = end_dt.replace(tzinfo=None) if end_dt.tzinfo else end_dt
-                lag_min = (end_naive - cmax).total_seconds() / 60.0
-                if lag_min >= 45.0:
-                    _kick_extend_1m_background(until=end_dt)
-        except Exception:
-            pass
-        m1 = load_1m_from_cache(start_dt, end_dt, extend=False)
-
-        t0 = time.time()
-        prep = build_prepared_tips(m15, m1)
-        meta = {
-            "csv": name,
-            "dataSourceM15": src,
-            "dataSource1m": CACHE_1M.name,
-            "m15Bars": len(m15),
-            "m1Rows": len(m1),
-            "tipPoints": prep.n,
-            "edgeCount": int(len(prep.edge_i)),
-            "m15From": m15[0]["tradeDate"] if m15 else None,
-            "m15To": m15[-1]["tradeDate"] if m15 else None,
-            "m1From": str(m1["timestamp"].iloc[0]) if len(m1) else None,
-            "m1To": str(m1["timestamp"].iloc[-1]) if len(m1) else None,
-            "buildSec": round(time.time() - t0, 2),
-            "cacheHit": False,
-            "cacheTier": "build",
-            "mode": "tip1m",
-            "logicRu": "касание порога на 1м tip-Z (не ждём close M15)",
-        }
-        _save_prep_disk(name, key, prep)
-        with _lock:
-            _tip_cache["key"] = key
-            _tip_cache["csv"] = name
-            _tip_cache["mtime"] = mtime
-            _tip_cache["prep"] = prep
-            _tip_cache["built_at"] = time.time()
-            _tip_cache["meta"] = meta
-            _sim_cache.clear()
-            _hm_cache.clear()
-        return prep, meta
+                _sim_cache.clear()
+                _hm_cache.clear()
+            return prep, meta
+        finally:
+            _busy_set("idle")
 
 
 def ensure_tip_series(
@@ -6061,7 +6170,9 @@ def sim_tip1m(
     AUTO-ноги (main / 3.2/6.1). Не Prod AUTO.
     """
     csv = resolve_csv_for_window(csv, start, end)
+    t_ensure = time.time()
     prep, meta = ensure_tip_series(csv, start=start, end=end)
+    ensure_sec = round(time.time() - t_ensure, 3)
     tip_key = str(_tip_cache.get("key") or "")
     # «как Прод» must replay Prod actions (Test ↔ History). Geometric only when off.
     use_replay = bool(replay_prod) or bool(as_live)
@@ -6265,6 +6376,7 @@ def sim_tip1m(
             "windowStartMs": hit.get("windowStartMs", 0),
             "windowEndMs": hit.get("windowEndMs", 0),
             "simSec": 0.0,
+            "ensureSec": ensure_sec,
             "simCacheHit": True,
             "riskExitNoteRu": risk_note,
             "tip1mSettleSec": settle_meta,
@@ -6313,6 +6425,7 @@ def sim_tip1m(
             prep, window_start_ms=wms, window_end_ms=wems
         )
     t0 = time.time()
+    _busy_set("sim", csv=csv, detail="run")
     pool_rub = float(pool_seed if pool_seed is not None else (dep_main + dep_addon + dep_extra))
     dyn_main_cap, dyn_addon_res = scale_dynamic_pool_caps(pool_rub)
     if dynamic_main_cap_frac is not None or dynamic_addon_reserve_frac is not None:
@@ -6444,6 +6557,7 @@ def sim_tip1m(
         "windowStartMs": wms,
         "windowEndMs": wems,
         "simSec": round(time.time() - t0, 3),
+        "ensureSec": ensure_sec,
         "simCacheHit": False,
         "riskExitNoteRu": risk_note,
         "tip1mSettleSec": settle_meta,
@@ -6457,6 +6571,7 @@ def sim_tip1m(
         "weekendTrading": use_weekend,
         "weekendWindowMsk": "10:00–18:59" if use_weekend else None,
     }
+    _busy_set("idle")
     result["meta"] = _enrich_as_live_sparse_meta(
         base_meta, result.get("trades") or [], use_replay=use_replay, start=start, end=end
     )
@@ -6761,7 +6876,7 @@ def bars1m_meta() -> dict[str, Any]:
 
 
 # Soft cap for Testing chart: full-year 1m (~200k+) freezes lightweight-charts.
-DEFAULT_CHART_DAYS = 90
+# DEFAULT_CHART_DAYS задан рядом с _SHORT_WINDOW_MAX_DAYS (хвост графика ≠ окно сима).
 CHART_SOFT_MAX_BARS = 80_000
 # После обрезки по дням не отдаём 80к минуток: Ctrl+F5 иначе минуты на JSON.
 CHART_UI_MAX_BARS = 12_000
@@ -6999,7 +7114,12 @@ def bars1m_chart(
             "Сначала: python scripts/backtest_intrabar_touch_1y.py"
         )
     csv = resolve_csv_for_window(csv, start, end)
-    prep, meta = ensure_tip_series(csv, start=start, end=end)
+    chart_win = isolated_chart_window(start, end, chart_days)
+    if chart_win is not None:
+        prep, meta = _ensure_window_tip_series(csv, chart_win[0], chart_win[1])
+        start, end = chart_win
+    else:
+        prep, meta = ensure_tip_series(csv, start=start, end=end)
     wms = _window_start_ms(prep, start)
     wems = _window_end_ms(end)
     lo = 0

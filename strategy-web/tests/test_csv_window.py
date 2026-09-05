@@ -135,6 +135,57 @@ def test_short_window_bars1m_not_three_years():
     assert last[:10] <= "2026-09-02"
 
 
+def test_isolated_chart_window_3y_is_90d_tail():
+    from replay.tip_touch import isolated_chart_window
+
+    win = isolated_chart_window("2023-09-01", "2026-09-05", 90)
+    assert win is not None
+    assert win[1] == "2026-09-05"
+    assert win[0] == "2026-06-08"
+    assert isolated_chart_window("2026-08-31", "2026-09-02", 90) is None
+    assert isolated_chart_window("2023-09-01", "2026-09-05", 0) is None
+
+
+def test_3y_chart_days_skips_full_build_lock():
+    """График 90д при окне 3г не ждёт лок полной пересборки."""
+    import threading
+    import time
+
+    from replay import tip_touch
+
+    if not tip_touch.CACHE_1M.is_file():
+        return
+    held = threading.Event()
+    release = threading.Event()
+
+    def _hold() -> None:
+        with tip_touch._tip_build_lock:
+            held.set()
+            release.wait(25)
+
+    t = threading.Thread(target=_hold, daemon=True)
+    t.start()
+    assert held.wait(2)
+    t0 = time.perf_counter()
+    data = tip_touch.bars1m_chart(
+        "m15_tatn_1095d.csv",
+        start="2023-09-01",
+        end="2026-09-05",
+        chart_days=90,
+    )
+    elapsed = time.perf_counter() - t0
+    release.set()
+    t.join(timeout=3)
+    assert elapsed < 20.0, elapsed
+    assert data.get("ok") is True
+    assert data.get("bars")
+    meta = data.get("meta") or {}
+    assert meta.get("window") or str(meta.get("cacheTier") or "").startswith("window")
+    snap = tip_touch.tip_busy_snapshot()
+    assert "tipBuildLock" in snap
+    assert "phaseRu" in snap
+
+
 def test_three_year_span_days():
     n = window_span_days("2023-09-01", "2026-09-01")
     assert n is not None and n >= 1095
