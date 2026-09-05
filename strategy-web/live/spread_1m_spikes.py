@@ -151,8 +151,31 @@ def spread_spike_indices(
     use_legs = bool(dealer_legs) and tatn is not None and tatnp is not None
     if use_legs and (len(tatn) != n or len(tatnp) != n):
         use_legs = False
+    # Не сканировать все 110k баров: игла всегда рядом с |ΔS|≥jump или прыжком ноги.
+    try:
+        import numpy as np
+
+        sp = np.asarray(spreads, dtype=np.float64)
+        dlt = np.abs(np.diff(sp))
+        jump = np.zeros(n, dtype=np.bool_)
+        big = np.isfinite(dlt) & (dlt >= float(jump_pp))
+        jump[1:] |= big
+        jump[:-1] |= big
+        if use_legs:
+            for legs in (tatn, tatnp):
+                ld = np.abs(np.diff(np.asarray(legs, dtype=np.float64)))
+                big_leg = np.isfinite(ld) & (ld >= float(jump_rub))
+                jump[1:] |= big_leg
+        if not bool(jump.any()):
+            return []
+        idx_j = np.flatnonzero(jump)
+        pad = np.arange(-int(radius), int(radius) + 1, dtype=np.int32)
+        cand = np.unique(np.clip(idx_j[:, None] + pad, 0, n - 1))
+        scan = (int(i) for i in cand)
+    except Exception:
+        scan = range(n)
     out: list[int] = []
-    for i in range(n):
+    for i in scan:
         if is_isolated_spread_spike(
             spreads,
             ts_ms,
@@ -284,10 +307,10 @@ def sanitize_spread_arrays(
     tn = None if tatn is None else np.asarray(tatn, dtype=np.float64)
     tp = None if tatnp is None else np.asarray(tatnp, dtype=np.float64)
     idx = spread_spike_indices(
-        sp.tolist(),
-        ts.tolist(),
-        tatn=None if tn is None else tn.tolist(),
-        tatnp=None if tp is None else tp.tolist(),
+        sp,
+        ts,
+        tatn=tn,
+        tatnp=tp,
         dealer_legs=dealer_legs,
     )
     if not idx:

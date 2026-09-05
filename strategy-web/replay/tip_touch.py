@@ -121,7 +121,8 @@ _parquet_frame_cache: dict[str, Any] = {"mtime": None, "df": None}
 # 3мес ≈ 90–93д включительно; 45 оставляло квартал на полном 1095d/npz (~756k).
 _SHORT_WINDOW_MAX_DAYS = 95
 _WINDOW_LOOKBACK_DAYS = 50
-_WINDOW_CACHE_TTL_SEC = 45.0
+# 45с сносило 3мес Tesт: каждый POST заново собирал ~110k минуток (5–10с) + спайки.
+_WINDOW_CACHE_TTL_SEC = 600.0
 DEFAULT_CHART_DAYS = 90
 _window_tip_cache: dict[str, Any] = {
     "key": None,
@@ -719,15 +720,13 @@ def with_weekend_trading_session(
         return prep
 
     session = np.array(prep.session, dtype=np.bool_, copy=True)
-    for i, trade_date in enumerate(prep.trade_dates):
-        if is_session_bar(trade_date, weekend_trading=True):
-            s = str(trade_date or "").replace("T", " ").strip()
-            try:
-                y, mo, d = int(s[0:4]), int(s[5:7]), int(s[8:10])
-            except (TypeError, ValueError):
-                continue
-            if datetime(y, mo, d).weekday() >= 5:
-                session[i] = True
+    # ts_ms = UTC epoch; MSK = UTC+3 (без DST). Не парсить 110k строк datetime.
+    sec_msk = (prep.ts_ms // 1000) + 3 * 3600
+    # Unix day 0 = Thursday=3, as date.weekday().
+    dow = ((sec_msk // 86400) + 3) % 7
+    tod = sec_msk % 86400
+    weekend_on = (dow >= 5) & (tod >= 10 * 3600) & (tod < 19 * 3600)
+    session |= weekend_on
 
     dt = prep.ts_ms[1:] - prep.ts_ms[:-1]
     ok = (
@@ -1512,51 +1511,47 @@ def _ensure_window_tip_series(
         hit = _window_cache_hit(wkey)
         if hit is not None:
             return hit
-    _busy_set("chart", csv=name, detail="window-io")
-    try:
-        m15, src = load_m15_ui(name, start_date=load_from or None)
-        end_day = str(end or "").strip()[:10]
-        if end_day:
-            m15 = [b for b in m15 if str(b.get("tradeDate") or "")[:10] <= end_day]
-        if not m15:
-            raise ValueError(f"no M15 bars in window {start}→{end}")
-        start_dt = _parse_td(f"{load_from} 00:00:00").replace(tzinfo=None)
-        end_s = end_day or str(m15[-1]["tradeDate"])[:10]
-        end_dt = _parse_td(f"{end_s} 23:59:59").replace(tzinfo=None)
-        m1 = load_1m_from_cache(start_dt, end_dt, extend=False)
-        t0 = time.time()
-        prep = build_prepared_tips(m15, m1)
-        meta = {
-            "csv": name,
-            "dataSourceM15": src,
-            "dataSource1m": CACHE_1M.name,
-            "m15Bars": len(m15),
-            "m1Rows": int(len(m1)),
-            "tipPoints": prep.n,
-            "edgeCount": int(len(prep.edge_i)),
-            "m15From": m15[0]["tradeDate"] if m15 else None,
-            "m15To": m15[-1]["tradeDate"] if m15 else None,
-            "m1From": str(m1["timestamp"].iloc[0]) if len(m1) else None,
-            "m1To": str(m1["timestamp"].iloc[-1]) if len(m1) else None,
-            "buildSec": round(time.time() - t0, 2),
-            "cacheHit": False,
-            "cacheTier": "window-build",
-            "window": True,
-            "windowLookbackDays": lookback,
-            "mode": "tip1m",
-            "logicRu": "касание порога на 1м tip-Z (не ждём close M15)",
-        }
-    finally:
-        _busy_set("idle")
-    with _window_build_lock:
-        hit = _window_cache_hit(wkey)
-        if hit is not None:
-            return hit
-        _window_tip_cache["key"] = wkey
-        _window_tip_cache["prep"] = prep
-        _window_tip_cache["meta"] = meta
-        _window_tip_cache["built_at"] = time.monotonic()
-        return prep, meta
+        _busy_set("chart", csv=name, detail="window-io")
+        try:
+            m15, src = load_m15_ui(name, start_date=load_from or None)
+            end_day = str(end or "").strip()[:10]
+            if end_day:
+                m15 = [b for b in m15 if str(b.get("tradeDate") or "")[:10] <= end_day]
+            if not m15:
+                raise ValueError(f"no M15 bars in window {start}→{end}")
+            start_dt = _parse_td(f"{load_from} 00:00:00").replace(tzinfo=None)
+            end_s = end_day or str(m15[-1]["tradeDate"])[:10]
+            end_dt = _parse_td(f"{end_s} 23:59:59").replace(tzinfo=None)
+            m1 = load_1m_from_cache(start_dt, end_dt, extend=False)
+            t0 = time.time()
+            prep = build_prepared_tips(m15, m1)
+            meta = {
+                "csv": name,
+                "dataSourceM15": src,
+                "dataSource1m": CACHE_1M.name,
+                "m15Bars": len(m15),
+                "m1Rows": int(len(m1)),
+                "tipPoints": prep.n,
+                "edgeCount": int(len(prep.edge_i)),
+                "m15From": m15[0]["tradeDate"] if m15 else None,
+                "m15To": m15[-1]["tradeDate"] if m15 else None,
+                "m1From": str(m1["timestamp"].iloc[0]) if len(m1) else None,
+                "m1To": str(m1["timestamp"].iloc[-1]) if len(m1) else None,
+                "buildSec": round(time.time() - t0, 2),
+                "cacheHit": False,
+                "cacheTier": "window-build",
+                "window": True,
+                "windowLookbackDays": lookback,
+                "mode": "tip1m",
+                "logicRu": "касание порога на 1м tip-Z (не ждём close M15)",
+            }
+            _window_tip_cache["key"] = wkey
+            _window_tip_cache["prep"] = prep
+            _window_tip_cache["meta"] = meta
+            _window_tip_cache["built_at"] = time.monotonic()
+            return prep, meta
+        finally:
+            _busy_set("idle")
 
 
 def _ymd_shift(ymd: str | None, days: int) -> str | None:
@@ -6178,8 +6173,6 @@ def sim_tip1m(
     # «как Прод» must replay Prod actions (Test ↔ History). Geometric only when off.
     use_replay = bool(replay_prod) or bool(as_live)
     use_weekend = bool(weekend_trading) and not use_replay
-    prep = with_weekend_trading_session(prep, enabled=use_weekend)
-    prep = _prep_without_spread_spikes(prep, dealer_legs=use_weekend)
     # Spread levels / regime only on geometric path (as_live ignores thresholds).
     use_spread = bool(spread_level_mode) and not use_replay
     use_regime = bool(regime_z_mode) and not use_replay and not use_spread
@@ -6418,6 +6411,10 @@ def sim_tip1m(
             )
         return payload
 
+    # Weekend/спайки — только cache miss. Иначе Tesт 3мес снова ~30с на 110k баров.
+    _busy_set("sim", csv=csv, detail="session")
+    prep = with_weekend_trading_session(prep, enabled=use_weekend)
+    prep = _prep_without_spread_spikes(prep, dealer_legs=use_weekend)
     wms = _window_start_ms(prep, start)
     wems = _window_end_ms(end)
     actions = None

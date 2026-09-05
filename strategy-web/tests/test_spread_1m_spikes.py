@@ -187,3 +187,41 @@ def test_sim_tp_does_not_close_on_synthetic_473_spike(monkeypatch):
 
 def test_leg_jump_constant_matches_user_8rub():
     assert SPREAD_1M_LEG_JUMP_RUB == 8.0
+
+
+def test_spike_prefilter_matches_full_scan():
+    """Candidate prefilter must not drop needles vs a full 1..n scan."""
+    rng = np.random.default_rng(0)
+    n = 2500
+    spreads = (3.2 + rng.normal(0, 0.04, n)).tolist()
+    spreads[80] = 4.73
+    spreads[400] = 4.73
+    spreads[401] = 4.73
+    spreads[900] = 1.54
+    tatn = (593.0 + rng.normal(0, 0.15, n)).tolist()
+    tatnp = (575.0 + rng.normal(0, 0.15, n)).tolist()
+    tatnp[1200] = 566.5
+    t0 = _ms("2026-06-01 10:00:00")
+    ts = [t0 + i * 60_000 for i in range(n)]
+    fast = spread_spike_indices(
+        spreads, ts, tatn=tatn, tatnp=tatnp, dealer_legs=True
+    )
+    brute: list[int] = []
+    for i in range(n):
+        if is_isolated_spread_spike(spreads, ts, i):
+            brute.append(i)
+            continue
+        if i <= 0:
+            continue
+        dt = int(ts[i]) - int(ts[i - 1])
+        if dt <= 0 or dt > 3 * 60_000:
+            continue
+        nxt_n = tatn[i + 1] if i + 1 < n else None
+        nxt_p = tatnp[i + 1] if i + 1 < n else None
+        from live.spread_1m_spikes import is_unrealistic_leg_jump
+
+        if is_unrealistic_leg_jump(tatn[i - 1], tatn[i], nxt_n) or (
+            is_unrealistic_leg_jump(tatnp[i - 1], tatnp[i], nxt_p)
+        ):
+            brute.append(i)
+    assert fast == brute
