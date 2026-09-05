@@ -2898,7 +2898,7 @@
     // Same key already computing — don't cancel/restart (refreshUi would otherwise leave zeros).
     if (key === zHeatmapCache.inFlightKey) {
       const stuckMs = zHeatmapInFlightSince ? (Date.now() - zHeatmapInFlightSince) : 0;
-      const limitMs = tip1mFetchTimeoutMs($('csvSel')?.value || '') + 5000;
+      const limitMs = tip1mSimTimeoutMs() + 5000;
       if (stuckMs < limitMs) return;
       zHeatmapCache = { ...zHeatmapCache, inFlightKey: '' };
       zHeatmapInFlightSince = 0;
@@ -2922,8 +2922,7 @@
       const modeRu = grid.spreadMode
         ? (grid.band === 'narrow' ? 'S% узкий Long' : 'S% шир. Short')
         : 'Z±';
-      const csv = $('csvSel')?.value || 'm15_tatn_255d.csv';
-      const timeoutMs = tip1mFetchTimeoutMs(csv);
+      const timeoutMs = tip1mSimTimeoutMs();
       const timeoutSec = Math.round(timeoutMs / 1000);
       const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       const tickStatus = () => {
@@ -4061,12 +4060,29 @@
     ].join('|');
   }
 
+  function tip1mWindowSpanDays() {
+    const start = $('startDate')?.value || '';
+    const startMs = startYmdToMs(start);
+    if (!Number.isFinite(startMs)) return 0;
+    const endYmd = readWindowEndYmd();
+    const endMs = Number.isFinite(endYmdToMs(endYmd)) ? endYmdToMs(endYmd) : Date.now();
+    return Math.max(1, Math.ceil((endMs - startMs) / 86_400_000) + 1);
+  }
+
   function tip1mFetchTimeoutMs(csv, chartDays) {
     const name = String(csv || '');
     const d = Number(chartDays) || 0;
-    if (name.includes('1095') || /_3y/i.test(name) || d >= 900) return 90000;
-    if (name.includes('365') || d >= 300) return 60000;
+    const span = d > 0 ? d : tip1mWindowSpanDays();
+    // CSV «3 года» + окно 3мес не должен брать 90с refresh MOEX.
+    if (span > 0 && span < 200) return 180000;
+    if (name.includes('1095') || /_3y/i.test(name) || span >= 900) return 90000;
+    if (name.includes('365') || span >= 300) return 60000;
     return 45000;
+  }
+
+  /** Сим / heatmap: не общий 90с refresh MOEX. 3мес и 3г могут идти минуты. */
+  function tip1mSimTimeoutMs() {
+    return 600000;
   }
 
   async function ensureTestDeskCorridor({ force = false } = {}) {
@@ -4180,7 +4196,14 @@
     stashM15IfNeeded();
     const st = $('status');
     if (st) st.textContent = `касание 1м · гружу график за ${tip1mChartDaysWanted()}д…`;
-    const loaded = await loadTip1mChartBars({ force: true });
+    let loaded;
+    try {
+      loaded = await loadTip1mChartBars({ force: true });
+    } catch (e) {
+      const msg = (e && e.message) ? String(e.message).slice(0, 180) : String(e);
+      if (st) st.textContent = `касание 1м · ошибка графика: ${msg}`;
+      return;
+    }
     if (!loaded || !isTip1mMode()) return;
     allPoints = loaded.bars;
     chartFocusIndex = null;
@@ -5291,7 +5314,7 @@
       adaptive_corridor_mode: isAdaptCorridorMode() ? 1 : 0,
       shelf_floor_ceiling_mode: isShelfFloorCeilingMode() ? 1 : 0,
     };
-    const timeoutMs = tip1mFetchTimeoutMs(csv);
+    const timeoutMs = tip1mSimTimeoutMs();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const started = Date.now();
@@ -5358,12 +5381,14 @@
       if (!isZHeatmapHidden()) scheduleZHeatmapUpdate(engine?.cursor, { immediate: true });
     } catch (e) {
       if (jobId !== tipSimJobId) return;
-      tipSimCache = { key: '', rows: null, meta: null, summary: null };
-      clearTipManualOverrides();
       const timedOut = e && e.name === 'AbortError';
       const msg = timedOut
         ? `таймаут ${Math.round(timeoutMs / 1000)} с — сервер не ответил (перезапустите сервис / F5)`
         : ((e && e.message) ? String(e.message).slice(0, 180) : String(e));
+      if (!timedOut) {
+        tipSimCache = { key: '', rows: null, meta: null, summary: null };
+        clearTipManualOverrides();
+      }
       if (st) {
         st.textContent = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · ошибка: ${msg}`;
       }
@@ -5405,7 +5430,7 @@
       enter_narrow: lv.enter_narrow,
       exit_narrow: lv.exit_narrow,
     };
-    const limitMs = Number(timeoutMs) > 0 ? Number(timeoutMs) : tip1mFetchTimeoutMs(csv);
+    const limitMs = Number(timeoutMs) > 0 ? Number(timeoutMs) : tip1mSimTimeoutMs();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), limitMs);
     try {

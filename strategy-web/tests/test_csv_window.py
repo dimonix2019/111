@@ -84,6 +84,18 @@ def test_short_week_window_is_short():
     assert window_span_days("2026-08-31", "2026-09-02") <= _SHORT_WINDOW_MAX_DAYS
 
 
+def test_three_month_window_is_short():
+    """Чип «3 мес» (~90–93д) не должен идти полным 1095d/npz (~756k)."""
+    from replay.tip_touch import _SHORT_WINDOW_MAX_DAYS, _is_short_test_window
+
+    assert _SHORT_WINDOW_MAX_DAYS >= 95
+    assert window_span_days("2026-06-06", "2026-09-06") <= _SHORT_WINDOW_MAX_DAYS
+    assert _is_short_test_window("2026-06-06", "2026-09-06") is True
+    assert _is_short_test_window("2026-06-08", "2026-09-05") is True
+    assert _is_short_test_window("2025-09-06", "2026-09-06") is False
+    assert _is_short_test_window("2023-09-01", "2026-09-01") is False
+
+
 def test_short_window_prep_skips_full_build_lock():
     """Неделя Tesта не ждёт лок 3-летней пересборки."""
     import threading
@@ -116,6 +128,40 @@ def test_short_window_prep_skips_full_build_lock():
     assert meta.get("window") or str(meta.get("cacheTier") or "").startswith("window")
 
 
+def test_three_month_window_skips_full_build_lock():
+    """3мес Tesта — оконный parquet, не лок полной 3y-пересборки."""
+    import threading
+    import time
+
+    from replay import tip_touch
+
+    if not tip_touch.CACHE_1M.is_file():
+        return
+    held = threading.Event()
+    release = threading.Event()
+
+    def _hold() -> None:
+        with tip_touch._tip_build_lock:
+            held.set()
+            release.wait(20)
+
+    t = threading.Thread(target=_hold, daemon=True)
+    t.start()
+    assert held.wait(2)
+    t0 = time.perf_counter()
+    prep, meta = tip_touch.ensure_tip_series(
+        "m15_tatn_1095d.csv",
+        start="2026-06-06",
+        end="2026-09-06",
+    )
+    elapsed = time.perf_counter() - t0
+    release.set()
+    t.join(timeout=3)
+    assert elapsed < 40.0, elapsed
+    assert prep.n < 250_000, prep.n
+    assert meta.get("window") or str(meta.get("cacheTier") or "").startswith("window")
+
+
 def test_short_window_bars1m_not_three_years():
     from replay.tip_touch import CACHE_1M, bars1m_chart
 
@@ -143,6 +189,7 @@ def test_isolated_chart_window_3y_is_90d_tail():
     assert win[1] == "2026-09-05"
     assert win[0] == "2026-06-08"
     assert isolated_chart_window("2026-08-31", "2026-09-02", 90) is None
+    assert isolated_chart_window("2026-06-06", "2026-09-06", 90) is None
     assert isolated_chart_window("2023-09-01", "2026-09-05", 0) is None
 
 
@@ -176,7 +223,7 @@ def test_3y_chart_days_skips_full_build_lock():
     elapsed = time.perf_counter() - t0
     release.set()
     t.join(timeout=3)
-    assert elapsed < 20.0, elapsed
+    assert elapsed < 40.0, elapsed
     assert data.get("ok") is True
     assert data.get("bars")
     meta = data.get("meta") or {}

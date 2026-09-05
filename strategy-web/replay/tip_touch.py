@@ -117,8 +117,9 @@ _tip_cache: dict[str, Any] = {
 _sim_cache: dict[str, dict[str, Any]] = {}
 _hm_cache: dict[str, dict[str, Any]] = {}
 _parquet_frame_cache: dict[str, Any] = {"mtime": None, "df": None}
-# Короткое окно Tesта (неделя/месяц): свой ряд, без ожидания 3-летнего индекса.
-_SHORT_WINDOW_MAX_DAYS = 45
+# Короткое окно Tesта (неделя/месяц/3мес): свой ряд, без ожидания 3-летнего индекса.
+# 3мес ≈ 90–93д включительно; 45 оставляло квартал на полном 1095d/npz (~756k).
+_SHORT_WINDOW_MAX_DAYS = 95
 _WINDOW_LOOKBACK_DAYS = 50
 _WINDOW_CACHE_TTL_SEC = 45.0
 DEFAULT_CHART_DAYS = 90
