@@ -56,17 +56,43 @@ const CHART_TIME_SCALE_ZOOM = {
 /** Подписи оси/кроссхейра в MSK — как Trade / chart-frame (unix без сдвига данных). */
 const CHART_TZ_MSK = 'Europe/Moscow';
 
-function formatChartTickMsk(time) {
-  if (typeof time !== 'number') return '';
-  return new Date(time * 1000).toLocaleString('ru-RU', {
+/** День + сокр. месяц + YY (MSK), опционально «, ЧЧ:ММ» — без « г.» из Intl. */
+function formatMskAxisDayMonthYear(unixSec, withTime = false) {
+  const parts = new Intl.DateTimeFormat('ru-RU', {
     timeZone: CHART_TZ_MSK,
     day: 'numeric',
     month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+    year: '2-digit',
+    ...(withTime ? { hour: '2-digit', minute: '2-digit', hour12: false } : {}),
+  }).formatToParts(new Date(unixSec * 1000));
+  const get = (t) => parts.find((p) => p.type === t)?.value ?? '';
+  const base = `${get('day')} ${get('month')} ${get('year')}`;
+  return withTime ? `${base}, ${get('hour')}:${get('minute')}` : base;
 }
+
+function formatChartTickMsk(time) {
+  if (typeof time !== 'number') return '';
+  return formatMskAxisDayMonthYear(time, true);
+}
+
+function formatOhlcLine(c) {
+  if (!c) return '';
+  const n = (v) => {
+    const x = Number(v);
+    if (!Number.isFinite(x)) return '—';
+    return x.toLocaleString('ru-RU', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+  };
+  const o = c.open != null ? c.open : c.value;
+  const h = c.high != null ? c.high : o;
+  const l = c.low != null ? c.low : o;
+  const cl = c.close != null ? c.close : o;
+  return `O: ${n(o)}  H: ${n(h)}  L: ${n(l)}  C: ${n(cl)}`;
+}
+
+try {
+  window.formatMskAxisDayMonthYear = formatMskAxisDayMonthYear;
+  window.formatOhlcLine = formatOhlcLine;
+} catch (_) { /* ignore */ }
 
 function chartTimeOptsMsk(extraTimeScale = {}) {
   return {
@@ -149,6 +175,7 @@ class ReplayChart {
     this.lastMarkers = [];
     this.lastTrades = [];
     this.lastCandleTimes = [];
+    this._lastCandles = [];
     this.selectedTradeId = null;
     this.selectedMarkerKey = null;
     this.hoverTradeId = null;
@@ -953,8 +980,10 @@ class ReplayChart {
         this._crosshairActiveSource = null;
         this._crosshairSyncTime = null;
       }
+      if (source === 'z') this._paintTestOhlc(null);
       return;
     }
+    if (source === 'z') this._paintTestOhlc(param);
     this._crosshairActiveSource = source;
     this._crosshairSyncTime = param.time;
     if (this._viewportInteracting) return;
@@ -2513,8 +2542,44 @@ class ReplayChart {
       this._drawCascadeVlines();
     }
     this._rebuildCrosshairPriceMaps(payload.candles);
+    this._lastCandles = Array.isArray(payload.candles) ? payload.candles : [];
+    this._paintTestOhlc(null);
     this._equalizePriceScales();
     this._forceSyncAfterPaint();
+  }
+
+  /** OHLC в шапке Теста: наведение = эта свеча, иначе последняя. */
+  _paintTestOhlc(param) {
+    const el = typeof document !== 'undefined'
+      ? document.getElementById('testCandleOhlc')
+      : null;
+    if (!el) return;
+    let c = null;
+    if (param && param.time != null && this.series && param.seriesData) {
+      try {
+        const sd = param.seriesData.get(this.series);
+        if (sd && (sd.open != null || sd.close != null || sd.value != null)) c = sd;
+      } catch (_) { /* ignore */ }
+    }
+    if (!c && param && param.time != null && this._lastCandles && this._lastCandles.length) {
+      const t = Number(param.time);
+      for (let i = this._lastCandles.length - 1; i >= 0; i -= 1) {
+        if (Number(this._lastCandles[i].time) === t) {
+          c = this._lastCandles[i];
+          break;
+        }
+      }
+    }
+    if (!c && this._lastCandles && this._lastCandles.length) {
+      c = this._lastCandles[this._lastCandles.length - 1];
+    }
+    if (!c) {
+      el.textContent = '—';
+      el.classList.add('is-idle');
+      return;
+    }
+    el.textContent = formatOhlcLine(c);
+    el.classList.remove('is-idle');
   }
 }
 

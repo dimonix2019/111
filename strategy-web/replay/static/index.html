@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MOEX · Торговля / История / Счёт / Тестирование</title>
-  <link rel="stylesheet" href="/static/css-shell.css?v=20260905baseChip1" />
+  <link rel="stylesheet" href="/static/css-shell.css?v=20260905deskRestore1" />
   <link rel="stylesheet" href="/static/css-testing.css?v=20260905baseChip1" />
   <link rel="stylesheet" href="/static/css-replay-ui.css?v=20260829gap1" />
-    <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260905manualRisk1" />
+    <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260905deskRestore1" />
   <link rel="stylesheet" href="/static/css-mobile.css?v=20260831sideTab1" />
 </head>
 <body>
@@ -186,6 +186,7 @@
             <div class="pnl-head">
               <div class="pnl-label" id="tradeZChartLabel">Татнефть · спред % · tip1m</div>
               <div class="pnl-head-right">
+                <span id="tradeCandleOhlc" class="trade-candle-ohlc is-idle" aria-live="polite">—</span>
                 <span class="meta" id="tradeThreshLabel">уровни L 3.2/4.0 · S 5.8/6.1</span>
                 <button type="button" class="pane-collapse-btn" id="btnExpandTradeZ" aria-pressed="false" title="На весь экран">⛶</button>
               </div>
@@ -587,6 +588,13 @@
               <div class="account-funds-label">Средства на счёте</div>
               <div class="account-funds-total" id="tradeFundsTotal">—</div>
               <div class="account-funds-cash" id="tradeFundsCash">cash —</div>
+              <div class="trade-margin-headroom" id="tradeMarginHeadroom" hidden>
+                <div class="trade-margin-headroom-label">Запас до маржин-колла</div>
+                <div class="trade-margin-headroom-meter" aria-hidden="true">
+                  <div class="trade-margin-headroom-fill" id="tradeMarginHeadroomFill"></div>
+                  <div class="trade-margin-headroom-text" id="tradeMarginHeadroomText">—</div>
+                </div>
+              </div>
               <div class="account-funds-at-open" id="tradeFundsAtOpen" hidden></div>
               <div class="account-funds-forecast" id="tradeCloseForecast" hidden>
                 <div class="account-funds-forecast-main" id="tradeCloseForecastMain">Прогноз после закрытия ≈ —</div>
@@ -772,6 +780,7 @@
           <div class="chart-pane-z-wrap" id="testChartPane">
             <div class="pnl-head test-chart-head">
               <div class="pnl-label test-primary-chart-label" id="testPrimaryChartLabel">Спред %</div>
+              <span id="testCandleOhlc" class="trade-candle-ohlc is-idle" aria-live="polite">—</span>
               <div class="pnl-head-right">
                 <div class="chip-group test-chart-overlay-chips" id="testChartOverlayChips" role="group" aria-label="Оверлеи графика спреда">
                   <button type="button" class="chip" id="btnShowCascade" aria-pressed="false"
@@ -1004,13 +1013,13 @@
 
   <script src="/static/lightweight-charts.standalone.production.js?v=20260723a12"></script>
   <!-- replay engine split (load order matters) -->
-  <script src="/static/replay-sim.js?v=20260905lots1"></script>
+  <script src="/static/replay-sim.js?v=20260905deskRestore1"></script>
   <script src="/static/replay-equity.js?v=20260905utcTs1"></script>
   <script src="/static/replay-signals.js?v=20260829dropRisk1"></script>
   <script src="/static/replay-engine-core.js?v=20260905utcTs1"></script>
-  <script src="/static/chart.js?v=20260905utcTs1"></script>
-  <script src="/static/trade.js?v=20260905utcTs1"></script>
-  <script src="/static/history.js?v=20260829comment1"></script>
+  <script src="/static/chart.js?v=20260905deskRestore1"></script>
+  <script src="/static/trade.js?v=20260905deskRestore1"></script>
+  <script src="/static/history.js?v=20260905comment1"></script>
   <script src="/static/live.js?v=20260726otc2"></script>
   <script src="/static/app.js?v=20260905baseChip1"></script>
 </body>

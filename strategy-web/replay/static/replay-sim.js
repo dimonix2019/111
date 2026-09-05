@@ -133,7 +133,7 @@ const TRADE_COLUMNS = [
   { key: 'Index', title: '#', width: 28 },
   { key: 'Direction', title: 'Напр.', width: 40 },
   { key: 'Lots', title: 'Лоты', width: 40, hint: 'Лоты пары TATN+TATNP: floor(депозит×плечо / цена пары), без потолка 80. Капитализация — шаг 1 лот.' },
-  { key: 'Source', title: 'Src', width: 52, hint: 'Источник: AUTO / BROKER / … (Prod); в Тесте —' },
+  { key: 'Source', title: 'Src', width: 52, hint: 'Источник: AUTO / BROKER / MANUAL / AUTO_TP (Prod); в Тесте — база / добор / экстра / полка' },
   {
     key: 'Comment',
     title: 'Коммент.',
@@ -393,14 +393,12 @@ function formatRub(value) {
   return `${sign}${abs.toFixed(0)}`;
 }
 
-/** Баланс счёта — без «+» как у PnL; 2 знака в «k», чтобы 99978 → 100.0k не путало. */
+/** Баланс счёта — полные рубли с пробелом тысяч (99 715), без k. */
 function formatAccountRub(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '—';
-  const abs = Math.abs(n);
   const sign = n < 0 ? '−' : '';
-  if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(2)}k`;
-  return `${sign}${Math.round(abs)}`;
+  return `${sign}${Math.round(Math.abs(n)).toLocaleString('ru-RU', { useGrouping: true })}`;
 }
 
 function formatCostRub(value) {
@@ -1697,6 +1695,13 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3, settings = {}) {
   const entrySlip = t.entry_slip_pts != null && Number.isFinite(Number(t.entry_slip_pts))
     ? Number(t.entry_slip_pts)
     : null;
+  let entryComment = t.entry_comment || t.entryComment || null;
+  let closeComment = t.close_comment || t.closeComment || null;
+  if (!String(entryComment || '').trim() && !String(closeComment || '').trim()) {
+    const legs = Array.isArray(t.legs) ? t.legs : [];
+    const note = legs[0] && typeof legs[0] === 'object' ? String(legs[0].note || '') : '';
+    if (/broker flat/i.test(note)) closeComment = 'сверка ghost';
+  }
   const exitFill = t.exit_fill_time || t.exitFillTime || null;
   const exitSignal = t.exit_signal_time || t.exitSignalTime || t.exit_time || null;
   // Выход в UI: фактическое закрытие (fill), иначе бар сигнала
@@ -1751,8 +1756,8 @@ function liveClosedToTradeRow(t, index, entryThreshold = 1.3, settings = {}) {
     direction,
     lots: t.quantity_lots != null ? Number(t.quantity_lots) : null,
     source: t.source || null,
-    entryComment: t.entry_comment || t.entryComment || null,
-    closeComment: t.close_comment || t.closeComment || null,
+    entryComment,
+    closeComment,
     entryDate: t.entry_time,
     exitDate: exitDisplay || t.exit_time || '—',
     exitFillDate: exitFill,

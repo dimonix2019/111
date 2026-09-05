@@ -888,6 +888,25 @@ body.split-dragging-v * {
   flex: 0 0 auto;
 }
 
+/* OHLC в шапке Теста / Торговли — контраст как на web 4.09 */
+.trade-candle-ohlc {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px/1.2 Consolas, 'Cascadia Code', monospace;
+  font-variant-numeric: tabular-nums;
+  color: #fde68a;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.trade-candle-ohlc.is-idle {
+  color: var(--muted, #8b95a8);
+}
+
 .pnl-label {
   font-size: 10px;
   font-weight: 600;

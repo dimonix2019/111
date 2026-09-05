@@ -62,6 +62,10 @@
   const MARKER_HIT_RADIUS_X_PX = 44;
   const MARKER_ENTRY_HIT_RADIUS_X_PX = 56;
   const TRADE_HIGHLIGHT_COLOR = '#FACC15';
+  /** Плашка + пунктир текущей цены (не цвет «L вых» #26a69a). */
+  const CURRENT_PRICE_LINE_COLOR = '#FACC15';
+  /** Цель выхода по ТП (не путать с L/S вых и жёлтой текущей ценой). */
+  const TP_EXIT_LINE_COLOR = '#FB923C';
 
   let days = 7;
   let pollTimer = null;
@@ -100,6 +104,7 @@
   let priceLines = [];
   /** Горизонтали порогов спреда % (как Z createPriceLine). */
   let spreadPriceLines = [];
+  let tpExitPriceLine = null;
   /**
    * Semi-transparent trade-band fills (BaselineSeries) — same style as Test/chart.js.
    * Bounds from enter/exit levels (L вх/вых · gap · S вых/вх) — not regime cuts.
@@ -1343,6 +1348,7 @@
       syncing = false;
     };
     const onMove = (src) => (param) => {
+      if (src === 'z') updateCandleOhlcOverlay(param);
       if (syncing) return;
       const dst = src === 'z' ? spreadChart : zChart;
       const dstSeries = src === 'z' ? spreadSeries : zSeries;
@@ -1500,7 +1506,10 @@
 
   function fmt(n, d = 2) {
     if (n == null || Number.isNaN(Number(n))) return '—';
-    return Number(n).toLocaleString('ru-RU', { maximumFractionDigits: d });
+    return Number(n).toLocaleString('ru-RU', {
+      maximumFractionDigits: d,
+      useGrouping: true,
+    });
   }
 
   /** % до порога входа/выхода: need/th×100 (100% у дальнего края, 0% у порога). */
@@ -2184,13 +2193,17 @@
     return (sec != null && sec > 1e9) ? sec : null;
   }
 
-  /** Подписи оси/кроссхейра в MSK — как chart-frame.html */
+  /** Подписи оси/кроссхейра в MSK — общий форматтер из chart.js */
   function formatChartTick(time) {
     if (typeof time !== 'number') return '';
+    if (typeof window.formatMskAxisDayMonthYear === 'function') {
+      return window.formatMskAxisDayMonthYear(time, true);
+    }
     return new Date(time * 1000).toLocaleString('ru-RU', {
       timeZone: MSK,
       day: 'numeric',
       month: 'short',
+      year: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
@@ -2213,6 +2226,57 @@
         timeFormatter: formatChartTick,
       },
     };
+  }
+
+  function hideCandleOhlcOverlay() {
+    paintTradeOhlc(null);
+  }
+
+  function candleOhlcAtTime(param) {
+    if (param && param.time != null && zSeries && !zSeriesIsLine && param.seriesData) {
+      try {
+        const sd = param.seriesData.get(zSeries);
+        if (sd && (sd.open != null || sd.close != null || sd.value != null)) {
+          return sd;
+        }
+      } catch (_) { /* ignore */ }
+    }
+    const pts = lastPaintZData;
+    if (!pts || !pts.length) return null;
+    if (param && param.time != null) {
+      const t = Number(param.time);
+      for (let i = pts.length - 1; i >= 0; i -= 1) {
+        if (Number(pts[i].time) === t) return pts[i];
+      }
+    }
+    return pts[pts.length - 1];
+  }
+
+  function paintTradeOhlc(param) {
+    const el = $('tradeCandleOhlc');
+    if (!el) return;
+    if (!zChart || !zSeries || zSeriesIsLine) {
+      el.textContent = '—';
+      el.classList.add('is-idle');
+      return;
+    }
+    const candle = candleOhlcAtTime(param);
+    if (!candle) {
+      el.textContent = '—';
+      el.classList.add('is-idle');
+      return;
+    }
+    el.textContent = typeof window.formatOhlcLine === 'function'
+      ? window.formatOhlcLine(candle)
+      : `O: ${fmt(candle.open, 2)}  H: ${fmt(candle.high, 2)}  L: ${fmt(candle.low, 2)}  C: ${fmt(candle.close, 2)}`;
+    el.classList.remove('is-idle');
+  }
+
+  /** Hover = эта свеча, иначе последняя. */
+  function updateCandleOhlcOverlay(param) {
+    const hovering = param && param.point && param.time != null
+      && param.point.x >= 0 && param.point.y >= 0;
+    paintTradeOhlc(hovering ? param : null);
   }
 
   function addSeries(chart, type, opts) {
@@ -2414,6 +2478,8 @@
       wickUpColor: '#089981', wickDownColor: '#f23645',
       lastValueVisible: true,
       priceLineVisible: true,
+      priceLineColor: CURRENT_PRICE_LINE_COLOR,
+      lastValueFillColor: CURRENT_PRICE_LINE_COLOR,
     });
   }
 
@@ -2422,7 +2488,9 @@
       color: '#089981',
       lineWidth: 2,
       lastValueVisible: true,
-      priceLineVisible: false,
+      priceLineVisible: true,
+      priceLineColor: CURRENT_PRICE_LINE_COLOR,
+      lastValueFillColor: CURRENT_PRICE_LINE_COLOR,
     });
   }
 
@@ -2460,6 +2528,10 @@
       try { if (zSeries) zSeries.removePriceLine(pl); } catch (_) {}
     });
     priceLines = [];
+    if (tpExitPriceLine) {
+      try { if (zSeries) zSeries.removePriceLine(tpExitPriceLine); } catch (_) {}
+      tpExitPriceLine = null;
+    }
     openMarkersPlugin = null;
     if (zSeries) {
       try {
@@ -2640,6 +2712,54 @@
     mk(exitW, '#26a69a', `S вых ${fmt(exitW, 1)}`);
     mk(exitN, '#26a69a', `L вых ${fmt(exitN, 1)}`);
     mk(enterN, '#2962ff', `L вх ${fmt(enterN, 1)}`);
+  }
+
+  /** Снять линию цели ТП с верхнего графика Прода. */
+  function clearTpExitSpreadLine() {
+    if (!tpExitPriceLine) return;
+    try {
+      if (zSeries && typeof zSeries.removePriceLine === 'function') {
+        zSeries.removePriceLine(tpExitPriceLine);
+      }
+    } catch (_) { /* */ }
+    tpExitPriceLine = null;
+  }
+
+  /**
+   * Горизонталь «цель выхода по ТП» на графике Прода.
+   * Уровень — close_forecast.exit_level_spread. Нет открытой / ТП выкл → линии нет.
+   */
+  function setTpExitSpreadLine(openTrade, closeForecast, settings) {
+    clearTpExitSpreadLine();
+    if (!zSeries || typeof zSeries.createPriceLine !== 'function') return;
+    if (!openTrade) return;
+    const tpRaw = Number(settings?.take_profit_pct);
+    const tpPct = Number.isFinite(tpRaw) ? tpRaw : 0;
+    if (!(tpPct > 0)) return;
+
+    const fc = closeForecast
+      || (lastCloseForecast && lastCloseForecast.exit_level_spread != null
+        ? lastCloseForecast
+        : null);
+    const pot = exitLevelPotential(fc, openTrade, {
+      settings,
+      depositRub: entryDepositRub(openTrade, settings),
+    });
+    if (!pot || !Number.isFinite(pot.spread)) return;
+
+    const title = `ТП ${fmt(tpPct, tpPct % 1 === 0 ? 0 : 1)}%`;
+    try {
+      tpExitPriceLine = zSeries.createPriceLine({
+        price: Number(pot.spread),
+        color: TP_EXIT_LINE_COLOR,
+        lineWidth: 1,
+        lineStyle: 3,
+        title,
+        axisLabelVisible: true,
+      });
+    } catch (_) {
+      tpExitPriceLine = null;
+    }
   }
 
   /** Уровни спреда из desk.spread_levels / settings (не хардкод-only). */
@@ -4137,6 +4257,8 @@
     mtlrOpen = null,
     mtlrClosed = null,
     corridor = null,
+    closeForecast = null,
+    settings = null,
   } = {}) {
     ensureCharts();
     const monMode = !!(dealer1m || weekendMonitor);
@@ -4206,11 +4328,13 @@
       setZEmptyMessage('');
       try { window.__deskChartEmptySkip = (window.__deskChartEmptySkip || 0) + 1; } catch (_) {}
       setPrimarySpreadThresholdLines(spreadLevels);
+      setTpExitSpreadLine(openTrade, closeForecast, settings);
       setSpreadThresholdLines(mtlrLv);
       paintCorridorOnChart(corridor, lastPaintZData);
       updateOpenTradeOnChart(openTrade, paintBars, closedTrades, {
         mtlrOpen, mtlrBars: mtlrPaint, mtlrClosed,
       });
+      paintTradeOhlc(null);
       if (userPinnedAwayFromLive && pinnedRange) reassertPinnedRange();
       return;
     }
@@ -4268,11 +4392,13 @@
 
     if (!dataChanged && !forceFitContent) {
       setPrimarySpreadThresholdLines(spreadLevels);
+      setTpExitSpreadLine(openTrade, closeForecast, settings);
       setSpreadThresholdLines(mtlrLv);
       paintCorridorOnChart(corridor, zData);
       updateOpenTradeOnChart(openTrade, paintBars, closedTrades, {
         mtlrOpen, mtlrBars: mtlrPaint, mtlrClosed,
       });
+      paintTradeOhlc(null);
       if (userPinnedAwayFromLive && pinnedRange) reassertPinnedRange();
       return;
     }
@@ -4283,11 +4409,13 @@
         || canTailUpdateChart(lastPaintMtlrData, mtlrCandlePts));
     if (tailOnly && applyTailChartUpdate(zData, mtlrCandlePts)) {
       setPrimarySpreadThresholdLines(spreadLevels);
+      setTpExitSpreadLine(openTrade, closeForecast, settings);
       setSpreadThresholdLines(mtlrLv);
       paintCorridorOnChart(corridor, zData);
       updateOpenTradeOnChart(openTrade, paintBars, closedTrades, {
         mtlrOpen, mtlrBars: mtlrPaint, mtlrClosed,
       });
+      paintTradeOhlc(null);
       lastBarsFingerprint = fp;
       if (!userGestureActive) {
         if (userPinnedAwayFromLive) reassertPinnedRange();
@@ -4343,6 +4471,7 @@
       updatePrimarySpreadBands(zData, spreadLevels);
       updateSpreadRegimeBands(mtlrCandlePts, mtlrLv);
       setPrimarySpreadThresholdLines(spreadLevels);
+      setTpExitSpreadLine(openTrade, closeForecast, settings);
       setSpreadThresholdLines(mtlrLv);
       paintCorridorOnChart(corridor, zData);
       updateOpenTradeOnChart(openTrade, paintBars, closedTrades, {
@@ -4350,6 +4479,7 @@
       });
       lastPaintZData = zData;
       lastPaintMtlrData = mtlrCandlePts;
+      paintTradeOhlc(null);
       if (!userGestureActive) {
         restoreOrFitVisibleRange(zData.length, mtlrCandlePts.length);
       } else {
@@ -5224,6 +5354,7 @@
         mode: incoming.mode,
         total_rub: incoming.total_rub,
         cash_rub: incoming.cash_rub,
+        margin: incoming.margin ?? lastGoodBroker?.margin ?? null,
       };
       brokerEmptyStreak = 0;
       return data;
@@ -5270,6 +5401,53 @@
     return s.length > 220 ? `${s.slice(0, 217)}…` : s;
   }
 
+  function marginHeadroomFromBroker(broker) {
+    const m = broker?.margin;
+    if (!m || typeof m !== 'object') return null;
+    if (m.headroom && typeof m.headroom === 'object') return m.headroom;
+    const liquid = Number(m.liquid_portfolio_rub);
+    const corrected = Number(m.corrected_margin_rub);
+    if (!Number.isFinite(liquid) || !Number.isFinite(corrected) || corrected <= 0) return null;
+    const free = liquid - corrected;
+    const pct = (free / corrected) * 100;
+    let zone = 'red';
+    if (pct > 30) zone = 'green';
+    else if (pct >= 10) zone = 'yellow';
+    return { free_rub: free, pct, zone };
+  }
+
+  function renderMarginHeadroom(broker) {
+    const box = $('tradeMarginHeadroom');
+    const fill = $('tradeMarginHeadroomFill');
+    const text = $('tradeMarginHeadroomText');
+    if (!box || !fill || !text) return;
+    const hr = broker && !broker.error ? marginHeadroomFromBroker(broker) : null;
+    if (!hr) {
+      box.hidden = true;
+      box.classList.remove(
+        'trade-margin-headroom--green',
+        'trade-margin-headroom--yellow',
+        'trade-margin-headroom--red',
+      );
+      fill.style.width = '0';
+      text.textContent = '—';
+      return;
+    }
+    box.hidden = false;
+    box.classList.remove(
+      'trade-margin-headroom--green',
+      'trade-margin-headroom--yellow',
+      'trade-margin-headroom--red',
+    );
+    box.classList.add(`trade-margin-headroom--${hr.zone}`);
+    const pctClamped = Math.min(100, Math.max(0, Number(hr.pct)));
+    fill.style.width = `${pctClamped}%`;
+    const freeAbs = Math.abs(Number(hr.free_rub));
+    const freePrefix = Number(hr.free_rub) < 0 ? '−' : '';
+    const pctStr = Number.isFinite(Number(hr.pct)) ? Number(hr.pct).toFixed(1) : '—';
+    text.textContent = `до колла: ${freePrefix}${fmt(freeAbs, 0)} ₽ (${pctStr}%)`;
+  }
+
   function renderFunds(broker, { pending = false } = {}) {
     const box = $('tradeFundsBox');
     const totalEl = $('tradeFundsTotal');
@@ -5289,6 +5467,7 @@
       } else {
         totalEl.textContent = pending ? '…' : '—';
         cashEl.textContent = pending ? 'брокер…' : 'нет токена — вкладка «Счёт»';
+        renderMarginHeadroom(null);
         return;
       }
     }
@@ -5300,6 +5479,7 @@
         brokerEl.hidden = false;
         brokerEl.textContent = `Брокер: ${formatBrokerError(broker.error)}`;
       }
+      renderMarginHeadroom(null);
       return;
     }
     if (broker.mode === 'prod') box.classList.add('is-prod');
@@ -5313,6 +5493,7 @@
     } else {
       cashEl.textContent = mode;
     }
+    renderMarginHeadroom(broker);
   }
 
   function renderFundsAtOpen(open, fundsTotal) {
@@ -7177,6 +7358,8 @@
       mtlrOpen: DESK_MTLR_UI_ENABLED && mtlr && mtlr.open ? mtlr.open : null,
       mtlrClosed: DESK_MTLR_UI_ENABLED && mtlr && Array.isArray(mtlr.closed) ? mtlr.closed : [],
       corridor: data.corridor || null,
+      closeForecast: data.close_forecast || lastCloseForecast,
+      settings,
     });
   }
 

@@ -76,10 +76,13 @@ def _load_portfolio() -> tuple[Any, Any, Any]:
         client = TInvestClient(mode, token)
         # Cap portfolio HTTP so a hung OperationsService cannot freeze /trade/desk.
         pf = client.get_portfolio(account, timeout=8.0)
+        from live.margin_headroom import enrich_margin_payload
+
         broker = {
             "mode": mode,
             "cash_rub": client.portfolio_cash_rub(pf),
             "total_rub": client.portfolio_total_rub(pf),
+            "margin": enrich_margin_payload(client.get_margin_attributes(account)),
         }
     except Exception as exc:
         from live.ssl_util import format_tinvest_error

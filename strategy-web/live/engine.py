@@ -375,6 +375,7 @@ def open_position(
         regime_fields = lock_fields_for_entry(lock_spread)
 
     from live.closed_metrics import account_after_from_legs
+    from live.trade_comments import entry_comment_for_open
 
     account_after_entry = account_after_from_legs(legs)
     if account_after_entry is None:
@@ -404,6 +405,12 @@ def open_position(
             "source": source,
             "legs": legs,
             "account_after_rub": account_after_entry,
+            "entry_comment": entry_comment_for_open(
+                source=source,
+                direction=position.value,
+                quantity_lots=sizing["quantity_lots"],
+                settings=settings_bundle,
+            ),
             **regime_fields,
         }
     )
@@ -528,6 +535,20 @@ def close_position(
             metrics["spread_pnl_rub"] = metrics.get("pnl_rub")
         metrics["account_delta_rub"] = delta
         metrics["pnl_rub"] = delta
+    from live.trade_comments import close_comment_for_source, entry_comment_for_open
+
+    if not open_t.get("entry_comment"):
+        metrics["entry_comment"] = entry_comment_for_open(
+            source=str(open_t.get("source") or source),
+            direction=open_t.get("direction"),
+            quantity_lots=open_t.get("quantity_lots"),
+            settings=store.get_settings_bundle(),
+        )
+    metrics["close_comment"] = close_comment_for_source(
+        source,
+        settings=store.get_settings_bundle(),
+        signal_bar=sig,
+    )
     closed = store.close_open_trade(
         exit_time=exit_time,
         exit_z=exit_z,
@@ -622,6 +643,15 @@ def reconcile_broker_open_trade(
         )
         exit_spread = snap.get("spread")
         metrics = _closed_metrics_for_open(local, exit_time=exit_time, exit_spread=exit_spread)
+        from live.trade_comments import close_comment_for_source, entry_comment_for_open
+
+        metrics["close_comment"] = close_comment_for_source("RECONCILE", ghost=True)
+        if not local.get("entry_comment"):
+            metrics["entry_comment"] = entry_comment_for_open(
+                source=str(local.get("source") or "MANUAL"),
+                direction=local.get("direction"),
+                quantity_lots=local.get("quantity_lots"),
+            )
         closed = store.close_open_trade(
             exit_time=exit_time,
             exit_z=snap.get("z"),
@@ -657,6 +687,7 @@ def reconcile_broker_open_trade(
             or ("ENTER_SHORT" if direction == "SHORT" else "ENTER_LONG")
         )
         snap_d = snap if isinstance(snap, dict) else {}
+        adopt_entry_comment = None
         # If we just ghost-closed the same lots (weekend GetPortfolio flap), keep that entry.
         try:
             for prev in store.get_closed_trades(8):
@@ -682,9 +713,20 @@ def reconcile_broker_open_trade(
                     snap_d["tatn"] = prev.get("entry_tatn")
                 if prev.get("entry_tatnp") is not None:
                     snap_d["tatnp"] = prev.get("entry_tatnp")
+                if prev.get("entry_comment"):
+                    adopt_entry_comment = str(prev.get("entry_comment"))
                 break
         except Exception:
             pass
+        from live.trade_comments import entry_comment_for_open
+
+        if not adopt_entry_comment:
+            adopt_entry_comment = entry_comment_for_open(
+                source="MANUAL",
+                direction=direction,
+                quantity_lots=lots,
+                adopted=True,
+            )
         trade_id = store.insert_open_trade(
             {
                 "mode": mode,
@@ -700,6 +742,7 @@ def reconcile_broker_open_trade(
                 "execution_notional_rub": None,
                 "source": "MANUAL",
                 "legs": [{"note": "broker adopt"}],
+                "entry_comment": adopt_entry_comment,
             }
         )
         store.log_event(

@@ -239,13 +239,15 @@ def portfolio_summary(
             if token and account:
                 try:
                     client = TInvestClient(mode, token)
+                    from live.margin_headroom import enrich_margin_payload
+
                     pf = client.get_portfolio(account)
                     broker = {
                         "mode": mode,
                         "account_id": account,
                         "cash_rub": client.portfolio_cash_rub(pf),
                         "total_rub": client.portfolio_total_rub(pf),
-                        "margin": client.get_margin_attributes(account),
+                        "margin": enrich_margin_payload(client.get_margin_attributes(account)),
                     }
                 except Exception as exc:
                     broker = {"error": str(exc), "mode": mode}

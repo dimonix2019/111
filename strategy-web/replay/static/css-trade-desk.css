@@ -1757,6 +1757,64 @@
   font-variant-numeric: tabular-nums;
 }
 
+.trade-margin-headroom {
+  margin-top: 8px;
+  margin-bottom: 2px;
+}
+
+.trade-margin-headroom-label {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+  letter-spacing: 0.03em;
+}
+
+.trade-margin-headroom-meter {
+  position: relative;
+  height: 22px;
+  border-radius: 4px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  overflow: hidden;
+}
+
+.trade-margin-headroom-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  border-radius: 3px 0 0 3px;
+  transition: width 0.25s ease, background-color 0.25s ease;
+}
+
+.trade-margin-headroom--green .trade-margin-headroom-fill {
+  background: rgba(102, 187, 106, 0.88);
+}
+
+.trade-margin-headroom--yellow .trade-margin-headroom-fill {
+  background: rgba(255, 202, 40, 0.88);
+}
+
+.trade-margin-headroom--red .trade-margin-headroom-fill {
+  background: rgba(239, 83, 80, 0.88);
+}
+
+.trade-margin-headroom-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: #f1f5f9;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+  padding: 0 6px;
+  pointer-events: none;
+}
+
 .account-funds-forecast {
   margin-top: 10px;
   padding-top: 8px;

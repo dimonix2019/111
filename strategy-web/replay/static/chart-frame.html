@@ -97,16 +97,22 @@
       console.error(msg);
     }
 
-    function formatTick(time) {
-      if (typeof time !== 'number') return '';
-      return new Date(time * 1000).toLocaleString('ru-RU', {
+    function formatMskAxisDayMonthYear(unixSec, withTime = false) {
+      const parts = new Intl.DateTimeFormat('ru-RU', {
         timeZone: MSK,
         day: 'numeric',
         month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      });
+        year: '2-digit',
+        ...(withTime ? { hour: '2-digit', minute: '2-digit', hour12: false } : {}),
+      }).formatToParts(new Date(unixSec * 1000));
+      const get = (t) => parts.find((p) => p.type === t)?.value ?? '';
+      const base = `${get('day')} ${get('month')} ${get('year')}`;
+      return withTime ? `${base}, ${get('hour')}:${get('minute')}` : base;
+    }
+
+    function formatTick(time) {
+      if (typeof time !== 'number') return '';
+      return formatMskAxisDayMonthYear(time, true);
     }
 
     function chartSize() {

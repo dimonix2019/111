@@ -33,6 +33,12 @@ class ManualTradeBody(BaseModel):
     side: str = Field(..., description="LONG | SHORT | CLOSE")
 
 
+class TradeCommentBody(BaseModel):
+    kind: str = Field(..., description="entry | close")
+    comment: str = Field("", description="Текст комментария")
+    trade_id: int | None = Field(None, description="id открытой или закрытой сделки")
+
+
 def _normalize_take_profit_pct(v: float | None) -> float | None:
     if v is None:
         return None
@@ -86,11 +92,14 @@ def live_status(
             try:
                 client = TInvestClient(mode, token)
                 pf = client.get_portfolio(account)
+                from live.margin_headroom import enrich_margin_payload
+
                 broker = {
                     "mode": mode,
                     "account_id": account,
                     "cash_rub": client.portfolio_cash_rub(pf),
                     "total_rub": client.portfolio_total_rub(pf),
+                    "margin": enrich_margin_payload(client.get_margin_attributes(account)),
                 }
             except Exception as exc:
                 broker = {"error": str(exc), "mode": mode, "account_id": account}
@@ -192,13 +201,15 @@ def portfolio() -> dict[str, Any]:
             raise RuntimeError("Нужны токен и accountId")
         client = TInvestClient(mode, token)
         pf = client.get_portfolio(account)
+        from live.margin_headroom import enrich_margin_payload
+
         return {
             "ok": True,
             "mode": mode,
             "account_id": account,
             "cash_rub": client.portfolio_cash_rub(pf),
             "total_rub": client.portfolio_total_rub(pf),
-            "margin": client.get_margin_attributes(account),
+            "margin": enrich_margin_payload(client.get_margin_attributes(account)),
             "sizing": None,
         }
     except Exception as exc:
@@ -240,6 +251,40 @@ def manual_trade(body: ManualTradeBody) -> dict[str, Any]:
         raise
     except Exception as exc:
         store.log_event(f"Trade fail: {exc}", "error")
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/trade/comment")
+def trade_comment(body: TradeCommentBody) -> dict[str, Any]:
+    """Сохранить комментарий к ручному входу (открытая) или выходу (закрытая)."""
+    kind = (body.kind or "").strip().lower()
+    text = (body.comment or "").strip()
+    if len(text) > 2000:
+        text = text[:2000]
+    try:
+        if kind == "entry":
+            open_t = store.get_open_trade()
+            if not open_t:
+                raise HTTPException(404, "Нет открытой сделки")
+            tid = int(body.trade_id) if body.trade_id is not None else int(open_t["id"])
+            if int(open_t["id"]) != tid:
+                raise HTTPException(404, "Открытая сделка не совпадает")
+            store.update_open_trade_fields(tid, {"entry_comment": text or None})
+            return {"ok": True, "kind": "entry", "trade_id": tid, "comment": text}
+        if kind == "close":
+            if body.trade_id is not None:
+                tid = int(body.trade_id)
+            else:
+                closed = store.get_closed_trades(1)
+                if not closed:
+                    raise HTTPException(404, "Нет закрытой сделки")
+                tid = int(closed[0]["id"])
+            store.update_closed_trade(tid, {"close_comment": text or None})
+            return {"ok": True, "kind": "close", "trade_id": tid, "comment": text}
+        raise HTTPException(400, "kind: entry | close")
+    except HTTPException:
+        raise
+    except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
 
 

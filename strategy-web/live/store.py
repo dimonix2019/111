@@ -234,6 +234,10 @@ def _init(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "live_closed_trades", "spread_pnl_rub", "REAL")
     _ensure_column(conn, "live_closed_trades", "exit_fill_time", "TEXT")
     _ensure_column(conn, "live_open_trades", "account_after_rub", "REAL")
+    _ensure_column(conn, "live_open_trades", "entry_comment", "TEXT")
+    _ensure_column(conn, "live_closed_trades", "entry_comment", "TEXT")
+    _ensure_column(conn, "live_closed_trades", "close_comment", "TEXT")
+    _backfill_closed_trade_comments(conn)
     conn.commit()
 
 
@@ -241,6 +245,33 @@ def _ensure_column(conn: sqlite3.Connection, table: str, col: str, typedef: str)
     cols = {str(r[1]) for r in conn.execute(f"PRAGMA table_info({table})")}
     if col not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
+
+
+def _backfill_closed_trade_comments(conn: sqlite3.Connection) -> None:
+    """Один раз: пустые комментарии ghost/AUTO и строки #20/#21."""
+    row = conn.execute(
+        "SELECT 1 FROM live_settings WHERE key = 'comments_backfill_v1'"
+    ).fetchone()
+    if row is not None:
+        return
+    from live.trade_comments import infer_missing_closed_comments, known_id_comment_patch
+
+    try:
+        closed = conn.execute("SELECT * FROM live_closed_trades").fetchall()
+    except sqlite3.OperationalError:
+        return
+    for raw in closed:
+        d = dict(raw)
+        patch = known_id_comment_patch(d)
+        patch.update(infer_missing_closed_comments({**d, **patch}))
+        if not patch:
+            continue
+        cols = ", ".join(f"{k} = ?" for k in patch)
+        vals = list(patch.values()) + [d["id"]]
+        conn.execute(f"UPDATE live_closed_trades SET {cols} WHERE id = ?", vals)
+    conn.execute(
+        "INSERT INTO live_settings(key, value) VALUES('comments_backfill_v1', '1')"
+    )
 
 
 def get_setting(key: str, default: str | None = None) -> str | None:
@@ -385,8 +416,8 @@ def insert_open_trade(trade: dict[str, Any]) -> int:
                 execution_notional_rub, source, legs_json, created_ms,
                 entry_spread_iss, entry_slip_pts,
                 entry_regime, locked_entry_z, locked_exit_z,
-                account_after_rub
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                account_after_rub, entry_comment
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 trade["mode"],
@@ -409,6 +440,7 @@ def insert_open_trade(trade: dict[str, Any]) -> int:
                 trade.get("locked_entry_z"),
                 trade.get("locked_exit_z"),
                 trade.get("account_after_rub"),
+                trade.get("entry_comment"),
             ),
         )
         conn.commit()
@@ -430,6 +462,7 @@ def update_open_trade_fields(trade_id: int, fields: dict[str, Any]) -> None:
         "locked_entry_z",
         "locked_exit_z",
         "account_after_rub",
+        "entry_comment",
     }
     cols = []
     vals: list[Any] = []
@@ -476,8 +509,9 @@ def close_open_trade(
                 execution_notional_rub, gross_rub, commission_rub, overnight_rub,
                 pnl_min_rub, pnl_max_rub, hit1_time, hit2_time, hit3_time,
                 account_after_rub, account_before_rub, account_delta_rub, spread_pnl_rub,
-                entry_regime, locked_entry_z, locked_exit_z, exit_fill_time
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                entry_regime, locked_entry_z, locked_exit_z, exit_fill_time,
+                entry_comment, close_comment
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 open_t["id"],
@@ -514,6 +548,8 @@ def close_open_trade(
                 open_t.get("locked_entry_z"),
                 open_t.get("locked_exit_z"),
                 m.get("exit_fill_time"),
+                open_t.get("entry_comment") or m.get("entry_comment"),
+                m.get("close_comment"),
             ),
         )
         conn.execute("DELETE FROM live_open_trades WHERE id = ?", (open_t["id"],))
@@ -563,6 +599,8 @@ def update_closed_trade(trade_id: int, fields: dict[str, Any]) -> None:
         "spread_pnl_rub",
         "entry_z",
         "exit_z",
+        "entry_comment",
+        "close_comment",
     }
     cols: list[str] = []
     vals: list[Any] = []
