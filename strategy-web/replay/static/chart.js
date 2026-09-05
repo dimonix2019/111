@@ -154,6 +154,15 @@ class ReplayChart {
     this.hoverTradeId = null;
     this._clickBound = false;
     this._crosshairBound = false;
+    this._crosshairSyncBound = false;
+    this._crosshairSyncing = false;
+    this._crosshairActiveSource = null;
+    /** Unix-сек последнего активного перекрестия (для reapply после zoom/resize). */
+    this._crosshairSyncTime = null;
+    this._crosshairReapplyRaf = 0;
+    this._spreadPriceByTime = new Map();
+    this._pnlPriceByTime = new Map();
+    this._deltaPriceByTime = new Map();
     this._pnlHoverDateBound = false;
     this._pnlHoverDateEl = null;
     this._refreshMarkersTimer = 0;
@@ -286,6 +295,7 @@ class ReplayChart {
     this._initPnlChart();
     this._bindResize();
     this._bindInteractions();
+    window.__replayChart = this;
   }
 
   _resolveSpreadBandBounds(levels) {
@@ -844,6 +854,7 @@ class ReplayChart {
     this.pnlRubSeries.setData([]);
     this._bindSecondaryTimeSync();
     this._bindPnlHoverDate();
+    this._bindCrosshairSync();
   }
 
   /** Дата под курсором на PnL (timeScale скрыт — встроенная подпись оси не видна). */
@@ -861,7 +872,234 @@ class ReplayChart {
     if (!this.pnlChart || this._pnlHoverDateBound) return;
     this._ensurePnlHoverDateEl();
     this._pnlHoverDateBound = true;
-    this.pnlChart.subscribeCrosshairMove((param) => this._onPnlCrosshairMove(param));
+  }
+
+  _syncPanes() {
+    return [
+      { id: 'z', chart: this.chart, series: this.series, map: this._spreadPriceByTime },
+      { id: 'delta', chart: this.deltaChart, series: this.deltaSeries, map: this._deltaPriceByTime },
+      { id: 'pnl', chart: this.pnlChart, series: this.pnlSeries, map: this._pnlPriceByTime },
+    ].filter((p) => p.chart && p.series);
+  }
+
+  /** Ближайшее значение ряда по unix-сек (tip1m↔m15 ≈ 450 с). */
+  _nearestSeriesPrice(map, time, maxDeltaSec = 450) {
+    if (!map || time == null) return null;
+    const t = Number(time);
+    if (!Number.isFinite(t)) return null;
+    if (map.has(t)) return map.get(t);
+    let best = null;
+    let bestD = Infinity;
+    for (const [ts, v] of map) {
+      const d = Math.abs(ts - t);
+      if (d < bestD) {
+        bestD = d;
+        best = v;
+      }
+    }
+    return bestD <= maxDeltaSec ? best : null;
+  }
+
+  _setCrosshairSyncPassive(dstChart, dstSeries, time, price) {
+    if (!dstChart || !dstSeries || time == null || price == null) return;
+    if (typeof dstChart.setCrosshairPosition !== 'function') return;
+    try {
+      dstChart.applyOptions({
+        crosshair: {
+          horzLine: { visible: false, labelVisible: false },
+          vertLine: { visible: true, labelVisible: true },
+        },
+      });
+      dstChart.setCrosshairPosition(price, time, dstSeries);
+    } catch (_) { /* ignore */ }
+  }
+
+  _clearCrosshairSyncPassive(dstChart) {
+    if (!dstChart) return;
+    try {
+      if (typeof dstChart.clearCrosshairPosition === 'function') {
+        dstChart.clearCrosshairPosition();
+      }
+      dstChart.applyOptions({
+        crosshair: {
+          horzLine: { visible: true, labelVisible: true },
+          vertLine: { visible: true, labelVisible: true },
+        },
+      });
+    } catch (_) { /* ignore */ }
+  }
+
+  _onCrosshairSyncMove(source, param) {
+    if (this._crosshairSyncing || this._syncingRange) return;
+    const panes = this._syncPanes();
+    const srcPane = panes.find((p) => p.id === source);
+    if (!srcPane) return;
+    const out =
+      !param?.time
+      || !param?.point
+      || param.point.x < 0
+      || param.point.y < 0;
+    if (out) {
+      if (this._crosshairActiveSource === source) {
+        this._crosshairSyncing = true;
+        try {
+          for (const p of panes) {
+            if (p.id !== source) this._clearCrosshairSyncPassive(p.chart);
+          }
+        } finally {
+          this._crosshairSyncing = false;
+        }
+        this._crosshairActiveSource = null;
+        this._crosshairSyncTime = null;
+      }
+      return;
+    }
+    this._crosshairActiveSource = source;
+    this._crosshairSyncTime = param.time;
+    if (this._viewportInteracting) return;
+    this._crosshairSyncing = true;
+    try {
+      srcPane.chart.applyOptions({
+        crosshair: {
+          horzLine: { visible: true, labelVisible: true },
+          vertLine: { visible: true, labelVisible: true },
+        },
+      });
+      for (const p of panes) {
+        if (p.id === source) continue;
+        const price = this._nearestSeriesPrice(p.map, param.time);
+        if (price == null) this._clearCrosshairSyncPassive(p.chart);
+        else this._setCrosshairSyncPassive(p.chart, p.series, param.time, price);
+      }
+    } catch (_) { /* ignore */ }
+    this._crosshairSyncing = false;
+  }
+
+  _rebuildCrosshairPriceMaps(candles) {
+    this._spreadPriceByTime = new Map();
+    for (const c of candles || []) {
+      if (c?.time == null) continue;
+      const close = Number(c.close);
+      if (Number.isFinite(close)) this._spreadPriceByTime.set(Number(c.time), close);
+    }
+    this._pnlPriceByTime = new Map();
+    const pts = this._pnlChartMode === 'account' ? this._lastEquityRub : this._lastEquityPct;
+    for (const p of pts || []) {
+      if (p?.time == null) continue;
+      const v = Number(p.value);
+      if (Number.isFinite(v)) this._pnlPriceByTime.set(Number(p.time), v);
+    }
+    this._deltaPriceByTime = new Map();
+    for (const p of this._lastDeltaPp || []) {
+      if (p?.time == null) continue;
+      const v = Number(p.value);
+      if (Number.isFinite(v)) this._deltaPriceByTime.set(Number(p.time), v);
+    }
+  }
+
+  _bindCrosshairSync() {
+    if (this._crosshairSyncBound || !this.chart) return;
+    this._crosshairSyncBound = true;
+    this._ensurePnlHoverDateEl();
+    this.chart.subscribeCrosshairMove((param) => this._onCrosshairSyncMove('z', param));
+    if (this.deltaChart) {
+      this.deltaChart.subscribeCrosshairMove((param) => this._onCrosshairSyncMove('delta', param));
+    }
+    if (this.pnlChart) {
+      this.pnlChart.subscribeCrosshairMove((param) => {
+        this._onPnlCrosshairMove(param);
+        this._onCrosshairSyncMove('pnl', param);
+      });
+    }
+  }
+
+  /** Перевыставить перекрестие на всех графиках по сохранённому time (после zoom/resize). */
+  _reapplyCrosshairSync() {
+    const time = this._crosshairSyncTime;
+    if (time == null || this._crosshairSyncing) return;
+    const panes = this._syncPanes();
+    if (!panes.length) return;
+    const srcId = this._crosshairActiveSource || 'z';
+    this._crosshairSyncing = true;
+    try {
+      const fullCrosshair = {
+        horzLine: { visible: true, labelVisible: true },
+        vertLine: { visible: true, labelVisible: true },
+      };
+      const vertOnlyCrosshair = {
+        horzLine: { visible: false, labelVisible: false },
+        vertLine: { visible: true, labelVisible: true },
+      };
+      for (const p of panes) {
+        const price = this._nearestSeriesPrice(p.map, time);
+        if (price == null || typeof p.chart.setCrosshairPosition !== 'function') continue;
+        p.chart.applyOptions({
+          crosshair: p.id === srcId ? fullCrosshair : vertOnlyCrosshair,
+        });
+        p.chart.setCrosshairPosition(price, time, p.series);
+      }
+    } catch (_) { /* ignore */ }
+    this._crosshairSyncing = false;
+  }
+
+  /** После смены visible range / resize — дождаться layout и перевыставить перекрестие. */
+  _scheduleCrosshairReapply() {
+    if (this._crosshairSyncTime == null) return;
+    if (this._crosshairReapplyRaf) cancelAnimationFrame(this._crosshairReapplyRaf);
+    this._crosshairReapplyRaf = requestAnimationFrame(() => {
+      this._crosshairReapplyRaf = 0;
+      requestAnimationFrame(() => {
+        try {
+          this._equalizePriceScales();
+          this._reapplyCrosshairSync();
+        } catch (_) { /* ignore */ }
+      });
+    });
+  }
+
+  /** Одинаковая ширина полей шкал — иначе оси времени расходятся по X. */
+  _equalizePriceScales() {
+    const charts = [this.chart, this.deltaChart, this.pnlChart].filter(Boolean);
+    if (!charts.length) return;
+    let maxLeft = CHART_SCALE_LEFT_W;
+    let maxRight = CHART_SCALE_RIGHT_W;
+    for (const c of charts) {
+      try {
+        const lw = c.priceScale('left')?.width?.();
+        const rw = c.priceScale('right')?.width?.();
+        if (Number.isFinite(lw) && lw > maxLeft) maxLeft = lw;
+        if (Number.isFinite(rw) && rw > maxRight) maxRight = rw;
+      } catch (_) { /* ignore */ }
+    }
+    const leftOpts = {
+      visible: true,
+      minimumWidth: maxLeft,
+      borderColor: TV.grid,
+    };
+    const rightOpts = {
+      visible: true,
+      minimumWidth: maxRight,
+      borderColor: TV.grid,
+    };
+    for (const c of charts) {
+      try {
+        c.priceScale('left').applyOptions(leftOpts);
+        c.priceScale('right').applyOptions(rightOpts);
+      } catch (_) { /* ignore */ }
+    }
+  }
+
+  /** После setData/resize LC асинхронно сбрасывает окно — повторно выровнять шкалы и time-range. */
+  _forceSyncAfterPaint() {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          this._equalizePriceScales();
+          const range = this.chart?.timeScale()?.getVisibleLogicalRange() || this._lastLogicalRange;
+          if (range) this._syncLogicalRangeToCharts(range, 'z');
+        } catch (_) { /* ignore */ }
+      });
+    });
   }
 
   _onPnlCrosshairMove(param) {
@@ -938,13 +1176,35 @@ class ReplayChart {
         lastValueVisible: true,
       });
       try {
-        this.pnlChart.priceScale('left').applyOptions({ visible: false });
+        this.pnlChart.priceScale('left').applyOptions({
+          visible: true,
+          minimumWidth: CHART_SCALE_LEFT_W,
+          borderColor: TV.grid,
+        });
         this.pnlChart.priceScale('right').applyOptions({
           visible: true,
           minimumWidth: CHART_SCALE_RIGHT_W,
           borderColor: TV.grid,
         });
       } catch (_) {}
+      if (this.pnlRubSeries) {
+        this.pnlRubSeries.applyOptions({
+          color: 'rgba(0,0,0,0)',
+          lineWidth: 0,
+          priceScaleId: 'left',
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+          autoscaleInfoProvider: () => ({
+            priceRange: { minValue: 0, maxValue: 1 },
+          }),
+        });
+        const spacer = (this._lastEquityRub || []).map((p) => ({
+          time: p.time,
+          value: 0.5,
+        }));
+        this.pnlRubSeries.setData(spacer);
+      }
       if (this._lastEquityRub.length) this.pnlSeries.setData(this._lastEquityRub);
       return;
     }
@@ -1304,6 +1564,8 @@ class ReplayChart {
     } catch (_) {}
     this._syncingRange = false;
     this._scheduleGuideLineUpdate(range);
+    this._equalizePriceScales();
+    this._scheduleCrosshairReapply();
   }
 
   _scheduleGuideLineUpdate(range) {
@@ -1617,6 +1879,7 @@ class ReplayChart {
       requestAnimationFrame(() => {
         this._refreshMarkers();
         this._updateHighlightLine();
+        this._scheduleCrosshairReapply();
       });
     }, 100);
   }
@@ -1832,8 +2095,10 @@ class ReplayChart {
       const range = this.chart.timeScale().getVisibleLogicalRange() || this._lastLogicalRange;
       if (range) this._syncLogicalRangeToCharts(range, 'z');
     } catch (_) {}
+    this._equalizePriceScales();
     this._scheduleRefreshMarkers();
     this._drawCascadeVlines();
+    this._scheduleCrosshairReapply();
   }
 
   _clearPriceLines() {
@@ -2196,5 +2461,10 @@ class ReplayChart {
     } else {
       this._drawCascadeVlines();
     }
+    this._rebuildCrosshairPriceMaps(payload.candles);
+    this._equalizePriceScales();
+    this._forceSyncAfterPaint();
   }
 }
+
+window.ReplayChart = ReplayChart;
