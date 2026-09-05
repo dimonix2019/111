@@ -132,7 +132,7 @@ const TRADE_COLUMNS = [
   // слева — сделка и тех. индикаторы
   { key: 'Index', title: '#', width: 28 },
   { key: 'Direction', title: 'Напр.', width: 40 },
-  { key: 'Lots', title: 'Лоты', width: 40, hint: 'Лоты спреда (Prod); в Тесте —' },
+  { key: 'Lots', title: 'Лоты', width: 40, hint: 'Лоты пары TATN+TATNP: floor(депозит×плечо / цена пары), без потолка 80. Капитализация — шаг 1 лот.' },
   { key: 'Source', title: 'Src', width: 52, hint: 'Источник: AUTO / BROKER / … (Prod); в Тесте —' },
   {
     key: 'Comment',

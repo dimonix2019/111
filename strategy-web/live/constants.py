@@ -77,7 +77,9 @@ SPREAD_LOT_RESERVE_MIN_RUB = 2_000.0
 SPREAD_LOT_MARGIN_RATE_PER_LEG = 0.30
 SPREAD_LOT_COMMISSION_BUFFER_FRACTION = 0.002
 SPREAD_LOT_MIN_LOTS = 1
-SPREAD_LOT_MAX_LOTS = 80
+# Не потолок сделок: размер по плечу (пустой счёт) / запасу маржи (уже в позиции).
+# 80 снимали 31.08; после checkout ветки снова зажался — лоты = депозит×плечо/пара.
+SPREAD_LOT_MAX_LOTS = 10_000_000
 SPREAD_LOT_MARGIN_PAIR_FRACTION = 0.50
 SPREAD_LOT_PROD_DEFAULT_LEVERAGE = 7.0
 

@@ -94,7 +94,11 @@ def compute_spread_quantity_lots(
     else:
         raw = lots_cash
 
-    qty = max(0, min(max_lots, raw))
+    # Не раздувать сверх депозит×плечо (потолка 80 нет).
+    if lots_lev > 0:
+        raw = min(raw, lots_lev)
+    cap = max_lots if max_lots and max_lots > 0 else raw
+    qty = max(0, min(cap, raw))
     exec_notional = (p_n + p_np) * lot * max(1, qty)
     return SpreadLotSizingResult(
         quantity_lots=qty,
