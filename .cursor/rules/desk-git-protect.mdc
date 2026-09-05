@@ -1,0 +1,19 @@
+---
+description: Не сносить незакоммиченный стол checkout/restore; strategy-web только в cursor/desk-*
+alwaysApply: true
+---
+
+# Стол: git-гигиена (урок 1–5.09.2026)
+
+Правки Теста 1–5.09 жили только в working tree (последний коммит стола — 31.08 `c220308`). HEAD часто был `cursor/android-*`. `git checkout -- index.html` после поломки кодировки откатил стол к 31.08.
+
+## Запрещено
+
+- `git checkout --` / `git restore` на `strategy-web/replay/**` (особенно `index.html`, `app.js`, `trade.js`, `chart.js`, CSS), если в working tree есть незакоммиченные правки стола. Кодировку чинить перезаписью файла, не checkout.
+- Класть правки `strategy-web` в ветки `cursor/android-*`.
+- `git stash pop` целиком, если stash смесь Android+web.
+
+## Обязательно
+
+- Стол: ветка `cursor/desk-*` от `main`. После фичи UI — коммит (пользователь 5.09 уже просил комитить стол).
+- Перед любым restore/checkout стола: `git status` по `strategy-web/replay/`. Если dirty — стоп.
