@@ -76,6 +76,139 @@ internal fun candleBarsToIntradayCandlePoints(bars: List<CandleBar>): List<Candl
         )
     }
 
+/** Метки с датой — для недельного графика и привязки сделок. */
+internal fun candleBarsToWeekCandlePoints(bars: List<CandleBar>): List<CandlePoint> =
+    bars.sortedBy { it.timestamp }.map { bar ->
+        CandlePoint(
+            label = bar.timestamp.format(portfolio15mLabelFormatter),
+            open = bar.open,
+            high = bar.high,
+            low = bar.low,
+            close = bar.close,
+        )
+    }
+
+/** Понедельник текущей календарной недели (МСК). */
+internal fun currentWeekMondayMsk(now: LocalDate = LocalDate.now(moexZoneId)): LocalDate {
+    val dow = now.dayOfWeek.value // Mon=1 … Sun=7
+    return now.minusDays((dow - 1).toLong())
+}
+
+/** Все цены ноги > 0 и конечны (иначе спред из дыры/нуля даёт шип). */
+internal fun legBarPricesValid(bar: CandleBar): Boolean =
+    bar.open > 0.0 && bar.high > 0.0 && bar.low > 0.0 && bar.close > 0.0 &&
+        bar.open.isFinite() && bar.high.isFinite() && bar.low.isFinite() && bar.close.isFinite()
+
+internal fun spreadPercentFromLegPrices(num: Double, den: Double): Double? {
+    if (!num.isFinite() || !den.isFinite() || num <= 0.0 || den <= 0.0) return null
+    val s = (num / den - 1.0) * 100.0
+    return s.takeIf { it.isFinite() }
+}
+
+internal fun isPlausibleSpreadPercent(s: Double): Boolean =
+    s.isFinite() && s in SPREAD_1M_CHART_MIN_PERCENT..SPREAD_1M_CHART_MAX_PERCENT
+
+/**
+ * Свечи спреда %: S = (TATN/TATNP − 1)×100 по выровненным 1м барам.
+ *
+ * Без тиков внутри минуты high/low = max/min(open, close): нельзя брать
+ * TATN.high/TATNP.low — это неодновременные экстремумы и раздувает тени (шипы).
+ * Битые ноги и outlier относительно соседей отбрасываются.
+ */
+internal fun buildSpreadPercentCandlesFromLegs(
+    tatnBars: List<CandleBar>,
+    tatnpBars: List<CandleBar>,
+): List<CandlePoint> {
+    if (tatnBars.isEmpty() || tatnpBars.isEmpty()) return emptyList()
+    val tatnByTs = tatnBars.associateBy { it.timestamp }
+    val tatnpByTs = tatnpBars.associateBy { it.timestamp }
+    val ordered = (tatnByTs.keys + tatnpByTs.keys).toSortedSet()
+    val raw = ArrayList<CandlePoint>(ordered.size)
+    for (ts in ordered) {
+        val a = tatnByTs[ts] ?: continue
+        val b = tatnpByTs[ts] ?: continue
+        if (!legBarPricesValid(a) || !legBarPricesValid(b)) continue
+        val open = spreadPercentFromLegPrices(a.open, b.open) ?: continue
+        val close = spreadPercentFromLegPrices(a.close, b.close) ?: continue
+        if (!isPlausibleSpreadPercent(open) || !isPlausibleSpreadPercent(close)) continue
+        val highCand = maxOf(open, close)
+        val lowCand = minOf(open, close)
+        raw += CandlePoint(
+            label = ts.format(portfolio15mLabelFormatter),
+            open = open,
+            high = highCand,
+            low = lowCand,
+            close = close,
+        )
+    }
+    return sanitizeSpreadPercentCandles(raw)
+}
+
+/**
+ * Убирает бары, чей open и close далеко от медианы соседних close —
+ * чтобы один битый тик не раздувал ось Y (Min/Max).
+ */
+internal fun sanitizeSpreadPercentCandles(
+    candles: List<CandlePoint>,
+    maxJumpPp: Double = SPREAD_1M_OUTLIER_JUMP_PP,
+    neighborRadius: Int = SPREAD_1M_OUTLIER_NEIGHBOR_RADIUS,
+): List<CandlePoint> {
+    if (candles.isEmpty()) return emptyList()
+    if (candles.size < 3) {
+        return candles.filter {
+            isPlausibleSpreadPercent(it.open) && isPlausibleSpreadPercent(it.close)
+        }
+    }
+    val out = ArrayList<CandlePoint>(candles.size)
+    for (i in candles.indices) {
+        val c = candles[i]
+        if (!isPlausibleSpreadPercent(c.open) || !isPlausibleSpreadPercent(c.close)) continue
+        val from = (i - neighborRadius).coerceAtLeast(0)
+        val to = (i + neighborRadius).coerceAtMost(candles.lastIndex)
+        val neighbors = candles.subList(from, to + 1).map { it.close }.sorted()
+        val med = neighbors[neighbors.size / 2]
+        val openJump = kotlin.math.abs(c.open - med)
+        val closeJump = kotlin.math.abs(c.close - med)
+        if (openJump > maxJumpPp && closeJump > maxJumpPp) continue
+        val bodyHigh = maxOf(c.open, c.close)
+        val bodyLow = minOf(c.open, c.close)
+        out += c.copy(
+            high = minOf(c.high, bodyHigh).coerceAtLeast(bodyHigh),
+            low = maxOf(c.low, bodyLow).coerceAtMost(bodyLow),
+        )
+    }
+    return out
+}
+
+internal data class MarketsSpreadWeekSnapshot(
+    val spreadCandles: List<CandlePoint>,
+    val lastBarMillis: Long,
+    val lastSpreadPercent: Double?,
+    val fetchedAtMillis: Long = System.currentTimeMillis(),
+)
+
+/** 1м TATN/TATNP с понедельника недели до завтра (МСК) → свечи спреда %. */
+internal suspend fun fetchMarketsIntraday1mWeek(): MarketsSpreadWeekSnapshot = withContext(Dispatchers.IO) {
+    val today = LocalDate.now(moexZoneId)
+    val weekFrom = currentWeekMondayMsk(today)
+    val till = today.plusDays(1)
+    val tenFrom = weekFrom.minusDays(1)
+    coroutineScope {
+        val tatn1 = async { loadCandleBars("TATN", weekFrom, till, interval = 1) }
+        val tatnp1 = async { loadCandleBars("TATNP", weekFrom, till, interval = 1) }
+        val tatn10 = async { loadCandleBars("TATN", tenFrom, till, interval = 10) }
+        val tatnp10 = async { loadCandleBars("TATNP", tenFrom, till, interval = 10) }
+        val tatnBars = appendFormingIntraday1mFrom10m(tatn1.await(), tatn10.await())
+        val tatnpBars = appendFormingIntraday1mFrom10m(tatnp1.await(), tatnp10.await())
+        val candles = buildSpreadPercentCandlesFromLegs(tatnBars, tatnpBars)
+        MarketsSpreadWeekSnapshot(
+            spreadCandles = candles,
+            lastBarMillis = maxOf(lastCandleBarMillis(tatnBars), lastCandleBarMillis(tatnpBars)),
+            lastSpreadPercent = candles.lastOrNull()?.close,
+        )
+    }
+}
+
 internal fun lastCandleBarMillis(bars: List<CandleBar>, zone: ZoneId = moexZoneId): Long =
     bars.maxOfOrNull { it.timestamp.atZone(zone).toInstant().toEpochMilli() } ?: 0L
 
@@ -117,13 +250,15 @@ internal fun appendFormingIntraday1mFrom10m(
             )
         }
         last1m == null || last1m.timestamp.isBefore(minuteBucket) -> {
+            // Только close 10м как цена текущей минуты — не тащить high/low всего 10м бара
+            // (иначе 1м спред-свеча получает ложные шипы на формирующейся минуте).
             val open = last1m?.close ?: latest10.open
             result.add(
                 CandleBar(
                     timestamp = minuteBucket,
                     open = open,
-                    high = maxOf(open, price, latest10.high),
-                    low = minOf(open, price, latest10.low),
+                    high = maxOf(open, price),
+                    low = minOf(open, price),
                     close = price,
                 ),
             )

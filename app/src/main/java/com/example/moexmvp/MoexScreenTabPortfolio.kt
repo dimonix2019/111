@@ -216,12 +216,14 @@ internal fun MoexScreenTabPortfolio(
                         },
                         portfolioLedgerIncludeAuto = portfolioLedgerIncludeAuto,
                         onPortfolioLedgerIncludeAutoChange = { v ->
-                            TinkoffSandboxStorage.setPortfolioDemoEntryMode(context, v)
-                            portfolioLedgerIncludeAuto = v
-                            sandboxSpreadAutoExecute = v
-                            if (v) {
-                                clearPendingVirtualTradeProposal(context)
-                                pendingVirtualTrade = null
+                            if (!(v && WebDeskPrefs.isOrdersOnWebOnly(context))) {
+                                TinkoffSandboxStorage.setPortfolioDemoEntryMode(context, v)
+                                portfolioLedgerIncludeAuto = v
+                                sandboxSpreadAutoExecute = v
+                                if (v) {
+                                    clearPendingVirtualTradeProposal(context)
+                                    pendingVirtualTrade = null
+                                }
                             }
                         },
                         executionMode = executionMode,

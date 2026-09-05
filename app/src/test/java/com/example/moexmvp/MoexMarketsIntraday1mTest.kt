@@ -88,6 +88,9 @@ class MoexMarketsIntraday1mTest {
         assertEquals(2, out.size)
         assertEquals(101.2, out.last().close, 1e-9)
         assertEquals(minute, out.last().timestamp)
+        // Не тащить high/low всего 10м бара в 1м свечу
+        assertEquals(101.2, out.last().high, 1e-9)
+        assertEquals(100.5, out.last().low, 1e-9)
     }
 
     @Test
@@ -121,5 +124,82 @@ class MoexMarketsIntraday1mTest {
         val points = candleBarsToIntradayCandlePoints(bars)
         assertEquals("10:00", points[0].label)
         assertEquals("10:01", points[1].label)
+    }
+
+    @Test
+    fun buildSpreadPercentCandlesFromLegs_usesBodyOnlyNotCrossExtremes() {
+        val ts = LocalDate.of(2026, 9, 4).atTime(10, 0)
+        // Широкие high/low ног: старая формула TATN.high/TATNP.low давала ~4.8%, low ~2.3%
+        val tatn = listOf(
+            CandleBar(ts, open = 650.0, high = 655.0, low = 645.0, close = 651.0),
+        )
+        val tatnp = listOf(
+            CandleBar(ts, open = 628.0, high = 632.0, low = 624.0, close = 629.0),
+        )
+        val candles = buildSpreadPercentCandlesFromLegs(tatn, tatnp)
+        assertEquals(1, candles.size)
+        val c = candles.single()
+        val open = (650.0 / 628.0 - 1.0) * 100.0
+        val close = (651.0 / 629.0 - 1.0) * 100.0
+        assertEquals(open, c.open, 1e-9)
+        assertEquals(close, c.close, 1e-9)
+        assertEquals(maxOf(open, close), c.high, 1e-9)
+        assertEquals(minOf(open, close), c.low, 1e-9)
+        // Без шипа от скрещённых экстремумов
+        assertTrue(c.high < 4.0)
+        assertTrue(c.low > 3.0)
+    }
+
+    @Test
+    fun buildSpreadPercentCandlesFromLegs_skipsBrokenLegAndOutlierSpike() {
+        val day = LocalDate.of(2026, 9, 4)
+        fun bar(min: Int, tatnClose: Double, tatnpClose: Double) = CandleBar(
+            timestamp = day.atTime(10, min),
+            open = tatnClose,
+            high = tatnClose + 0.5,
+            low = tatnClose - 0.5,
+            close = tatnClose,
+        ) to CandleBar(
+            timestamp = day.atTime(10, min),
+            open = tatnpClose,
+            high = tatnpClose + 0.5,
+            low = tatnpClose - 0.5,
+            close = tatnpClose,
+        )
+        val normal = (0..8).map { i ->
+            // ~3.5% спред
+            bar(i, 650.0 + i * 0.1, 628.0)
+        }
+        // Минута 9: нулевая нога TATNP (дыра) — не рисовать
+        val zeroLeg = CandleBar(day.atTime(10, 9), 650.0, 651.0, 649.0, 650.5) to
+            CandleBar(day.atTime(10, 9), 0.0, 0.0, 0.0, 0.0)
+        // Минута 10: синтетический битый тик → спред ~100%
+        val spike = bar(10, 1250.0, 625.0)
+        val rest = (11..14).map { i -> bar(i, 650.0, 628.0) }
+
+        val pairs = normal + zeroLeg + spike + rest
+        val tatn = pairs.map { it.first }
+        val tatnp = pairs.map { it.second }
+        val candles = buildSpreadPercentCandlesFromLegs(tatn, tatnp)
+
+        assertTrue(candles.none { it.label.endsWith("10:09") })
+        assertTrue(candles.none { it.label.endsWith("10:10") })
+        assertTrue(candles.isNotEmpty())
+        val yMin = candles.minOf { it.low }
+        val yMax = candles.maxOf { it.high }
+        assertTrue("ось не должна раздуваться битым баром: $yMin..$yMax", yMax < 5.0)
+        assertTrue("ось не должна раздуваться битым баром: $yMin..$yMax", yMin > 2.0)
+    }
+
+    @Test
+    fun sanitizeSpreadPercentCandles_dropsIsolatedJump() {
+        val base = (0..6).map { i ->
+            CandlePoint("t$i", open = 3.5, high = 3.5, low = 3.5, close = 3.5)
+        }.toMutableList()
+        base[3] = CandlePoint("t3", open = 12.0, high = 12.0, low = 12.0, close = 12.0)
+        val out = sanitizeSpreadPercentCandles(base)
+        assertEquals(6, out.size)
+        assertTrue(out.none { it.label == "t3" })
+        assertEquals(3.5, out.maxOf { it.high }, 1e-9)
     }
 }

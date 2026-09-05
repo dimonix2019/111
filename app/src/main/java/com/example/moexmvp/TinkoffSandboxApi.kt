@@ -10,8 +10,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.IOException
+import java.security.cert.CertPathValidatorException
 import java.util.Locale
 import java.util.UUID
+import javax.net.ssl.SSLHandshakeException
 
 private val jsonMediaUtf8 = "application/json; charset=utf-8".toMediaType()
 
@@ -56,6 +58,11 @@ private fun extractApiErrorMessage(httpCode: Int, body: String): String {
         msg.equals("Ошибка", ignoreCase = true) ||
         msg.equals("error", ignoreCase = true) ||
         msg.length < 4
+    val unauthHint = when {
+        httpCode == 401 || code == "16" || code == "UNAUTHENTICATED" ->
+            " Проверьте: боевой токен (не песочница), права Users/Accounts в кабинете Т‑Инвест, вставка → «Сохранить сейчас»."
+        else -> ""
+    }
     return buildString {
         append("HTTP $httpCode")
         if (code != null) append(" · code=").append(code)
@@ -68,7 +75,26 @@ private fun extractApiErrorMessage(httpCode: Int, body: String): String {
             !msg.isNullOrBlank() && vague -> append(": ").append(msg)
             snippet.isNotEmpty() -> append(": ").append(snippet)
         }
+        append(unauthHint)
     }
+}
+
+/** Понятное сообщение при CA Минцифры / MITM без trust-anchor в приложении. */
+private fun mapTlsTrustFailure(e: IOException): IOException? {
+    val chain = generateSequence<Throwable>(e) { it.cause }.toList()
+    val trustFail = chain.any {
+        it is CertPathValidatorException ||
+            it is SSLHandshakeException ||
+            (it.message?.contains("Trust anchor", ignoreCase = true) == true) ||
+            (it.message?.contains("CertPath", ignoreCase = true) == true)
+    }
+    if (!trustFail) return null
+    return IOException(
+        "HTTPS: нет доверия к сертификату (часто CA Минцифры на T‑Invest или VPN/антивирус). " +
+            "Обновите приложение; при MITM — отключите перехват HTTPS или установите user-CA. " +
+            "Исходное: ${e.message ?: e.javaClass.simpleName}",
+        e
+    )
 }
 
 private suspend fun tinkoffSbxPostRaw(
@@ -113,7 +139,7 @@ private suspend fun tinkoffSbxPostRaw(
                     }
                 }
             } catch (e: IOException) {
-                lastFailure = e
+                lastFailure = mapTlsTrustFailure(e) ?: e
             }
         }
         throw lastFailure ?: IOException("T‑Invest REST: нет доступных хостов")
@@ -1141,10 +1167,35 @@ private data class BrokerPositionRow(
 private fun parsePositionCurrentPriceRub(position: JSONObject): Double? {
     val priceObj = position.optJSONObject("currentPrice")
         ?: position.optJSONObject("current_price")
-        ?: position.optJSONObject("averagePositionPrice")
+        ?: return null
+    return quotationUnitsToDouble(priceObj)
+}
+
+private fun parsePositionAveragePriceRub(position: JSONObject): Double? {
+    val priceObj = position.optJSONObject("averagePositionPrice")
         ?: position.optJSONObject("average_position_price")
         ?: return null
     return quotationUnitsToDouble(priceObj)
+}
+
+internal data class SpreadLegAveragePrices(
+    val tatnAvgPriceRub: Double?,
+    val tatnpAvgPriceRub: Double?,
+)
+
+/** Средние цены входа по ногам TATN/TATNP из GetPortfolio. */
+internal fun parseSpreadLegAveragePrices(portfolioJson: JSONObject): SpreadLegAveragePrices {
+    var tatnAvg: Double? = null
+    var tatnpAvg: Double? = null
+    for (pos in collectPortfolioPositions(portfolioJson)) {
+        val ticker = pos.positionTicker() ?: continue
+        val avg = parsePositionAveragePriceRub(pos) ?: continue
+        when (ticker) {
+            "TATN" -> tatnAvg = avg
+            "TATNP" -> tatnpAvg = avg
+        }
+    }
+    return SpreadLegAveragePrices(tatnAvgPriceRub = tatnAvg, tatnpAvgPriceRub = tatnpAvg)
 }
 
 private fun parsePositionQuantityUnits(position: JSONObject): Int {
@@ -1182,6 +1233,92 @@ private fun collectPortfolioPositions(portfolioJson: JSONObject): List<JSONObjec
     }
     walk(portfolioJson, 0)
     return out
+}
+
+/** Состояние спрэд‑пары TATN/TATNP на счёте брокера (Prod). */
+internal data class BrokerSpreadPositionSnap(
+    val side: ZStrategyPosition,
+    val tatnLots: Int,
+    val tatnpLots: Int,
+    val expectedYieldRub: Double?,
+    val tatnPriceRub: Double?,
+    val tatnpPriceRub: Double?,
+    val portfolioTotalRub: Double?,
+) {
+    val lotsAbs: Int get() = maxOf(kotlin.math.abs(tatnLots), kotlin.math.abs(tatnpLots))
+
+    val spreadPercent: Double?
+        get() {
+            val a = tatnPriceRub ?: return null
+            val b = tatnpPriceRub ?: return null
+            if (b <= 0.0) return null
+            return (a / b - 1.0) * 100.0
+        }
+
+    /** Ключ открытой позиции для дедупа алертов (сторона + лоты). */
+    val fingerprint: String
+        get() = when (side) {
+            ZStrategyPosition.Flat -> "FLAT"
+            else -> "${side.name}|$tatnLots|$tatnpLots"
+        }
+}
+
+/**
+ * Определяет FLAT / Long / Short по знакам количеств TATN и TATNP.
+ * Long: TATN>0 и TATNP<0; Short: TATN<0 и TATNP>0.
+ */
+internal fun detectBrokerSpreadPosition(portfolioJson: JSONObject): BrokerSpreadPositionSnap {
+    val rowsByTicker = linkedMapOf<String, BrokerPositionRow>()
+    for (pos in collectPortfolioPositions(portfolioJson)) {
+        val ticker = pos.positionTicker() ?: continue
+        if (ticker != "TATN" && ticker != "TATNP") continue
+        val yieldRub = parsePositionExpectedYieldRub(pos) ?: 0.0
+        val prev = rowsByTicker[ticker]
+        rowsByTicker[ticker] = BrokerPositionRow(
+            yieldRub = (prev?.yieldRub ?: 0.0) + yieldRub,
+            currentPriceRub = parsePositionCurrentPriceRub(pos) ?: prev?.currentPriceRub,
+            quantityUnits = (prev?.quantityUnits ?: 0) + parsePositionQuantityUnits(pos),
+        )
+    }
+    val tatn = rowsByTicker["TATN"]
+    val tatnp = rowsByTicker["TATNP"]
+    val qA = tatn?.quantityUnits ?: 0
+    val qB = tatnp?.quantityUnits ?: 0
+    val side = when {
+        qA > 0 && qB < 0 -> ZStrategyPosition.Long
+        qA < 0 && qB > 0 -> ZStrategyPosition.Short
+        else -> ZStrategyPosition.Flat
+    }
+    val yieldSum = when (side) {
+        ZStrategyPosition.Flat -> null
+        else -> {
+            val ya = tatn?.yieldRub
+            val yb = tatnp?.yieldRub
+            if (ya == null && yb == null) null else (ya ?: 0.0) + (yb ?: 0.0)
+        }
+    }
+    val totalRub = runCatching {
+        fun findTotal(o: JSONObject?, depth: Int): JSONObject? {
+            if (o == null || depth > 6) return null
+            o.optJSONObject("totalAmountPortfolio")?.let { return it }
+            o.optJSONObject("total_amount_portfolio")?.let { return it }
+            val it = o.keys()
+            while (it.hasNext()) {
+                findTotal(o.optJSONObject(it.next()), depth + 1)?.let { return it }
+            }
+            return null
+        }
+        findTotal(portfolioJson, 0)?.let { quotationUnitsToDouble(it) }
+    }.getOrNull()
+    return BrokerSpreadPositionSnap(
+        side = side,
+        tatnLots = qA,
+        tatnpLots = qB,
+        expectedYieldRub = yieldSum,
+        tatnPriceRub = tatn?.currentPriceRub,
+        tatnpPriceRub = tatnp?.currentPriceRub,
+        portfolioTotalRub = totalRub,
+    )
 }
 
 /** Котировки и нереализованный PnL по ногам из GetPortfolio (как в T‑Invest). */

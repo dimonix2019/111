@@ -3,17 +3,25 @@ package com.example.moexmvp
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
-import kotlin.math.abs
 
-internal const val STRATEGY_TEST_RISK_STRONG_ENTRY_Z = 1.0
 internal const val STRATEGY_TEST_RISK_OVERNIGHT_RUB = 50.0
 internal const val STRATEGY_TEST_RISK_OVERNIGHT_HIGH_RUB = 100.0
 internal const val STRATEGY_TEST_RISK_MIDDAY_HOUR_START = 12
 internal const val STRATEGY_TEST_RISK_MIDDAY_HOUR_END = 14
 internal const val STRATEGY_TEST_RISK_PEAK_HOUR = 13
+internal const val SPREAD_RISK_WEAK_ENTRY_PP = 0.15
+internal const val SPREAD_RISK_NO_PROGRESS_PP = 0.20
+internal const val SPREAD_RISK_AGAINST_PP = 0.20
 private const val MS_PER_HOUR = 3_600_000L
 private const val MS_PER_SIX_HOURS = 6 * MS_PER_HOUR
 private const val MS_PER_DAY = 24 * MS_PER_HOUR
+
+internal data class SpreadRiskLevels(
+    val enterWide: Double = DEFAULT_SPREAD_ENTER_WIDE,
+    val exitWide: Double = 5.8,
+    val enterNarrow: Double = DEFAULT_SPREAD_ENTER_NARROW,
+    val exitNarrow: Double = 4.0,
+)
 
 internal enum class StrategyTestTradeRiskLevel {
     None,
@@ -30,7 +38,9 @@ internal enum class StrategyTestTradeRiskFlag(
     LongHold("> 2 сут", ">2д"),
     VeryHighOvernight("Overnight > 100 ₽", "Ovn100"),
     HighOvernight("Overnight > 50 ₽", "Ovn50"),
-    WeakEntryZ("|Z| < 1.0 на входе", "Z<1"),
+    WeakEntrySpread("S≈вход", "S≈вход"),
+    SpreadAgainst("S против", "S против"),
+    NoSpreadProgress("нет хода", "нет хода"),
     PeakHourEntry("Вход 13:00 MSK", "13ч"),
     MiddayEntry("Вход 12–14 MSK", "12–14"),
     FridayLongHold("Пятница + >2 сут", "Пт>2д"),
@@ -41,18 +51,18 @@ internal data class TradeRiskScoreBreakdown(
     val holdPoints: Int = 0,
     /** Overnight >100 ₽ или >50 ₽ при удержании >1 сут (+2). */
     val overnightPoints: Int = 0,
-    /** |Z| < 1.0 на входе при удержании >6 ч (+1). */
-    val weakEntryZPoints: Int = 0,
+    /** Вход едва за уровнем спреда при удержании ≥6 ч (+1). */
+    val weakEntrySpreadPoints: Int = 0,
     /** Вход 13:00 или 12–14 МСК при удержании >6 ч (+1). */
     val entryHourPoints: Int = 0,
     /** Пятница + удержание >2 сут (+1). */
     val fridayLongHoldPoints: Int = 0,
-    /** |Z| у порога входа при удержании >1 сут (+1). */
-    val nearThresholdPoints: Int = 0,
+    /** S против (+2) или нет хода к выходу ≥0.2 п.п. за сутки (+1). */
+    val spreadPathPoints: Int = 0,
 ) {
     val totalScore: Int
-        get() = holdPoints + overnightPoints + weakEntryZPoints +
-            entryHourPoints + fridayLongHoldPoints + nearThresholdPoints
+        get() = holdPoints + overnightPoints + weakEntrySpreadPoints +
+            entryHourPoints + fridayLongHoldPoints + spreadPathPoints
 }
 
 internal data class StrategyTestTradeRiskAssessment(
@@ -81,6 +91,10 @@ internal data class TradeRiskInputs(
     val entryZ: Double?,
     val overnightRubApprox: Double,
     val entryThreshold: Double,
+    val direction: ZStrategyPosition? = null,
+    val entrySpreadPercent: Double? = null,
+    val exitSpreadPercent: Double? = null,
+    val spreadLevels: SpreadRiskLevels = SpreadRiskLevels(),
 )
 
 internal fun buildTradeRiskAssessmentFromInputs(
@@ -93,10 +107,10 @@ internal fun buildTradeRiskAssessmentFromInputs(
     val flags = linkedSetOf<StrategyTestTradeRiskFlag>()
     var holdPoints = 0
     var overnightPoints = 0
-    var weakEntryZPoints = 0
+    var weakEntrySpreadPoints = 0
     var entryHourPoints = 0
     var fridayLongHoldPoints = 0
-    var nearThresholdPoints = 0
+    var spreadPathPoints = 0
 
     when {
         durationMs != null && durationMs > 5 * MS_PER_DAY -> {
@@ -122,14 +136,33 @@ internal fun buildTradeRiskAssessmentFromInputs(
         }
     }
 
-    if (
-        entryZ != null &&
-        abs(entryZ) < STRATEGY_TEST_RISK_STRONG_ENTRY_Z &&
-        durationMs != null &&
-        durationMs > MS_PER_SIX_HOURS
-    ) {
-        flags += StrategyTestTradeRiskFlag.WeakEntryZ
-        weakEntryZPoints = 1
+    val holdHours = if (durationMs != null) durationMs.toDouble() / MS_PER_HOUR else 0.0
+    val entryS = inputs.entrySpreadPercent?.takeIf { it.isFinite() }
+    val nowS = inputs.exitSpreadPercent?.takeIf { it.isFinite() }
+    val dir = inputs.direction
+    val lv = inputs.spreadLevels
+    val depth = when {
+        dir == null || entryS == null -> null
+        dir == ZStrategyPosition.Long -> lv.enterNarrow - entryS
+        dir == ZStrategyPosition.Short -> entryS - lv.enterWide
+        else -> null
+    }
+    val progress = when {
+        dir == null || entryS == null || nowS == null -> null
+        dir == ZStrategyPosition.Long -> nowS - entryS
+        dir == ZStrategyPosition.Short -> entryS - nowS
+        else -> null
+    }
+    if (depth != null && depth >= 0.0 && depth < SPREAD_RISK_WEAK_ENTRY_PP && holdHours >= 6.0) {
+        flags += StrategyTestTradeRiskFlag.WeakEntrySpread
+        weakEntrySpreadPoints = 1
+    }
+    if (progress != null && progress <= -SPREAD_RISK_AGAINST_PP) {
+        flags += StrategyTestTradeRiskFlag.SpreadAgainst
+        spreadPathPoints = 2
+    } else if (progress != null && progress < SPREAD_RISK_NO_PROGRESS_PP && holdHours >= 24.0) {
+        flags += StrategyTestTradeRiskFlag.NoSpreadProgress
+        spreadPathPoints = 1
     }
 
     if (durationMs != null && durationMs > MS_PER_SIX_HOURS) {
@@ -154,22 +187,13 @@ internal fun buildTradeRiskAssessmentFromInputs(
         fridayLongHoldPoints = 1
     }
 
-    if (
-        entryZ != null &&
-        abs(entryZ) < inputs.entryThreshold + 0.05 &&
-        durationMs != null &&
-        durationMs > MS_PER_DAY
-    ) {
-        nearThresholdPoints = 1
-    }
-
     val breakdown = TradeRiskScoreBreakdown(
         holdPoints = holdPoints,
         overnightPoints = overnightPoints,
-        weakEntryZPoints = weakEntryZPoints,
+        weakEntrySpreadPoints = weakEntrySpreadPoints,
         entryHourPoints = entryHourPoints,
         fridayLongHoldPoints = fridayLongHoldPoints,
-        nearThresholdPoints = nearThresholdPoints,
+        spreadPathPoints = spreadPathPoints,
     )
     val score = breakdown.totalScore
 
@@ -197,6 +221,9 @@ internal fun buildStrategyTestTradeRiskAssessment(
             entryZ = entryZ,
             overnightRubApprox = trade.overnightRubApprox,
             entryThreshold = entryThreshold,
+            direction = trade.direction,
+            entrySpreadPercent = trade.entrySpreadPercent,
+            exitSpreadPercent = trade.exitSpreadPercent,
         ),
         zoneId = zoneId,
     )
@@ -214,6 +241,11 @@ internal fun buildPortfolioTradeGroupRiskAssessment(
         group.exitTimeMsk
     }
     val entryZ = group.entryZ.takeUnless { it.isNaN() }
+    val dir = when {
+        group.directionLabel.contains("Short", ignoreCase = true) -> ZStrategyPosition.Short
+        group.directionLabel.contains("Long", ignoreCase = true) -> ZStrategyPosition.Long
+        else -> null
+    }
     return buildTradeRiskAssessmentFromInputs(
         TradeRiskInputs(
             entryDateLabel = group.entryTimeMsk,
@@ -221,6 +253,9 @@ internal fun buildPortfolioTradeGroupRiskAssessment(
             entryZ = entryZ,
             overnightRubApprox = group.overnightRubApprox,
             entryThreshold = entryThreshold,
+            direction = dir,
+            entrySpreadPercent = group.entrySpreadPercent.takeUnless { it.isNaN() },
+            exitSpreadPercent = group.lastSpreadPercent.takeUnless { it.isNaN() },
         ),
         zoneId = zoneId,
     )
@@ -337,10 +372,10 @@ internal fun formatPortfolioTradeRiskTotalScore(assessment: StrategyTestTradeRis
 internal fun portfolioTradeRiskBreakdownColumnTitles(): List<String> = listOf(
     ">2д",
     "Ovn",
-    "Z<1",
+    "S≈вх",
     "Час",
     "Пт",
-    "Z~п",
+    "Sход",
 )
 
 internal fun portfolioTradeRiskBreakdownPointValues(
@@ -350,10 +385,10 @@ internal fun portfolioTradeRiskBreakdownPointValues(
     return listOf(
         b.holdPoints,
         b.overnightPoints,
-        b.weakEntryZPoints,
+        b.weakEntrySpreadPoints,
         b.entryHourPoints,
         b.fridayLongHoldPoints,
-        b.nearThresholdPoints,
+        b.spreadPathPoints,
     )
 }
 

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext: Tailscale/LAN web desk (http://100.x.x.x:8765).
+  Trust:
+  - system — обычные CA Android
+  - user — корпоративный MITM / антивирус с user-CA (Android 7+ иначе «Trust anchor not found»)
+  - russian_trusted_* — CA Минцифры (T‑Invest/tbank.ru часто на Russian Trusted Sub CA)
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+            <certificates src="@raw/russian_trusted_root_ca" />
+            <certificates src="@raw/russian_trusted_sub_ca" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

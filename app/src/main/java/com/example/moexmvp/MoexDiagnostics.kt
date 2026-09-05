@@ -22,6 +22,16 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.net.ssl.SSLException
 
+/** По умолчанию запись в файл журнала выключена (logcat всё равно идёт). */
+internal const val EVENT_LOG_WRITING_DEFAULT = false
+
+private const val EVENT_LOG_PREFS = "moex_event_log"
+private const val KEY_EVENT_LOG_WRITING = "writing_enabled"
+
+/** compile-time [MoexDiagnostics.ENABLED] ∧ пользовательский тумблер. */
+internal fun shouldWriteEventLogToFile(compileEnabled: Boolean, userEnabled: Boolean): Boolean =
+    compileEnabled && userEnabled
+
 /** Кольцевой журнал событий (файл + logcat) для отладки вылетов на тестовых устройствах. */
 internal object MoexDiagnostics {
     const val ENABLED = true
@@ -35,6 +45,20 @@ internal object MoexDiagnostics {
     private var lastNetworkErrorKey: String? = null
     private var lastNetworkErrorAtMs: Long = 0L
     private const val NETWORK_ERROR_LOG_INTERVAL_MS = 5 * 60_000L
+
+    private fun prefs(context: Context) =
+        context.applicationContext.getSharedPreferences(EVENT_LOG_PREFS, Context.MODE_PRIVATE)
+
+    /** Пользовательский тумблер «О приложении» → журнал событий. */
+    fun isEventLogWritingEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_EVENT_LOG_WRITING, EVENT_LOG_WRITING_DEFAULT)
+
+    fun setEventLogWritingEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_EVENT_LOG_WRITING, enabled).apply()
+    }
+
+    private fun mayWriteToFile(context: Context): Boolean =
+        shouldWriteEventLogToFile(ENABLED, isEventLogWritingEnabled(context))
 
     fun isTransientNetworkError(throwable: Throwable): Boolean {
         var t: Throwable? = throwable
@@ -79,7 +103,7 @@ internal object MoexDiagnostics {
     fun log(context: Context, category: String, message: String) {
         val line = "${timestamp()} [$category] $message"
         Log.i(TAG, line)
-        if (!ENABLED) return
+        if (!mayWriteToFile(context)) return
         appendLine(context.applicationContext, line)
     }
 
@@ -106,6 +130,7 @@ internal object MoexDiagnostics {
     fun logUncaught(context: Context, thread: Thread, throwable: Throwable) {
         val kind = if (throwable is Error) "fatal" else "crash"
         log(context, kind, "UNCAUGHT thread=${thread.name} ${throwable.javaClass.simpleName}: ${throwable.message?.take(200)}")
+        if (!mayWriteToFile(context)) return
         throwable.stackTraceToString()
             .lineSequence()
             .take(40)

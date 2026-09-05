@@ -129,6 +129,11 @@ internal fun TinkoffSandboxTabContent(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        WebDeskMonitorCard(
+            onOrdersOnWebChanged = {
+                onSandboxPrefsChanged()
+            },
+        )
         Text(
             text = "Контур исполнения",
             color = Color(0xFFB3E5FC),
@@ -190,11 +195,16 @@ internal fun TinkoffSandboxTabContent(
                         onClick = {
                             showResetSandboxDialog = false
                             run {
-                                val typedTok = tokenInput.trim()
+                                val typedTok = tokenInput
                                 val newId = withContext(Dispatchers.IO) {
-                                    val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
-                                    val acc = TinkoffSandboxStorage.getAccountId(context) ?: accountInput.trim()
-                                    if (t.isBlank()) throw IllegalArgumentException("Нет токена")
+                                    val t = requireTokenOrThrow(
+                                        resolveAndPersistToken(context, TinkoffExecutionMode.Sandbox, typedTok),
+                                    )
+                                    val acc = resolveAndPersistAccountId(
+                                        context,
+                                        TinkoffExecutionMode.Sandbox,
+                                        accountInput,
+                                    )
                                     if (acc.isBlank()) throw IllegalArgumentException("Нет accountId — введите или выберите счёт")
                                     val n = tinkoffCloseAndOpenSandboxAccount(t, acc)
                                     TinkoffSandboxStorage.setAccountId(context, n)
@@ -203,7 +213,9 @@ internal fun TinkoffSandboxTabContent(
                                 }
                                 onAccountInputChange(newId)
                                 accounts = withContext(Dispatchers.IO) {
-                                    val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
+                                    val t = requireTokenOrThrow(
+                                        resolveAndPersistToken(context, TinkoffExecutionMode.Sandbox, typedTok),
+                                    )
                                     tinkoffGetSandboxAccounts(t)
                                 }
                                 portfolioRubLine = null
@@ -252,7 +264,7 @@ internal fun TinkoffSandboxTabContent(
         Text(
             text = when (executionMode) {
                 TinkoffExecutionMode.Sandbox ->
-                    "Режим «Ручной» / «Авто» и «Тестовая пара» — на вкладке «Портфель». Здесь — токен, счёт и пополнение."
+                    "Здесь — токен, счёт и пополнение. Мониторинг и ордера — на вкладке «Стол web» (стол на ПК)."
                 TinkoffExecutionMode.Prod ->
                     "Перед запуском боевого исполнения проверьте accountId и доступ к портфелю."
             },
@@ -356,8 +368,9 @@ internal fun TinkoffSandboxTabContent(
                         run {
                             val typedTok = tokenInput.trim()
                             val id = withContext(Dispatchers.IO) {
-                                val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
-                                if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                                val t = requireTokenOrThrow(
+                                    resolveAndPersistToken(context, TinkoffExecutionMode.Sandbox, typedTok),
+                                )
                                 val opened = tinkoffOpenSandboxAccount(t, "MOEX MVP sandbox")
                                 TinkoffSandboxStorage.setAccountId(context, opened)
                                 opened
@@ -376,10 +389,11 @@ internal fun TinkoffSandboxTabContent(
             Button(
                 onClick = {
                     run {
-                        val typedTok = tokenInput.trim()
+                        val typedTok = tokenInput
                         accounts = withContext(Dispatchers.IO) {
-                            val t = TinkoffSandboxStorage.getActiveToken(context, executionMode) ?: typedTok
-                            if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                            val t = requireTokenOrThrow(
+                                resolveAndPersistToken(context, executionMode, typedTok),
+                            )
                             tinkoffGetAccounts(executionMode, t)
                         }
                         status = if (executionMode == TinkoffExecutionMode.Prod) {
@@ -475,13 +489,14 @@ internal fun TinkoffSandboxTabContent(
             Button(
                 onClick = {
                     run {
-                        val typedTok = tokenInput.trim()
-                        val typedAcc = accountInput.trim()
+                        val typedTok = tokenInput
+                        val typedAcc = accountInput
                         val rubStr = payInRub
                         val resp = withContext(Dispatchers.IO) {
-                            val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
-                            val acc = TinkoffSandboxStorage.getAccountId(context) ?: typedAcc
-                            if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                            val t = requireTokenOrThrow(
+                                resolveAndPersistToken(context, TinkoffExecutionMode.Sandbox, typedTok),
+                            )
+                            val acc = resolveAndPersistAccountId(context, TinkoffExecutionMode.Sandbox, typedAcc)
                             if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
                             val rub = rubStr.toLongOrNull() ?: throw IllegalArgumentException("Сумма не число")
                             tinkoffSandboxPayIn(t, acc, rub)
@@ -502,12 +517,13 @@ internal fun TinkoffSandboxTabContent(
             onClick = {
                 run {
                     portfolioRubLine = null
-                    val typedTok = tokenInput.trim()
-                    val typedAcc = accountInput.trim()
+                    val typedTok = tokenInput
+                    val typedAcc = accountInput
                     val port = withContext(Dispatchers.IO) {
-                        val t = TinkoffSandboxStorage.getActiveToken(context, executionMode) ?: typedTok
-                        val acc = TinkoffSandboxStorage.getActiveAccountId(context, executionMode) ?: typedAcc
-                        if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                        val t = requireTokenOrThrow(
+                            resolveAndPersistToken(context, executionMode, typedTok),
+                        )
+                        val acc = resolveAndPersistAccountId(context, executionMode, typedAcc)
                         if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
                         tinkoffGetPortfolio(executionMode, t, acc)
                     }
@@ -543,12 +559,13 @@ internal fun TinkoffSandboxTabContent(
             Button(
                 onClick = {
                     run {
-                        val typedTok = tokenInput.trim()
-                        val typedAcc = accountInput.trim()
+                        val typedTok = tokenInput
+                        val typedAcc = accountInput
                         val (order, port) = withContext(Dispatchers.IO) {
-                            val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
-                            val acc = TinkoffSandboxStorage.getAccountId(context) ?: typedAcc
-                            if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                            val t = requireTokenOrThrow(
+                                resolveAndPersistToken(context, TinkoffExecutionMode.Sandbox, typedTok),
+                            )
+                            val acc = resolveAndPersistAccountId(context, TinkoffExecutionMode.Sandbox, typedAcc)
                             if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
                             val ord = tinkoffSandboxPostTestSingleLegOrder(t, acc, buy = true)
                             val p = tinkoffGetSandboxPortfolio(t, acc)
@@ -574,12 +591,13 @@ internal fun TinkoffSandboxTabContent(
             Button(
                 onClick = {
                     run {
-                        val typedTok = tokenInput.trim()
-                        val typedAcc = accountInput.trim()
+                        val typedTok = tokenInput
+                        val typedAcc = accountInput
                         val (order, port) = withContext(Dispatchers.IO) {
-                            val t = TinkoffSandboxStorage.getToken(context) ?: typedTok
-                            val acc = TinkoffSandboxStorage.getAccountId(context) ?: typedAcc
-                            if (t.isEmpty()) throw IllegalArgumentException("Нет токена")
+                            val t = requireTokenOrThrow(
+                                resolveAndPersistToken(context, TinkoffExecutionMode.Sandbox, typedTok),
+                            )
+                            val acc = resolveAndPersistAccountId(context, TinkoffExecutionMode.Sandbox, typedAcc)
                             if (acc.isEmpty()) throw IllegalArgumentException("Нет accountId")
                             val ord = tinkoffSandboxPostTestSingleLegOrder(t, acc, buy = false)
                             val p = tinkoffGetSandboxPortfolio(t, acc)
@@ -614,6 +632,49 @@ internal fun TinkoffSandboxTabContent(
             Text(status, color = Color(0xFFFFCC80), fontSize = 12.sp)
         }
     }
+}
+
+/**
+ * Поле ввода важнее сохранённого значения: сначала пишем текущий ввод на диск,
+ * иначе берём токен контура с диска (не наоборот — иначе старый/чужой токен бьёт 401).
+ */
+private fun resolveAndPersistToken(
+    context: android.content.Context,
+    mode: TinkoffExecutionMode,
+    tokenInput: String,
+): String {
+    val fromField = normalizeInvestToken(tokenInput)
+    if (fromField.isNotEmpty()) {
+        when (mode) {
+            TinkoffExecutionMode.Sandbox -> TinkoffSandboxStorage.setToken(context, fromField)
+            TinkoffExecutionMode.Prod -> TinkoffSandboxStorage.setProdToken(context, fromField)
+        }
+        return fromField
+    }
+    return TinkoffSandboxStorage.getActiveToken(context, mode).orEmpty()
+}
+
+private fun resolveAndPersistAccountId(
+    context: android.content.Context,
+    mode: TinkoffExecutionMode,
+    accountInput: String,
+): String {
+    val fromField = accountInput.trim()
+    if (fromField.isNotEmpty()) {
+        when (mode) {
+            TinkoffExecutionMode.Sandbox -> TinkoffSandboxStorage.setAccountId(context, fromField)
+            TinkoffExecutionMode.Prod -> TinkoffSandboxStorage.setProdAccountId(context, fromField)
+        }
+        return fromField
+    }
+    return TinkoffSandboxStorage.getActiveAccountId(context, mode).orEmpty()
+}
+
+private fun requireTokenOrThrow(token: String): String {
+    if (token.isEmpty()) {
+        throw IllegalArgumentException("Сначала вставьте и сохраните токен")
+    }
+    return token
 }
 
 private fun formatPayInResult(resp: JSONObject): String {
