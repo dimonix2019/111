@@ -164,35 +164,42 @@ def _extract_js_fn(name: str, js: str) -> str:
 
 
 def test_trade_js_spread_thresholds_match_python():
-    """Regex guard: JS defaults and regime cuts must match Python constants."""
+    """JS fallback + determineSpreadLevelSignalJs must track Python constants."""
     js = TRADE_JS.read_text(encoding="utf-8")
     fn = _extract_js_fn("determineSpreadLevelSignalJs", js)
 
-    def _default(th_key: str, py_val: float) -> None:
-        pat = rf"\?\?\s*{re.escape(str(py_val))}"
-        assert re.search(pat, fn), (
-            f"trade.js {th_key} default {py_val} missing in determineSpreadLevelSignalJs"
-        )
-
-    _default("enter_wide", DEFAULT_SPREAD_ENTER_WIDE)
-    _default("exit_wide", DEFAULT_SPREAD_EXIT_WIDE)
-    _default("enter_narrow", DEFAULT_SPREAD_ENTER_NARROW)
-    _default("exit_narrow", DEFAULT_SPREAD_EXIT_NARROW)
-
-    assert re.search(rf"curS\s*>\s*{SPREAD_WIDTH_WIDE_MIN}", fn), (
-        "JS wide regime cut must match SPREAD_WIDTH_WIDE_MIN"
+    assert "spreadCfgSpread()" in fn, "determineSpreadLevelSignalJs must use spreadCfgSpread()"
+    assert "spreadCfgLevels(lv)" in fn, "determineSpreadLevelSignalJs must use spreadCfgLevels(lv)"
+    assert re.search(r"cfg\.regime_wide_min", fn), (
+        "JS wide regime cut must use cfg.regime_wide_min"
     )
-    assert re.search(rf"curS\s*<\s*{SPREAD_WIDTH_NARROW_MAX}", fn), (
-        "JS narrow regime cut must match SPREAD_WIDTH_NARROW_MAX"
+    assert re.search(r"cfg\.regime_narrow_max", fn), (
+        "JS narrow regime cut must use cfg.regime_narrow_max"
     )
 
-    # Badge/tooltip fallbacks in same file should stay aligned.
-    for val in (
-        DEFAULT_SPREAD_ENTER_WIDE,
-        DEFAULT_SPREAD_EXIT_WIDE,
-        DEFAULT_SPREAD_ENTER_NARROW,
-        DEFAULT_SPREAD_EXIT_NARROW,
+    fb = _extract_js_spread_cfg_fallback(js)
+    assert fb["enter_wide"] == DEFAULT_SPREAD_ENTER_WIDE
+    assert fb["exit_wide"] == DEFAULT_SPREAD_EXIT_WIDE
+    assert fb["enter_narrow"] == DEFAULT_SPREAD_ENTER_NARROW
+    assert fb["exit_narrow"] == DEFAULT_SPREAD_EXIT_NARROW
+    assert fb["regime_narrow_max"] == SPREAD_WIDTH_NARROW_MAX
+    assert fb["regime_wide_min"] == SPREAD_WIDTH_WIDE_MIN
+
+
+def _extract_js_spread_cfg_fallback(js: str) -> dict[str, float]:
+    m = re.search(r"SPREAD_CFG_FALLBACK\s*=\s*Object\.freeze\(\s*\{([^}]+)\}", js, re.S)
+    assert m, "SPREAD_CFG_FALLBACK not found in trade.js"
+    block = m.group(1)
+    out: dict[str, float] = {}
+    for key in (
+        "enter_wide",
+        "exit_wide",
+        "enter_narrow",
+        "exit_narrow",
+        "regime_narrow_max",
+        "regime_wide_min",
     ):
-        assert str(val) in js or (val == 4.0 and "4, 1" in js), (
-            f"trade.js spread level literal {val} missing"
-        )
+        km = re.search(rf"{key}\s*:\s*([0-9.]+)", block)
+        assert km, f"SPREAD_CFG_FALLBACK.{key} missing"
+        out[key] = float(km.group(1))
+    return out

@@ -36,6 +36,65 @@
   /** S% ближе уровня входа/выхода → «подготовка» (режим спред-уровней) */
   const PHASE_NEAR_S = 0.30;
 
+  /** Offline fallback — must match live/constants.py + spread_regime.py */
+  const SPREAD_CFG_FALLBACK = Object.freeze({
+    enter_wide: 6.1,
+    exit_wide: 5.8,
+    enter_narrow: 3.2,
+    exit_narrow: 4.0,
+    regime_narrow_max: 3.5,
+    regime_wide_min: 5.5,
+  });
+
+  function spreadCfgSpread() {
+    const sp = window.__strategyConfig?.spread;
+    const fb = SPREAD_CFG_FALLBACK;
+    return {
+      enter_wide: Number(sp?.enter_wide ?? fb.enter_wide),
+      exit_wide: Number(sp?.exit_wide ?? fb.exit_wide),
+      enter_narrow: Number(sp?.enter_narrow ?? fb.enter_narrow),
+      exit_narrow: Number(sp?.exit_narrow ?? fb.exit_narrow),
+      regime_narrow_max: Number(sp?.regime_narrow_max ?? fb.regime_narrow_max),
+      regime_wide_min: Number(sp?.regime_wide_min ?? fb.regime_wide_min),
+    };
+  }
+
+  function spreadCfgLevels(lv) {
+    const cfg = spreadCfgSpread();
+    return {
+      enter_wide: Number(lv?.enter_wide ?? cfg.enter_wide),
+      exit_wide: Number(lv?.exit_wide ?? cfg.exit_wide),
+      enter_narrow: Number(lv?.enter_narrow ?? cfg.enter_narrow),
+      exit_narrow: Number(lv?.exit_narrow ?? cfg.exit_narrow),
+    };
+  }
+
+  let strategyConfigPromise = null;
+  async function fetchStrategyConfig() {
+    if (window.__strategyConfig?.version && window.__strategyConfig.version !== 'fallback') {
+      return window.__strategyConfig;
+    }
+    if (strategyConfigPromise) return strategyConfigPromise;
+    strategyConfigPromise = (async () => {
+      try {
+        const r = await fetch('/api/live/strategy-config', { cache: 'no-store' });
+        if (!r.ok) throw new Error(String(r.status));
+        window.__strategyConfig = await r.json();
+      } catch (_) {
+        window.__strategyConfig = {
+          spread: { ...SPREAD_CFG_FALLBACK },
+          tp_pct: 2.0,
+          version: 'fallback',
+        };
+      }
+      return window.__strategyConfig;
+    })();
+    return strategyConfigPromise;
+  }
+  window.__fetchStrategyConfig = fetchStrategyConfig;
+  window.__spreadCfgSpread = spreadCfgSpread;
+  window.__spreadCfgFallback = SPREAD_CFG_FALLBACK;
+
   const TRADE_SPREAD_DEFAULT = 150;
   const TRADE_SPREAD_MIN = 48;
   const TRADE_Z_MIN = 120;
@@ -967,7 +1026,8 @@
       if ([en, xn, xw, ew].every((n) => Number.isFinite(n))) {
         thLab.textContent = `уровни L ${fmt(en, 1)}/${fmt(xn, 1)} · S ${fmt(xw, 1)}/${fmt(ew, 1)}`;
       } else {
-        thLab.textContent = 'уровни спреда';
+        const cfg = spreadCfgSpread();
+        thLab.textContent = `уровни L ${fmt(cfg.enter_narrow, 1)}/${fmt(cfg.exit_narrow, 1)} · S ${fmt(cfg.exit_wide, 1)}/${fmt(cfg.enter_wide, 1)}`;
       }
     }
     if (mtlrThLab) {
@@ -1637,11 +1697,13 @@
         || String(settings.spread_level_mode) === '1');
     if (!on && !(sl && sl.spread_level_mode)) return '';
     const lv = (sl && sl.levels) || {};
+    const cfg = spreadCfgSpread();
+    const levels = spreadCfgLevels(lv);
     const label = (sl && sl.current_label_ru) || '—';
     // S% — на полосе рынка; здесь только зона (узкий / переход / широкий).
     const blocked = sl && sl.entry_blocked ? ' · вход запрещён' : '';
     return (
-      `<span class="badge-spread-levels" title="Short ≥${fmt(lv.enter_wide ?? 6.1, 1)} / ≤${fmt(lv.exit_wide ?? 5.8, 1)} · Long ≤${fmt(lv.enter_narrow ?? 3.2, 1)} / ≥${fmt(lv.exit_narrow ?? 4, 1)} · переход без входа">`
+      `<span class="badge-spread-levels" title="Short ≥${fmt(levels.enter_wide, 1)} / ≤${fmt(levels.exit_wide, 1)} · Long ≤${fmt(levels.enter_narrow, 1)} / ≥${fmt(levels.exit_narrow, 1)} · переход без входа">`
       + `спред-уровни · ${escapeHtml(String(label))}${blocked}</span>`
     );
   }
@@ -1655,14 +1717,16 @@
     if (prevS == null || curS == null || !Number.isFinite(prevS) || !Number.isFinite(curS)) {
       return 'NONE';
     }
-    const enterW = Number(lv?.enter_wide ?? 6.1);
-    const exitW = Number(lv?.exit_wide ?? 5.8);
-    const enterN = Number(lv?.enter_narrow ?? 3.2);
-    const exitN = Number(lv?.exit_narrow ?? 4.0);
+    const cfg = spreadCfgSpread();
+    const levels = spreadCfgLevels(lv);
+    const enterW = levels.enter_wide;
+    const exitW = levels.exit_wide;
+    const enterN = levels.enter_narrow;
+    const exitN = levels.exit_narrow;
     const p = String(pos || 'FLAT').toUpperCase();
     if (p === 'FLAT') {
-      if (prevS < enterW && curS >= enterW && curS > 5.5) return 'ENTER_SHORT';
-      if (prevS > enterN && curS <= enterN && curS < 3.5) return 'ENTER_LONG';
+      if (prevS < enterW && curS >= enterW && curS > cfg.regime_wide_min) return 'ENTER_SHORT';
+      if (prevS > enterN && curS <= enterN && curS < cfg.regime_narrow_max) return 'ENTER_LONG';
       return 'NONE';
     }
     if (p === 'LONG') {
@@ -1681,17 +1745,18 @@
       && (settings.spread_level_mode === true || settings.spread_level_mode == null
         || String(settings.spread_level_mode) === '1'));
     if (spreadOn) {
+      const cfg = spreadCfgSpread();
       return {
-        entry: Number(settings?.spread_enter_wide ?? 6.1),
-        exit: Number(settings?.spread_exit_wide ?? 5.8),
+        entry: Number(settings?.spread_enter_wide ?? cfg.enter_wide),
+        exit: Number(settings?.spread_exit_wide ?? cfg.exit_wide),
         regimeOn: false,
         spreadOn: true,
         allowEntry: true,
         levels: {
-          enter_wide: Number(settings?.spread_enter_wide ?? 6.1),
-          exit_wide: Number(settings?.spread_exit_wide ?? 5.8),
-          enter_narrow: Number(settings?.spread_enter_narrow ?? 3.2),
-          exit_narrow: Number(settings?.spread_exit_narrow ?? 4.0),
+          enter_wide: Number(settings?.spread_enter_wide ?? cfg.enter_wide),
+          exit_wide: Number(settings?.spread_exit_wide ?? cfg.exit_wide),
+          enter_narrow: Number(settings?.spread_enter_narrow ?? cfg.enter_narrow),
+          exit_narrow: Number(settings?.spread_exit_narrow ?? cfg.exit_narrow),
         },
       };
     }
@@ -1765,10 +1830,11 @@
       && (settings.spread_level_mode === true || settings.spread_level_mode == null
         || String(settings.spread_level_mode) === '1');
     if (spreadOn) {
-      const en = fmtRuleLvl(settings.spread_enter_narrow, 3.2);
-      const xn = fmtRuleLvl(settings.spread_exit_narrow, 4.0);
-      const ew = fmtRuleLvl(settings.spread_enter_wide, 6.1);
-      const xw = fmtRuleLvl(settings.spread_exit_wide, 5.8);
+      const cfg = spreadCfgSpread();
+      const en = fmtRuleLvl(settings.spread_enter_narrow, cfg.enter_narrow);
+      const xn = fmtRuleLvl(settings.spread_exit_narrow, cfg.exit_narrow);
+      const ew = fmtRuleLvl(settings.spread_enter_wide, cfg.enter_wide);
+      const xw = fmtRuleLvl(settings.spread_exit_wide, cfg.exit_wide);
       items.push(
         `<span class="badge-rule badge-rule-spread" title="Уровни спреда Prod: Long вход ${en} → выход ${xn} · Short вход ${ew} → выход ${xw}">`
         + `L ${en}→${xn} · S ${ew}→${xw}</span>`
@@ -2224,14 +2290,15 @@
    */
   function resolveSpreadTradeBandBounds(levels) {
     const lv = levels || {};
+    const cfg = spreadCfgSpread();
     const num = (v, fb) => {
       const n = Number(v);
       return Number.isFinite(n) ? n : fb;
     };
-    const enterW = num(lv.enter_wide, 6.1);
-    const exitW = num(lv.exit_wide, 5.8);
-    const enterN = num(lv.enter_narrow, 3.2);
-    const exitN = num(lv.exit_narrow, 4.0);
+    const enterW = num(lv.enter_wide, cfg.enter_wide);
+    const exitW = num(lv.exit_wide, cfg.exit_wide);
+    const enterN = num(lv.enter_narrow, cfg.enter_narrow);
+    const exitN = num(lv.exit_narrow, cfg.exit_narrow);
     const loHi = (a, b) => (a <= b ? { lo: a, hi: b } : { lo: b, hi: a });
     const narrow = loHi(enterN, exitN);
     const wide = loHi(exitW, enterW);
@@ -2521,9 +2588,7 @@
         ...CHART_SCROLL_SCALE,
       });
       // Bands first → under candles (как Test chart.js).
-      ensurePrimarySpreadBands({
-        enter_wide: 6.1, exit_wide: 5.8, enter_narrow: 3.2, exit_narrow: 4.0,
-      });
+      ensurePrimarySpreadBands(spreadCfgLevels(null));
       // Candles by default (dealer + tip1m). Line only if candle API missing.
       const candle = makeZCandleSeries(zChart);
       if (candle) {
@@ -2676,20 +2741,21 @@
     const sl = spreadLevelsPayload || {};
     const lv = sl.levels || {};
     const cuts = sl.cuts || {};
+    const cfg = spreadCfgSpread();
     const num = (v, fallback) => {
       const n = Number(v);
       return Number.isFinite(n) ? n : fallback;
     };
     return {
       levels: {
-        enter_wide: num(lv.enter_wide ?? settings?.spread_enter_wide, 6.1),
-        exit_wide: num(lv.exit_wide ?? settings?.spread_exit_wide, 5.8),
-        enter_narrow: num(lv.enter_narrow ?? settings?.spread_enter_narrow, 3.2),
-        exit_narrow: num(lv.exit_narrow ?? settings?.spread_exit_narrow, 4.0),
+        enter_wide: num(lv.enter_wide ?? settings?.spread_enter_wide, cfg.enter_wide),
+        exit_wide: num(lv.exit_wide ?? settings?.spread_exit_wide, cfg.exit_wide),
+        enter_narrow: num(lv.enter_narrow ?? settings?.spread_enter_narrow, cfg.enter_narrow),
+        exit_narrow: num(lv.exit_narrow ?? settings?.spread_exit_narrow, cfg.exit_narrow),
       },
       cuts: {
-        narrow_max: num(cuts.narrow_max, 3.5),
-        wide_min: num(cuts.wide_min, 5.5),
+        narrow_max: num(cuts.narrow_max, cfg.regime_narrow_max),
+        wide_min: num(cuts.wide_min, cfg.regime_wide_min),
       },
     };
   }
@@ -6266,7 +6332,8 @@
         if ([en, xn, xw, ew].every((n) => Number.isFinite(n))) {
           label.textContent = `уровни L ${fmt(en, 1)}/${fmt(xn, 1)} · S ${fmt(xw, 1)}/${fmt(ew, 1)}`;
         } else {
-          label.textContent = 'уровни спреда';
+          const cfg = spreadCfgSpread();
+          label.textContent = `уровни L ${fmt(cfg.enter_narrow, 1)}/${fmt(cfg.exit_narrow, 1)} · S ${fmt(cfg.exit_wide, 1)}/${fmt(cfg.enter_wide, 1)}`;
         }
         label.classList.toggle('pnl-label-dealer', !!dealer1m);
       }
@@ -8327,6 +8394,7 @@
       });
     });
     // Prefetch порогов сразу (Ctrl+F5 → не ждать открытия вкладки / desk)
+    fetchStrategyConfig().catch(() => {});
     const cached = loadCachedParamsLocal();
     if (cached) hydrateParams(cached, { force: true });
     hydrateParamsFromServer().catch(() => {});

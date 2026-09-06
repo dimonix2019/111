@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from live import engine, store
 from live.signals import Position
+from live.strategy_config import get_strategy_config
 from live.tinvest import TInvestClient, normalize_token
 
 router = APIRouter(prefix="/api/live", tags=["live"])
@@ -48,6 +49,12 @@ def _normalize_take_profit_pct(v: float | None) -> float | None:
         return None
     allowed = (0.0, 1.0, 2.0, 3.0)
     return min(allowed, key=lambda x: abs(x - n))
+
+
+@router.get("/strategy-config")
+def strategy_config() -> dict[str, Any]:
+    """Spread thresholds and desk defaults — single source from live/constants.py."""
+    return get_strategy_config()
 
 
 @router.get("/status")

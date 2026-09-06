@@ -100,9 +100,23 @@
   const Z_HEATMAP_HEIGHT_MIN = 120;
   const TRADES_SUMMARY_MIN = 120;
 
-  /** Prod tip1m spread-% levels (live/constants.py) — UI mark + fixed other band. */
-  const HM_PROD_WIDE = { enter: 6.1, exit: 5.8 };
-  const HM_PROD_NARROW = { enter: 3.2, exit: 4.0 };
+  /** Prod tip1m spread-% levels — from GET /api/live/strategy-config (fallback = constants.py). */
+  function hmProdSpreadWide() {
+    const sp = window.__strategyConfig?.spread;
+    const fb = window.__spreadCfgFallback || { enter_wide: 6.1, exit_wide: 5.8 };
+    return {
+      enter: Number(sp?.enter_wide ?? fb.enter_wide),
+      exit: Number(sp?.exit_wide ?? fb.exit_wide),
+    };
+  }
+  function hmProdSpreadNarrow() {
+    const sp = window.__strategyConfig?.spread;
+    const fb = window.__spreadCfgFallback || { enter_narrow: 3.2, exit_narrow: 4.0 };
+    return {
+      enter: Number(sp?.enter_narrow ?? fb.enter_narrow),
+      exit: Number(sp?.exit_narrow ?? fb.exit_narrow),
+    };
+  }
   const HM_S_WIDE_DEFAULTS = { entryMin: 5.6, entryMax: 7.0, exitMin: 5.0, exitMax: 6.2, step: 0.2 };
   const HM_S_NARROW_DEFAULTS = { entryMin: 2.4, entryMax: 3.8, exitMin: 3.4, exitMax: 4.8, step: 0.2 };
   const HM_Z_DEFAULTS = { entryMin: 0.5, entryMax: 2.5, exitMin: 0.3, step: 0.1 };
@@ -2461,22 +2475,24 @@
     const raw = localStorage.getItem(LS.hmSpreadEnterWide);
     const n = parseFloat(String(raw || '').replace(',', '.'));
     if (raw == null || raw === '' || (Number.isFinite(n) && Math.abs(n - 6.2) < 1e-9)) {
-      localStorage.setItem(LS.hmSpreadEnterWide, String(HM_PROD_WIDE.enter));
+      localStorage.setItem(LS.hmSpreadEnterWide, String(hmProdSpreadWide().enter));
     }
     localStorage.setItem(LS.hmSpreadEnterWideV61, '1');
   }
 
   function readHmSelectedSpreadLevels() {
     migrateHmSpreadEnterWide61();
-    const ew = parseFloat(localStorage.getItem(LS.hmSpreadEnterWide) || String(HM_PROD_WIDE.enter));
-    const xw = parseFloat(localStorage.getItem(LS.hmSpreadExitWide) || String(HM_PROD_WIDE.exit));
-    const en = parseFloat(localStorage.getItem(LS.hmSpreadEnterNarrow) || String(HM_PROD_NARROW.enter));
-    const xn = parseFloat(localStorage.getItem(LS.hmSpreadExitNarrow) || String(HM_PROD_NARROW.exit));
+    const wide = hmProdSpreadWide();
+    const narrow = hmProdSpreadNarrow();
+    const ew = parseFloat(localStorage.getItem(LS.hmSpreadEnterWide) || String(wide.enter));
+    const xw = parseFloat(localStorage.getItem(LS.hmSpreadExitWide) || String(wide.exit));
+    const en = parseFloat(localStorage.getItem(LS.hmSpreadEnterNarrow) || String(narrow.enter));
+    const xn = parseFloat(localStorage.getItem(LS.hmSpreadExitNarrow) || String(narrow.exit));
     return {
-      enter_wide: Number.isFinite(ew) ? ew : HM_PROD_WIDE.enter,
-      exit_wide: Number.isFinite(xw) ? xw : HM_PROD_WIDE.exit,
-      enter_narrow: Number.isFinite(en) ? en : HM_PROD_NARROW.enter,
-      exit_narrow: Number.isFinite(xn) ? xn : HM_PROD_NARROW.exit,
+      enter_wide: Number.isFinite(ew) ? ew : wide.enter,
+      exit_wide: Number.isFinite(xw) ? xw : wide.exit,
+      enter_narrow: Number.isFinite(en) ? en : narrow.enter,
+      exit_narrow: Number.isFinite(xn) ? xn : narrow.exit,
     };
   }
 
@@ -2875,7 +2891,7 @@
       ? (grid.band === 'narrow' ? lv.exit_narrow : lv.exit_wide)
       : cur.exit;
     const prodMark = grid.spreadMode
-      ? (grid.band === 'narrow' ? HM_PROD_NARROW : HM_PROD_WIDE)
+      ? (grid.band === 'narrow' ? hmProdSpreadNarrow() : hmProdSpreadWide())
       : null;
     if (key === zHeatmapCache.key && zHeatmapCache.cells) {
       host.innerHTML = renderZHeatmapHtml(zHeatmapCache.cells, grid, curEntry, curExit, prodMark);
@@ -6678,7 +6694,10 @@
     });
   }
 
-  function startReplayUi() {
+  async function startReplayUi() {
+    if (window.__fetchStrategyConfig) {
+      await window.__fetchStrategyConfig().catch(() => {});
+    }
     loadSettings();
     migrateHmSpreadEnterWide61();
     forceFinalBarsSourceOnce();
