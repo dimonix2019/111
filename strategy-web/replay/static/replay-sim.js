@@ -1484,6 +1484,8 @@ function makeTradeRow(t) {
     direction: t.direction,
     lots: t.lots ?? null,
     source: t.source || null,
+    tag: t.tag || null,
+    exitReason: t.exitReason || t.exit_reason || null,
     comment: commentRaw || '—',
     commentTitle: commentRaw || '',
     notional: t.notional != null && Number.isFinite(Number(t.notional))

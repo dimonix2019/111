@@ -78,3 +78,44 @@ def test_weekend_entry_split_from_tag_buckets():
     assert by_tag["weekend"] == {"n": 2, "pnlRub": 70.0}
     total = sum(v["pnlRub"] for v in by_tag.values())
     assert total == 178.0
+
+
+def test_shelf_not_dumped_into_main():
+    """Пол–потолок пишет в кошелёк базы (src «база») — столбик полка, не База."""
+    assert _by_tag_bucket({"tag": "пол–потолок", "source": "база"}) == "shelf_ff"
+    assert _by_tag_bucket({"tag": "пол-потолок", "source": "база"}) == "shelf_ff"
+    assert _by_tag_bucket({"source": "пол–потолок"}) == "shelf_ff"
+    assert _by_tag_bucket({"tag": "", "source": "база", "exitReason": "shelf_edge"}) == "shelf_ff"
+    assert _by_tag_bucket({"tag": "main", "source": "база", "exitReason": "shelf_displace"}) == "main"
+    result = attach_by_tag(
+        {
+            "trades": [
+                {
+                    "tag": "пол–потолок",
+                    "source": "база",
+                    "status": "Закрыта",
+                    "net": 250,
+                    "entryDate": "2026-01-12 10:00",
+                },
+                {
+                    "tag": "main",
+                    "source": "база",
+                    "status": "Закрыта",
+                    "net": 100,
+                    "entryDate": "2026-01-12 11:00",
+                },
+                {
+                    "tag": "shelf_ff",
+                    "source": "пол–потолок",
+                    "status": "Закрыта",
+                    "net": 15,
+                    "entryDate": "2026-01-10 11:00",
+                },
+            ],
+            "summary": {"pnlRub": 365},
+        }
+    )
+    by_tag = result["summary"]["by_tag"]
+    assert by_tag["shelf_ff"] == {"n": 1, "pnlRub": 250.0}
+    assert by_tag["main"] == {"n": 1, "pnlRub": 100.0}
+    assert by_tag["weekend"] == {"n": 1, "pnlRub": 15.0}

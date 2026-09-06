@@ -5099,6 +5099,25 @@ def _is_weekend_entry_msk(trade: dict[str, Any] | None) -> bool:
         return False
 
 
+def _is_shelf_floor_ceiling_trade(trade: dict[str, Any], tag: str, src: str) -> bool:
+    """Пол–потолок: tag/source/причина. Не путать с кошельком базы и shelf_displace."""
+    blob = f"{tag} {src}"
+    if tag in ("shelf_ff", "shelf", "полка"):
+        return True
+    if "shelf_ff" in blob or "полка" in blob:
+        return True
+    if "пол" in blob and "потол" in blob:
+        return True
+    reason = str(
+        trade.get("exitReason") or trade.get("exit_reason") or ""
+    ).strip().lower()
+    if reason in ("shelf_edge", "shelf_break"):
+        return True
+    if reason.startswith("shelf_") and reason != "shelf_displace":
+        return True
+    return False
+
+
 def _by_tag_bucket(trade: dict[str, Any] | None) -> str | None:
     """main / addon / extra / shelf_ff. Качалка и коридор в бублик не входят."""
     if not trade:
@@ -5112,7 +5131,7 @@ def _by_tag_bucket(trade: dict[str, Any] | None) -> str | None:
         return "addon"
     if tag in ("extra", "extreme", "экстра") or src in ("экстра", "extra"):
         return "extra"
-    if tag in ("shelf_ff", "shelf") or ("пол" in src and "потолок" in src) or src == "полка":
+    if _is_shelf_floor_ceiling_trade(trade, tag, src):
         return "shelf_ff"
     if tag in ("main", "база", "") or src in ("база", "main", "auto", ""):
         return "main"

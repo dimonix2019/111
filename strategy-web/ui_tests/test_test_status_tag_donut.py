@@ -8,7 +8,7 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 BASE_URL = os.environ.get("MOEX_DESK_URL", "http://127.0.0.1:8765").rstrip("/")
-CACHE_BUST = "20260906weTag1"
+CACHE_BUST = "20260906shelfBar1"
 
 
 def _ok_json(route: Route, payload: dict) -> None:
@@ -153,6 +153,10 @@ def test_status_pnl_not_timings_and_tag_donut(page: Page) -> None:
     expect(chart).to_contain_text("экстра")
     expect(chart).to_contain_text("полка")
     expect(chart).to_contain_text("выходные")
+    shelf_row = chart.locator(".tag-share-row").filter(has_text="полка")
+    expect(shelf_row).to_contain_text("20%")
+    expect(shelf_row).to_contain_text("2")
+    expect(shelf_row).to_contain_text("₽")
     chart_text = chart.inner_text()
     assert "качалка" not in chart_text.lower()
     assert "%" in chart_text
@@ -250,5 +254,89 @@ def test_tag_share_weekend_legend_when_chip_on(page: Page) -> None:
     expect(weekend_row).to_contain_text("₽")
     base_row = chart.locator(".tag-share-row").filter(has_text="База")
     expect(base_row).to_contain_text("70%")
+    assert not errors, f"pageerror: {errors}"
+
+
+def _stub_tip1m_shelf_in_base(route: Route) -> None:
+    """API ошибочно свалил полку в main — UI должен вынуть ₽ в столбик полка."""
+    _ok_json(
+        route,
+        {
+            "trades": [
+                {
+                    "index": 1,
+                    "direction": "Long",
+                    "tag": "main",
+                    "source": "база",
+                    "entryDate": "2026-01-12 10:15",
+                    "exitDate": "2026-01-12 11:00",
+                    "status": "Закрыта",
+                    "net": 4000,
+                    "gross": 4000,
+                    "commission": 0,
+                    "overnight": 0,
+                },
+                {
+                    "index": 2,
+                    "direction": "Short",
+                    "tag": "пол–потолок",
+                    "source": "база",
+                    "exitReason": "shelf_edge",
+                    "entryDate": "2026-01-13 10:30",
+                    "exitDate": "2026-01-13 13:00",
+                    "status": "Закрыта",
+                    "net": 6000,
+                    "gross": 6000,
+                    "commission": 0,
+                    "overnight": 0,
+                },
+            ],
+            "summary": {
+                "trades": 2,
+                "wins": 2,
+                "pnlRub": 10000,
+                "retPct": 10.0,
+                "finalEquityRub": 110000,
+                "openCount": 0,
+                "by_tag": {
+                    "main": {"n": 2, "pnlRub": 10000},
+                    "addon": {"n": 0, "pnlRub": 0},
+                    "extra": {"n": 0, "pnlRub": 0},
+                    "shelf_ff": {"n": 0, "pnlRub": 0},
+                    "weekend": {"n": 0, "pnlRub": 0},
+                },
+            },
+            "params": {},
+            "meta": {},
+        },
+    )
+
+
+@pytest.mark.ui
+def test_tag_share_shelf_not_swallowed_by_base(page: Page) -> None:
+    errors: list[str] = []
+    page.on("pageerror", lambda exc: errors.append(str(exc)))
+    page.add_init_script(
+        """() => {
+          localStorage.setItem('moexReplay.viewMode', 'replay');
+          localStorage.removeItem('moexReplay.weekendTrading');
+        }"""
+    )
+    page.route("**/api/sim/tip1m", _stub_tip1m_shelf_in_base)
+    page.goto(f"{BASE_URL}/?v={CACHE_BUST}", wait_until="domcontentloaded")
+    expect(page.locator("#app")).to_be_visible(timeout=30_000)
+    replay_chip = page.locator('.chip-view[data-view="replay"]')
+    if "active" not in (replay_chip.get_attribute("class") or ""):
+        replay_chip.click()
+    expect(replay_chip).to_have_class(re.compile(r"\bactive\b"))
+
+    chart = page.locator("#tagShareDonut")
+    expect(chart).to_be_visible(timeout=15_000)
+    shelf_row = chart.locator(".tag-share-row").filter(has_text="полка")
+    expect(shelf_row).to_contain_text("60%")
+    expect(shelf_row).to_contain_text("6")
+    expect(shelf_row).to_contain_text("₽")
+    base_row = chart.locator(".tag-share-row").filter(has_text="База")
+    expect(base_row).to_contain_text("40%")
     assert not errors, f"pageerror: {errors}"
 
