@@ -5085,7 +5085,7 @@ def resolve_test_wallets(
 
 
 def _is_weekend_entry_msk(trade: dict[str, Any] | None) -> bool:
-    """Вход в субботу или воскресенье по календарю МСК (entryDate уже wall-clock MSK)."""
+    """Чип «выходные»: сб/вс 10:00–18:59 МСК — те же правила, что is_session_bar."""
     if not isinstance(trade, dict):
         return False
     raw = trade.get("entryDate") or trade.get("entry_date") or ""
@@ -5094,9 +5094,14 @@ def _is_weekend_entry_msk(trade: dict[str, Any] | None) -> bool:
         return False
     try:
         y, mo, d = int(s[0:4]), int(s[5:7]), int(s[8:10])
-        return datetime(y, mo, d).weekday() >= 5
+        if datetime(y, mo, d).weekday() < 5:
+            return False
     except ValueError:
         return False
+    if len(s) < 16:
+        return True
+    hm = s[11:16]
+    return "10:00" <= hm < "19:00"
 
 
 def _is_shelf_floor_ceiling_trade(trade: dict[str, Any], tag: str, src: str) -> bool:
@@ -5138,6 +5143,32 @@ def _by_tag_bucket(trade: dict[str, Any] | None) -> str | None:
     return None
 
 
+def _trade_tag_pnl(trade: dict[str, Any]) -> float:
+    """Закрытая — net; открытая — openMtm. Как итог счёта при тумблере чипа."""
+    status = str(trade.get("status") or "")
+    if status == "Открыта":
+        raw = trade.get("openMtm")
+        if raw is None:
+            raw = trade.get("mtm")
+    else:
+        raw = trade.get("net")
+    try:
+        pnl = float(raw or 0.0)
+    except (TypeError, ValueError):
+        pnl = 0.0
+    return pnl if math.isfinite(pnl) else 0.0
+
+
+def _chip_bucket_for_trade(trade: dict[str, Any] | None) -> str | None:
+    """Один ключ с чипами Теста: weekend / addon / extra / shelf_ff / main."""
+    key = _by_tag_bucket(trade)
+    if key is None:
+        return None
+    if _is_weekend_entry_msk(trade):
+        return "weekend"
+    return key
+
+
 def attach_by_tag(result: dict[str, Any]) -> dict[str, Any]:
     """Сводка вклада тегов — только агрегация, симуляцию не меняет."""
     if not isinstance(result, dict):
@@ -5150,27 +5181,108 @@ def attach_by_tag(result: dict[str, Any]) -> dict[str, Any]:
         "weekend": {"n": 0, "pnlRub": 0.0},
     }
     for t in result.get("trades") or []:
-        if str(t.get("status") or "") == "Открыта":
-            continue
         if not isinstance(t, dict):
             continue
-        key = _by_tag_bucket(t)
+        key = _chip_bucket_for_trade(t)
         if key not in buckets:
             continue
-        if _is_weekend_entry_msk(t):
-            key = "weekend"
-        try:
-            pnl = float(t.get("net") or 0.0)
-        except (TypeError, ValueError):
-            pnl = 0.0
-        if not math.isfinite(pnl):
-            pnl = 0.0
         buckets[key]["n"] += 1
-        buckets[key]["pnlRub"] += pnl
+        buckets[key]["pnlRub"] += _trade_tag_pnl(t)
     for key in buckets:
         buckets[key]["pnlRub"] = round(buckets[key]["pnlRub"], 2)
     summary = dict(result.get("summary") or {})
     summary["by_tag"] = buckets
+    if summary.get("by_tag_mode") != "chip_delta":
+        summary["by_tag_mode"] = "closed_net"
+    result["summary"] = summary
+    return result
+
+
+def _account_pnl_for_chip(result: dict[str, Any], *, compound: bool) -> float:
+    """Число, которое меняет тумблер: закрытый PnL, при капитализации + MTM открытых."""
+    summary = result.get("summary") if isinstance(result, dict) else None
+    summary = summary if isinstance(summary, dict) else {}
+    try:
+        closed = float(summary.get("pnlRub") or 0.0)
+    except (TypeError, ValueError):
+        closed = 0.0
+    if not math.isfinite(closed):
+        closed = 0.0
+    raw_open = summary.get("openMtmRub")
+    if raw_open is None:
+        open_mtm = _open_mtm_from_trades(list(result.get("trades") or []))
+    else:
+        try:
+            open_mtm = float(raw_open)
+        except (TypeError, ValueError):
+            open_mtm = 0.0
+        if not math.isfinite(open_mtm):
+            open_mtm = 0.0
+    return (closed + open_mtm) if compound else closed
+
+
+_CHIP_CONTRIB_FLAGS: tuple[tuple[str, str, bool], ...] = (
+    ("main", "base_mode", True),
+    ("addon", "addon_mode", False),
+    ("extra", "extreme_addon_mode", False),
+    ("shelf_ff", "shelf_floor_ceiling_mode", False),
+    ("weekend", "weekend_trading", False),
+)
+
+
+def apply_chip_contrib(
+    result: dict[str, Any],
+    *,
+    compound: bool,
+    sim_kwargs: dict[str, Any],
+    runner: Any | None = None,
+) -> dict[str, Any]:
+    """Столбик ₽ = итог с чипом минус итог без него (тот же resim, что тумблер)."""
+    if not isinstance(result, dict):
+        return result
+    attach_by_tag(result)
+    summary = dict(result.get("summary") or {})
+    buckets = dict(summary.get("by_tag") or {})
+    on_total = _account_pnl_for_chip(result, compound=compound)
+    run = runner if runner is not None else sim_tip1m
+    enabled: list[tuple[str, str]] = []
+    for key, flag, default_on in _CHIP_CONTRIB_FLAGS:
+        cell = dict(buckets.get(key) or {"n": 0, "pnlRub": 0.0})
+        on = bool(sim_kwargs.get(flag, default_on))
+        if not on:
+            cell["pnlRub"] = 0.0
+            buckets[key] = cell
+            continue
+        enabled.append((key, flag))
+        buckets[key] = cell
+
+    def _delta_for(key: str, flag: str) -> tuple[str, float | None]:
+        off_kw = dict(sim_kwargs)
+        off_kw[flag] = False
+        off_kw["chip_contrib"] = False
+        try:
+            off_result = run(**off_kw)
+        except Exception:
+            return key, None
+        off_total = _account_pnl_for_chip(off_result, compound=compound)
+        return key, round(on_total - off_total, 2)
+
+    if len(enabled) == 1:
+        key, flag = enabled[0]
+        _k, delta = _delta_for(key, flag)
+        if delta is not None:
+            buckets[key]["pnlRub"] = delta
+    elif len(enabled) > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        with ThreadPoolExecutor(max_workers=min(5, len(enabled))) as pool:
+            futs = [pool.submit(_delta_for, key, flag) for key, flag in enabled]
+            for fut in as_completed(futs):
+                key, delta = fut.result()
+                if delta is not None:
+                    buckets[key]["pnlRub"] = delta
+    summary["by_tag"] = buckets
+    summary["by_tag_mode"] = "chip_delta"
     result["summary"] = summary
     return result
 
@@ -6235,6 +6347,7 @@ def sim_tip1m(
     dynamic_main_cap_frac: float | None = None,
     dynamic_addon_reserve_frac: float | None = None,
     weekend_trading: bool = False,
+    chip_contrib: bool = False,
 ) -> dict[str, Any]:
     """Tip1m Testing sim.
 
@@ -6255,6 +6368,7 @@ def sim_tip1m(
     (кошелёк базы; если база открыта — сначала выход базы, потом вход полки).
     ``base_mode``: Testing чип «База». По умолчанию ВКЛ. Выкл — не открывать новые
     AUTO-ноги (main / 3.2/6.1). Не Prod AUTO.
+    ``chip_contrib``: столбики by_tag = дельта итога (чип вкл − чип выкл), как тумблер.
     """
     csv = resolve_csv_for_window(csv, start, end)
     t_ensure = time.time()
@@ -6313,6 +6427,49 @@ def sim_tip1m(
     dep_main = wallets[WALLET_MAIN]
     dep_addon = wallets[WALLET_ADDON]
     dep_extra = wallets[WALLET_EXTRA]
+    contrib_kw = {
+        "csv": csv,
+        "entry": entry,
+        "exit_z": exit_z,
+        "slip": slip,
+        "notional": notional,
+        "compound": compound,
+        "take_profit_pct": take_profit_pct,
+        "start": start,
+        "end": end,
+        "as_live": as_live,
+        "replay_prod": replay_prod,
+        "regime_z_mode": regime_z_mode,
+        "spread_level_mode": spread_level_mode,
+        "spread_levels": spread_levels,
+        "max_hold_days_if_losing": max_hold_days_if_losing,
+        "max_hold_days_no_exit_trend": max_hold_days_no_exit_trend,
+        "force_close_3d": force_close_3d,
+        "force_close_3d_mode": force_close_3d_mode,
+        "addon_mode": addon_mode,
+        "extreme_addon_mode": extreme_addon_mode,
+        "transition_swing_mode": transition_swing_mode,
+        "adaptive_corridor_mode": adaptive_corridor_mode,
+        "shelf_floor_ceiling_mode": shelf_floor_ceiling_mode,
+        "base_mode": base_mode,
+        "main_notional": main_notional,
+        "addon_notional": addon_notional,
+        "extra_notional": extra_notional,
+        "wallet_mode": wallet_mode,
+        "pool_rub": pool_rub,
+        "dynamic_main_cap_frac": dynamic_main_cap_frac,
+        "dynamic_addon_reserve_frac": dynamic_addon_reserve_frac,
+        "weekend_trading": weekend_trading,
+        "chip_contrib": False,
+    }
+
+    def _with_chip_contrib(payload: dict[str, Any]) -> dict[str, Any]:
+        if chip_contrib and not use_replay:
+            apply_chip_contrib(
+                payload, compound=bool(compound), sim_kwargs=contrib_kw
+            )
+        return payload
+
     sl_part = ""
     if use_spread and spread_levels:
         sl_part = (
@@ -6501,7 +6658,7 @@ def sim_tip1m(
                     else None
                 ),
             )
-        return payload
+        return _with_chip_contrib(payload)
 
     # Weekend/спайки — только cache miss. Иначе Tesт 3мес снова ~30с на 110k баров.
     _busy_set("sim", csv=csv, detail="session")
@@ -6666,21 +6823,27 @@ def sim_tip1m(
     result["meta"] = _enrich_as_live_sparse_meta(
         base_meta, result.get("trades") or [], use_replay=use_replay, start=start, end=end
     )
+    cached_summary = dict(result.get("summary") or {})
+    raw_tags = cached_summary.get("by_tag")
+    if isinstance(raw_tags, dict):
+        cached_summary["by_tag"] = {
+            k: dict(v) if isinstance(v, dict) else v for k, v in raw_tags.items()
+        }
     with _lock:
         _cache_put(
             _sim_cache,
             skey,
             {
                 "trades": result["trades"],
-                "summary": result["summary"],
-                "params": result["params"],
+                "summary": cached_summary,
+                "params": dict(result.get("params") or {}),
                 "windowStartMs": wms,
                 "windowEndMs": wems,
                 "asLiveActions": len(actions or []),
             },
             _SIM_CACHE_MAX,
         )
-    return result
+    return _with_chip_contrib(result)
 
 
 def _hm_axis_values(lo: float, hi: float, step: float) -> list[float]:

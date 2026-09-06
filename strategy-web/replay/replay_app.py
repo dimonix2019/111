@@ -305,6 +305,7 @@ def api_sim_tip1m(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str
                 )
             ),
             weekend_trading=weekend_trading,
+            chip_contrib=True,
         )
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e

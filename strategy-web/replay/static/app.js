@@ -3078,13 +3078,18 @@
     return { base: 0, addon: 0, extra: 0, shelf: 0, weekend: 0 };
   }
 
-  function isWeekendEntryMsk(entryDate) {
-    if (typeof parseTradeMs !== 'function') return false;
-    const ms = parseTradeMs(entryDate);
-    if (ms == null) return false;
-    const d = new Date(ms);
-    const day = (d.getUTCDay() + Math.floor((d.getUTCHours() + 3) / 24)) % 7;
-    return day === 0 || day === 6;
+  function isWeekendChipEntry(entryDate) {
+    const s = String(entryDate || '').replace('T', ' ').trim();
+    if (s.length < 10 || s[4] !== '-' || s[7] !== '-') return false;
+    const y = Number(s.slice(0, 4));
+    const mo = Number(s.slice(5, 7));
+    const d = Number(s.slice(8, 10));
+    if (!y || !mo || !d) return false;
+    const dow = new Date(Date.UTC(y, mo - 1, d, 12, 0, 0)).getUTCDay();
+    if (dow !== 0 && dow !== 6) return false;
+    if (s.length < 16) return true;
+    const hm = s.slice(11, 16);
+    return hm >= '10:00' && hm < '19:00';
   }
 
   function parseByTagPnl(summary) {
@@ -3108,12 +3113,19 @@
     const out = emptyTagSharePnl();
     const weekendOn = typeof isWeekendTradingMode === 'function' && isWeekendTradingMode();
     for (const r of rows || []) {
-      if (!r || r.status !== 'Закрыта') continue;
+      if (!r) continue;
       const k = normalizeTradeSrcFilterKey(r);
       if (k !== 'base' && k !== 'addon' && k !== 'extra' && k !== 'shelf') continue;
-      const pnl = Number(r.netValue);
+      let pnl;
+      if (r.status === 'Открыта') {
+        pnl = Number(r.openMtm != null ? r.openMtm : r.mtm);
+      } else if (r.status === 'Закрыта') {
+        pnl = Number(r.netValue);
+      } else {
+        continue;
+      }
       if (!Number.isFinite(pnl)) continue;
-      if (weekendOn && isWeekendEntryMsk(r.entryDate)) out.weekend += pnl;
+      if (weekendOn && isWeekendChipEntry(r.entryDate)) out.weekend += pnl;
       else out[k] += pnl;
     }
     return out;
@@ -3128,6 +3140,13 @@
     return `${sign}${body} ₽`;
   }
 
+  function formatTagSharePct(pct, rub) {
+    if (!Number.isFinite(pct)) return '0%';
+    if (Math.abs(Number(rub) || 0) < 1e-9 && Math.abs(pct) < 0.5) return '0%';
+    if (Math.abs(pct) < 0.5 && Math.abs(Number(rub) || 0) >= 1e-9) return '<1%';
+    return `${Math.round(pct)}%`;
+  }
+
   function renderTagShareDonut() {
     const host = $('tagShareDonut');
     if (!host) return;
@@ -3138,20 +3157,23 @@
       : [];
     const fromRows = collectTagShareFromRows(tipRows);
     const fromApi = parseByTagPnl(tipSimCache.summary);
+    const tagMode = String(tipSimCache.summary?.by_tag_mode || '');
     const pnl = { ...(fromApi || fromRows) };
     if (typeof isWeekendTradingMode === 'function' && !isWeekendTradingMode()) {
       pnl.weekend = 0;
     }
-    const rowShelf = Number(fromRows.shelf) || 0;
-    const apiShelf = Number(pnl.shelf) || 0;
-    if (Math.abs(apiShelf) < 1e-9 && Math.abs(rowShelf) >= 1e-9) {
-      pnl.shelf = rowShelf;
-      pnl.base = (Number(pnl.base) || 0) - rowShelf;
+    if (tagMode !== 'chip_delta') {
+      const rowShelf = Number(fromRows.shelf) || 0;
+      const apiShelf = Number(pnl.shelf) || 0;
+      if (Math.abs(apiShelf) < 1e-9 && Math.abs(rowShelf) >= 1e-9) {
+        pnl.shelf = rowShelf;
+        pnl.base = (Number(pnl.base) || 0) - rowShelf;
+      }
     }
-    const absSum = TAG_SHARE_SPEC.reduce((s, spec) => s + Math.abs(pnl[spec.key] || 0), 0);
+    const notional = typeof getSimNotionalRub === 'function' ? getSimNotionalRub() : 0;
     const slices = TAG_SHARE_SPEC.map((spec) => {
       const val = Number(pnl[spec.key]) || 0;
-      const pct = absSum > 0 ? (Math.abs(val) / absSum) * 100 : 0;
+      const pct = notional > 0 ? (val / notional) * 100 : 0;
       return { ...spec, val, pct };
     });
     const maxAbs = slices.reduce((m, s) => Math.max(m, Math.abs(s.val)), 0);
@@ -3159,7 +3181,7 @@
       const h = maxAbs > 0 ? (Math.abs(s.val) / maxAbs) * 100 : 0;
       const barH = h > 0 && h < 4 ? 4 : h;
       return (
-        `<div class="tag-share-bar-col" title="${s.label}">`
+        `<div class="tag-share-bar-col" title="${s.label}: вклад чипа в итог (вкл − выкл)">`
         + `<div class="tag-share-bar${s.val < 0 ? ' is-neg' : ''}"`
         + ` style="height:${barH.toFixed(1)}%;background:${s.color}"></div>`
         + `</div>`
@@ -3168,10 +3190,10 @@
     const legend = slices.map((s) => {
       const cls = pnlClass(s.val);
       return (
-        `<div class="tag-share-row">`
+        `<div class="tag-share-row" title="${s.label}: ${formatTagSharePct(s.pct, s.val)} от капитала · ${formatTagShareRub(s.val)}">`
         + `<span class="tag-share-dot" style="background:${s.color}"></span>`
         + `<span class="tag-share-name">${s.label}</span>`
-        + `<span class="tag-share-pct">${s.pct.toFixed(0)}%</span>`
+        + `<span class="tag-share-pct">${formatTagSharePct(s.pct, s.val)}</span>`
         + `<span class="tag-share-rub ${cls}">${formatTagShareRub(s.val)}</span>`
         + `</div>`
       );
@@ -5343,6 +5365,8 @@
       overnight: t.overnight,
       net: t.net,
       modelNet,
+      mtm: t.mtm,
+      openMtm: t.openMtm != null ? t.openMtm : t.mtm,
       netFromAccount: !!(t.netFromAccount || t.net_from_account),
       accountBefore,
       accountAfter,

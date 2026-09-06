@@ -39,6 +39,16 @@ def test_account_rub_uses_grouping_not_k():
     assert "toFixed(2)}k" not in text.split("function formatAccountRub")[1].split("function formatCostRub")[0]
 
 
+def test_tag_share_chip_delta_cache_bust():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "app.js?v=20260906chipDelta1" in html
+    assert "replay-sim.js?v=20260906chipDelta1" in html
+    assert "function isWeekendChipEntry" in js
+    assert "chip_delta" in js
+    assert "вклад чипа в итог" in js
+
+
 def test_cache_bust_desk_restore():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     js = (STATIC / "trade.js").read_text(encoding="utf-8")

@@ -1503,6 +1503,10 @@ function makeTradeRow(t) {
       ? formatNetWithInvestPct(Number(t.net), investValue)
       : '—',
     netValue: hasNet ? Number(t.net) : null,
+    openMtm: t.openMtm != null && Number.isFinite(Number(t.openMtm))
+      ? Number(t.openMtm)
+      : (t.mtm != null && Number.isFinite(Number(t.mtm)) ? Number(t.mtm) : null),
+    mtm: t.mtm != null && Number.isFinite(Number(t.mtm)) ? Number(t.mtm) : null,
     netRef100kValue: t.netRef100k != null && Number.isFinite(Number(t.netRef100k))
       ? Number(t.netRef100k)
       : null,
