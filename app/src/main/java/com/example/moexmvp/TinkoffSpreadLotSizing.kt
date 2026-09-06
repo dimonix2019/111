@@ -6,6 +6,7 @@ import java.io.IOException
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.min
 
 internal data class SpreadLotSizingResult(
     val quantityLots: Int,
@@ -188,13 +189,17 @@ internal suspend fun resolveSpreadOrderQuantityLots(
     } else {
         null
     }
+    val tradeAmountRub = TinkoffSandboxStorage.getPortfolioTradeAmountRub(context)
+    val cashForSizing = min(cashRub, tradeAmountRub)
+    val liquidRaw = marginAttrs?.liquidPortfolioRub ?: cashRub
+    val liquidForSizing = min(liquidRaw, tradeAmountRub)
     val sizing = computeSpreadQuantityLots(
         SpreadLotSizingInput(
-            cashRub = cashRub,
+            cashRub = cashForSizing,
             priceTatN = priceTatN,
             priceTatNp = priceTatNp,
             lotSize = 1,
-            liquidPortfolioRub = marginAttrs?.liquidPortfolioRub,
+            liquidPortfolioRub = liquidForSizing,
             correctedMarginRub = marginAttrs?.correctedMarginRub,
             leverageForNotional = leverage,
         )

@@ -2,6 +2,7 @@ package com.example.moexmvp
 
 import android.app.Activity
 import android.content.res.Configuration
+import androidx.activity.ComponentActivity
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +32,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -56,6 +60,7 @@ internal fun MoexScreenTabMarkets(
     scope: CoroutineScope,
     modifier: Modifier,
     landscapeZChartFullscreen: Boolean,
+    landscapeSpreadDeltaFullscreen: Boolean,
     chartSuccess: UiState.Success?,
     staleMarkets: Boolean,
     marketsM15SourcePoints: List<DataPoint>,
@@ -67,6 +72,7 @@ internal fun MoexScreenTabMarkets(
     marketsFormingBarHint: MarketsFormingBarHint? = null,
     marketsFormingBarHintText: String? = null,
 ) {
+    val landscapeMarketsChartFullscreen = landscapeZChartFullscreen || landscapeSpreadDeltaFullscreen
     val marketsZInitialWindow = remember(marketsM15ChartPoints, screen.marketsZChartPeriod) {
         chartInitialWindowForLastCalendarDays(
             marketsM15ChartPoints,
@@ -78,6 +84,43 @@ internal fun MoexScreenTabMarkets(
     }
     Column(modifier) {
     with(screen) {
+        val configuration = LocalConfiguration.current
+        val activity = context as? ComponentActivity
+        val exitMarketsChartFullscreen: () -> Unit = {
+            marketsSpreadDeltaChartFullscreen = false
+            marketsZChartFullscreen = false
+            activity?.unlockScreenOrientation()
+        }
+        val enterSpreadDeltaFullscreen: () -> Unit = {
+            marketsZChartFullscreen = false
+            marketsSpreadDeltaChartFullscreen = true
+            activity?.lockLandscapeOrientation()
+        }
+        val enterZChartFullscreen: () -> Unit = {
+            marketsSpreadDeltaChartFullscreen = false
+            marketsZChartFullscreen = true
+            activity?.lockLandscapeOrientation()
+        }
+        var marketsChartFullscreenWasLandscape by remember { mutableStateOf(false) }
+        val anyMarketsChartFullscreen = marketsSpreadDeltaChartFullscreen || marketsZChartFullscreen
+        LaunchedEffect(configuration.orientation, anyMarketsChartFullscreen) {
+            val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            if (anyMarketsChartFullscreen) {
+                if (marketsChartFullscreenWasLandscape && !landscape) {
+                    exitMarketsChartFullscreen()
+                }
+                marketsChartFullscreenWasLandscape = landscape
+            } else {
+                marketsChartFullscreenWasLandscape = false
+            }
+        }
+        DisposableEffect(anyMarketsChartFullscreen) {
+            onDispose {
+                if (anyMarketsChartFullscreen) {
+                    activity?.unlockScreenOrientation()
+                }
+            }
+        }
         val markerSourcePoints = marketsM15SourcePoints.ifEmpty { marketsM15ChartPoints }
         val signalJournalKey = signalEvents.size to
             signalEvents.sumOf { it.timestampMillis + it.signalType.ordinal * 31L }
@@ -134,12 +177,43 @@ internal fun MoexScreenTabMarkets(
             buildSpreadHourlyVolatilityReport(marketsM15SourcePoints)
         }
     }
+    val spreadDeltaChartPoints = remember(marketsM15ChartPoints, marketsLiveSpreadPercent) {
+        applyLiveSpreadToM15ChartPoints(marketsM15ChartPoints, marketsLiveSpreadPercent)
+    }
+    val openExecForDelta = resolveSingleOpenExecutionForDisplay(sandboxSpreadExecutions)
+    val spreadDelta15mContext = remember(
+        spreadDeltaChartPoints,
+        marketsM15SourcePoints,
+        marketsLiveSpreadPercent,
+        openExecForDelta?.tradeId,
+        openExecForDelta?.netPnlRubApprox,
+        openExecForDelta?.legLongPnlSplitRubApprox,
+        openExecForDelta?.legShortPnlSplitRubApprox,
+        sandboxSpreadExecReload,
+        executionMode,
+        portfolioLeverage,
+        portfolioCommissionPercent,
+        portfolioTradeAmountRub,
+    ) {
+        buildSpreadDelta15mChartContext(
+            chartPoints = spreadDeltaChartPoints,
+            sourcePoints = marketsM15SourcePoints.ifEmpty { spreadDeltaChartPoints },
+            openExec = openExecForDelta,
+            executionMode = executionMode,
+            leverage = portfolioLeverage,
+            commissionPercentPerSide = portfolioCommissionPercent,
+            tradeAmountRub = portfolioTradeAmountRub,
+        )
+    }
                 Column(Modifier.fillMaxSize()) {
-                    if (!landscapeZChartFullscreen) {
+                    if (!landscapeMarketsChartFullscreen) {
                         val last = marketsM15ChartPoints.lastOrNull()
                             ?: chartSuccess?.points?.lastOrNull()
-                        val displayZ = marketsLiveZScore ?: last?.zScore
-                        val displaySpread = marketsM15SourcePoints.lastOrNull()?.spreadPercent
+                        val displayZ = marketsLiveZScore
+                            ?: rollingZForLastM15Bar(marketsM15SourcePoints)
+                            ?: last?.zScore
+                        val displaySpread = marketsLiveSpreadPercent
+                            ?: marketsM15SourcePoints.lastOrNull()?.spreadPercent
                             ?: last?.spreadPercent
                         val loadedAtLabel = marketsLiveZBarAt?.let { bar ->
                             runCatching {
@@ -182,10 +256,20 @@ internal fun MoexScreenTabMarkets(
                         onRefresh = { scope.launch { refreshData(showLoading = false, launchScope = scope, selectedPeriod = selectedPeriod) } },
                         modifier = Modifier
                             .weight(1f)
-                            .padding(top = if (landscapeZChartFullscreen) 0.dp else 8.dp),
-                        enabled = !landscapeZChartFullscreen,
+                            .padding(top = if (landscapeMarketsChartFullscreen) 0.dp else 8.dp),
+                        enabled = !landscapeMarketsChartFullscreen,
                     ) {
-                        if (landscapeZChartFullscreen) {
+                        if (landscapeSpreadDeltaFullscreen) {
+                            spreadDelta15mContext?.let { spreadDeltaCtx ->
+                                LandscapeSpreadDeltaFullscreenPane(
+                                    context = spreadDeltaCtx,
+                                    onExit = exitMarketsChartFullscreen,
+                                    initialWindowWidth = marketsZInitialWindow.first,
+                                    initialWindowStart = marketsZInitialWindow.second,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        } else if (landscapeZChartFullscreen) {
                             val landscapePeriod = marketsZChartPeriod.coerceToMarketsUiPeriod()
                             LandscapeZScoreFullscreenPane(
                                 modifier = Modifier.fillMaxSize(),
@@ -205,6 +289,7 @@ internal fun MoexScreenTabMarkets(
                                 useDesktopStyle = true,
                                 displayMode = ChartDisplayMode.Candles,
                                 showPlotlyToolbar = true,
+                                onExitFullscreenClick = exitMarketsChartFullscreen,
                                 tradeTapHintFormatter = { idx ->
                                     formatZStrategyTradeTapHint(
                                         idx,
@@ -390,18 +475,6 @@ internal fun MoexScreenTabMarkets(
                                     initialWindowStart = intraday1mWindow.second,
                                 )
                             }
-                            if (marketsM15SourcePoints.size >= Z_SCORE_ROLLING_MIN_BARS) {
-                                item {
-                                    IntradayZScoreLineChartCard(
-                                        title = "Z-score · 1м",
-                                        tatn = tatn1m,
-                                        tatnp = tatnp1m,
-                                        m15Points = marketsM15SourcePoints,
-                                        initialWindowWidth = intraday1mWindow.first,
-                                        initialWindowStart = intraday1mWindow.second,
-                                    )
-                                }
-                            }
                         }
                         val showZCharts = marketsM15ChartPoints.isNotEmpty() && marketsZScoreCandles.isNotEmpty()
                         val waitingM15 = !showZCharts && (isRefreshing || chartSuccess != null || isMarketsDataLoadActive)
@@ -417,31 +490,18 @@ internal fun MoexScreenTabMarkets(
                                     tradeSegments = zChartOverlay.tradeSegments,
                                     initialWindowWidth = marketsZInitialWindow.first,
                                     initialWindowStart = marketsZInitialWindow.second,
+                                    onFullscreenClick = enterZChartFullscreen,
                                     formingBarHint = marketsFormingBarHint,
                                     formingBarHintText = marketsFormingBarHintText,
                                 )
                             }
-                            item {
-                                ChartCard(
-                                    title = "Spread 15м = (TATN / TATNP - 1) * 100",
-                                    series = listOf(
-                                        ChartSeries(
-                                            "Spread %",
-                                            Color(0xFF69F0AE),
-                                            marketsM15ChartPoints.map { it.spreadPercent }
-                                        )
-                                    ),
-                                    labels = marketsM15ChartPoints.map { it.tradeDate },
-                                    chartHeightDp = MARKETS_SPREAD_CHART_HEIGHT_DP,
-                                    rightAxisPercentBase = spreadPercentBaseForChartRightAxis(marketsM15ChartPoints),
-                                    yScale = YAxisScale.Auto,
-                                    showLegend = false,
-                                    enableZoomPan = false,
-                                    markerScale = 1f,
-                                    showZoomHint = false,
-                                    m15TimeLabels = true,
-                                    xLabelStyle = ChartXLabelStyleHorizontal,
-                                )
+                            spreadDelta15mContext?.let { spreadDelta15m ->
+                                item {
+                                    SpreadDelta15mChartCard(
+                                        context = spreadDelta15m,
+                                        onFullscreenClick = enterSpreadDeltaFullscreen,
+                                    )
+                                }
                             }
                             spreadHourlyVolatility?.let { hourlyVolatility ->
                                 item {

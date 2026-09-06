@@ -62,8 +62,6 @@ internal fun StrategyTestTabContent(
     accountSizeRub: Double,
     capitalUsagePercent: Double,
     maxLossDdPercent: Double,
-    usePortfolioThresholds: Boolean = true,
-    onUsePortfolioThresholdsChange: (Boolean) -> Unit = {},
     useLiveZSignals: Boolean = true,
     onUseLiveZSignalsChange: (Boolean) -> Unit = {},
     parityItems: List<StrategyTestProdParityItem> = emptyList(),
@@ -226,8 +224,6 @@ internal fun StrategyTestTabContent(
         ) {
             StrategyTestProdParityPanel(
                 items = parityItems,
-                usePortfolioThresholds = usePortfolioThresholds,
-                onUsePortfolioThresholdsChange = onUsePortfolioThresholdsChange,
                 useLiveZSignals = useLiveZSignals,
                 onUseLiveZSignalsChange = onUseLiveZSignalsChange,
                 onApplyProdAccountCash = onApplyProdAccountCash,
@@ -643,6 +639,20 @@ internal fun StrategyTestExitModeControls(
                 onClick = { onExitModeChange(ZStrategyExitMode.ZPeakTrailing) },
                 modifier = Modifier.weight(1f)
             )
+            StrategyExitModeButton(
+                text = "Прот. Z",
+                selected = exitMode == ZStrategyExitMode.OppositeExtreme,
+                onClick = { onExitModeChange(ZStrategyExitMode.OppositeExtreme) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            StrategyExitModeButton(
+                text = "Лок. Z",
+                selected = exitMode == ZStrategyExitMode.LocalExtrema,
+                onClick = { onExitModeChange(ZStrategyExitMode.LocalExtrema) },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
         Text(
             text = when (exitMode) {
@@ -650,6 +660,10 @@ internal fun StrategyTestExitModeControls(
                     "Закрытие по прежнему порогу выхода |Z|; розовые пороги «Портфеля» не меняются."
                 ZStrategyExitMode.ZPeakTrailing ->
                     "После входа запоминаем лучший Z и закрываемся при откате от пика на выбранный шаг."
+                ZStrategyExitMode.OppositeExtreme ->
+                    "Вход: пересечение −Z. Выход: пересечение +Z на уровне порога выхода (полный разворот)."
+                ZStrategyExitMode.LocalExtrema ->
+                    "Вход на локальном дне Z (3 бара), выход на локальной вершине после отскока ≥ порога выхода."
             },
             color = Color(0xFF757575),
             fontSize = 9.sp,
@@ -873,8 +887,6 @@ internal fun StrategyTestLiveTuningPanel(
 @Composable
 internal fun StrategyTestProdParityPanel(
     items: List<StrategyTestProdParityItem>,
-    usePortfolioThresholds: Boolean,
-    onUsePortfolioThresholdsChange: (Boolean) -> Unit,
     useLiveZSignals: Boolean,
     onUseLiveZSignalsChange: (Boolean) -> Unit,
     onApplyProdAccountCash: (() -> Unit)?,
@@ -894,14 +906,6 @@ internal fun StrategyTestProdParityPanel(
                 fontSize = 9.sp,
                 maxLines = 2,
             )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Пороги = Портфель", color = Color(0xFFE0E0E0), fontSize = 10.sp)
-            Switch(checked = usePortfolioThresholds, onCheckedChange = onUsePortfolioThresholdsChange)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),

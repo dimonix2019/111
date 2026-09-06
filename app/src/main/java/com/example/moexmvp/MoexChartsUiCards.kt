@@ -22,12 +22,17 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -71,6 +76,10 @@ internal fun ChartCard(
     labels: List<String>,
     chartHeightDp: Int = 180,
     rightAxisPercentBase: Double? = null,
+    rightAxisRubPerSpreadPoint: Double? = null,
+    rightAxisRubNetOffset: Double = 0.0,
+    yAxisTickFormatter: (Double) -> String = ::formatAxisValue,
+    subtitle: String? = null,
     yScale: YAxisScale = YAxisScale.Auto,
     referenceLines: List<ChartReferenceLine> = emptyList(),
     pointMarkers: List<ChartPointMarker> = emptyList(),
@@ -81,6 +90,11 @@ internal fun ChartCard(
     rightPlotPaddingPx: Float = 16f,
     m15TimeLabels: Boolean = false,
     xLabelStyle: ChartXLabelStyle = ChartXLabelStyleTilted,
+    landscapeMinimal: Boolean = false,
+    initialWindowWidth: Float = 1f,
+    initialWindowStart: Float = 0f,
+    onFullscreenClick: (() -> Unit)? = null,
+    onExitFullscreenClick: (() -> Unit)? = null,
     /** Доп. строка под выбранной точкой (например PnL симуляции по Z). */
     tradeTapHintFormatter: ((Int) -> String?)? = null
 ) {
@@ -96,15 +110,75 @@ internal fun ChartCard(
     }
     val stats = remember(series) { buildChartStats(series) }
     var selectedIndex by remember(series, labels) { mutableStateOf<Int?>(null) }
+    val cardPadding = if (landscapeMinimal) 4.dp else 10.dp
+    val corner = if (landscapeMinimal) 0.dp else 12.dp
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF171717), RoundedCornerShape(12.dp))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .then(if (landscapeMinimal) Modifier.fillMaxHeight() else Modifier)
+            .background(Color(0xFF171717), RoundedCornerShape(corner))
+            .padding(cardPadding),
+        verticalArrangement = Arrangement.spacedBy(if (landscapeMinimal) 4.dp else 8.dp)
     ) {
-        Text(title, fontWeight = FontWeight.Bold, color = Color.White)
-        if (showZoomHint && enableZoomPan) {
+        if (title.isNotBlank() || onFullscreenClick != null || onExitFullscreenClick != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    if (title.isNotBlank()) {
+                        Text(
+                            title,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = if (landscapeMinimal) 13.sp else 14.sp,
+                        )
+                    }
+                    subtitle?.let {
+                        Text(
+                            text = it,
+                            color = Color(0xFF80CBC4),
+                            fontSize = if (landscapeMinimal) 9.sp else 10.sp,
+                            lineHeight = 12.sp,
+                        )
+                    }
+                }
+                when {
+                    onExitFullscreenClick != null -> {
+                        IconButton(
+                            onClick = onExitFullscreenClick,
+                            modifier = Modifier.size(36.dp),
+                            colors = IconButtonDefaults.iconButtonColors(
+                                contentColor = Color(0xFF90CAF9),
+                            ),
+                        ) {
+                            Icon(
+                                Icons.Filled.CloseFullscreen,
+                                contentDescription = "Свернуть",
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                    onFullscreenClick != null -> {
+                        IconButton(
+                            onClick = onFullscreenClick,
+                            modifier = Modifier.size(36.dp),
+                            colors = IconButtonDefaults.iconButtonColors(
+                                contentColor = Color(0xFF90CAF9),
+                            ),
+                        ) {
+                            Icon(
+                                Icons.Filled.OpenInFull,
+                                contentDescription = "На весь экран",
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (showZoomHint && enableZoomPan && !landscapeMinimal) {
             Text(
                 text = "Масштаб: два пальца · сдвиг: перетаскивание · двойной тап: весь период",
                 color = Color(0xFF9FA8DA),
@@ -112,20 +186,27 @@ internal fun ChartCard(
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (landscapeMinimal) Modifier.weight(1f) else Modifier),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(
                 modifier = Modifier
-                    .height(chartHeightDp.dp)
-                    .width(54.dp),
+                    .then(
+                        if (landscapeMinimal) {
+                            Modifier.fillMaxHeight().width(46.dp)
+                        } else {
+                            Modifier.height(chartHeightDp.dp).width(54.dp)
+                        },
+                    ),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 axisScale.yTicks
                     .asReversed()
                     .forEach { tick ->
                         Text(
-                            text = formatAxisValue(tick),
+                            text = yAxisTickFormatter(tick),
                             fontSize = 10.sp,
                             color = Color(0xFFD7E3F4)
                         )
@@ -141,19 +222,29 @@ internal fun ChartCard(
                 pointMarkers = pointMarkers,
                 modifier = Modifier
                     .weight(1f)
-                    .height(chartHeightDp.dp),
+                    .then(
+                        if (landscapeMinimal) Modifier.fillMaxHeight()
+                        else Modifier.height(chartHeightDp.dp),
+                    ),
                 enableZoomPan = enableZoomPan,
                 markerScale = markerScale,
                 rightPlotPaddingPx = rightPlotPaddingPx,
+                initialWindowWidth = initialWindowWidth,
+                initialWindowStart = initialWindowStart,
                 xLabelStyle = xLabelStyle,
             )
             if (rightAxisPercentBase != null && rightAxisPercentBase != 0.0) {
                 Column(
                     modifier = Modifier
-                        .height(chartHeightDp.dp)
-                        .width(64.dp),
+                        .then(
+                            if (landscapeMinimal) {
+                                Modifier.fillMaxHeight().width(58.dp)
+                            } else {
+                                Modifier.height(chartHeightDp.dp).width(64.dp)
+                            },
+                        ),
                     verticalArrangement = Arrangement.SpaceBetween,
-                    horizontalAlignment = Alignment.End
+                    horizontalAlignment = Alignment.End,
                 ) {
                     axisScale.yTicks
                         .asReversed()
@@ -165,9 +256,35 @@ internal fun ChartCard(
                             )
                         }
                 }
+            } else if (rightAxisRubPerSpreadPoint != null) {
+                Column(
+                    modifier = Modifier
+                        .then(
+                            if (landscapeMinimal) {
+                                Modifier.fillMaxHeight().width(58.dp)
+                            } else {
+                                Modifier.height(chartHeightDp.dp).width(64.dp)
+                            },
+                        ),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    axisScale.yTicks
+                        .asReversed()
+                        .forEach { tick ->
+                            Text(
+                                text = formatRubAxisValue(
+                                    tick * rightAxisRubPerSpreadPoint + rightAxisRubNetOffset,
+                                ),
+                                fontSize = 10.sp,
+                                color = Color(0xFFD7E3F4),
+                                maxLines = 1,
+                            )
+                        }
+                }
             }
         }
-        if (showLegend) {
+        if (showLegend && !landscapeMinimal) {
             Legend(
                 series = series,
                 referenceLines = referenceLines,
@@ -178,7 +295,13 @@ internal fun ChartCard(
             val label = labels.getOrNull(selected)
             val values = series.mapNotNull { chartSeries ->
                 chartSeries.values.getOrNull(selected)?.let { value ->
-                    "${chartSeries.name}: ${formatAxisValue(value)}"
+                    buildString {
+                        append("${chartSeries.name}: ${yAxisTickFormatter(value)}")
+                        rightAxisRubPerSpreadPoint?.let { rubPer ->
+                            append(" · чистый ")
+                            append(formatRubAxisValue(value * rubPer + rightAxisRubNetOffset))
+                        }
+                    }
                 }
             }
             if (!label.isNullOrBlank() && values.isNotEmpty()) {
@@ -197,11 +320,13 @@ internal fun ChartCard(
                 )
             }
         }
-        Text(
-            text = "Min: ${formatAxisValue(stats.min)}   Max: ${formatAxisValue(stats.max)}",
-            fontSize = 12.sp,
-            color = Color(0xFFD7E3F4)
-        )
+        if (!landscapeMinimal) {
+            Text(
+                text = "Min: ${yAxisTickFormatter(stats.min)}   Max: ${yAxisTickFormatter(stats.max)}",
+                fontSize = 12.sp,
+                color = Color(0xFFD7E3F4)
+            )
+        }
     }
 }
 

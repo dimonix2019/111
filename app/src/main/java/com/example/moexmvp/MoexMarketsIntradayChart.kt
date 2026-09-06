@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Locale
 
 internal val INTRADAY_TATN_LINE_COLOR = Color(0xFF64B5F6)
 internal val INTRADAY_TATNP_LINE_COLOR = Color(0xFFFFB74D)
@@ -58,6 +59,103 @@ internal fun alignIntraday1mCloseSeries(
 }
 
 internal val INTRADAY_Z1M_LINE_COLOR = Color(0xFF60A5FA)
+
+@Composable
+internal fun IntradaySpreadDeltaLineChartCard(
+    title: String,
+    tatn: List<CandlePoint>,
+    tatnp: List<CandlePoint>,
+    m15Points: List<DataPoint>,
+    chartHeightDp: Int = MARKETS_INTRADAY_Z1M_CHART_HEIGHT_DP,
+    initialWindowWidth: Float = 1f,
+    initialWindowStart: Float = 0f,
+    compact: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val aligned = remember(tatn, tatnp) { alignIntraday1mCloseSeries(tatn, tatnp) } ?: return
+    val deltaSeries = remember(aligned, m15Points) {
+        buildIntraday1mSpreadDeltaSeries(m15Points, aligned)
+    } ?: return
+    val series = remember(deltaSeries) {
+        listOf(
+            ChartSeries(
+                "Δ спред",
+                SPREAD_DELTA_LINE_COLOR,
+                deltaSeries.deltasPp,
+                lineWidth = if (compact) 2f else 2.5f,
+            ),
+        )
+    }
+    val axisScale = remember(series, deltaSeries.labels) {
+        buildAxisScale(
+            series = series,
+            labels = deltaSeries.labels,
+            yScale = YAxisScale.Auto,
+            valueHints = listOf(0.0),
+        )
+    }
+    val axisWidth = if (compact) 42.dp else 54.dp
+    val titleSize = if (compact) 12.sp else 14.sp
+    val hintSize = if (compact) 9.sp else 10.sp
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0xFF171717), RoundedCornerShape(12.dp))
+            .padding(if (compact) 8.dp else 10.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
+    ) {
+        Text(title, fontWeight = FontWeight.Bold, color = Color.White, fontSize = titleSize)
+        Text(
+            text = buildString {
+                append("От открытия дня ")
+                append(String.format(Locale.US, "%.2f", deltaSeries.dayOpenSpreadPercent))
+                append("% · п.п. · LONG + при росте")
+            },
+            color = Color(0xFF80CBC4),
+            fontSize = hintSize,
+            lineHeight = 12.sp,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier
+                    .height(chartHeightDp.dp)
+                    .width(axisWidth),
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                axisScale.yTicks
+                    .asReversed()
+                    .forEach { tick ->
+                        Text(
+                            text = formatSpreadDeltaAxisTick(tick),
+                            fontSize = hintSize,
+                            color = Color(0xFFD7E3F4),
+                            maxLines = 1,
+                        )
+                    }
+            }
+            LineChart(
+                series = series,
+                yTicks = axisScale.yTicks,
+                xTicks = axisScale.xTicks,
+                selectedIndex = null,
+                onSelectIndex = {},
+                referenceLines = listOf(SPREAD_DELTA_ZERO_LINE),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(chartHeightDp.dp),
+                enableZoomPan = true,
+                rightPlotPaddingFraction = CHART_RIGHT_PLOT_PADDING_FRACTION,
+                initialWindowWidth = initialWindowWidth,
+                initialWindowStart = initialWindowStart,
+                showLastValueLabels = true,
+                xLabelStyle = ChartXLabelStyleHorizontal,
+            )
+        }
+    }
+}
 
 @Composable
 internal fun IntradayZScoreLineChartCard(
