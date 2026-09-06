@@ -313,6 +313,7 @@ internal fun buildTradingViewChartPayloadJson(
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
     formingBar: MarketsFormingBarHint? = null,
+    spreadChart: Boolean = false,
 ): String {
     val candleArr = JSONArray()
     val seenTimes = linkedSetOf<Long>()
@@ -468,6 +469,10 @@ internal fun buildTradingViewChartPayloadJson(
                 .put("liveZ", hint.liveZ)
                 .put("baseCloseZ", hint.baseCloseZ ?: JSONObject.NULL),
         )
+    }
+    if (spreadChart) {
+        root.put("spreadChart", true)
+        root.put("lastPriceLineColor", "#FACC15")
     }
     return root.toString()
 }
@@ -717,6 +722,7 @@ internal fun TradingViewZScoreChartCard(
     formingBarHint: MarketsFormingBarHint? = null,
     formingBarHintText: String? = null,
     showOhlcLegend: Boolean = false,
+    spreadChart: Boolean = false,
 ) {
     if (candles.isEmpty()) return
     var ohlcLegendText by remember {
@@ -744,6 +750,7 @@ internal fun TradingViewZScoreChartCard(
         initialWindowStart,
         areaFillColor,
         formingBarHint,
+        spreadChart,
     ) {
         buildTradingViewChartPayloadJson(
             candles = candles,
@@ -758,6 +765,7 @@ internal fun TradingViewZScoreChartCard(
             initialWindowStart = initialWindowStart,
             areaFillColor = areaFillColor,
             formingBar = formingBarHint,
+            spreadChart = spreadChart,
         )
     }
     Column(

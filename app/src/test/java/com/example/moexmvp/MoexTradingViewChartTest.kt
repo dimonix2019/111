@@ -58,7 +58,7 @@ class MoexTradingViewChartTest {
     }
 
     @Test
-    fun buildTradingViewChartPayloadJson_includesSpreadLevelsZonesAndCurrentPrice() {
+    fun buildTradingViewChartPayloadJson_includesSpreadLevelsZonesWithoutDuplicateCurrentPrice() {
         val candles = listOf(
             CandlePoint("2026-09-04 10:00", 3.4, 3.5, 3.4, 3.5),
             CandlePoint("2026-09-04 10:01", 3.5, 3.6, 3.5, 3.6),
@@ -68,37 +68,30 @@ class MoexTradingViewChartTest {
             buildTradingViewChartPayloadJson(
                 candles = candles,
                 displayPoints = points,
-                referenceLines = listOf(
-                    ChartReferenceLine(3.2, Color.Blue, "L вх 3,2"),
-                    ChartReferenceLine(4.0, Color.Green, "L вых 4"),
-                    ChartReferenceLine(5.8, Color.Green, "S вых 5,8"),
-                    ChartReferenceLine(6.1, Color.Blue, "S вх 6,1"),
-                    ChartReferenceLine(3.6, Color.Yellow, "3,60"),
+                referenceLines = buildMarketsSpreadChartReferenceLines(
+                    openSide = ZStrategyPosition.Long,
+                    openEntrySpread = 3.2,
+                    depositRub = 10_000.0,
+                    notionalRub = 70_000.0,
                 ),
-                pointMarkers = listOf(
-                    ChartPointMarker(
-                        index = 1,
-                        value = 3.6,
-                        color = Color.Green,
-                        label = "Вх 1А",
-                        shape = ChartMarkerShape.TriangleUp,
-                        badgeText = "1А",
-                    )
-                ),
+                pointMarkers = emptyList(),
                 zoneFills = listOf(
                     ChartZoneFill(3.2, 4.0, Color(0x3300BCD4)),
                     ChartZoneFill(4.0, 5.8, Color(0x33B76E2D)),
                     ChartZoneFill(5.8, 6.1, Color(0x38880E4F)),
                 ),
+                spreadChart = true,
             )
         )
 
         assertEquals(2, json.getJSONArray("candles").length())
         assertEquals(5, json.getJSONArray("hlines").length())
         assertEquals(3, json.getJSONArray("zones").length())
-        assertEquals(1, json.getJSONArray("markers").length())
-        assertEquals(3.2, json.getJSONArray("zones").getJSONObject(0).getDouble("low"), 0.001)
-        assertTrue(json.getJSONArray("zones").getJSONObject(0).getString("color").startsWith("rgba("))
+        assertTrue(json.getBoolean("spreadChart"))
+        assertEquals("#FACC15", json.getString("lastPriceLineColor"))
+        val tpLine = json.getJSONArray("hlines").getJSONObject(4)
+        assertEquals("ТП 2%", tpLine.getString("title"))
+        assertEquals("#FB923C", tpLine.getString("color"))
     }
 
     @Test
@@ -123,6 +116,8 @@ class MoexTradingViewChartTest {
         assertTrue(html.contains("subscribeCrosshairMove"))
         assertTrue(html.contains("MoexChartBridge.onOhlc"))
         assertTrue(html.contains("function pushOhlc"))
+        assertTrue(html.contains("data.spreadChart"))
+        assertTrue(html.contains("lastPriceLineColor"))
     }
 
     @Test

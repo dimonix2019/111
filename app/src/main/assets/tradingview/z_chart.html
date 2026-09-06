@@ -775,6 +775,23 @@
       applyCandleData(candles);
       pushOhlc(lastCandle());
       updateFormingBarHint(data);
+      if (data.spreadChart) {
+        series.applyOptions({
+          lastValueVisible: true,
+          priceLineVisible: true,
+          priceLineWidth: 1,
+          priceLineColor: data.lastPriceLineColor || '#FACC15',
+          priceLineStyle: LightweightCharts.LineStyle.Dashed,
+        });
+      } else {
+        series.applyOptions({
+          lastValueVisible: true,
+          priceLineVisible: true,
+          priceLineWidth: 1,
+          priceLineColor: TV.currentZ,
+          priceLineStyle: LightweightCharts.LineStyle.Dashed,
+        });
+      }
       if (markersPlugin) {
         try { markersPlugin.detach(); } catch (e) {}
         markersPlugin = null;
