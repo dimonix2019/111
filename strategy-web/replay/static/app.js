@@ -3117,20 +3117,20 @@
     const fromApi = parseByTagPnl(tipSimCache.summary);
     const pnl = fromApi || fromRows;
     const absSum = TAG_SHARE_SPEC.reduce((s, spec) => s + Math.abs(pnl[spec.key] || 0), 0);
-    const total = TAG_SHARE_SPEC.reduce((s, spec) => s + (Number(pnl[spec.key]) || 0), 0);
     const slices = TAG_SHARE_SPEC.map((spec) => {
       const val = Number(pnl[spec.key]) || 0;
       const pct = absSum > 0 ? (Math.abs(val) / absSum) * 100 : 0;
       return { ...spec, val, pct };
     });
-    let acc = 0;
-    const ring = slices.map((s) => {
-      const dash = `${s.pct.toFixed(2)} ${(100 - s.pct).toFixed(2)}`;
-      const offset = (-acc).toFixed(2);
-      acc += s.pct;
+    const maxAbs = slices.reduce((m, s) => Math.max(m, Math.abs(s.val)), 0);
+    const bars = slices.map((s) => {
+      const h = maxAbs > 0 ? (Math.abs(s.val) / maxAbs) * 100 : 0;
+      const barH = h > 0 && h < 4 ? 4 : h;
       return (
-        `<circle class="tag-share-slice" cx="18" cy="18" r="15.915"`
-        + ` stroke="${s.color}" stroke-dasharray="${dash}" stroke-dashoffset="${offset}"></circle>`
+        `<div class="tag-share-bar-col" title="${s.label}">`
+        + `<div class="tag-share-bar${s.val < 0 ? ' is-neg' : ''}"`
+        + ` style="height:${barH.toFixed(1)}%;background:${s.color}"></div>`
+        + `</div>`
       );
     }).join('');
     const legend = slices.map((s) => {
@@ -3144,14 +3144,8 @@
         + `</div>`
       );
     }).join('');
-    const totalCls = pnlClass(total);
     host.innerHTML =
-      `<svg class="tag-share-svg" viewBox="0 0 36 36" aria-hidden="true">`
-      + `<circle class="tag-share-track" cx="18" cy="18" r="15.915"></circle>`
-      + ring
-      + `<text class="tag-share-center ${totalCls}" x="18" y="17.2">${formatRub(total)}</text>`
-      + `<text class="tag-share-center-sub" x="18" y="21.4">вклад</text>`
-      + `</svg>`
+      `<div class="tag-share-bars" aria-hidden="true">${bars}</div>`
       + `<div class="tag-share-legend">${legend}</div>`;
   }
 

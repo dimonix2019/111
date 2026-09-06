@@ -8,7 +8,7 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 BASE_URL = os.environ.get("MOEX_DESK_URL", "http://127.0.0.1:8765").rstrip("/")
-CACHE_BUST = "20260906tipDonut1"
+CACHE_BUST = "20260906tipBars1"
 
 
 def _ok_json(route: Route, payload: dict) -> None:
@@ -128,15 +128,17 @@ def test_status_pnl_not_timings_and_tag_donut(page: Page) -> None:
     expect(head).not_to_contain_text("узкий Long")
     expect(head).not_to_contain_text("PNL ·")
 
-    donut = page.locator("#tagShareDonut")
-    expect(donut).to_be_visible(timeout=15_000)
-    expect(donut.locator("svg.tag-share-svg")).to_be_visible()
-    expect(donut).to_contain_text("База")
-    expect(donut).to_contain_text("добор")
-    expect(donut).to_contain_text("экстра")
-    expect(donut).to_contain_text("полка")
-    donut_text = donut.inner_text()
-    assert "качалка" not in donut_text.lower()
-    assert "%" in donut_text
-    assert "₽" in donut_text
+    chart = page.locator("#tagShareDonut")
+    expect(chart).to_be_visible(timeout=15_000)
+    expect(chart.locator("circle, .tag-share-slice, .tag-share-svg")).to_have_count(0)
+    expect(chart.locator(".tag-share-bar")).to_have_count(4)
+    expect(chart.locator(".tag-share-bars")).to_be_visible()
+    expect(chart).to_contain_text("База")
+    expect(chart).to_contain_text("добор")
+    expect(chart).to_contain_text("экстра")
+    expect(chart).to_contain_text("полка")
+    chart_text = chart.inner_text()
+    assert "качалка" not in chart_text.lower()
+    assert "%" in chart_text
+    assert "₽" in chart_text
     assert not errors, f"pageerror: {errors}"
