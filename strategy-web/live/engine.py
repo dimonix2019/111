@@ -95,10 +95,10 @@ def _is_auto_source(source: str | None) -> bool:
 
 
 def _auto_orders_allowed(tip: dict[str, Any] | None = None) -> bool:
-    """AUTO/AUTO_TP only in TQBR. Weekend dealer 1m must not PostOrder (BESTPRICE fills)."""
-    from live.dealer_quotes import want_dealer_quotes
+    """AUTO/AUTO_TP: будни 07:00–23:50; сб/вс 10:00–18:59 МСК по tip1m."""
+    from live.dealer_quotes import is_msk_auto_session
 
-    if want_dealer_quotes():
+    if not is_msk_auto_session():
         return False
     if isinstance(tip, dict):
         td = str(tip.get("tradeDate") or "")

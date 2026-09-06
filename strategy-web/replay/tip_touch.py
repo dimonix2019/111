@@ -205,7 +205,7 @@ def is_session_bar(trade_date: str, *, weekend_trading: bool = False) -> bool:
     dow = datetime(y, mo, d, 12, 0, 0).weekday()
     hm = s[11:16]
     if dow >= 5:
-        # Test-only dealer-data window. Prod callers keep the default False.
+        # Тест: чип «выходные». Prod AUTO живёт тем же окном в live/engine.
         return bool(weekend_trading) and "10:00" <= hm < "19:00"
     return "07:00" <= hm < "23:50"
 

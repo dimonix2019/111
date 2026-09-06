@@ -1,12 +1,19 @@
-"""Weekend AUTO_TP must not PostOrder (BESTPRICE fills off TQBR)."""
+"""Weekend AUTO: сб/вс 10:00–18:59 МСК по tip1m; вне окна — запрет."""
 
 from __future__ import annotations
 
-import pytest
+from datetime import datetime
 from unittest.mock import patch
 
+import pytest
+
 from live import engine, store
-from live.signals import Position
+from live.dealer_quotes import MSK, is_msk_auto_session
+from live.signals import Position, is_moex_equity_session_bar
+
+
+def _msk(stamp: str) -> datetime:
+    return datetime.strptime(stamp, "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
 
 
 def _cred_db(tmp_path, monkeypatch, name: str):
@@ -45,14 +52,31 @@ _TP_SETTINGS = {
     "entry_deposit_rub": 60_000.0,
 }
 
-# 7 * (3.50 - 3.13) = 2.59% ≥ TP 2%
-_TP_TIP_WEEKEND = {
+# Saturday 2026-09-05
+_TP_TIP_SAT_MID = {
+    "tradeDate": "2026-09-05 12:00:00",
+    "timestampMs": 1,
+    "zScore": 1.39,
+    "spread": 3.50,
+}
+_TP_TIP_SAT_MORNING = {
+    "tradeDate": "2026-09-05 09:00:00",
+    "timestampMs": 1,
+    "zScore": 1.39,
+    "spread": 3.50,
+}
+_TP_TIP_SAT_EVENING = {
+    "tradeDate": "2026-09-05 19:00:00",
+    "timestampMs": 1,
+    "zScore": 1.39,
+    "spread": 3.50,
+}
+_TP_TIP_SAT_LATE = {
     "tradeDate": "2026-09-05 20:22:00",
     "timestampMs": 1,
     "zScore": 1.39,
     "spread": 3.50,
 }
-
 _TP_TIP_WEEKDAY = {
     "tradeDate": "2026-09-04 12:00:00",
     "timestampMs": 1,
@@ -61,40 +85,76 @@ _TP_TIP_WEEKDAY = {
 }
 
 
-def test_auto_orders_blocked_when_dealer_session():
-    with patch("live.dealer_quotes.want_dealer_quotes", return_value=True):
+def test_auto_session_hours_saturday_and_weekday():
+    assert is_msk_auto_session(_msk("2026-09-05 10:00")) is True
+    assert is_msk_auto_session(_msk("2026-09-05 18:59")) is True
+    assert is_msk_auto_session(_msk("2026-09-05 09:00")) is False
+    assert is_msk_auto_session(_msk("2026-09-05 19:00")) is False
+    assert is_msk_auto_session(_msk("2026-09-04 07:00")) is True
+    assert is_msk_auto_session(_msk("2026-09-04 23:49")) is True
+    assert is_msk_auto_session(_msk("2026-09-04 06:59")) is False
+    assert is_msk_auto_session(_msk("2026-09-04 23:50")) is False
+
+
+def test_session_bar_saturday_window():
+    assert is_moex_equity_session_bar("2026-09-05 10:00") is True
+    assert is_moex_equity_session_bar("2026-09-05 18:59") is True
+    assert is_moex_equity_session_bar("2026-09-05 09:00") is False
+    assert is_moex_equity_session_bar("2026-09-05 19:00") is False
+    assert is_moex_equity_session_bar("2026-09-04 12:00") is True
+
+
+def test_auto_orders_allowed_saturday_midday():
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 12:00")):
+        assert engine._auto_orders_allowed() is True
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_MID) is True
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_MORNING) is False
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_EVENING) is False
+
+
+def test_auto_orders_blocked_saturday_09_and_19():
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 09:00")):
         assert engine._auto_orders_allowed() is False
-        assert engine._auto_orders_allowed(_TP_TIP_WEEKDAY) is False
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_MID) is False
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 19:00")):
+        assert engine._auto_orders_allowed() is False
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_MID) is False
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_LATE) is False
 
 
-def test_auto_orders_blocked_for_saturday_bar_even_if_clock_says_session():
-    with patch("live.dealer_quotes.want_dealer_quotes", return_value=False):
-        assert engine._auto_orders_allowed(_TP_TIP_WEEKEND) is False
+def test_auto_orders_weekday_unchanged():
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-04 12:00")):
+        assert engine._auto_orders_allowed() is True
         assert engine._auto_orders_allowed(_TP_TIP_WEEKDAY) is True
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_LATE) is False
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-04 06:30")):
+        assert engine._auto_orders_allowed() is False
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-04 23:50")):
+        assert engine._auto_orders_allowed() is False
 
 
-def test_close_position_auto_tp_refuses_weekend():
-    with patch("live.dealer_quotes.want_dealer_quotes", return_value=True):
+def test_close_position_auto_tp_refuses_saturday_evening():
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 20:22")):
         with pytest.raises(RuntimeError, match="вне сессии TQBR"):
             engine.close_position(source="AUTO_TP")
         with pytest.raises(RuntimeError, match="вне сессии TQBR"):
             engine.close_position(source="AUTO")
 
 
-def test_open_position_auto_refuses_weekend():
-    with patch("live.dealer_quotes.want_dealer_quotes", return_value=True):
+def test_open_position_auto_refuses_saturday_morning():
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 09:00")):
         with pytest.raises(RuntimeError, match="вне сессии TQBR"):
             engine.open_position(Position.LONG, source="AUTO")
 
 
-def test_weekend_auto_tp_does_not_call_close(tmp_path, monkeypatch):
+def test_weekend_auto_tp_does_not_call_close_outside_window(tmp_path, monkeypatch):
     _cred_db(tmp_path, monkeypatch, "weekend_tp.db")
     _insert_long()
     result: dict = {}
-    with patch("live.dealer_quotes.want_dealer_quotes", return_value=True):
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 20:22")):
         with patch.object(engine, "close_position") as close:
             msg, fired = engine._maybe_tp_exit_on_tip(
-                tip=_TP_TIP_WEEKEND,
+                tip=_TP_TIP_SAT_LATE,
                 settings=_TP_SETTINGS,
                 auto=True,
                 entry=1.6,
@@ -107,11 +167,32 @@ def test_weekend_auto_tp_does_not_call_close(tmp_path, monkeypatch):
     assert store.get_open_trade() is not None
 
 
+def test_saturday_midday_auto_tp_still_closes(tmp_path, monkeypatch):
+    _cred_db(tmp_path, monkeypatch, "weekend_tp_mid.db")
+    _insert_long()
+    result: dict = {}
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 12:00")):
+        with patch.object(engine, "close_position") as close:
+            close.return_value = {"ok": True}
+            _msg, fired = engine._maybe_tp_exit_on_tip(
+                tip=_TP_TIP_SAT_MID,
+                settings=_TP_SETTINGS,
+                auto=True,
+                entry=1.6,
+                exit_z=1.3,
+                msg="x",
+                result=result,
+            )
+    assert fired is True
+    close.assert_called_once()
+    assert close.call_args.kwargs.get("source") == "AUTO_TP"
+
+
 def test_weekday_auto_tp_still_closes(tmp_path, monkeypatch):
     _cred_db(tmp_path, monkeypatch, "weekday_tp.db")
     _insert_long()
     result: dict = {}
-    with patch("live.dealer_quotes.want_dealer_quotes", return_value=False):
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-04 12:00")):
         with patch.object(engine, "close_position") as close:
             close.return_value = {"ok": True}
             _msg, fired = engine._maybe_tp_exit_on_tip(

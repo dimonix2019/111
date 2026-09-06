@@ -121,9 +121,9 @@ def close_comment_for_source(
     if "AUTO_TP" in src or src.endswith("_TP"):
         off_session = False
         try:
-            from live.dealer_quotes import want_dealer_quotes
+            from live.dealer_quotes import is_msk_auto_session
 
-            off_session = bool(want_dealer_quotes())
+            off_session = not is_msk_auto_session()
         except Exception:
             off_session = False
         if isinstance(signal_bar, dict):

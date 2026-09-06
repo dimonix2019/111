@@ -70,7 +70,7 @@ def is_implausible_spread_jump(
 
 
 def is_moex_equity_session_bar(trade_date: str | None) -> bool:
-    """TQBR: пн–пт, 07:00 ≤ t < 23:50 МСК (утро+основная+вечер). Без 06:30/06:45."""
+    """AUTO tip1m: пн–пт 07:00–23:50; сб/вс 10:00–18:59 МСК. Без 06:30/06:45."""
     from datetime import datetime
 
     s = str(trade_date or "").replace("T", " ").strip()
@@ -80,9 +80,9 @@ def is_moex_equity_session_bar(trade_date: str | None) -> bool:
         dt = datetime.strptime(s[:16], "%Y-%m-%d %H:%M")
     except ValueError:
         return False
-    if dt.weekday() >= 5:
-        return False
     mins = dt.hour * 60 + dt.minute
+    if dt.weekday() >= 5:
+        return (10 * 60) <= mins < (19 * 60)
     return (7 * 60) <= mins < (23 * 60 + 50)
 
 

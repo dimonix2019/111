@@ -24,7 +24,7 @@ DEALER_BAR_INTERVAL = "1m"
 DEALER_CANDLE_INTERVAL = "CANDLE_INTERVAL_1_MIN"
 DEALER_TIP_SOURCE = "tinvest_dealer_1m_tip"
 # Live tip overlay for desk spread freezes at 23:45 МСК (weekday).
-# AUTO tip1m session stays 07:00–23:50 — do not unify that here.
+# AUTO tip1m: будни 07:00–23:50, сб/вс 10:00–18:59 — не путать с отсечкой спреда 23:45.
 SPREAD_LIVE_CUTOFF_MINS = 23 * 60 + 45
 SPREAD_LIVE_CUTOFF_LABEL = "23:45"
 SPREAD_LIVE_FROZEN_REASON = "сессия закрыта · спред не обновляем после 23:45"
@@ -81,6 +81,15 @@ def is_msk_tqbr_session(dt: datetime | None = None) -> bool:
     if d.weekday() >= 5:
         return False
     mins = d.hour * 60 + d.minute
+    return (7 * 60) <= mins < (23 * 60 + 50)
+
+
+def is_msk_auto_session(dt: datetime | None = None) -> bool:
+    """Окно Prod AUTO tip1m: будни 07:00–23:50; сб/вс 10:00–18:59 МСК."""
+    d = dt or now_msk()
+    mins = d.hour * 60 + d.minute
+    if d.weekday() >= 5:
+        return (10 * 60) <= mins < (19 * 60)
     return (7 * 60) <= mins < (23 * 60 + 50)
 
 

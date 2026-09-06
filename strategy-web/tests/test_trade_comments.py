@@ -40,13 +40,26 @@ def test_auto_entry_uses_long_levels_and_tp():
 
 
 def test_close_comment_ghost_and_auto_tp_weekend():
+    from datetime import datetime
+
+    from live.dealer_quotes import MSK
+
     assert close_comment_for_source("RECONCILE", ghost=True) == "сверка ghost"
-    with patch("live.dealer_quotes.want_dealer_quotes", return_value=True):
+    assert (
+        close_comment_for_source(
+            "AUTO_TP", signal_bar={"tradeDate": "2026-09-05 20:24"}
+        )
+        == "AUTO_TP вне сессии"
+    )
+    sat_mid = datetime(2026, 9, 5, 12, 0, tzinfo=MSK)
+    with patch("live.dealer_quotes.now_msk", return_value=sat_mid):
         assert (
             close_comment_for_source(
-                "AUTO_TP", signal_bar={"tradeDate": "2026-09-05 20:24"}
+                "AUTO_TP",
+                settings={"take_profit_pct": 2.0},
+                signal_bar={"tradeDate": "2026-09-05 12:00"},
             )
-            == "AUTO_TP вне сессии"
+            == "ТП 2%"
         )
 
 

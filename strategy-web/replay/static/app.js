@@ -4833,7 +4833,7 @@
         : ' · <span class="badge-extra19" title="Экстра 1/9 считается в режиме «касание 1м»">экстра 1/9</span>')
       : '';
     const weekendText = isWeekendTradingMode()
-      ? ' · <span class="badge-online" title="Только Тест: суббота и воскресенье 10:00–18:59 МСК. Prod AUTO не меняется.">выходные</span>'
+      ? ' · <span class="badge-online" title="Суббота и воскресенье 10:00–18:59 МСК (как Prod AUTO). Чип только для прогона Теста.">выходные</span>'
       : '';
     const swingText = isZoneSwingMode()
       ? (isTip1mMode()
