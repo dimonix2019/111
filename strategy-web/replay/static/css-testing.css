@@ -24,6 +24,13 @@
   background: rgba(225, 29, 72, 0.28);
 }
 
+#addonModeChips #btnWeekendTrading.active,
+#btnWeekendTrading.active {
+  border-color: #f59e0b;
+  color: #fef3c7;
+  background: rgba(245, 158, 11, 0.28);
+}
+
 #btnZoneSwing.active {
   border-color: #fb923c;
   color: #ffedd5;
@@ -378,10 +385,10 @@
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 4px;
-  width: 84px;
+  gap: 3px;
+  width: 100px;
   height: 72px;
-  flex: 0 0 84px;
+  flex: 0 0 100px;
   padding: 2px 1px 0;
   border-bottom: 1px solid #334155;
   box-sizing: border-box;

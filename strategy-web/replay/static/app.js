@@ -3065,12 +3065,26 @@
     { key: 'addon', api: 'addon', label: 'добор', color: '#c084fc' },
     { key: 'extra', api: 'extra', label: 'экстра', color: '#a78bfa' },
     { key: 'shelf', api: 'shelf_ff', label: 'полка', color: '#7c3aed' },
+    { key: 'weekend', api: 'weekend', label: 'выходные', color: '#f59e0b' },
   ];
+
+  function emptyTagSharePnl() {
+    return { base: 0, addon: 0, extra: 0, shelf: 0, weekend: 0 };
+  }
+
+  function isWeekendEntryMsk(entryDate) {
+    if (typeof parseTradeMs !== 'function') return false;
+    const ms = parseTradeMs(entryDate);
+    if (ms == null) return false;
+    const d = new Date(ms);
+    const day = (d.getUTCDay() + Math.floor((d.getUTCHours() + 3) / 24)) % 7;
+    return day === 0 || day === 6;
+  }
 
   function parseByTagPnl(summary) {
     const raw = summary && (summary.by_tag || summary.byTag);
     if (!raw || typeof raw !== 'object') return null;
-    const out = { base: 0, addon: 0, extra: 0, shelf: 0 };
+    const out = emptyTagSharePnl();
     let any = false;
     for (const spec of TAG_SHARE_SPEC) {
       const cell = raw[spec.api] != null ? raw[spec.api] : raw[spec.key];
@@ -3085,13 +3099,16 @@
   }
 
   function collectTagShareFromRows(rows) {
-    const out = { base: 0, addon: 0, extra: 0, shelf: 0 };
+    const out = emptyTagSharePnl();
+    const weekendOn = typeof isWeekendTradingMode === 'function' && isWeekendTradingMode();
     for (const r of rows || []) {
       if (!r || r.status !== 'Закрыта') continue;
       const k = normalizeTradeSrcFilterKey(r);
       if (k !== 'base' && k !== 'addon' && k !== 'extra' && k !== 'shelf') continue;
       const pnl = Number(r.netValue);
-      if (Number.isFinite(pnl)) out[k] += pnl;
+      if (!Number.isFinite(pnl)) continue;
+      if (weekendOn && isWeekendEntryMsk(r.entryDate)) out.weekend += pnl;
+      else out[k] += pnl;
     }
     return out;
   }
@@ -3115,7 +3132,10 @@
       : [];
     const fromRows = collectTagShareFromRows(tipRows);
     const fromApi = parseByTagPnl(tipSimCache.summary);
-    const pnl = fromApi || fromRows;
+    const pnl = { ...(fromApi || fromRows) };
+    if (typeof isWeekendTradingMode === 'function' && !isWeekendTradingMode()) {
+      pnl.weekend = 0;
+    }
     const absSum = TAG_SHARE_SPEC.reduce((s, spec) => s + Math.abs(pnl[spec.key] || 0), 0);
     const slices = TAG_SHARE_SPEC.map((spec) => {
       const val = Number(pnl[spec.key]) || 0;

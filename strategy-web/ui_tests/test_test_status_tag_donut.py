@@ -8,7 +8,7 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 BASE_URL = os.environ.get("MOEX_DESK_URL", "http://127.0.0.1:8765").rstrip("/")
-CACHE_BUST = "20260906tipBars1"
+CACHE_BUST = "20260906weTag1"
 
 
 def _ok_json(route: Route, payload: dict) -> None:
@@ -72,6 +72,19 @@ def _stub_tip1m_tags(route: Route) -> None:
                     "commission": 0,
                     "overnight": 0,
                 },
+                {
+                    "index": 5,
+                    "direction": "Long",
+                    "tag": "main",
+                    "source": "база",
+                    "entryDate": "2026-01-10 11:00",
+                    "exitDate": "2026-01-10 16:00",
+                    "status": "Закрыта",
+                    "net": 8000,
+                    "gross": 8000,
+                    "commission": 0,
+                    "overnight": 0,
+                },
             ],
             "summary": {
                 "trades": 4,
@@ -85,6 +98,7 @@ def _stub_tip1m_tags(route: Route) -> None:
                     "addon": {"n": 1, "pnlRub": 2500},
                     "extra": {"n": 1, "pnlRub": 1500},
                     "shelf_ff": {"n": 1, "pnlRub": 2000},
+                    "weekend": {"n": 0, "pnlRub": 0},
                 },
             },
             "params": {},
@@ -105,6 +119,7 @@ def test_status_pnl_not_timings_and_tag_donut(page: Page) -> None:
         """() => {
           localStorage.setItem('moexReplay.viewMode', 'replay');
           localStorage.removeItem('moexReplay.compound');
+          localStorage.removeItem('moexReplay.weekendTrading');
         }"""
     )
     page.route("**/api/sim/tip1m", _stub_tip1m_tags)
@@ -131,14 +146,109 @@ def test_status_pnl_not_timings_and_tag_donut(page: Page) -> None:
     chart = page.locator("#tagShareDonut")
     expect(chart).to_be_visible(timeout=15_000)
     expect(chart.locator("circle, .tag-share-slice, .tag-share-svg")).to_have_count(0)
-    expect(chart.locator(".tag-share-bar")).to_have_count(4)
+    expect(chart.locator(".tag-share-bar")).to_have_count(5)
     expect(chart.locator(".tag-share-bars")).to_be_visible()
     expect(chart).to_contain_text("База")
     expect(chart).to_contain_text("добор")
     expect(chart).to_contain_text("экстра")
     expect(chart).to_contain_text("полка")
+    expect(chart).to_contain_text("выходные")
     chart_text = chart.inner_text()
     assert "качалка" not in chart_text.lower()
     assert "%" in chart_text
     assert "₽" in chart_text
+    weekend_row = chart.locator(".tag-share-row").filter(has_text="выходные")
+    expect(weekend_row).to_be_visible()
+    expect(weekend_row).to_contain_text("0%")
+    weekend_txt = weekend_row.inner_text()
+    assert "8" not in weekend_txt.replace("выходные", "")
+    expect(page.locator("#btnWeekendTrading")).to_have_attribute("aria-pressed", "false")
     assert not errors, f"pageerror: {errors}"
+
+
+def _stub_tip1m_weekend_on(route: Route) -> None:
+    _ok_json(
+        route,
+        {
+            "trades": [
+                {
+                    "index": 1,
+                    "direction": "Long",
+                    "tag": "main",
+                    "source": "база",
+                    "entryDate": "2026-01-12 10:15",
+                    "exitDate": "2026-01-12 11:00",
+                    "status": "Закрыта",
+                    "net": 7000,
+                    "gross": 7000,
+                    "commission": 0,
+                    "overnight": 0,
+                },
+                {
+                    "index": 2,
+                    "direction": "Long",
+                    "tag": "main",
+                    "source": "база",
+                    "entryDate": "2026-01-10 11:00",
+                    "exitDate": "2026-01-10 16:00",
+                    "status": "Закрыта",
+                    "net": 3000,
+                    "gross": 3000,
+                    "commission": 0,
+                    "overnight": 0,
+                },
+            ],
+            "summary": {
+                "trades": 2,
+                "wins": 2,
+                "pnlRub": 10000,
+                "retPct": 10.0,
+                "finalEquityRub": 110000,
+                "openCount": 0,
+                "by_tag": {
+                    "main": {"n": 1, "pnlRub": 7000},
+                    "addon": {"n": 0, "pnlRub": 0},
+                    "extra": {"n": 0, "pnlRub": 0},
+                    "shelf_ff": {"n": 0, "pnlRub": 0},
+                    "weekend": {"n": 1, "pnlRub": 3000},
+                },
+            },
+            "params": {"weekendTrading": True},
+            "meta": {"weekendTrading": True, "weekendWindowMsk": "10:00–18:59"},
+        },
+    )
+
+
+@pytest.mark.ui
+def test_tag_share_weekend_legend_when_chip_on(page: Page) -> None:
+    errors: list[str] = []
+    page.on("pageerror", lambda exc: errors.append(str(exc)))
+    page.add_init_script(
+        """() => {
+          localStorage.setItem('moexReplay.viewMode', 'replay');
+          localStorage.setItem('moexReplay.weekendTrading', '1');
+        }"""
+    )
+    page.route("**/api/sim/tip1m", _stub_tip1m_weekend_on)
+    page.goto(
+        f"{BASE_URL}/?v={CACHE_BUST}&weekend_trading=true",
+        wait_until="domcontentloaded",
+    )
+    expect(page.locator("#app")).to_be_visible(timeout=30_000)
+    replay_chip = page.locator('.chip-view[data-view="replay"]')
+    if "active" not in (replay_chip.get_attribute("class") or ""):
+        replay_chip.click()
+    expect(replay_chip).to_have_class(re.compile(r"\bactive\b"))
+    expect(page.locator("#btnWeekendTrading")).to_have_attribute("aria-pressed", "true")
+
+    chart = page.locator("#tagShareDonut")
+    expect(chart).to_be_visible(timeout=15_000)
+    expect(chart.locator(".tag-share-bar")).to_have_count(5)
+    weekend_row = chart.locator(".tag-share-row").filter(has_text="выходные")
+    expect(weekend_row).to_contain_text("30%")
+    expect(weekend_row).to_contain_text("3")
+    expect(weekend_row).to_contain_text("₽")
+    base_row = chart.locator(".tag-share-row").filter(has_text="База")
+    expect(base_row).to_contain_text("70%")
+    assert not errors, f"pageerror: {errors}"
+

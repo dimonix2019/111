@@ -5084,6 +5084,21 @@ def resolve_test_wallets(
     return {WALLET_MAIN: main, WALLET_ADDON: addon, WALLET_EXTRA: extra}
 
 
+def _is_weekend_entry_msk(trade: dict[str, Any] | None) -> bool:
+    """Вход в субботу или воскресенье по календарю МСК (entryDate уже wall-clock MSK)."""
+    if not isinstance(trade, dict):
+        return False
+    raw = trade.get("entryDate") or trade.get("entry_date") or ""
+    s = str(raw).replace("T", " ").strip()
+    if len(s) < 10 or s[4] != "-" or s[7] != "-":
+        return False
+    try:
+        y, mo, d = int(s[0:4]), int(s[5:7]), int(s[8:10])
+        return datetime(y, mo, d).weekday() >= 5
+    except ValueError:
+        return False
+
+
 def _by_tag_bucket(trade: dict[str, Any] | None) -> str | None:
     """main / addon / extra / shelf_ff. Качалка и коридор в бублик не входят."""
     if not trade:
@@ -5113,13 +5128,18 @@ def attach_by_tag(result: dict[str, Any]) -> dict[str, Any]:
         "addon": {"n": 0, "pnlRub": 0.0},
         "extra": {"n": 0, "pnlRub": 0.0},
         "shelf_ff": {"n": 0, "pnlRub": 0.0},
+        "weekend": {"n": 0, "pnlRub": 0.0},
     }
     for t in result.get("trades") or []:
         if str(t.get("status") or "") == "Открыта":
             continue
-        key = _by_tag_bucket(t if isinstance(t, dict) else None)
+        if not isinstance(t, dict):
+            continue
+        key = _by_tag_bucket(t)
         if key not in buckets:
             continue
+        if _is_weekend_entry_msk(t):
+            key = "weekend"
         try:
             pnl = float(t.get("net") or 0.0)
         except (TypeError, ValueError):
