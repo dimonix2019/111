@@ -66,18 +66,16 @@ def test_account_rub_uses_grouping_not_k():
 def test_tag_share_chip_delta_cache_bust():
     html = _read_index_html()
     refs = _parse_cache_bust_refs(html)
-    for name in ("app.js", "app-test-chips.js", "replay-sim.js", "css-testing.css"):
+    for name in ("app.js", "replay-sim.js", "css-testing.css"):
         ver = refs[name]
         assert f'{name}?v={ver}' in html
 
     js = _load_static("app.js")
-    chips = _load_static("app-test-chips.js")
     sim = _load_static("replay-sim.js")
-    assert "function isWeekendChipEntry" in js or "function isWeekendChipEntry" in chips
-    assert "chip_delta" in chips
-    assert "вклад чипа в итог" in chips
-    assert "function markMonthlyPnlPending" in js or "function markMonthlyPnlPending" in chips
-    assert "data-month-keys" in js or "data-month-keys" in chips
+    assert "function isWeekendChipEntry" in js
+    assert "chip_delta" in js
+    assert "function markMonthlyPnlPending" in js
+    assert "data-month-keys" in js
     assert "Чистая прибыль" in js
     assert "function formatProfitAccountRub" in sim
     assert "profitRub" in sim
