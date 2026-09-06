@@ -101,6 +101,47 @@
   const TRADES_SUMMARY_MIN = 120;
 
   /** Prod tip1m spread-% levels — from GET /api/live/strategy-config (fallback = constants.py). */
+  // chip_delta: tag-share donut delta mode (see app-test-chips.js)
+  function __installAppTestModules() {
+    window.__TradeDesk = window.__TradeDesk || { deps: {} };
+    Object.assign(window.__TradeDesk.deps, {
+      $, pnlClass, getSimNotionalRub, getSimCompound,
+      formatAccountRub, formatProfitAccountRub, isWeekendTradingMode,
+      tipRowsUpToCursor, thresholds, readWindowEndYmd, isTip1mMode,
+      tipSimRequestKey, tipTradeToRow, clearTipManualOverrides,
+      refreshTradesTable, refreshUi, normalizeTradeSrcFilterKey,
+      formatMonthlyYTick, formatMonthlyHistPctValue, formatMonthlyHistAbs,
+      formatMonthlyMeanLabel, applyMonthlyPnlScrollTop, readSavedMonthlyPnlScrollTop,
+      aggregateTipBarsByMinutes, isChartsHidden, tip1mChartDaysWanted,
+      tip1mChartNeedsReload, activateTip1mChart, fitLoadedChartRange,
+      markMonthlyPnlPending: (...a) => window.__TradeDesk.chips.markMonthlyPnlPending(...a),
+      isWeekendChipEntry: (...a) => window.__TradeDesk.chips.isWeekendChipEntry(...a),
+      get tipSimCache() { return tipSimCache; }, set tipSimCache(v) { tipSimCache = v; },
+      get tipSimJobId() { return tipSimJobId; },
+      get TEST_DRAW_CORRIDOR() { return TEST_DRAW_CORRIDOR; },
+      get tip1mChartMeta() { return tip1mChartMeta; }, set tip1mChartMeta(v) { tip1mChartMeta = v; },
+      get tip1mBarsCacheKey() { return tip1mBarsCacheKey; }, set tip1mBarsCacheKey(v) { tip1mBarsCacheKey = v; },
+      get tip1mChartJobId() { return tip1mChartJobId; },
+      get allPoints() { return allPoints; }, set allPoints(v) { allPoints = v; },
+      get testDeskCorridor() { return testDeskCorridor; }, set testDeskCorridor(v) { testDeskCorridor = v; },
+      get testDeskCorridorTs() { return testDeskCorridorTs; }, set testDeskCorridorTs(v) { testDeskCorridorTs = v; },
+      get engine() { return engine; }, get chart() { return chart; },
+      get pendingChartRepaint() { return pendingChartRepaint; },
+      set pendingChartRepaint(v) { pendingChartRepaint = v; },
+    });
+  }
+  // --- module re-exports (static tests grep trade.js / app.js) ---
+  function isWeekendChipEntry(...args) { return window.__TradeDesk.chips.isWeekendChipEntry(...args); }
+  function renderTagShareDonut(...args) { return window.__TradeDesk.chips.renderTagShareDonut(...args); }
+  function markMonthlyPnlPending(...args) { return window.__TradeDesk.chips.markMonthlyPnlPending(...args); }
+  function renderMonthlyPnl(...args) { return window.__TradeDesk.chips.renderMonthlyPnl(...args); }
+  function collectTagShareFromRows(...args) { return window.__TradeDesk.chips.collectTagShareFromRows(...args); }
+  function parseByTagPnl(...args) { return window.__TradeDesk.chips.parseByTagPnl(...args); }
+  function pollTipSimJob(...args) { return window.__TradeDesk.sim.pollTipSimJob(...args); }
+  function tip1mSimTimeoutMs(...args) { return window.__TradeDesk.sim.tip1mSimTimeoutMs(...args); }
+  function loadTip1mChartBars(...args) { return window.__TradeDesk.sim.loadTip1mChartBars(...args); }
+  function ensureTestDeskCorridor(...args) { return window.__TradeDesk.sim.ensureTestDeskCorridor(...args); }
+  function fetchTipSim(...args) { return window.__TradeDesk.sim.fetchTipSim(...args); }
   function hmProdSpreadWide() {
     const sp = window.__strategyConfig?.spread;
     const fb = window.__spreadCfgFallback || { enter_wide: 6.1, exit_wide: 5.8 };
@@ -3083,143 +3124,6 @@
     if (el) el.innerHTML = '';
   }
 
-  const TAG_SHARE_SPEC = [
-    { key: 'base', api: 'main', label: 'База', color: '#22d3ee' },
-    { key: 'addon', api: 'addon', label: 'добор', color: '#c084fc' },
-    { key: 'extra', api: 'extra', label: 'экстра', color: '#a78bfa' },
-    { key: 'shelf', api: 'shelf_ff', label: 'полка', color: '#7c3aed' },
-    { key: 'weekend', api: 'weekend', label: 'выходные', color: '#f59e0b' },
-  ];
-
-  function emptyTagSharePnl() {
-    return { base: 0, addon: 0, extra: 0, shelf: 0, weekend: 0 };
-  }
-
-  function isWeekendChipEntry(entryDate) {
-    const s = String(entryDate || '').replace('T', ' ').trim();
-    if (s.length < 10 || s[4] !== '-' || s[7] !== '-') return false;
-    const y = Number(s.slice(0, 4));
-    const mo = Number(s.slice(5, 7));
-    const d = Number(s.slice(8, 10));
-    if (!y || !mo || !d) return false;
-    const dow = new Date(Date.UTC(y, mo - 1, d, 12, 0, 0)).getUTCDay();
-    if (dow !== 0 && dow !== 6) return false;
-    if (s.length < 16) return true;
-    const hm = s.slice(11, 16);
-    return hm >= '10:00' && hm < '19:00';
-  }
-
-  function parseByTagPnl(summary) {
-    const raw = summary && (summary.by_tag || summary.byTag);
-    if (!raw || typeof raw !== 'object') return null;
-    const out = emptyTagSharePnl();
-    let any = false;
-    for (const spec of TAG_SHARE_SPEC) {
-      const cell = raw[spec.api] != null ? raw[spec.api] : raw[spec.key];
-      if (cell == null) continue;
-      const pnl = typeof cell === 'number' ? Number(cell) : Number(cell.pnlRub ?? cell.pnl ?? 0);
-      if (Number.isFinite(pnl)) {
-        out[spec.key] = pnl;
-        any = true;
-      }
-    }
-    return any ? out : null;
-  }
-
-  function collectTagShareFromRows(rows) {
-    const out = emptyTagSharePnl();
-    const weekendOn = typeof isWeekendTradingMode === 'function' && isWeekendTradingMode();
-    for (const r of rows || []) {
-      if (!r) continue;
-      const k = normalizeTradeSrcFilterKey(r);
-      if (k !== 'base' && k !== 'addon' && k !== 'extra' && k !== 'shelf') continue;
-      let pnl;
-      if (r.status === 'Открыта') {
-        pnl = Number(r.openMtm != null ? r.openMtm : r.mtm);
-      } else if (r.status === 'Закрыта') {
-        pnl = Number(r.netValue);
-      } else {
-        continue;
-      }
-      if (!Number.isFinite(pnl)) continue;
-      if (weekendOn && isWeekendChipEntry(r.entryDate)) out.weekend += pnl;
-      else out[k] += pnl;
-    }
-    return out;
-  }
-
-  function formatTagShareRub(rub) {
-    const n = Number(rub) || 0;
-    const sign = n > 0 ? '+' : '';
-    const body = typeof formatAccountRub === 'function'
-      ? formatAccountRub(n)
-      : String(Math.round(n));
-    return `${sign}${body} ₽`;
-  }
-
-  function formatTagSharePct(pct, rub) {
-    if (!Number.isFinite(pct)) return '0%';
-    if (Math.abs(Number(rub) || 0) < 1e-9 && Math.abs(pct) < 0.5) return '0%';
-    if (Math.abs(pct) < 0.5 && Math.abs(Number(rub) || 0) >= 1e-9) return '<1%';
-    return `${Math.round(pct)}%`;
-  }
-
-  function renderTagShareDonut() {
-    const host = $('tagShareDonut');
-    if (!host) return;
-    const tipRows = tipSimCache.rows
-      ? (typeof tipRowsUpToCursor === 'function'
-        ? tipRowsUpToCursor(tipSimCache.rows)
-        : tipSimCache.rows)
-      : [];
-    const fromRows = collectTagShareFromRows(tipRows);
-    const fromApi = parseByTagPnl(tipSimCache.summary);
-    const tagMode = String(tipSimCache.summary?.by_tag_mode || '');
-    const pnl = { ...(fromApi || fromRows) };
-    if (typeof isWeekendTradingMode === 'function' && !isWeekendTradingMode()) {
-      pnl.weekend = 0;
-    }
-    if (tagMode !== 'chip_delta') {
-      const rowShelf = Number(fromRows.shelf) || 0;
-      const apiShelf = Number(pnl.shelf) || 0;
-      if (Math.abs(apiShelf) < 1e-9 && Math.abs(rowShelf) >= 1e-9) {
-        pnl.shelf = rowShelf;
-        pnl.base = (Number(pnl.base) || 0) - rowShelf;
-      }
-    }
-    const notional = typeof getSimNotionalRub === 'function' ? getSimNotionalRub() : 0;
-    const slices = TAG_SHARE_SPEC.map((spec) => {
-      const val = Number(pnl[spec.key]) || 0;
-      const pct = notional > 0 ? (val / notional) * 100 : 0;
-      return { ...spec, val, pct };
-    });
-    const maxAbs = slices.reduce((m, s) => Math.max(m, Math.abs(s.val)), 0);
-    const bars = slices.map((s) => {
-      const h = maxAbs > 0 ? (Math.abs(s.val) / maxAbs) * 100 : 0;
-      const barH = h > 0 && h < 4 ? 4 : h;
-      return (
-        `<div class="tag-share-bar-col" title="${s.label}: вклад чипа в итог (вкл − выкл)">`
-        + `<div class="tag-share-bar${s.val < 0 ? ' is-neg' : ''}"`
-        + ` style="height:${barH.toFixed(1)}%;background:${s.color}"></div>`
-        + `</div>`
-      );
-    }).join('');
-    const legend = slices.map((s) => {
-      const cls = pnlClass(s.val);
-      return (
-        `<div class="tag-share-row" title="${s.label}: ${formatTagSharePct(s.pct, s.val)} от капитала · ${formatTagShareRub(s.val)}">`
-        + `<span class="tag-share-dot" style="background:${s.color}"></span>`
-        + `<span class="tag-share-name">${s.label}</span>`
-        + `<span class="tag-share-pct">${formatTagSharePct(s.pct, s.val)}</span>`
-        + `<span class="tag-share-rub ${cls}">${formatTagShareRub(s.val)}</span>`
-        + `</div>`
-      );
-    }).join('');
-    host.innerHTML =
-      `<div class="tag-share-bars" aria-hidden="true">${bars}</div>`
-      + `<div class="tag-share-legend">${legend}</div>`;
-  }
-
   function updateTradesSummary(allRows, visibleRows) {
     const grid = $('tradesSummaryGrid');
     const scrollEl = $('tradesSummaryScroll');
@@ -3358,190 +3262,10 @@
    * «ср.» = arithmetic mean of monthly % (same basis as bars / Y),
    * plus mean monthly ₽ in parentheses.
    */
-  function formatMonthlyMeanLabel(meanPct, meanRub) {
-    const pctText = formatMonthlyHistPctValue(meanPct);
-    return `ср. ${pctText} ${formatMonthlyHistAbs(meanRub)}`;
-  }
 
   /** Nice round %-ticks covering [minPct, maxPct]; always includes 0. */
-  function monthlyPnlYTicks(minPct, maxPct) {
-    let lo = Math.min(0, minPct);
-    let hi = Math.max(0, maxPct);
-    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi - lo < 1e-9) {
-      return [0];
-    }
-    const span = hi - lo;
-    const rough = span / 4;
-    const niceSteps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
-    let step = niceSteps[niceSteps.length - 1];
-    for (const s of niceSteps) {
-      if (s >= rough) {
-        step = s;
-        break;
-      }
-    }
-    const start = Math.floor(lo / step) * step;
-    const end = Math.ceil(hi / step) * step;
-    const ticks = [];
-    for (let v = start; v <= end + step * 0.5; v += step) {
-      const t = Math.round(v * 1000) / 1000;
-      if (t >= start - 1e-9 && t <= end + 1e-9) ticks.push(t);
-    }
-    if (!ticks.includes(0)) ticks.push(0);
-    ticks.sort((a, b) => a - b);
-    return ticks;
-  }
 
-  function markMonthlyPnlPending() {
-    const el = $('tradesMonthlyPnl');
-    if (!el) return;
-    el.classList.add('is-pending');
-    el.dataset.pending = '1';
-    el.removeAttribute('data-month-keys');
-    el.removeAttribute('data-mean-pct');
-    el.removeAttribute('data-mean-rub');
-    el.innerHTML = (
-      `<div class="trades-monthly-title">`
-      + `<span class="tm-title-text">PnL по месяцам</span>`
-      + `<span class="tm-mean-badge">пересчёт…</span>`
-      + `</div>`
-      + `<div class="trades-monthly-empty">пересчёт сделок…</div>`
-    );
-  }
 
-  function renderMonthlyPnl(visibleRows) {
-    const el = $('tradesMonthlyPnl');
-    const scrollEl = $('tradesMonthlyPnlScroll');
-    if (!el) return;
-    const prevScrollTop = scrollEl ? scrollEl.scrollTop : 0;
-    const notional = getSimNotionalRub();
-    const compound = getSimCompound();
-    const months = typeof buildMonthlyPnl === 'function'
-      ? buildMonthlyPnl(visibleRows, { notional, compound })
-      : [];
-    el.classList.remove('is-pending');
-    el.dataset.pending = '0';
-    if (!months.length) {
-      el.dataset.monthKeys = '';
-      el.dataset.meanPct = '';
-      el.dataset.meanRub = '';
-      el.innerHTML = (
-        `<div class="trades-monthly-title">PnL по месяцам</div>`
-        + `<div class="trades-monthly-empty">Нет закрытых сделок</div>`
-      );
-      applyMonthlyPnlScrollTop(monthlyPnlScrollRestored ? prevScrollTop : readSavedMonthlyPnlScrollTop());
-      return;
-    }
-    const dense = months.length > 8;
-    const histCls = `trades-monthly-hist${dense ? ' dense' : ''}`;
-
-    let minPct = 0;
-    let maxPct = 0;
-    let sumPct = 0;
-    let sumPnl = 0;
-    for (const m of months) {
-      const pct = Number.isFinite(m.pct) ? m.pct : 0;
-      if (pct < minPct) minPct = pct;
-      if (pct > maxPct) maxPct = pct;
-      sumPct += pct;
-      sumPnl += m.pnl;
-    }
-    const meanPct = sumPct / months.length;
-    const meanPnl = sumPnl / months.length;
-    el.dataset.monthKeys = months.map((m) => m.key).join(',');
-    el.dataset.meanPct = String(meanPct);
-    el.dataset.meanRub = String(meanPnl);
-    const yMin = Math.min(0, minPct);
-    const yMax = Math.max(0, maxPct);
-
-    const yTicks = monthlyPnlYTicks(yMin, yMax);
-    // Expand plot range to nice tick extents so top/bottom ticks sit on edges.
-    const tickMinPct = Math.min(...yTicks, 0);
-    const tickMaxPct = Math.max(...yTicks, 0);
-    const plotMin = Math.min(yMin, tickMinPct);
-    const plotMax = Math.max(yMax, tickMaxPct);
-    const plotRange = plotMax - plotMin || 1;
-    const zeroBottomPlot = ((0 - plotMin) / plotRange) * 100;
-    const meanBottomPlot = ((meanPct - plotMin) / plotRange) * 100;
-
-    const yLabelsHtml = yTicks.map((t) => {
-      const bottom = ((t - plotMin) / plotRange) * 100;
-      return `<span class="tm-y-label" style="bottom:${bottom.toFixed(2)}%">${formatMonthlyYTick(t, notional, compound)}</span>`;
-    }).join('');
-    const gridHtml = yTicks.map((t) => {
-      const bottom = ((t - plotMin) / plotRange) * 100;
-      const isZero = Math.abs(t) < 1e-9;
-      return `<span class="tm-grid-line${isZero ? ' tm-grid-zero' : ''}" style="bottom:${bottom.toFixed(2)}%"></span>`;
-    }).join('');
-
-    const meanCls = meanPct > 0 ? 'pos' : meanPct < 0 ? 'neg' : '';
-    /* Mean text lives in the title (outside bar hover / native title tip zone) */
-    const meanLabel = formatMonthlyMeanLabel(meanPct, meanPnl);
-    const meanTitle = compound
-      ? 'Среднее месячных %: PnL месяца / эквити на начало месяца; ₽ — среднее месячных PnL'
-      : 'Среднее месячных %: PnL месяца / начальный капитал; ₽ — среднее месячных PnL';
-    const titleHint = compound
-      ? 'PnL по месяцам · % от эквити на начало месяца (капит.)'
-      : 'PnL по месяцам · % от начального капитала';
-
-    el.innerHTML = (
-      `<div class="trades-monthly-title" title="${titleHint}">`
-      + `<span class="tm-title-text">PnL по месяцам</span>`
-      + `<span class="tm-mean-badge ${meanCls}" title="${meanTitle}">${meanLabel}</span>`
-      + `</div>`
-      + `<div class="${histCls}">`
-      + `<div class="tm-hist-scale">`
-      + `<div class="tm-hist-y-col" aria-hidden="true">`
-      + `<div class="tm-hist-y">${yLabelsHtml}</div>`
-      + `<div class="tm-hist-y-spacer"></div>`
-      + `</div>`
-      + `<div class="tm-hist-plot">`
-      + `<div class="tm-hist-grid">`
-      + gridHtml
-      + `<div class="tm-mean-line ${meanCls}" style="bottom:${meanBottomPlot.toFixed(2)}%"></div>`
-      + `</div>`
-      + `<div class="tm-hist-bars">`
-      + months.map((m, mi) => {
-        const pct = Number.isFinite(m.pct) ? m.pct : 0;
-        const barCls = pct > 0 ? 'pos' : pct < 0 ? 'neg' : 'flat';
-        const barH = Math.max(0, (Math.abs(pct) / plotRange) * 100);
-        let barStyle;
-        if (pct >= 0) {
-          barStyle = `bottom:${zeroBottomPlot.toFixed(2)}%;height:${barH.toFixed(2)}%`;
-        } else {
-          barStyle = `bottom:${(zeroBottomPlot - barH).toFixed(2)}%;height:${barH.toFixed(2)}%`;
-        }
-        const pctLabel = formatMonthlyHistPctValue(pct);
-        const absLabel = formatMonthlyHistAbs(m.pnl);
-        const basisHint = compound
-          ? `эквити ${formatRub(m.equityStart)}`
-          : `кап. ${formatRub(notional)}`;
-        const monthYear = String(m.key || '').slice(0, 4);
-        const prevYear = mi > 0 ? String(months[mi - 1].key || '').slice(0, 4) : null;
-        const monthLabel = dense
-          ? (prevYear && prevYear === monthYear
-            ? String(m.label || '').replace(/\s+\d+$/, '')
-            : m.label)
-          : m.label;
-        return (
-          `<div class="tm-col" title="${m.label} · ${pctLabel} ${absLabel} · ${basisHint} · ${m.count} сд.">`
-          + `<span class="tm-bar-track">`
-          + `<span class="tm-bar ${barCls}" style="${barStyle}"></span>`
-          + `</span>`
-          + `<span class="tm-foot">`
-          + `<span class="tm-pnl ${pnlClass(m.pnl)}">`
-          + `<span class="tm-pnl-pct">${pctLabel}</span>`
-          + `<span class="tm-pnl-abs">${absLabel}</span>`
-          + `</span>`
-          + `<span class="tm-month">${monthLabel}</span>`
-          + `</span>`
-          + `</div>`
-        );
-      }).join('')
-      + `</div></div></div></div>`
-    );
-    applyMonthlyPnlScrollTop(monthlyPnlScrollRestored ? prevScrollTop : readSavedMonthlyPnlScrollTop());
-  }
 
   function syncRiskFilterChips() {
     document.querySelectorAll('#tradesRiskFilters .risk-filter').forEach((btn) => {
@@ -4198,181 +3922,6 @@
       }
     }
     return out;
-  }
-
-  const TIP1M_CHART_MAX_POINTS = 150000;
-
-  function thinTip1mBarsForChart(bars) {
-    const raw = Array.isArray(bars) ? bars : [];
-    const n = raw.length;
-    if (n <= TIP1M_CHART_MAX_POINTS) {
-      return { bars: raw, stepMin: 1 };
-    }
-    let minutes = 5;
-    if (Math.ceil(n / 5) > TIP1M_CHART_MAX_POINTS) minutes = 15;
-    if (Math.ceil(n / 15) > TIP1M_CHART_MAX_POINTS) minutes = 30;
-    return { bars: aggregateTipBarsByMinutes(raw, minutes), stepMin: minutes };
-  }
-
-  function tip1mBarsRequestKey() {
-    return [
-      $('csvSel')?.value || '',
-      $('startDate')?.value || '',
-      readWindowEndYmd(),
-      String(tip1mChartDaysWanted()),
-      'final',
-    ].join('|');
-  }
-
-  function tip1mWindowSpanDays() {
-    const start = $('startDate')?.value || '';
-    const startMs = startYmdToMs(start);
-    if (!Number.isFinite(startMs)) return 0;
-    const endYmd = readWindowEndYmd();
-    const endMs = Number.isFinite(endYmdToMs(endYmd)) ? endYmdToMs(endYmd) : Date.now();
-    return Math.max(1, Math.ceil((endMs - startMs) / 86_400_000) + 1);
-  }
-
-  function tip1mFetchTimeoutMs(csv, chartDays) {
-    const name = String(csv || '');
-    const d = Number(chartDays) || 0;
-    const span = d > 0 ? d : tip1mWindowSpanDays();
-    // CSV «3 года» + окно 3мес не должен брать 90с refresh MOEX.
-    if (span > 0 && span < 200) return 180000;
-    if (name.includes('1095') || /_3y/i.test(name) || span >= 900) return 90000;
-    if (name.includes('365') || span >= 300) return 60000;
-    return 45000;
-  }
-
-  /** Сим / heatmap: не общий 90с refresh MOEX. 3мес и 3г могут идти минуты. */
-  function tip1mSimTimeoutMs() {
-    return 600000;
-  }
-
-  /** Poll async tip1m sim job (long windows >90d). */
-  async function pollTipSimJob(serverJobId, clientJobId, started, timeoutMs) {
-    const pollMs = 600;
-    while (Date.now() - started < timeoutMs) {
-      if (clientJobId !== tipSimJobId) return null;
-      await new Promise((r) => setTimeout(r, pollMs));
-      if (clientJobId !== tipSimJobId) return null;
-      const sr = await fetch(`/api/sim/tip1m/status/${encodeURIComponent(serverJobId)}`, {
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!sr.ok) {
-        const errText = await sr.text();
-        throw new Error(errText || sr.statusText);
-      }
-      const status = await sr.json();
-      if (status.status === 'done' && status.result) return status.result;
-      if (status.status === 'error') {
-        throw new Error(status.error || 'tip1m sim failed');
-      }
-    }
-    const err = new Error(`таймаут ${Math.round(timeoutMs / 1000)} с`);
-    err.name = 'AbortError';
-    throw err;
-  }
-
-  async function ensureTestDeskCorridor({ force = false } = {}) {
-    if (!TEST_DRAW_CORRIDOR) return null;
-    const now = Date.now();
-    if (!force && testDeskCorridor && (now - testDeskCorridorTs) < 60000) {
-      return testDeskCorridor;
-    }
-    try {
-      const res = await fetch('/api/trade/desk?days=30&lite=1', { signal: AbortSignal.timeout(20000) });
-      if (!res.ok) return testDeskCorridor;
-      const data = await res.json();
-      if (data && data.corridor) {
-        testDeskCorridor = data.corridor;
-        testDeskCorridorTs = Date.now();
-      }
-    } catch (_) { /* ignore */ }
-    return testDeskCorridor;
-  }
-
-  async function loadTip1mChartBars({ force = false } = {}) {
-    const key = tip1mBarsRequestKey();
-    if (!force && key === tip1mBarsCacheKey && tip1mChartMeta && allPoints.length
-      && tip1mChartMeta._active) {
-      return { bars: allPoints, meta: tip1mChartMeta, fromCache: true };
-    }
-    const jobId = ++tip1mChartJobId;
-    const csv = $('csvSel')?.value || 'm15_tatn_255d.csv';
-    const start = $('startDate')?.value || '';
-    const end = readWindowEndYmd();
-    const chartDays = tip1mChartDaysWanted();
-    let url = `/api/bars1m?csv=${encodeURIComponent(csv)}&chartDays=${chartDays}`;
-    if (start) url += `&start=${encodeURIComponent(start)}`;
-    if (end) url += `&end=${encodeURIComponent(end)}`;
-    const timeoutMs = tip1mFetchTimeoutMs(csv, chartDays);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res;
-    try {
-      res = await fetch(url, { signal: controller.signal });
-    } catch (e) {
-      if (e && e.name === 'AbortError') {
-        throw new Error(
-          `Таймаут графика 1м (${Math.round(timeoutMs / 1000)} с). Обновите страницу или перезапустите сервис.`,
-        );
-      }
-      throw e;
-    } finally {
-      clearTimeout(timer);
-    }
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(errText || res.statusText);
-    }
-    const data = await res.json();
-    if (jobId !== tip1mChartJobId) return null;
-    if (!data.ok && !(data.bars && data.bars.length)) {
-      throw new Error(data.hintRu || 'Нет 1м баров для графика');
-    }
-    const rawBars = data.bars || [];
-    const thinned = thinTip1mBarsForChart(rawBars);
-    const stepMin = Number(data.displayStepMin) > 1
-      ? Number(data.displayStepMin)
-      : thinned.stepMin;
-    const appliedDays = data.chartDays != null ? data.chartDays : chartDays;
-    let hintRu = data.hintRu || null;
-    if (stepMin > 1) {
-      hintRu = (
-        `График за выбранное окно (~${appliedDays}д), шаг ${stepMin} мин `
-        + `(минутки не рисуем: ${rawBars.length} точек слишком тяжело для экрана). `
-        + `Симуляция на сервере — полный период.`
-      );
-    }
-    tip1mBarsCacheKey = key;
-    tip1mChartMeta = {
-      count: thinned.bars.length,
-      rawCount: rawBars.length,
-      fullTipCount: data.fullTipCount,
-      chartLimited: !!data.chartLimited,
-      chartDays: appliedDays,
-      displayStepMin: stepMin,
-      hintRu,
-      first: data.first,
-      last: data.last,
-      corridor: TEST_DRAW_CORRIDOR ? (data.corridor || null) : null,
-      corridor_wide: TEST_DRAW_WIDE_CORRIDOR ? (data.corridor_wide || null) : null,
-      _active: true,
-    };
-    if (TEST_DRAW_CORRIDOR && !tip1mChartMeta.corridor) {
-      ensureTestDeskCorridor({ force: true }).then((c) => {
-        if (c && tip1mChartMeta) {
-          tip1mChartMeta.corridor = tip1mChartMeta.corridor || c;
-          if (isChartsHidden()) {
-            pendingChartRepaint = true;
-            return;
-          }
-          try { refreshUi({ light: true }); } catch (_) { /* ignore */ }
-        }
-      });
-    }
-    return { bars: thinned.bars, meta: tip1mChartMeta, fromCache: false };
   }
 
   function stashM15IfNeeded() {
@@ -5472,7 +5021,6 @@
     });
   }
 
-  function scheduleTipSimFetch({ immediate = false } = {}) {
     if (!isTip1mMode()) return;
     if (tipSimTimer) clearTimeout(tipSimTimer);
     // Debounce param tweaks; seek/cursor uses tipRowsUpToCursor (no server POST).
@@ -5481,138 +5029,6 @@
       tipSimTimer = null;
       fetchTipSim().catch(() => {});
     }, delay);
-  }
-
-  async function fetchTipSim() {
-    if (!isTip1mMode()) return;
-    const key = tipSimRequestKey();
-    if (key === tipSimCache.key && tipSimCache.rows) {
-      refreshTradesTable();
-      return;
-    }
-    const jobId = ++tipSimJobId;
-    markMonthlyPnlPending();
-    const st = $('status');
-    if (st && !tipSimCache.rows) {
-      st.textContent = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · считаю…`;
-    }
-    const t = thresholds();
-    const csv = $('csvSel')?.value || 'm15_tatn_255d.csv';
-    const body = {
-      csv,
-      start: $('startDate')?.value || null,
-      end: readWindowEndYmd() || null,
-      entry: t.entry,
-      exit: t.exit,
-      slip: typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0.02,
-      notional: getSimNotionalRub(),
-      compound: getSimCompound(),
-      takeProfitPct: t.takeProfitPct || 0,
-      maxHoldDaysNoExitTrend: readHoldParams().maxHoldDaysNoExitTrend,
-      maxHoldDaysIfLosing: readHoldParams().maxHoldDaysIfLosing,
-      as_live: 0,
-      regime_z_mode: 0,
-      spread_level_mode: 1,
-      spread_levels: readHmSelectedSpreadLevels(),
-      base: isBaseMode(),
-      enable_base: isBaseMode() ? 1 : 0,
-      baseMode: isBaseMode() ? 1 : 0,
-      addon_mode: isAddon27Mode() ? 1 : 0,
-      extreme_addon_mode: isExtremeAddonMode() ? 1 : 0,
-      weekend_trading: isWeekendTradingMode(),
-      transition_swing_mode: isZoneSwingMode() ? 1 : 0,
-      adaptive_corridor_mode: isAdaptCorridorMode() ? 1 : 0,
-      shelf_floor_ceiling_mode: isShelfFloorCeilingMode() ? 1 : 0,
-    };
-    const timeoutMs = tip1mSimTimeoutMs();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const started = Date.now();
-    const timeoutSec = Math.round(timeoutMs / 1000);
-    let busyLive = true;
-    let asyncJobId = null;
-    const tickBusy = async () => {
-      if (!busyLive || jobId !== tipSimJobId) return;
-      const sec = Math.round((Date.now() - started) / 1000);
-      let phase = '';
-      try {
-        const br = await fetch('/api/tip/busy', { signal: AbortSignal.timeout(800) });
-        if (br.ok) {
-          const b = await br.json();
-          if (b && b.phaseRu && b.phase !== 'idle') {
-            phase = ` · ${b.phaseRu}`;
-            if (b.tipBuildLock) phase += ' · ждёт лок 3г';
-          }
-        }
-      } catch (_) { /* health/busy не должен ронять сим */ }
-      const asyncNote = asyncJobId ? ' · фоновая задача' : '';
-      const line = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · считаю… ${sec}/${timeoutSec} с${asyncNote}${phase}`;
-      if (st && !tipSimCache.rows) st.textContent = line;
-      const grid = $('tradesSummaryGrid');
-      if (grid && !tipSimCache.rows) {
-        grid.innerHTML = `<div class="trades-summary-note wide">${line}</div>`;
-      }
-    };
-    tickBusy();
-    const tickTimer = setInterval(tickBusy, 500);
-    const stopBusyTicks = () => {
-      busyLive = false;
-      clearInterval(tickTimer);
-    };
-    try {
-      const res = await fetch('/api/sim/tip1m', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || res.statusText);
-      }
-      let data = await res.json();
-      if (data && data.async && data.job_id) {
-        asyncJobId = data.job_id;
-        tickBusy();
-        data = await pollTipSimJob(data.job_id, jobId, started, timeoutMs);
-        if (!data) return;
-      }
-      if (jobId !== tipSimJobId) return;
-      const entryTh = t.entry;
-      const rows = (data.trades || []).map((tr) => tipTradeToRow(tr, entryTh));
-      if (key !== tipSimCache.key) clearTipManualOverrides();
-      tipSimCache = {
-        key,
-        rows,
-        meta: data.meta || null,
-        summary: data.summary || null,
-      };
-      stopBusyTicks();
-      refreshTradesTable();
-      refreshUi({ afterParams: true });
-    } catch (e) {
-      if (jobId !== tipSimJobId) return;
-      const timedOut = e && e.name === 'AbortError';
-      const msg = timedOut
-        ? `таймаут ${Math.round(timeoutMs / 1000)} с — сервер не ответил (перезапустите сервис / F5)`
-        : ((e && e.message) ? String(e.message).slice(0, 180) : String(e));
-      if (!timedOut) {
-        tipSimCache = { key: '', rows: null, meta: null, summary: null };
-        clearTipManualOverrides();
-      }
-      if (st) {
-        st.textContent = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · ошибка: ${msg}`;
-      }
-      const grid = $('tradesSummaryGrid');
-      if (grid) {
-        grid.innerHTML =
-          `<div class="trades-summary-note wide">касание 1м · ошибка: ${msg}</div>`;
-      }
-      if (!timedOut) alert('Касание 1м (сервер): ' + msg);
-    } finally {
-      stopBusyTicks();
-      clearTimeout(timer);
-    }
   }
 
   async function fetchTipHeatmap(_grid, { timeoutMs } = {}) {

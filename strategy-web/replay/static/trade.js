@@ -154,844 +154,8 @@
   let brokerEmptyStreak = 0;
   /** > POLL_FULL_EVERY so one full cycle can refill before we drop last good. */
   const BROKER_EMPTY_CLEAR_AFTER = 8;
-  let zChart = null;
-  let zSeries = null;
-  /** Primary pane: CandlestickSeries (Z tip1m · spread dealer). Line only as last-resort fallback. */
-  let zSeriesIsLine = false;
-  let spreadChart = null;
-  let spreadSeries = null;
-  let priceLines = [];
-  /** Горизонтали порогов спреда % (как Z createPriceLine). */
-  let spreadPriceLines = [];
-  let tpExitPriceLine = null;
-  /**
-   * Semi-transparent trade-band fills (BaselineSeries) — same style as Test/chart.js.
-   * Bounds from enter/exit levels (L вх/вых · gap · S вых/вх) — not regime cuts.
-   * primary* → upper TATN candle pane; spreadRegime* → lower MTLR candle pane.
-   */
-  let spreadRegimeBands = { narrow: null, transition: null, wide: null };
-  let primarySpreadBands = { narrow: null, transition: null, wide: null };
-  /** Last bar times for band setData when only levels/lines refresh. */
-  let lastSpreadBandTimes = [];
-  let lastPrimarySpreadBandTimes = [];
-  const SPREAD_REGIME_BAND_COLORS = {
-    // Cyan/teal — Long band (L вх … L вых)
-    narrow: 'rgba(0, 188, 212, 0.20)',
-    // Brownish/orange — gap between L вых and S вых (no entry)
-    transition: 'rgba(183, 110, 45, 0.20)',
-    // Maroon/red — Short band (S вых … S вх)
-    wide: 'rgba(136, 14, 79, 0.22)',
-  };
-  /** Линия вход→сейчас / hover вход→выход на верхнем TATN. */
-  let openHighlightSeries = null;
   /** Линии коридора S на верхнем графике (forming / formed). */
-  let corridorChartSeries = [];
-  /** Активные границы коридора для вертикального автомасштаба (lo/hi). */
-  let activeCorridorBounds = null;
-  let lastCorridorAutoscalePts = null;
-  const CORRIDOR_PHASE_META = {
-    none: {
-      badge: 'нет',
-      status: 'Коридора нет — спред не держится в узкой полосе',
-    },
-    forming: {
-      badge: 'формируется',
-      status: 'Края коридора проявляются — ждём устойчивого удержания в полосе',
-    },
-    formed: {
-      badge: 'сформирован',
-      status: 'Коридор держится · касания низа и верха подтверждены',
-    },
-    broken: {
-      // Для торговли «сломан» = нет: тот же UI, что у none (без «сломан» / метрик).
-      badge: 'нет',
-      status: 'Коридора нет — спред вышел за недавние границы',
-    },
-  };
 
-  /** Фазы, когда коридора для торговли нет (линии/метрики/бейдж «сломан» не показываем). */
-  function corridorPhaseAbsent(phase) {
-    const p = String(phase || 'none');
-    return p === 'none' || p === 'broken';
-  }
-  const CORRIDOR_CHART_STYLE = {
-    forming: {
-      // Dotted (1) — частый пунктир; LargeDashed (3) был слишком редким.
-      lineStyle: 1,
-      color: '#fbbf24',
-      width: 1,
-      marker: 'Ф',
-    },
-    formed: {
-      lineStyle: 0,
-      color: '#34d399',
-      width: 1,
-      marker: 'С',
-    },
-  };
-  let lastPaintZData = null;
-  let lastPaintMtlrData = null;
-  let openMarkersPlugin = null;
-  /** Маркеры сделок Мечела на нижнем pane (не TATN). */
-  let openSpreadMarkersPlugin = null;
-  /** Bottom pane: CandlestickSeries (MTLR m15) — not yellow TATN line. */
-  let spreadSeriesIsLine = false;
-  let lastMtlrBars = [];
-  let lastMtlrLevels = null;
-  let lastMtlrMarkers = [];
-  let lastOpenTradeFp = '';
-  /** Режим счёта с последнего desk refresh (prod|sandbox) — для confirm ручного входа. */
-  let lastTradeMode = '';
-  /** Полные маркеры + сделки для hit-test / yellow highlight (как chart.js). */
-  let lastDeskMarkers = [];
-  let lastDeskTrades = [];
-  /** Бары tip1m последней отрисовки — спред для highlight закрытых сделок. */
-  let lastDeskPaintBars = [];
-  let hoverTradeId = null;
-  let markerHoverBound = false;
-  /** Данные линии открытой сделки — восстанавливаем, когда hover снят. */
-  let defaultOpenHighlightData = null;
-  let refreshMarkersTimer = 0;
-  /** true → fitContent после setData (смена периода 1Д/1Н/1М/3М/6М) */
-  let forceFitContent = false;
-  let pendingPeriodFitDays = 0;
-  /** Глушим save/sync на время setData / apply / resize — LC шлёт range-change асинхронно */
-  let suppressRangeEvents = false;
-  let rangeSyncBound = false;
-  let crosshairSyncBound = false;
-  /** price @ UTC sec — для sync кроссхейра Z↔спред */
-  let zPriceByTime = new Map();
-  let spPriceByTime = new Map();
-  let lastBarCount = 0;
-  let lastDataEnd = null;
-  /** Точный logical range, который пользователь выставил руками */
-  let pinnedRange = null;
-  /**
-   * Строгий pin: после ручного pan влево poll НИКОГДА не follow-live,
-   * пока пользователь сам не вернётся к правому краю (или chip периода).
-   */
-  let userPinnedAwayFromLive = false;
-  /** Отпечаток последних баров — без изменений setData не трогаем (типичный poll) */
-  let lastBarsFingerprint = '';
-  let reapplyRangeTimer = 0;
-  /** true только во время/сразу после реального pan/zoom пользователя */
-  let userGestureActive = false;
-  let userGestureTimer = 0;
-  /** Выходные / дилер 1м: верхний pane = свечи спреда (как Test), не Z */
-  let chartDealer1m = false;
-
-  function barSpreadValue(b) {
-    if (!b || typeof b !== 'object') return null;
-    const v = b.spread != null ? b.spread
-      : (b.spreadPercent != null ? b.spreadPercent
-        : (b.close != null && b.z == null ? b.close : null));
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  function barTradeDay(b) {
-    if (!b || typeof b !== 'object') return null;
-    for (const key of ['trade_date', 'tradeDate', 'time', 'timestamp']) {
-      const raw = b[key];
-      if (raw == null) continue;
-      const s = String(raw).trim().replace('T', ' ');
-      if (s.length >= 10 && s[4] === '-' && s[7] === '-') return s.slice(0, 10);
-    }
-    const ms = Number(b.timestampMs);
-    if (Number.isFinite(ms) && ms > 0) {
-      return new Date(ms).toISOString().slice(0, 10);
-    }
-    return null;
-  }
-
-  /** Клиентский fallback: дневной ряд из m15 + упрощённый коридор (если API не отдал). */
-  function dailySpreadFromBars(bars) {
-    const byDay = new Map();
-    for (const b of bars || []) {
-      const td = barTradeDay(b);
-      const sp = barSpreadValue(b);
-      if (td && sp != null) {
-        if (!byDay.has(td)) byDay.set(td, []);
-        byDay.get(td).push(sp);
-      }
-    }
-    return [...byDay.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([, vals]) => {
-        const s = [...vals].sort((a, b) => a - b);
-        const m = Math.floor(s.length / 2);
-        return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-      });
-  }
-
-  function dailySpreadMinMaxFromBars(bars) {
-    const byDay = new Map();
-    for (const b of bars || []) {
-      const td = barTradeDay(b);
-      const sp = barSpreadValue(b);
-      if (td && sp != null) {
-        if (!byDay.has(td)) byDay.set(td, []);
-        byDay.get(td).push(sp);
-      }
-    }
-    const mins = [];
-    const maxs = [];
-    [...byDay.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .forEach(([, vals]) => {
-        mins.push(Math.min(...vals));
-        maxs.push(Math.max(...vals));
-      });
-    return { mins, maxs, medians: valsFromDays(byDay) };
-    function valsFromDays(map) {
-      return [...map.entries()]
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([, vals]) => {
-          const s = [...vals].sort((a, b) => a - b);
-          const m = Math.floor(s.length / 2);
-          return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-        });
-    }
-  }
-
-  function detectSpreadCorridorClient(bars, spreadNow) {
-    const loSanity = 0.3;
-    const hiSanity = 8.0;
-    const touchEps = 0.25;
-    const breakEps = 0.08;
-    const { mins, maxs, medians } = dailySpreadMinMaxFromBars(bars);
-    const values = medians;
-    if (values.length < 7 || mins.length < 7 || maxs.length < 7) {
-      return { phase: 'none', label_ru: 'нет', title: 'Мало дневных точек', n_days: values.length };
-    }
-    const pct = (arr, p) => {
-      const s = [...arr].sort((a, b) => a - b);
-      if (!s.length) return 0;
-      const k = (s.length - 1) * (p / 100);
-      const f = Math.floor(k);
-      const c = Math.min(f + 1, s.length - 1);
-      return f === c ? s[f] : s[f] + (s[c] - s[f]) * (k - f);
-    };
-    const boundsFrom = (meds, dayMins, dayMaxs) => {
-      let mode = 'adaptive';
-      let lo = Math.max(loSanity, pct(dayMins, 20));
-      let hi = Math.min(hiSanity, pct(dayMaxs, 62));
-      if (hi > lo + 0.8) mode = 'calculated';
-      else {
-        lo = Math.max(loSanity, pct(meds, 12));
-        hi = Math.min(hiSanity, pct(meds, 88));
-        if (hi <= lo + 0.3) hi = lo + 0.5;
-      }
-      return { lo, hi, mode };
-    };
-    let { lo, hi, mode: boundsMode } = boundsFrom(values, mins, maxs);
-    const touchesLo = mins.filter((v) => v <= lo + touchEps).length;
-    const touchesHi = maxs.filter((v) => v >= hi - touchEps).length;
-    let width = hi - lo;
-    const s = Number.isFinite(Number(spreadNow)) ? Number(spreadNow) : values[values.length - 1];
-    const dwellOf = (meds, bandLo, bandHi) => {
-      let n = 0;
-      for (let i = meds.length - 1; i >= 0; i -= 1) {
-        if (meds[i] >= bandLo - breakEps && meds[i] <= bandHi + breakEps) n += 1;
-        else break;
-      }
-      return n;
-    };
-    let dwell = dwellOf(values, lo, hi);
-    let bounces = 0;
-    const bot = lo + 0.25 * Math.max(width, 1e-9);
-    const top = hi - 0.25 * Math.max(width, 1e-9);
-    let prevZone = null;
-    for (const v of values) {
-      let z = 'mid';
-      if (v <= bot) z = 'lo';
-      else if (v >= top) z = 'hi';
-      if ((z === 'lo' || z === 'hi') && z !== prevZone) bounces += 1;
-      if (z !== 'mid') prevZone = z;
-    }
-    // Липкий слом по предыдущему дню (как на сервере): шип max не расширяет полосу.
-    let broken = false;
-    let freezeLo = null;
-    let freezeHi = null;
-    if (values.length > 7) {
-      const prevMeds = values.slice(0, -1);
-      const prevMins = mins.slice(0, -1);
-      const prevMaxs = maxs.slice(0, -1);
-      const prevB = boundsFrom(prevMeds, prevMins, prevMaxs);
-      const prevWidth = prevB.hi - prevB.lo;
-      const prevCalcOk = prevB.mode === 'calculated' && prevWidth <= 4.0;
-      const prevAdaptOk = prevB.mode === 'adaptive' && prevWidth <= 1.8;
-      const prevDwell = dwellOf(prevMeds, prevB.lo, prevB.hi);
-      let prevBounces = 0;
-      const pBot = prevB.lo + 0.25 * Math.max(prevWidth, 1e-9);
-      const pTop = prevB.hi - 0.25 * Math.max(prevWidth, 1e-9);
-      let pz = null;
-      for (const v of prevMeds) {
-        let z = 'mid';
-        if (v <= pBot) z = 'lo';
-        else if (v >= pTop) z = 'hi';
-        if ((z === 'lo' || z === 'hi') && z !== pz) prevBounces += 1;
-        if (z !== 'mid') pz = z;
-      }
-      const pTouchesLo = prevMins.filter((v) => v <= prevB.lo + touchEps).length;
-      const pTouchesHi = prevMaxs.filter((v) => v >= prevB.hi + touchEps).length;
-      let prevPhase = 'none';
-      if ((prevCalcOk || prevAdaptOk) && pTouchesLo >= 2 && pTouchesHi >= 2 && prevDwell >= 5
-          && (prevB.mode === 'calculated' || prevBounces >= 2)) {
-        prevPhase = 'formed';
-      } else if ((prevCalcOk || prevAdaptOk)
-          && (pTouchesLo >= 1 || pTouchesHi >= 1)
-          && (pTouchesLo + pTouchesHi >= 3 || prevBounces >= 2)
-          && prevDwell >= 2) {
-        prevPhase = 'forming';
-      }
-      const lastMax = maxs[maxs.length - 1];
-      const lastMin = mins[mins.length - 1];
-      const exited = s > prevB.hi + breakEps || s < prevB.lo - breakEps
-        || lastMax > prevB.hi + breakEps || lastMin < prevB.lo - breakEps;
-      if ((prevPhase === 'formed' || prevPhase === 'forming') && exited) {
-        broken = true;
-        freezeLo = prevB.lo;
-        freezeHi = prevB.hi;
-      }
-    }
-    const calcOk = boundsMode === 'calculated' && width <= 4.0;
-    const adaptOk = boundsMode === 'adaptive' && width <= 1.8;
-    const boundsOk = calcOk || adaptOk;
-    let phase = 'none';
-    let label = 'нет';
-    if (broken && freezeLo != null && freezeHi != null) {
-      phase = 'broken';
-      label = 'нет';
-      lo = freezeLo;
-      hi = freezeHi;
-      width = hi - lo;
-      boundsMode = 'frozen';
-    } else if (boundsOk && touchesLo >= 2 && touchesHi >= 2 && dwell >= 5
-        && (boundsMode === 'calculated' || bounces >= 2)) {
-      phase = 'formed';
-      label = 'сформирован';
-    } else if (boundsOk && (touchesLo >= 1 || touchesHi >= 1) && (touchesLo + touchesHi >= 3 || bounces >= 2) && dwell >= 4) {
-      phase = 'forming';
-      label = 'формируется';
-    }
-    const bandSpan = Math.max(hi - lo, 1e-9);
-    const pctIn = Math.max(0, Math.min(100, ((s - lo) / bandSpan) * 100));
-    const title = broken
-      ? `Коридор сломан · была полоса ${lo.toFixed(2)}…${hi.toFixed(2)}% · S сейчас ${s.toFixed(2)}%`
-      : `Коридор ${lo.toFixed(2)}…${hi.toFixed(2)}% (расчёт: ${boundsMode}; низ=p20 дн.мин, верх=p62 дн.макс) · касания ${touchesLo}/${touchesHi}`;
-    return {
-      phase,
-      label_ru: label,
-      lo,
-      hi,
-      width: hi - lo,
-      spread: s,
-      pct_in_band: pctIn,
-      dwell_days: dwell,
-      bounces,
-      touches_lo: touchesLo,
-      touches_hi: touchesHi,
-      bounds_mode: boundsMode,
-      shrink_days: 0,
-      n_days: values.length,
-      title,
-    };
-  }
-
-  function corridorPositionText(s, lo, hi, eps = 0.08) {
-    if (!Number.isFinite(s) || !Number.isFinite(lo) || !Number.isFinite(hi)) return '—';
-    if (s >= lo - eps && s <= hi + eps) {
-      const pct = ((s - lo) / Math.max(hi - lo, 1e-9)) * 100;
-      return `S внутри коридора · ${fmt(pct, 0)}% полосы`;
-    }
-    if (s < lo - eps) return `S ниже коридора на ${fmt(lo - s, 2)} п.п.`;
-    return `S выше коридора на ${fmt(s - hi, 2)} п.п.`;
-  }
-
-  function corridorPhaseStatus(phase) {
-    const meta = CORRIDOR_PHASE_META[phase] || CORRIDOR_PHASE_META.none;
-    // Удержание (дни) — только в сетке коридора, без дубля в статусе.
-    if (phase === 'formed') {
-      return meta.status || 'Коридор держится · касания низа и верха подтверждены';
-    }
-    return meta.status;
-  }
-
-  function renderCorridorMeter(corridor, spreadPct, barsIss) {
-    const box = $('tradeCorridorBox');
-    const badge = $('tradeCorridorBadge');
-    const statusEl = $('tradeCorridorStatus');
-    const band = $('tradeCorridorBand');
-    const mark = $('tradeCorridorMark');
-    const edgeLo = $('tradeCorridorEdgeLo');
-    const edgeHi = $('tradeCorridorEdgeHi');
-    const grid = $('tradeCorridorGrid');
-    if (!box) return;
-    let c = corridor;
-    if (!c || c.phase == null) {
-      c = detectSpreadCorridorClient(barsIss, spreadPct);
-    }
-    const rawPhase = String(c.phase || 'none');
-    box.classList.remove(
-      'trade-corridor--forming', 'trade-corridor--formed',
-      'trade-corridor--broken', 'trade-corridor--none',
-    );
-    // Карточка только если коридор сформирован — без пустой «не сформирован» / «формируется».
-    if (rawPhase !== 'formed') {
-      box.hidden = true;
-      box.classList.add('trade-corridor--none');
-      if (grid) grid.innerHTML = '';
-      return;
-    }
-    box.hidden = false;
-    const phase = 'formed';
-    const meta = CORRIDOR_PHASE_META.formed;
-    box.classList.add('trade-corridor--formed');
-    if (badge) badge.textContent = c.label_ru || meta.badge;
-    const phaseStatus = corridorPhaseStatus(phase);
-    if (statusEl) statusEl.textContent = phaseStatus;
-    if (c.title) box.title = c.title;
-
-    const lo = Number(c.lo);
-    const hi = Number(c.hi);
-    const width = Number(c.width);
-    const s = Number.isFinite(Number(c.spread)) ? Number(c.spread) : Number(spreadPct);
-    const dwell = Number(c.dwell_days) || 0;
-    const bounces = Number(c.bounces) || 0;
-    const touchesLo = Number(c.touches_lo) || 0;
-    const touchesHi = Number(c.touches_hi) || 0;
-    const boundsMode = String(c.bounds_mode || '');
-    const nDays = Number(c.n_days) || 0;
-
-    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) {
-      if (band) { band.style.left = '0%'; band.style.width = '0%'; }
-      if (mark) { mark.style.left = '50%'; mark.classList.remove('trade-corridor-mark--out'); }
-      if (edgeLo) edgeLo.textContent = '—';
-      if (edgeHi) edgeHi.textContent = '—';
-      // Без «S сейчас» / «Режим» — спред на полосе рынка, фаза уже в бейдже.
-      if (grid) {
-        grid.innerHTML = `
-          <div><div class="tcg-k">Дней данных</div><div class="tcg-v">${nDays}</div></div>`;
-      }
-      return;
-    }
-
-    const eps = 0.08;
-    const inside = Number.isFinite(s) && s >= lo - eps && s <= hi + eps;
-    const wVal = Number.isFinite(width) ? fmt(width, 2) : '—';
-    const pad = Math.max(0.2, (hi - lo) * 0.45);
-    const viewLo = lo - pad;
-    const viewHi = hi + pad;
-    const viewSpan = viewHi - viewLo;
-    const bandL = ((lo - viewLo) / viewSpan) * 100;
-    const bandW = ((hi - lo) / viewSpan) * 100;
-    const markP = Number.isFinite(s)
-      ? Math.max(0, Math.min(100, ((s - viewLo) / viewSpan) * 100))
-      : 50;
-    if (band) {
-      band.style.left = `${bandL.toFixed(1)}%`;
-      band.style.width = `${Math.max(6, bandW).toFixed(1)}%`;
-    }
-    if (mark) {
-      mark.style.left = `${markP.toFixed(1)}%`;
-      mark.classList.toggle('trade-corridor-mark--out', !inside);
-    }
-    if (edgeLo) edgeLo.textContent = `${fmt(lo, 2)}%`;
-    if (edgeHi) edgeHi.textContent = `${fmt(hi, 2)}%`;
-
-    const posText = corridorPositionText(s, lo, hi);
-    if (statusEl && phase !== 'none') {
-      statusEl.textContent = `${phaseStatus} · ${posText}`;
-    } else if (statusEl && c.since_date && Number.isFinite(lo)) {
-      statusEl.textContent = `Низкий спред с ${c.since_date} · ${posText}`;
-    }
-
-    const sinceKey = c.since_date ? 'С низкого режима' : 'Дней данных';
-    const sinceVal = c.since_date
-      ? String(c.since_date).slice(5).replace('-', '.')
-      : String(nDays);
-    // Низ/верх — на шкале; S — на полосе рынка + маркере. В сетке только уникальное.
-    if (grid) {
-      grid.innerHTML = `
-        <div><div class="tcg-k">Ширина</div><div class="tcg-v">${wVal} п.п.</div></div>
-        <div><div class="tcg-k">Удержание</div><div class="tcg-v">${fmt(dwell, 0)} дн.</div></div>
-        <div><div class="tcg-k">Отскоки</div><div class="tcg-v">${fmt(bounces, 0)}</div></div>
-        <div><div class="tcg-k">Касания низ / верх</div><div class="tcg-v">${fmt(touchesLo, 0)} / ${fmt(touchesHi, 0)}</div></div>
-        <div><div class="tcg-k">${sinceKey}</div><div class="tcg-v">${sinceVal}${boundsMode === 'calculated' ? ' · расчёт' : boundsMode === 'adaptive' ? ' · адаптив' : ''}</div></div>`;
-    }
-  }
-
-  function dateStrToChartSec(dateStr) {
-    const d = String(dateStr || '').slice(0, 10);
-    if (d.length < 10) return null;
-    return toChartTime(`${d} 12:00`);
-  }
-
-  function chartSpreadValues(pts) {
-    const vals = [];
-    for (const c of pts || []) {
-      if (!c) continue;
-      for (const k of ['low', 'high', 'close', 'value']) {
-        const v = Number(c[k]);
-        if (Number.isFinite(v)) vals.push(v);
-      }
-    }
-    return vals;
-  }
-
-  function zSeriesAutoscaleProvider() {
-    const vals = chartSpreadValues(lastCorridorAutoscalePts || lastPaintZData);
-    let minV = vals.length ? vals[0] : 0;
-    let maxV = vals.length ? vals[0] : 2;
-    for (let i = 1; i < vals.length; i += 1) {
-      if (vals[i] < minV) minV = vals[i];
-      if (vals[i] > maxV) maxV = vals[i];
-    }
-    const cb = activeCorridorBounds;
-    if (cb && Number.isFinite(cb.lo) && Number.isFinite(cb.hi)) {
-      minV = Math.min(minV, cb.lo, cb.hi);
-      maxV = Math.max(maxV, cb.lo, cb.hi);
-    }
-    const span = Math.max(maxV - minV, 0.5);
-    const pad = Math.max(0.25, span * 0.08);
-    return {
-      priceRange: {
-        minValue: minV - pad,
-        maxValue: maxV + pad,
-      },
-    };
-  }
-
-  function applyZSeriesCorridorAutoscale() {
-    if (!zSeries) return;
-    try {
-      zSeries.applyOptions({ autoscaleInfoProvider: zSeriesAutoscaleProvider });
-    } catch (_) { /* ignore */ }
-  }
-
-  function refreshZPriceScaleAfterCorridor() {
-    if (!zChart || !zSeries) return;
-    applyZSeriesCorridorAutoscale();
-    if (!activeCorridorBounds) return;
-    try {
-      zChart.priceScale('right').applyOptions({ autoScale: true });
-    } catch (_) { /* ignore */ }
-    try {
-      const pts = lastCorridorAutoscalePts || lastPaintZData;
-      if (!pts || !pts.length) return;
-      const tail = pts[pts.length - 1];
-      if (zSeriesIsLine) {
-        const v = tail.close != null ? tail.close : tail.value;
-        zSeries.update({ time: tail.time, value: v });
-      } else {
-        zSeries.update(tail);
-      }
-    } catch (_) { /* ignore */ }
-  }
-
-  function clearCorridorChartSeries() {
-    if (!zChart) return;
-    for (const s of corridorChartSeries) {
-      try { zChart.removeSeries(s); } catch (_) { /* ignore */ }
-    }
-    corridorChartSeries = [];
-  }
-
-  function buildDayRangeMap(candlePts) {
-    const map = new Map();
-    for (const p of candlePts || []) {
-      if (!p || p.time == null) continue;
-      const d = new Date(p.time * 1000).toLocaleDateString('sv-SE', { timeZone: MSK });
-      const prev = map.get(d);
-      if (!prev) map.set(d, { from: p.time, to: p.time });
-      else {
-        if (p.time < prev.from) prev.from = p.time;
-        if (p.time > prev.to) prev.to = p.time;
-      }
-    }
-    return map;
-  }
-
-  /** Строго возрастающее время — иначе Lightweight Charts молча ломает setData. */
-  function sanitizeCorridorPoints(pts) {
-    const out = [];
-    for (const p of pts || []) {
-      if (!p || p.time == null || !Number.isFinite(Number(p.value))) continue;
-      const t = Number(p.time);
-      const v = Number(p.value);
-      if (!Number.isFinite(t) || t <= 1e9) continue;
-      if (!out.length) {
-        out.push({ time: t, value: v });
-        continue;
-      }
-      const prev = out[out.length - 1];
-      if (t < prev.time) continue;
-      if (t === prev.time) {
-        prev.value = v;
-        continue;
-      }
-      out.push({ time: t, value: v });
-    }
-    return out;
-  }
-
-  function corridorLineStyle(phaseStyle) {
-    const raw = phaseStyle && phaseStyle.lineStyle;
-    const LS = (typeof LightweightCharts !== 'undefined' && LightweightCharts.LineStyle)
-      ? LightweightCharts.LineStyle
-      : null;
-    if (raw === 'dotted' || raw === 1) return LS ? LS.Dotted : 1;
-    if (raw === 'dashed' || raw === 2) return LS ? LS.Dashed : 2;
-    if (raw === 'largeDashed' || raw === 3) return LS ? LS.LargeDashed : 3;
-    return LS ? LS.Solid : 0;
-  }
-
-  function corridorLineTypeSteps() {
-    if (typeof LightweightCharts !== 'undefined' && LightweightCharts.LineType) {
-      return LightweightCharts.LineType.WithSteps;
-    }
-    return 1;
-  }
-
-  /**
-   * Step-точки границ по дням сегмента.
-   * extendToLive — только для последнего сегмента (иначе оранжевый тянется до «сейчас»).
-   */
-  function buildCorridorBoundPoints(rows, dayRangeMap, key, chartFirstSec, chartLastSec, liveVal, extendToLive) {
-    const pts = [];
-    const chartStart = Number(chartFirstSec);
-    for (const row of rows || []) {
-      const dkey = String(row.date || '').slice(0, 10);
-      const range = dayRangeMap && dayRangeMap.get(dkey);
-      if (!range) continue;
-      if (range.to < chartStart) continue;
-      const val = Number(row[key]);
-      if (!Number.isFinite(val)) continue;
-      let t0 = range.from;
-      let t1 = range.to;
-      if (t0 < chartStart) t0 = chartStart;
-      if (t1 < t0) t1 = t0;
-      pts.push({ time: t0, value: val });
-      if (t1 > t0) pts.push({ time: t1, value: val });
-    }
-    if (extendToLive && Number.isFinite(liveVal) && Number.isFinite(chartLastSec)) {
-      if (!pts.length) {
-        pts.push({ time: chartFirstSec, value: liveVal });
-        pts.push({ time: chartLastSec, value: liveVal });
-      } else if (pts[pts.length - 1].time < chartLastSec) {
-        pts.push({ time: chartLastSec, value: liveVal });
-      } else {
-        pts[pts.length - 1].value = liveVal;
-      }
-    }
-    return sanitizeCorridorPoints(pts);
-  }
-
-  function splitCorridorHistory(history) {
-    const segments = [];
-    let cur = null;
-    for (const row of history || []) {
-      const ph = row && row.phase;
-      if (ph !== 'forming' && ph !== 'formed') {
-        if (cur) { segments.push(cur); cur = null; }
-        continue;
-      }
-      if (!cur || cur.phase !== ph) {
-        if (cur) segments.push(cur);
-        cur = { phase: ph, rows: [] };
-      }
-      cur.rows.push(row);
-    }
-    if (cur) segments.push(cur);
-    return segments;
-  }
-
-  /**
-   * На графике: реальная фаза «формируется» + первые 2 дня «сформирован»
-   * рисуем оранжевым, чтобы переход к зелёному был виден глазу.
-   */
-  function corridorRowsForChart(history) {
-    const out = [];
-    let formedRun = 0;
-    for (const row of history || []) {
-      const ph = row && row.phase;
-      if (ph !== 'forming' && ph !== 'formed') {
-        formedRun = 0;
-        continue;
-      }
-      let draw = ph;
-      if (ph === 'formed') {
-        formedRun += 1;
-        if (formedRun <= 2) draw = 'forming';
-      } else {
-        formedRun = 0;
-        draw = 'forming';
-      }
-      out.push(Object.assign({}, row, { phase: draw }));
-    }
-    return out;
-  }
-
-  function paintCorridorOnChart(corridor, candlePts) {
-    const ph = String(corridor && corridor.phase || '');
-    // none / broken / пусто — без линий и маркеров «Ф»/«С» на графике.
-    if (corridorPhaseAbsent(ph) || (ph !== 'forming' && ph !== 'formed')) {
-      activeCorridorBounds = null;
-      lastCorridorAutoscalePts = null;
-      clearCorridorChartSeries();
-      applyZSeriesCorridorAutoscale();
-      return;
-    }
-    const lo = Number(corridor.lo);
-    const hi = Number(corridor.hi);
-    activeCorridorBounds = (Number.isFinite(lo) && Number.isFinite(hi))
-      ? { lo, hi }
-      : null;
-    lastCorridorAutoscalePts = candlePts;
-    updateCorridorOnChart(corridor, candlePts);
-    refreshZPriceScaleAfterCorridor();
-  }
-
-  function updateCorridorOnChart(corridor, candlePts) {
-    clearCorridorChartSeries();
-    if (!zChart || !candlePts || !candlePts.length) return;
-
-    const livePhase = String(corridor && corridor.phase || '');
-    const liveLo = Number(corridor.lo);
-    const liveHi = Number(corridor.hi);
-    if (!Number.isFinite(liveLo) || !Number.isFinite(liveHi)) return;
-    if (livePhase !== 'forming' && livePhase !== 'formed') return;
-
-    const firstSec = candlePts[0].time;
-    const lastSec = candlePts[candlePts.length - 1].time;
-    const dayRangeMap = buildDayRangeMap(candlePts);
-
-    let rows = [...((corridor && corridor.history) || [])];
-    const today = corridor.last_date
-      || new Date().toLocaleDateString('sv-SE', { timeZone: MSK });
-    const todayRow = { date: today, lo: liveLo, hi: liveHi, phase: livePhase };
-    const lastRow = rows[rows.length - 1];
-    if (lastRow && lastRow.date === today) rows[rows.length - 1] = todayRow;
-    else rows.push(todayRow);
-
-    const segments = splitCorridorHistory(corridorRowsForChart(rows));
-    if (!segments.length) return;
-
-    const mkSeries = (style) => addSeries(zChart, 'LineSeries', {
-      color: style.color,
-      lineWidth: style.width,
-      lineStyle: corridorLineStyle(style),
-      lineType: corridorLineTypeSteps(),
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-      autoscaleInfoProvider: () => null,
-    });
-
-    const paint = (style, data) => {
-      if (!data || data.length < 2) return null;
-      const s = mkSeries(style);
-      if (!s) return null;
-      try {
-        s.setData(data);
-      } catch (err) {
-        try { zChart.removeSeries(s); } catch (_) { /* ignore */ }
-        console.warn('corridor setData failed', err);
-        return null;
-      }
-      corridorChartSeries.push(s);
-      return s;
-    };
-
-    let anyLo = false;
-    let anyHi = false;
-    let formingSegs = 0;
-    let formedSegs = 0;
-    segments.forEach((seg, idx) => {
-      const style = CORRIDOR_CHART_STYLE[seg.phase];
-      if (!style) return;
-      const isLast = idx === segments.length - 1;
-      const loData = buildCorridorBoundPoints(
-        seg.rows, dayRangeMap, 'lo', firstSec, lastSec, liveLo, isLast,
-      );
-      const hiData = buildCorridorBoundPoints(
-        seg.rows, dayRangeMap, 'hi', firstSec, lastSec, liveHi, isLast,
-      );
-      const loS = paint(style, loData);
-      const hiS = paint(style, hiData);
-      if (loS) anyLo = true;
-      if (hiS) anyHi = true;
-      if (seg.phase === 'forming') formingSegs += 1;
-      if (seg.phase === 'formed') formedSegs += 1;
-      if (loS && loData[0] && idx === 0) {
-        try {
-          loS.setMarkers([{
-            time: loData[0].time,
-            position: 'aboveBar',
-            color: style.color,
-            shape: 'circle',
-            text: style.marker || '',
-          }]);
-        } catch (_) { /* ignore */ }
-      }
-    });
-
-    try {
-      window.__corridorChartDebug = {
-        phase: livePhase,
-        liveLo,
-        liveHi,
-        segments: segments.map((s) => ({ phase: s.phase, days: s.rows.length })),
-        formingSegs,
-        formedSegs,
-        loOk: anyLo,
-        hiOk: anyHi,
-        ts: Date.now(),
-      };
-    } catch (_) { /* ignore */ }
-  }
-
-  function corridorFingerprint(corridor) {
-    if (!corridor) return 'none';
-    const h = corridor.history || [];
-    const tail = h.length ? h[h.length - 1] : null;
-    return [
-      corridor.phase,
-      corridor.lo,
-      corridor.hi,
-      corridor.dwell_days,
-      tail && tail.date,
-      tail && tail.phase,
-      h.length,
-    ].join('|');
-  }
-
-  let chartPrimarySpread = false;
-  /** Одинаковая ширина правой шкалы → одинаковая plot-area → вертикальный кроссхейр */
-  const PRICE_SCALE_MIN_WIDTH = 64;
-
-  const $ = (id) => document.getElementById(id);
-
-  function setZEmptyMessage(text) {
-    const el = $('tradeZEmptyMsg');
-    if (!el) return;
-    if (text) {
-      el.textContent = text;
-      el.classList.remove('hidden');
-    } else {
-      el.textContent = '';
-      el.classList.add('hidden');
-    }
-  }
-
-  function updateChartPaneLabels(dealer1m, {
-    zEmpty = false,
-    lookbackDays = null,
-    spreadLevels = null,
-    mtlrLevels = null,
-    mtlrEmpty = false,
-  } = {}) {
     const zLab = $('tradeZChartLabel');
     const spLab = $('tradeSpreadChartLabel');
     const thLab = $('tradeThreshLabel');
@@ -1044,91 +208,23 @@
     }
   }
 
-  function markUserGesture() {
-    userGestureActive = true;
-    if (userGestureTimer) clearTimeout(userGestureTimer);
-    userGestureTimer = setTimeout(() => {
-      userGestureActive = false;
-      userGestureTimer = 0;
-    }, 400);
-  }
 
-  function dataEndIndex(barCount) {
-    return barCount > 0 ? barCount - 1 : 0;
-  }
 
   /**
    * У live-края только если правый край окна ≈ конец данных.
    * Старое `to >= dataEnd - N` ошибочно ловило pan с пустотой справа (to >> dataEnd)
    * и на poll схлопывало to=dataEnd — отсюда прыжок.
    */
-  function isNearLiveEdge(range, dataEnd) {
-    if (!range || !Number.isFinite(range.to) || !Number.isFinite(dataEnd)) return false;
-    return Math.abs(range.to - dataEnd) <= LIVE_EDGE_BARS;
-  }
 
   /** Сколько реальных баров попало в logical range (пустота справа/слева не считается). */
-  function visibleDataInRange(range, dataEnd) {
-    if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to)
-      || !Number.isFinite(dataEnd) || dataEnd < 0) {
-      return { span: 0, visibleData: 0, emptyRight: 0 };
-    }
-    const span = range.to - range.from;
-    if (!(span > 0)) return { span: 0, visibleData: 0, emptyRight: 0 };
-    const dataFrom = Math.max(0, Math.min(range.from, dataEnd));
-    const dataTo = Math.min(dataEnd, range.to);
-    const visibleData = dataTo >= dataFrom ? (dataTo - dataFrom + 1) : 0;
-    const emptyRight = Math.max(0, range.to - dataEnd);
-    return { span, visibleData, emptyRight };
-  }
 
   /**
    * Битый pin: данные сжаты влево (2 бара на огромном окне) или from за концом ряда.
    * Иначе строгий userPinnedAwayFromLive навсегда держит пустой график.
    */
-  function isViewportCorrupt(range, dataEnd, barCount) {
-    if (!range || !(barCount > 0) || !Number.isFinite(dataEnd)) return true;
-    if (range.from > dataEnd) return true;
-    const { span, visibleData, emptyRight } = visibleDataInRange(range, dataEnd);
-    if (!(span > 0)) return true;
-    const minData = Math.min(MIN_VISIBLE_DATA_BARS, barCount);
-    if (visibleData < minData) return true;
-    const maxEmpty = Math.max(MAX_RIGHT_OVERSCROLL_BARS, span * 0.35);
-    if (emptyRight > maxEmpty) return true;
-    return false;
-  }
 
-  function persistViewport() {
-    if (!pinnedRange) return;
-    try {
-      const payload = {
-        from: pinnedRange.from,
-        to: pinnedRange.to,
-        dataEnd: lastDataEnd,
-        pinnedAway: !!userPinnedAwayFromLive,
-      };
-      localStorage.setItem(LS_CHART_RANGE, JSON.stringify(payload));
-    } catch (_) { /* quota / private mode */ }
-  }
 
-  function loadPersistedViewport() {
-    try {
-      const raw = localStorage.getItem(LS_CHART_RANGE);
-      if (!raw) return null;
-      const o = JSON.parse(raw);
-      if (o && Number.isFinite(o.from) && Number.isFinite(o.to) && o.to > o.from) {
-        return {
-          from: o.from,
-          to: o.to,
-          dataEnd: Number.isFinite(o.dataEnd) ? o.dataEnd : null,
-          pinnedAway: !!o.pinnedAway,
-        };
-      }
-    } catch (_) {}
-    return null;
-  }
 
-  function setPinnedRange(range, { fromUser = false } = {}) {
     if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to)) return;
     pinnedRange = { from: range.from, to: range.to };
     if (fromUser && lastDataEnd != null) {
@@ -1141,232 +237,22 @@
     persistViewport();
   }
 
-  function clearPinState() {
-    pinnedRange = null;
-    userPinnedAwayFromLive = false;
-    lastDataEnd = null;
-    lastBarCount = 0;
-    lastBarsFingerprint = '';
-    try { localStorage.removeItem(LS_CHART_RANGE); } catch (_) {}
-  }
 
-  function hydratePinFromStorage() {
-    const saved = loadPersistedViewport();
-    if (!saved) return;
-    pinnedRange = { from: saved.from, to: saved.to };
-    if (saved.dataEnd != null) lastDataEnd = saved.dataEnd;
-    userPinnedAwayFromLive = !!saved.pinnedAway;
-  }
 
   /** Верх TATN (logical pin) + низ MTLR — один календарный интервал по времени. */
-  function applyVisibleRange(range) {
-    if (!range || !zChart) return;
-    suppressRangeEvents = true;
-    try {
-      equalizePriceScales();
-      zChart.timeScale().setVisibleLogicalRange(range);
-      syncBottomPaneToTopTime();
-    } catch (_) { /* ignore */ }
-    // Не снимаем suppress сразу: LC часто шлёт range-change в следующем кадре
-    scheduleEndSuppress();
-  }
 
   /** TATN tip1m ↔ MTLR m15: sync by calendar time, not logical bar index. */
-  function syncBottomPaneToTopTime() {
-    if (!zChart || !spreadChart) return;
-    try {
-      const tr = zChart.timeScale().getVisibleRange();
-      if (tr && tr.from != null && tr.to != null) {
-        spreadChart.timeScale().setVisibleRange(tr);
-      }
-    } catch (_) { /* ignore */ }
-  }
 
-  function syncTopPaneToBottomTime() {
-    if (!zChart || !spreadChart) return;
-    try {
-      const tr = spreadChart.timeScale().getVisibleRange();
-      if (tr && tr.from != null && tr.to != null) {
-        zChart.timeScale().setVisibleRange(tr);
-      }
-    } catch (_) { /* ignore */ }
-  }
 
-  function scheduleEndSuppress() {
-    if (reapplyRangeTimer) cancelAnimationFrame(reapplyRangeTimer);
-    reapplyRangeTimer = requestAnimationFrame(() => {
-      reapplyRangeTimer = requestAnimationFrame(() => {
-        reapplyRangeTimer = 0;
-        suppressRangeEvents = false;
-      });
-    });
-  }
 
-  function equalizePriceScales() {
-    try {
-      const opts = { minimumWidth: PRICE_SCALE_MIN_WIDTH };
-      zChart?.priceScale('right')?.applyOptions?.(opts);
-      spreadChart?.priceScale('right')?.applyOptions?.(opts);
-    } catch (_) { /* ignore */ }
-  }
 
   /** После paint ещё раз навязать общий time-range (setData/fit асинхронно съезжают). */
-  function forceSyncAfterPaint() {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (!pinnedRange || !zChart || !spreadChart) return;
-        equalizePriceScales();
-        reassertPinnedRange();
-        syncBottomPaneToTopTime();
-        try {
-          if (window.__tradeChartDebug) {
-            window.__tradeChartDebug.zRange = zChart.timeScale().getVisibleLogicalRange();
-            window.__tradeChartDebug.spRange = spreadChart.timeScale().getVisibleLogicalRange();
-            window.__tradeChartDebug.ts = Date.now();
-          }
-        } catch (_) { /* debug only */ }
-      });
-    });
-  }
 
   /** Повторно навязать pin после асинхронного сброса timescale от setData/resize */
-  function reassertPinnedRange() {
-    if (!zChart || !pinnedRange) return;
-    suppressRangeEvents = true;
-    try {
-      equalizePriceScales();
-      zChart.timeScale().setVisibleLogicalRange(pinnedRange);
-      syncBottomPaneToTopTime();
-    } catch (_) { /* ignore */ }
-    scheduleEndSuppress();
-  }
 
-  function bindRangeSync() {
-    if (rangeSyncBound || !zChart || !spreadChart) return;
-    rangeSyncBound = true;
-    if (!pinnedRange) hydratePinFromStorage();
 
-    const bindGesture = (el) => {
-      if (!el || el.dataset.tradeGestureBound === '1') return;
-      el.dataset.tradeGestureBound = '1';
-      el.addEventListener('pointerdown', markUserGesture);
-      el.addEventListener('wheel', markUserGesture, { passive: true });
-      el.addEventListener('touchstart', markUserGesture, { passive: true });
-    };
-    bindGesture($('tradeZChart'));
-    bindGesture($('tradeSpreadChart'));
 
-    const onRangeChange = (source) => (range) => {
-      if (!range || suppressRangeEvents) return;
 
-      // Программный сброс от setData/resize — не пишем в pin; если ушли от live — вернуть окно
-      if (!userGestureActive) {
-        if (userPinnedAwayFromLive && pinnedRange) {
-          const jumpedToLive = lastDataEnd != null && isNearLiveEdge(range, lastDataEnd)
-            && Math.abs(range.to - pinnedRange.to) > LIVE_EDGE_BARS;
-          if (jumpedToLive || Math.abs(range.from - pinnedRange.from) > 0.01
-            || Math.abs(range.to - pinnedRange.to) > 0.01) {
-            reassertPinnedRange();
-          }
-        }
-        return;
-      }
-
-      // Жест: pin по верхнему TATN (logical); низ — тот же календарный интервал.
-      suppressRangeEvents = true;
-      try {
-        if (source === 'z') {
-          setPinnedRange(range, { fromUser: true });
-          syncBottomPaneToTopTime();
-        } else {
-          syncTopPaneToBottomTime();
-          const zr = zChart.timeScale().getVisibleLogicalRange();
-          if (zr) setPinnedRange(zr, { fromUser: true });
-        }
-      } catch (_) { /* ignore */ }
-      scheduleEndSuppress();
-    };
-    zChart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange('z'));
-    spreadChart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange('spread'));
-  }
-
-  function nearestPriceByTime(map, time) {
-    if (!map || time == null) return null;
-    if (map.has(time)) return map.get(time);
-    let best = null;
-    let bestD = Infinity;
-    for (const [t, v] of map) {
-      const d = Math.abs(t - time);
-      if (d < bestD) {
-        bestD = d;
-        best = v;
-      }
-    }
-    // ~½ m15 bar — enough for tip1m↔m15 crosshair
-    return bestD <= 450 ? best : null;
-  }
-
-  function bindCrosshairSync() {
-    if (crosshairSyncBound || !zChart || !spreadChart) return;
-    crosshairSyncBound = true;
-    let syncing = false;
-    const clearOther = (dst) => {
-      if (typeof dst.clearCrosshairPosition !== 'function') return;
-      syncing = true;
-      try { dst.clearCrosshairPosition(); } catch (_) { /* ignore */ }
-      syncing = false;
-    };
-    const onMove = (src) => (param) => {
-      if (src === 'z') updateCandleOhlcOverlay(param);
-      if (syncing) return;
-      const dst = src === 'z' ? spreadChart : zChart;
-      const dstSeries = src === 'z' ? spreadSeries : zSeries;
-      if (!dst || !dstSeries || !param || param.time == null || !param.point) {
-        clearOther(dst);
-        return;
-      }
-      const priceMap = src === 'z' ? spPriceByTime : zPriceByTime;
-      const price = nearestPriceByTime(priceMap, param.time);
-      if (price == null || typeof dst.setCrosshairPosition !== 'function') {
-        clearOther(dst);
-        return;
-      }
-      syncing = true;
-      try { dst.setCrosshairPosition(price, param.time, dstSeries); } catch (_) { /* ignore */ }
-      syncing = false;
-    };
-    zChart.subscribeCrosshairMove(onMove('z'));
-    spreadChart.subscribeCrosshairMove(onMove('spread'));
-  }
-
-  function fitAndRemember() {
-    try {
-      // Явный диапазон надёжнее fitContent(): у большого tip1m fit применяется
-      // асинхронно, а getVisibleLogicalRange успевал вернуть старое окно.
-      suppressRangeEvents = true;
-      equalizePriceScales();
-      let range = null;
-      if (lastBarCount > 0) {
-        const rightGap = Math.max(2, Math.ceil(lastBarCount * 0.01));
-        range = { from: 0, to: Math.max(0, lastBarCount - 1) + rightGap };
-        applyVisibleRange(range);
-      } else {
-        try {
-          zChart?.timeScale().fitContent();
-          range = zChart?.timeScale().getVisibleLogicalRange();
-        } catch (_) { /* ignore */ }
-      }
-      if (range) {
-        userPinnedAwayFromLive = false;
-        setPinnedRange(range, { fromUser: false });
-        if (lastBarCount <= 0) applyVisibleRange(range);
-      }
-      scheduleEndSuppress();
-      forceSyncAfterPaint();
-    } catch (_) {
-      try { spreadChart?.timeScale().fitContent(); } catch (__) {}
-    }
-  }
 
   /**
    * После обновления данных:
@@ -1376,71 +262,167 @@
    * @param {number} zCount
    * @param {number} [spreadCount]
    */
-  function restoreOrFitVisibleRange(zCount, spreadCount) {
-    // Pin/live follow по верхнему TATN; низ MTLR подтягивается по времени.
-    const zN = Math.max(0, zCount | 0);
-    const spN = spreadCount != null ? Math.max(0, spreadCount | 0) : zN;
-    const n = zN || spN;
-    const dataEnd = dataEndIndex(n);
-    const previousBarCount = lastBarCount;
-    const dataExpanded = previousBarCount > 0 && n > previousBarCount * 1.5;
-    lastBarCount = n;
-    lastDataEnd = dataEnd;
 
-    // После смены периода краткий lite-ответ может прийти раньше полного и
-    // израсходовать forceFitContent. При последующем расширении всё равно
-    // показываем весь выбранный период, если пользователь сам не прокручивал.
-    if (forceFitContent || (dataExpanded && !userPinnedAwayFromLive)) {
-      forceFitContent = false;
-      userPinnedAwayFromLive = false;
-      fitAndRemember();
-      return;
-    }
-
-    if (!pinnedRange) hydratePinFromStorage();
-
-    if (!pinnedRange) {
-      fitAndRemember();
-      return;
-    }
-
-    // Битый LS/pin (данные слева, справа пустота) — не уважать, переfit.
-    if (isViewportCorrupt(pinnedRange, dataEnd, n)) {
-      userPinnedAwayFromLive = false;
-      fitAndRemember();
-      return;
-    }
-
-    // Строгий pin: poll/tick не имеют права уезжать к правому краю
-    if (userPinnedAwayFromLive) {
-      applyVisibleRange(pinnedRange);
-      persistViewport();
-      forceSyncAfterPaint();
-      return;
-    }
-
-    if (isNearLiveEdge(pinnedRange, dataEnd) && n > 0) {
-      const span = Math.max(1, pinnedRange.to - pinnedRange.from);
-      const next = { from: dataEnd - span, to: dataEnd };
-      // Follow-live тоже может дать почти пустое окно — сразу переfit.
-      if (isViewportCorrupt(next, dataEnd, n)) {
-        userPinnedAwayFromLive = false;
-        fitAndRemember();
-        return;
-      }
-      setPinnedRange(next, { fromUser: false });
-      applyVisibleRange(next);
-      forceSyncAfterPaint();
-      return;
-    }
-
-    // Не у live, но флаг ещё не стоял (старый LS) — тоже держим окно
-    userPinnedAwayFromLive = true;
-    applyVisibleRange(pinnedRange);
-    persistViewport();
-    forceSyncAfterPaint();
+  function __installTradeDeskModules() {
+    window.__TradeDesk = window.__TradeDesk || { deps: {} };
+    window.__TradeDesk.deps = {
+      $, fmt, fmtRub, escapeHtml, toChartTime, api,
+      needPctSuffix, openEntryProgressText, fmtTickLabel, formatChartTick, chartTimeOpts,
+      determineSpreadLevelSignalJs, effectiveThresholds, nowMskParts, lastSpreadLiveBar,
+      barZ, determineZSignalJs, buildTradePhase, renderChecklist, renderOpenStats,
+      syncTradeActionButtons, renderTradeRulesStatus, renderCorridorMeter, corridorStatusBadge,
+      brokerHasTotals, modeLabel, readEntryDeposit, computeOpenPathMinMax, fmtOpenMinMax,
+      fmtPnlWithDepositPct, fmtRubShort, renderCheckList, checkItem,
+      renderDesk, ensureWeekdayTip1mBars, ensureMtlrChartBars, tip1mSpanDays,
+      loadCachedParamsLocal, thinDeskTip1mBars,
+      get pollTimer() { return pollTimer; }, set pollTimer(v) { pollTimer = v; },
+      get pollMs() { return pollMs; }, set pollMs(v) { pollMs = v; },
+      get pollTick() { return pollTick; }, set pollTick(v) { pollTick = v; },
+      get refreshWorkCount() { return refreshWorkCount; },
+      set refreshWorkCount(v) { refreshWorkCount = v; },
+      get deskFetchSeq() { return deskFetchSeq; }, set deskFetchSeq(v) { deskFetchSeq = v; },
+      get days() { return days; },
+      get lastGoodChartBars() { return lastGoodChartBars; },
+      set lastGoodChartBars(v) { lastGoodChartBars = v; },
+      get lastGoodDeskMeta() { return lastGoodDeskMeta; },
+      set lastGoodDeskMeta(v) { lastGoodDeskMeta = v; },
+      get DESK_MTLR_UI_ENABLED() { return DESK_MTLR_UI_ENABLED; },
+      get POLL_FULL_EVERY() { return POLL_FULL_EVERY; },
+      get POLL_MS_DEFAULT() { return POLL_MS_DEFAULT; },
+      get POLL_MS_DEALER_1M() { return POLL_MS_DEALER_1M; },
+      get PROFIT_ALERT_PCT() { return PROFIT_ALERT_PCT; },
+      get LS_PROFIT_ALERT_TRADE() { return LS_PROFIT_ALERT_TRADE; },
+      get BROKER_EMPTY_CLEAR_AFTER() { return BROKER_EMPTY_CLEAR_AFTER; },
+      get SPREAD_REGIME_BAND_COLORS() { return SPREAD_REGIME_BAND_COLORS; },
+      get CHART_SCROLL_SCALE() { return CHART_SCROLL_SCALE; },
+      get CURRENT_PRICE_LINE_COLOR() { return CURRENT_PRICE_LINE_COLOR; },
+      get TP_EXIT_LINE_COLOR() { return TP_EXIT_LINE_COLOR; },
+      get TRADE_SPREAD_DEFAULT() { return TRADE_SPREAD_DEFAULT; },
+      get TRADE_SPREAD_MIN() { return TRADE_SPREAD_MIN; },
+      get TRADE_Z_MIN() { return TRADE_Z_MIN; },
+      get CHART_SPLITTER_HEIGHT() { return CHART_SPLITTER_HEIGHT; },
+      get LS_SPREAD_PANE_HEIGHT() { return LS_SPREAD_PANE_HEIGHT; },
+      get LS_CHART_RANGE() { return LS_CHART_RANGE; },
+      get LIVE_EDGE_BARS() { return LIVE_EDGE_BARS; },
+      get MAX_RIGHT_OVERSCROLL_BARS() { return MAX_RIGHT_OVERSCROLL_BARS; },
+      get MIN_VISIBLE_DATA_BARS() { return MIN_VISIBLE_DATA_BARS; },
+      get M15_MS() { return M15_MS; },
+      get M1_MS() { return M1_MS; },
+      get MARKER_HIT_RADIUS_PX() { return MARKER_HIT_RADIUS_PX; },
+      get MARKER_HIT_RADIUS_X_PX() { return MARKER_HIT_RADIUS_X_PX; },
+      get MARKER_ENTRY_HIT_RADIUS_X_PX() { return MARKER_ENTRY_HIT_RADIUS_X_PX; },
+      get TRADE_HIGHLIGHT_COLOR() { return TRADE_HIGHLIGHT_COLOR; },
+      get Z_ROLL_LOOKBACK_DAYS() { return Z_ROLL_LOOKBACK_DAYS; },
+      get Z_ROLL_MIN_BARS() { return Z_ROLL_MIN_BARS; },
+      updateCorridorOnChart: (...a) => window.__TradeDesk.corridor.updateCorridorOnChart(...a),
+      paintCorridorOnChart: (...a) => window.__TradeDesk.corridor.paintCorridorOnChart(...a),
+      corridorFingerprint: (...a) => window.__TradeDesk.corridor.corridorFingerprint(...a),
+      renderMarginHeadroom: (...a) => window.__TradeDesk.pnl.renderMarginHeadroom(...a),
+      openProfitRub: (...a) => window.__TradeDesk.pnl.openProfitRub(...a),
+      entryDepositRub: (...a) => window.__TradeDesk.pnl.entryDepositRub(...a),
+      equityAtOpenRub: (...a) => window.__TradeDesk.pnl.equityAtOpenRub(...a),
+      exitLevelPotential: (...a) => window.__TradeDesk.pnl.exitLevelPotential(...a),
+      fmtRubPlain: (...a) => window.__TradeDesk.pnl.fmtRubPlain(...a),
+      fmtStakePct: (...a) => window.__TradeDesk.pnl.fmtStakePct(...a),
+      coalesceDeskBroker: (...a) => window.__TradeDesk.pnl.coalesceDeskBroker(...a),
+      renderFunds: (...a) => window.__TradeDesk.pnl.renderFunds(...a),
+      renderCloseForecast: (...a) => window.__TradeDesk.pnl.renderCloseForecast(...a),
+      get zChart() { return zChart; }, set zChart(v) { zChart = v; },
+      get zSeries() { return zSeries; }, set zSeries(v) { zSeries = v; },
+      get zSeriesIsLine() { return zSeriesIsLine; }, set zSeriesIsLine(v) { zSeriesIsLine = v; },
+      get spreadChart() { return spreadChart; }, set spreadChart(v) { spreadChart = v; },
+      get spreadSeries() { return spreadSeries; }, set spreadSeries(v) { spreadSeries = v; },
+      get priceLines() { return priceLines; }, set priceLines(v) { priceLines = v; },
+      get spreadPriceLines() { return spreadPriceLines; }, set spreadPriceLines(v) { spreadPriceLines = v; },
+      get tpExitPriceLine() { return tpExitPriceLine; }, set tpExitPriceLine(v) { tpExitPriceLine = v; },
+      get spreadRegimeBands() { return spreadRegimeBands; }, set spreadRegimeBands(v) { spreadRegimeBands = v; },
+      get primarySpreadBands() { return primarySpreadBands; }, set primarySpreadBands(v) { primarySpreadBands = v; },
+      get lastSpreadBandTimes() { return lastSpreadBandTimes; }, set lastSpreadBandTimes(v) { lastSpreadBandTimes = v; },
+      get lastPrimarySpreadBandTimes() { return lastPrimarySpreadBandTimes; }, set lastPrimarySpreadBandTimes(v) { lastPrimarySpreadBandTimes = v; },
+      get openHighlightSeries() { return openHighlightSeries; }, set openHighlightSeries(v) { openHighlightSeries = v; },
+      get corridorChartSeries() { return corridorChartSeries; }, set corridorChartSeries(v) { corridorChartSeries = v; },
+      get activeCorridorBounds() { return activeCorridorBounds; }, set activeCorridorBounds(v) { activeCorridorBounds = v; },
+      get lastCorridorAutoscalePts() { return lastCorridorAutoscalePts; }, set lastCorridorAutoscalePts(v) { lastCorridorAutoscalePts = v; },
+      get lastPaintZData() { return lastPaintZData; }, set lastPaintZData(v) { lastPaintZData = v; },
+      get lastPaintMtlrData() { return lastPaintMtlrData; }, set lastPaintMtlrData(v) { lastPaintMtlrData = v; },
+      get openMarkersPlugin() { return openMarkersPlugin; }, set openMarkersPlugin(v) { openMarkersPlugin = v; },
+      get openSpreadMarkersPlugin() { return openSpreadMarkersPlugin; }, set openSpreadMarkersPlugin(v) { openSpreadMarkersPlugin = v; },
+      get spreadSeriesIsLine() { return spreadSeriesIsLine; }, set spreadSeriesIsLine(v) { spreadSeriesIsLine = v; },
+      get lastMtlrBars() { return lastMtlrBars; }, set lastMtlrBars(v) { lastMtlrBars = v; },
+      get lastMtlrLevels() { return lastMtlrLevels; }, set lastMtlrLevels(v) { lastMtlrLevels = v; },
+      get lastOpenTradeFp() { return lastOpenTradeFp; }, set lastOpenTradeFp(v) { lastOpenTradeFp = v; },
+      get lastDeskMarkers() { return lastDeskMarkers; }, set lastDeskMarkers(v) { lastDeskMarkers = v; },
+      get lastDeskTrades() { return lastDeskTrades; }, set lastDeskTrades(v) { lastDeskTrades = v; },
+      get lastDeskPaintBars() { return lastDeskPaintBars; }, set lastDeskPaintBars(v) { lastDeskPaintBars = v; },
+      get hoverTradeId() { return hoverTradeId; }, set hoverTradeId(v) { hoverTradeId = v; },
+      get markerHoverBound() { return markerHoverBound; }, set markerHoverBound(v) { markerHoverBound = v; },
+      get defaultOpenHighlightData() { return defaultOpenHighlightData; }, set defaultOpenHighlightData(v) { defaultOpenHighlightData = v; },
+      get refreshMarkersTimer() { return refreshMarkersTimer; }, set refreshMarkersTimer(v) { refreshMarkersTimer = v; },
+      get forceFitContent() { return forceFitContent; }, set forceFitContent(v) { forceFitContent = v; },
+      get pendingPeriodFitDays() { return pendingPeriodFitDays; }, set pendingPeriodFitDays(v) { pendingPeriodFitDays = v; },
+      get suppressRangeEvents() { return suppressRangeEvents; }, set suppressRangeEvents(v) { suppressRangeEvents = v; },
+      get rangeSyncBound() { return rangeSyncBound; }, set rangeSyncBound(v) { rangeSyncBound = v; },
+      get crosshairSyncBound() { return crosshairSyncBound; }, set crosshairSyncBound(v) { crosshairSyncBound = v; },
+      get zPriceByTime() { return zPriceByTime; }, set zPriceByTime(v) { zPriceByTime = v; },
+      get spPriceByTime() { return spPriceByTime; }, set spPriceByTime(v) { spPriceByTime = v; },
+      get lastBarCount() { return lastBarCount; }, set lastBarCount(v) { lastBarCount = v; },
+      get lastDataEnd() { return lastDataEnd; }, set lastDataEnd(v) { lastDataEnd = v; },
+      get pinnedRange() { return pinnedRange; }, set pinnedRange(v) { pinnedRange = v; },
+      get userPinnedAwayFromLive() { return userPinnedAwayFromLive; }, set userPinnedAwayFromLive(v) { userPinnedAwayFromLive = v; },
+      get lastBarsFingerprint() { return lastBarsFingerprint; }, set lastBarsFingerprint(v) { lastBarsFingerprint = v; },
+      get reapplyRangeTimer() { return reapplyRangeTimer; }, set reapplyRangeTimer(v) { reapplyRangeTimer = v; },
+      get userGestureActive() { return userGestureActive; }, set userGestureActive(v) { userGestureActive = v; },
+      get userGestureTimer() { return userGestureTimer; }, set userGestureTimer(v) { userGestureTimer = v; },
+      get chartDealer1m() { return chartDealer1m; }, set chartDealer1m(v) { chartDealer1m = v; },
+      get lastCloseForecast() { return lastCloseForecast; }, set lastCloseForecast(v) { lastCloseForecast = v; },
+      get profitToastTimer() { return profitToastTimer; }, set profitToastTimer(v) { profitToastTimer = v; },
+      get brokerEmptyStreak() { return brokerEmptyStreak; }, set brokerEmptyStreak(v) { brokerEmptyStreak = v; },
+      get lastGoodBroker() { return lastGoodBroker; }, set lastGoodBroker(v) { lastGoodBroker = v; },
+    };
   }
-
+  // --- module re-exports (static tests grep trade.js / app.js) ---
+  function corridorPhaseAbsent(...args) { return window.__TradeDesk.corridor.corridorPhaseAbsent(...args); }
+  function detectSpreadCorridorClient(...args) { return window.__TradeDesk.corridor.detectSpreadCorridorClient(...args); }
+  function renderCorridorMeter(...args) { return window.__TradeDesk.corridor.renderCorridorMeter(...args); }
+  function updateCorridorOnChart(...args) { return window.__TradeDesk.corridor.updateCorridorOnChart(...args); }
+  function paintCorridorOnChart(...args) { return window.__TradeDesk.corridor.paintCorridorOnChart(...args); }
+  function clearCorridorChartSeries(...args) { return window.__TradeDesk.corridor.clearCorridorChartSeries(...args); }
+  function corridorFingerprint(...args) { return window.__TradeDesk.corridor.corridorFingerprint(...args); }
+  function corridorStatusBadge(...args) { return window.__TradeDesk.corridor.corridorStatusBadge(...args); }
+  function applyZSeriesCorridorAutoscale(...args) { return window.__TradeDesk.corridor.applyZSeriesCorridorAutoscale(...args); }
+  function refreshZPriceScaleAfterCorridor(...args) { return window.__TradeDesk.corridor.refreshZPriceScaleAfterCorridor(...args); }
+  function setZEmptyMessage(...args) { return window.__TradeDesk.chart.setZEmptyMessage(...args); }
+  function updateChartPaneLabels(...args) { return window.__TradeDesk.chart.updateChartPaneLabels(...args); }
+  function alignTip1mBarsToLiveTip(...args) { return window.__TradeDesk.chart.alignTip1mBarsToLiveTip(...args); }
+  function setTpExitSpreadLine(...args) { return window.__TradeDesk.chart.setTpExitSpreadLine(...args); }
+  function renderCharts(...args) { return window.__TradeDesk.chart.renderCharts(...args); }
+  function ensureCharts(...args) { return window.__TradeDesk.chart.ensureCharts(...args); }
+  function resize(...args) { return window.__TradeDesk.chart.resize(...args); }
+  function renderOpen(...args) { return window.__TradeDesk.chart.renderOpen(...args); }
+  function updateOpenTradeOnChart(...args) { return window.__TradeDesk.chart.updateOpenTradeOnChart(...args); }
+  function syncBottomPaneToTopTime(...args) { return window.__TradeDesk.chart.syncBottomPaneToTopTime(...args); }
+  function syncTopPaneToBottomTime(...args) { return window.__TradeDesk.chart.syncTopPaneToBottomTime(...args); }
+  function thinDeskTip1mBars(...args) { return window.__TradeDesk.chart.thinDeskTip1mBars(...args); }
+  function ensureWeekdayTip1mBars(...args) { return window.__TradeDesk.chart.ensureWeekdayTip1mBars(...args); }
+  function bindTradeChartVerticalSplit(...args) { return window.__TradeDesk.chart.bindTradeChartVerticalSplit(...args); }
+  function formatBrokerError(...args) { return window.__TradeDesk.pnl.formatBrokerError(...args); }
+  function marginHeadroomFromBroker(...args) { return window.__TradeDesk.pnl.marginHeadroomFromBroker(...args); }
+  function renderMarginHeadroom(...args) { return window.__TradeDesk.pnl.renderMarginHeadroom(...args); }
+  function renderFunds(...args) { return window.__TradeDesk.pnl.renderFunds(...args); }
+  function renderFundsAtOpen(...args) { return window.__TradeDesk.pnl.renderFundsAtOpen(...args); }
+  function isBrokerPnlMark(...args) { return window.__TradeDesk.pnl.isBrokerPnlMark(...args); }
+  function openProfitRub(...args) { return window.__TradeDesk.pnl.openProfitRub(...args); }
+  function renderCloseForecast(...args) { return window.__TradeDesk.pnl.renderCloseForecast(...args); }
+  function entryDepositRub(...args) { return window.__TradeDesk.pnl.entryDepositRub(...args); }
+  function maybeFireProfitAlert(...args) { return window.__TradeDesk.pnl.maybeFireProfitAlert(...args); }
+  function coalesceDeskBroker(...args) { return window.__TradeDesk.pnl.coalesceDeskBroker(...args); }
+  function refresh(...args) { return window.__TradeDesk.polling.refresh(...args); }
+  function refreshImpl(...args) { return window.__TradeDesk.polling.refreshImpl(...args); }
+  function startPoll(...args) { return window.__TradeDesk.polling.startPoll(...args); }
+  function stopPoll(...args) { return window.__TradeDesk.polling.stopPoll(...args); }
+  function ensurePollInterval(...args) { return window.__TradeDesk.polling.ensurePollInterval(...args); }
+  function rememberGoodChartBars(...args) { return window.__TradeDesk.polling.rememberGoodChartBars(...args); }
+  function applyPartialBanner(...args) { return window.__TradeDesk.polling.applyPartialBanner(...args); }
   async function api(path, opts) {
     const timeoutMs = (opts && opts.timeoutMs != null) ? Number(opts.timeoutMs) : 0;
     const { timeoutMs: _tm, ...fetchOpts } = opts || {};
@@ -1551,23 +533,6 @@
   }
 
   /** Фаза коридора S — компактная плашка в верхний ряд индикаторов. */
-  function corridorStatusBadge(corridor, spreadPct, barsIss) {
-    let c = corridor;
-    if (!c || c.phase == null) {
-      c = detectSpreadCorridorClient(barsIss, spreadPct);
-    }
-    if (!c) return '';
-    const phase = String(c.phase || 'none');
-    // Нет / сломан: плашку не показываем (иначе «коридор · сломан» выглядит как активный индикатор).
-    if (corridorPhaseAbsent(phase)) return '';
-    const meta = CORRIDOR_PHASE_META[phase] || CORRIDOR_PHASE_META.none;
-    const label = c.label_ru || meta.badge;
-    const title = corridorPhaseStatus(phase) || c.title || meta.status || '';
-    return (
-      `<span class="badge-corridor badge-corridor-${escapeHtml(phase)}" title="${escapeHtml(String(title))}">`
-      + `коридор · ${escapeHtml(String(label))}</span>`
-    );
-  }
 
   /** Плашка: спред заморожен после 23:45 МСК (не путать с live tip после сессии). */
   function spreadFrozenBadge(dealer, mskParts) {
@@ -2203,115 +1168,19 @@
     };
   }
 
-  function hideCandleOhlcOverlay() {
-    paintTradeOhlc(null);
-  }
 
-  function candleOhlcAtTime(param) {
-    if (param && param.time != null && zSeries && !zSeriesIsLine && param.seriesData) {
-      try {
-        const sd = param.seriesData.get(zSeries);
-        if (sd && (sd.open != null || sd.close != null || sd.value != null)) {
-          return sd;
-        }
-      } catch (_) { /* ignore */ }
-    }
-    const pts = lastPaintZData;
-    if (!pts || !pts.length) return null;
-    if (param && param.time != null) {
-      const t = Number(param.time);
-      for (let i = pts.length - 1; i >= 0; i -= 1) {
-        if (Number(pts[i].time) === t) return pts[i];
-      }
-    }
-    return pts[pts.length - 1];
-  }
 
-  function paintTradeOhlc(param) {
-    const el = $('tradeCandleOhlc');
-    if (!el) return;
-    if (!zChart || !zSeries || zSeriesIsLine) {
-      el.textContent = '—';
-      el.classList.add('is-idle');
-      return;
-    }
-    const candle = candleOhlcAtTime(param);
-    if (!candle) {
-      el.textContent = '—';
-      el.classList.add('is-idle');
-      return;
-    }
-    el.textContent = typeof window.formatOhlcLine === 'function'
-      ? window.formatOhlcLine(candle)
-      : `O: ${fmt(candle.open, 2)}  H: ${fmt(candle.high, 2)}  L: ${fmt(candle.low, 2)}  C: ${fmt(candle.close, 2)}`;
-    el.classList.remove('is-idle');
-  }
 
   /** Hover = эта свеча, иначе последняя. */
-  function updateCandleOhlcOverlay(param) {
-    const hovering = param && param.point && param.time != null
-      && param.point.x >= 0 && param.point.y >= 0;
-    paintTradeOhlc(hovering ? param : null);
-  }
 
-  function addSeries(chart, type, opts) {
-    if (typeof chart.addSeries === 'function' && LightweightCharts[type]) {
-      return chart.addSeries(LightweightCharts[type], opts);
-    }
-    if (type === 'CandlestickSeries' && chart.addCandlestickSeries) return chart.addCandlestickSeries(opts);
-    if (type === 'LineSeries' && chart.addLineSeries) return chart.addLineSeries(opts);
-    if (type === 'BaselineSeries' && chart.addBaselineSeries) return chart.addBaselineSeries(opts);
-    return null;
-  }
 
   /** Horizontal price-band fill (BaselineSeries); ignored by Y autoscale. */
-  function makeSpreadRegimeBand(chart, basePrice, fillColor) {
-    return addSeries(chart, 'BaselineSeries', {
-      baseValue: { type: 'price', price: basePrice },
-      topLineColor: 'rgba(0,0,0,0)',
-      topFillColor1: fillColor,
-      topFillColor2: fillColor,
-      bottomLineColor: 'rgba(0,0,0,0)',
-      bottomFillColor1: 'rgba(0,0,0,0)',
-      bottomFillColor2: 'rgba(0,0,0,0)',
-      lineWidth: 1,
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-      // Bands must not stretch the price scale.
-      autoscaleInfoProvider: () => null,
-    });
-  }
 
   /**
    * Trade-band Y bounds from desk.spread_levels.levels (not regime cuts).
    * Narrow Long: enter_narrow…exit_narrow; Wide Short: exit_wide…enter_wide;
    * Transition: exit_narrow…exit_wide (gap, no entry).
    */
-  function resolveSpreadTradeBandBounds(levels) {
-    const lv = levels || {};
-    const cfg = spreadCfgSpread();
-    const num = (v, fb) => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : fb;
-    };
-    const enterW = num(lv.enter_wide, cfg.enter_wide);
-    const exitW = num(lv.exit_wide, cfg.exit_wide);
-    const enterN = num(lv.enter_narrow, cfg.enter_narrow);
-    const exitN = num(lv.exit_narrow, cfg.exit_narrow);
-    const loHi = (a, b) => (a <= b ? { lo: a, hi: b } : { lo: b, hi: a });
-    const narrow = loHi(enterN, exitN);
-    const wide = loHi(exitW, enterW);
-    const trans = loHi(exitN, exitW);
-    return {
-      narrowLo: narrow.lo,
-      narrowHi: narrow.hi,
-      transLo: trans.lo,
-      transHi: trans.hi,
-      wideLo: wide.lo,
-      wideHi: wide.hi,
-    };
-  }
 
   /**
    * @param {object} chart
@@ -2319,691 +1188,67 @@
    * @param {object|null} levels
    * @returns {boolean} true if band series were newly created
    */
-  function ensureSpreadBandsOnChart(chart, bandsRef, levels) {
-    if (!chart || !bandsRef) return false;
-    const b = resolveSpreadTradeBandBounds(levels);
-    if (!bandsRef.narrow) {
-      // Create before candles/line when possible → fills under price series (как Test).
-      bandsRef.narrow = makeSpreadRegimeBand(
-        chart, b.narrowLo, SPREAD_REGIME_BAND_COLORS.narrow,
-      );
-      bandsRef.transition = makeSpreadRegimeBand(
-        chart, b.transLo, SPREAD_REGIME_BAND_COLORS.transition,
-      );
-      bandsRef.wide = makeSpreadRegimeBand(
-        chart, b.wideLo, SPREAD_REGIME_BAND_COLORS.wide,
-      );
-      return !!(bandsRef.narrow || bandsRef.transition || bandsRef.wide);
-    }
-    try {
-      bandsRef.narrow.applyOptions({
-        baseValue: { type: 'price', price: b.narrowLo },
-        topFillColor1: SPREAD_REGIME_BAND_COLORS.narrow,
-        topFillColor2: SPREAD_REGIME_BAND_COLORS.narrow,
-      });
-      bandsRef.transition.applyOptions({
-        baseValue: { type: 'price', price: b.transLo },
-        topFillColor1: SPREAD_REGIME_BAND_COLORS.transition,
-        topFillColor2: SPREAD_REGIME_BAND_COLORS.transition,
-      });
-      bandsRef.wide.applyOptions({
-        baseValue: { type: 'price', price: b.wideLo },
-        topFillColor1: SPREAD_REGIME_BAND_COLORS.wide,
-        topFillColor2: SPREAD_REGIME_BAND_COLORS.wide,
-      });
-    } catch (_) { /* */ }
-    return false;
-  }
 
-  function ensureSpreadRegimeBands(levels) {
-    if (!spreadChart) return;
-    const created = ensureSpreadBandsOnChart(spreadChart, spreadRegimeBands, levels);
-    if (created && spreadSeries) {
-      const wantLine = spreadSeriesIsLine;
-      spreadPriceLines.forEach((pl) => {
-        try { spreadSeries.removePriceLine(pl); } catch (_) {}
-      });
-      spreadPriceLines = [];
-      openSpreadMarkersPlugin = null;
-      try {
-        if (typeof spreadChart.removeSeries === 'function') spreadChart.removeSeries(spreadSeries);
-      } catch (_) {}
-      spreadSeries = null;
-      spreadSeriesIsLine = !wantLine;
-      ensureSpreadSeriesKind(wantLine);
-    }
-  }
 
   /**
    * Upper pane (spread candles) — same Long/Short zone fills as Test chart.js.
    * If bands are created after candles already exist, recreate candle series so
    * fills stay under OHLC (z-order = add order).
    */
-  function ensurePrimarySpreadBands(levels) {
-    if (!zChart) return;
-    const created = ensureSpreadBandsOnChart(zChart, primarySpreadBands, levels);
-    if (created && zSeries) {
-      const wantLine = zSeriesIsLine;
-      priceLines.forEach((pl) => {
-        try { zSeries.removePriceLine(pl); } catch (_) {}
-      });
-      priceLines = [];
-      openMarkersPlugin = null;
-      try {
-        if (typeof zChart.removeSeries === 'function') zChart.removeSeries(zSeries);
-      } catch (_) {}
-      zSeries = null;
-      zSeriesIsLine = !wantLine;
-      ensureZSeriesKind(wantLine);
-    }
-  }
 
-  function setSpreadBandSeriesData(bandsRef, times, levels) {
-    if (!bandsRef) return;
-    const b = resolveSpreadTradeBandBounds(levels);
-    const mk = (value) => times.map((time) => ({ time, value }));
-    try {
-      if (bandsRef.narrow) {
-        bandsRef.narrow.setData(times.length ? mk(b.narrowHi) : []);
-      }
-      if (bandsRef.transition) {
-        bandsRef.transition.setData(times.length ? mk(b.transHi) : []);
-      }
-      if (bandsRef.wide) {
-        bandsRef.wide.setData(times.length ? mk(b.wideHi) : []);
-      }
-    } catch (_) { /* */ }
-  }
 
   /**
    * Fill trade bands on lower yellow S% chart from enter/exit levels.
    * @param {Array<{time:number}>|null} spreadPts — times; omit to reuse last
    * @param {{enter_wide?:number,exit_wide?:number,enter_narrow?:number,exit_narrow?:number}|null} levels
    */
-  function updateSpreadRegimeBands(spreadPts, levels) {
-    if (!spreadChart) return;
-    ensureSpreadRegimeBands(levels);
-    if (Array.isArray(spreadPts)) {
-      lastSpreadBandTimes = spreadPts
-        .map((p) => p && p.time)
-        .filter((t) => t != null);
-    }
-    setSpreadBandSeriesData(spreadRegimeBands, lastSpreadBandTimes, levels);
-  }
 
   /**
    * Fill Long/Short zones on upper spread-candle pane (parity Test).
    * @param {Array<{time:number}>|null} candlePts
    * @param {object|null} levels
    */
-  function updatePrimarySpreadBands(candlePts, levels) {
-    if (!zChart) return;
-    ensurePrimarySpreadBands(levels);
-    if (Array.isArray(candlePts)) {
-      lastPrimarySpreadBandTimes = candlePts
-        .map((p) => p && p.time)
-        .filter((t) => t != null);
-    }
-    setSpreadBandSeriesData(primarySpreadBands, lastPrimarySpreadBandTimes, levels);
-  }
 
-  function makeZCandleSeries(chart) {
-    return addSeries(chart, 'CandlestickSeries', {
-      upColor: '#089981', downColor: '#f23645',
-      borderUpColor: '#089981', borderDownColor: '#f23645',
-      wickUpColor: '#089981', wickDownColor: '#f23645',
-      lastValueVisible: true,
-      priceLineVisible: true,
-      priceLineColor: CURRENT_PRICE_LINE_COLOR,
-      lastValueFillColor: CURRENT_PRICE_LINE_COLOR,
-    });
-  }
 
-  function makeZLineSeries(chart) {
-    return addSeries(chart, 'LineSeries', {
-      color: '#089981',
-      lineWidth: 2,
-      lastValueVisible: true,
-      priceLineVisible: true,
-      priceLineColor: CURRENT_PRICE_LINE_COLOR,
-      lastValueFillColor: CURRENT_PRICE_LINE_COLOR,
-    });
-  }
 
-  function publishChartDebug(extra) {
-    try {
-      let zRange = null;
-      let spRange = null;
-      try { zRange = zChart?.timeScale()?.getVisibleLogicalRange() || null; } catch (_) {}
-      try { spRange = spreadChart?.timeScale()?.getVisibleLogicalRange() || null; } catch (_) {}
-      window.__tradeChartDebug = {
-        zSeriesIsLine,
-        chartDealer1m,
-        zPts: (extra && extra.zPts) || 0,
-        spPts: (extra && extra.spPts) || 0,
-        bodyN: (extra && extra.bodyN) || 0,
-        sample: (extra && extra.sample) || null,
-        sync: (extra && extra.sync) || null,
-        zRange,
-        spRange,
-        err: (extra && extra.err) || null,
-        ts: Date.now(),
-      };
-    } catch (_) { /* ignore */ }
-  }
 
   /**
    * Prefer CandlestickSeries. LineSeries only if candles unavailable.
    * @returns {boolean} true if series was (re)created
    */
-  function ensureZSeriesKind(wantLine) {
-    if (!zChart) return false;
-    const asLine = !!wantLine;
-    if (zSeries && zSeriesIsLine === asLine) return false;
-    priceLines.forEach((pl) => {
-      try { if (zSeries) zSeries.removePriceLine(pl); } catch (_) {}
-    });
-    priceLines = [];
-    if (tpExitPriceLine) {
-      try { if (zSeries) zSeries.removePriceLine(tpExitPriceLine); } catch (_) {}
-      tpExitPriceLine = null;
-    }
-    openMarkersPlugin = null;
-    if (zSeries) {
-      try {
-        if (typeof zChart.removeSeries === 'function') zChart.removeSeries(zSeries);
-      } catch (_) {}
-      zSeries = null;
-    }
-    if (asLine) {
-      zSeries = makeZLineSeries(zChart);
-      zSeriesIsLine = !!zSeries;
-    } else {
-      const candle = makeZCandleSeries(zChart);
-      if (candle) {
-        zSeries = candle;
-        zSeriesIsLine = false;
-      } else {
-        zSeries = makeZLineSeries(zChart);
-        zSeriesIsLine = !!zSeries;
-      }
-    }
-    lastBarsFingerprint = '';
-    forceFitContent = true;
-    publishChartDebug({ zPts: 0, spPts: 0 });
-    applyZSeriesCorridorAutoscale();
-    return true;
-  }
 
   /** Bottom MTLR pane: candles by default (same as TATN top). */
-  function ensureSpreadSeriesKind(wantLine) {
-    if (!spreadChart) return false;
-    const asLine = !!wantLine;
-    if (spreadSeries && spreadSeriesIsLine === asLine) return false;
-    spreadPriceLines.forEach((pl) => {
-      try { if (spreadSeries) spreadSeries.removePriceLine(pl); } catch (_) {}
-    });
-    spreadPriceLines = [];
-    openSpreadMarkersPlugin = null;
-    if (spreadSeries) {
-      try {
-        if (typeof spreadChart.removeSeries === 'function') spreadChart.removeSeries(spreadSeries);
-      } catch (_) {}
-      spreadSeries = null;
-    }
-    if (asLine) {
-      spreadSeries = makeZLineSeries(spreadChart);
-      spreadSeriesIsLine = !!spreadSeries;
-    } else {
-      const candle = makeZCandleSeries(spreadChart);
-      if (candle) {
-        spreadSeries = candle;
-        spreadSeriesIsLine = false;
-      } else {
-        spreadSeries = makeZLineSeries(spreadChart);
-        spreadSeriesIsLine = !!spreadSeries;
-      }
-    }
-    lastBarsFingerprint = '';
-    forceFitContent = true;
-    return true;
-  }
 
-  function ensureCharts() {
-    if (typeof LightweightCharts === 'undefined') return;
-    const zEl = $('tradeZChart');
-    const sEl = $('tradeSpreadChart');
-    if (!zEl || !sEl) return;
-    const zoom = { minBarSpacing: 0.001, maxBarSpacing: 64 };
-    try { zChart?.timeScale()?.applyOptions?.(zoom); } catch (_) { /* ignore */ }
-    try { spreadChart?.timeScale()?.applyOptions?.(zoom); } catch (_) { /* ignore */ }
-    if (!zChart) {
-      zChart = LightweightCharts.createChart(zEl, {
-        layout: { background: { color: '#161a25' }, textColor: '#d1d4dc' },
-        grid: { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
-        rightPriceScale: { borderColor: '#2a2e39', minimumWidth: PRICE_SCALE_MIN_WIDTH },
-        width: zEl.clientWidth,
-        height: zEl.clientHeight || 300,
-        ...chartTimeOpts(),
-        ...CHART_SCROLL_SCALE,
-      });
-      // Bands first → under candles (как Test chart.js).
-      ensurePrimarySpreadBands(spreadCfgLevels(null));
-      // Candles by default (dealer + tip1m). Line only if candle API missing.
-      const candle = makeZCandleSeries(zChart);
-      if (candle) {
-        zSeries = candle;
-        zSeriesIsLine = false;
-      } else {
-        zSeries = makeZLineSeries(zChart);
-        zSeriesIsLine = !!zSeries;
-      }
-      openHighlightSeries = addSeries(zChart, 'LineSeries', {
-        color: TRADE_HIGHLIGHT_COLOR,
-        lineWidth: 2,
-        lineStyle: 0,
-        lastValueVisible: false,
-        priceLineVisible: false,
-        crosshairMarkerVisible: false,
-        autoscaleInfoProvider: () => null,
-      });
-    } else if (zChart && zSeries && !openHighlightSeries) {
-      openHighlightSeries = addSeries(zChart, 'LineSeries', {
-        color: TRADE_HIGHLIGHT_COLOR,
-        lineWidth: 2,
-        lineStyle: 0,
-        lastValueVisible: false,
-        priceLineVisible: false,
-        crosshairMarkerVisible: false,
-        autoscaleInfoProvider: () => null,
-      });
-    }
-    if (!spreadChart) {
-      spreadChart = LightweightCharts.createChart(sEl, {
-        layout: { background: { color: '#161a25' }, textColor: '#d1d4dc' },
-        grid: { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
-        rightPriceScale: { borderColor: '#2a2e39', minimumWidth: PRICE_SCALE_MIN_WIDTH },
-        width: sEl.clientWidth,
-        height: sEl.clientHeight || 150,
-        ...chartTimeOpts(),
-        ...CHART_SCROLL_SCALE,
-      });
-      // Trade-band fills first (under MTLR candles) — Mechel levels.
-      ensureSpreadRegimeBands({
-        enter_wide: 8.9, exit_wide: 8.4, enter_narrow: 3.2, exit_narrow: 4.3,
-      });
-      const candle = makeZCandleSeries(spreadChart);
-      if (candle) {
-        spreadSeries = candle;
-        spreadSeriesIsLine = false;
-      } else {
-        spreadSeries = makeZLineSeries(spreadChart);
-        spreadSeriesIsLine = !!spreadSeries;
-      }
-    } else if (spreadSeries && spreadSeriesIsLine) {
-      ensureSpreadSeriesKind(false);
-    }
-    equalizePriceScales();
-    bindRangeSync();
-    bindCrosshairSync();
-    bindMarkerHover();
-  }
 
-  function setThresholdLines(entry, exitZ) {
-    if (!zSeries || typeof zSeries.createPriceLine !== 'function') return;
-    priceLines.forEach((pl) => { try { zSeries.removePriceLine(pl); } catch (_) {} });
-    priceLines = [];
-    const mk = (price, color, title) => {
-      priceLines.push(zSeries.createPriceLine({
-        price, color, lineWidth: 1, lineStyle: 2, title,
-      }));
-    };
-    mk(entry, '#2962ff', `+вх ${entry}`);
-    mk(-entry, '#2962ff', `−вх ${entry}`);
-    mk(exitZ, '#089981', `+вых ${exitZ}`);
-    mk(-exitZ, '#089981', `−вых ${exitZ}`);
-  }
 
   /** Уровни спреда на верхнем pane (L/S вх/вых — без линий коридора). */
-  function setPrimarySpreadThresholdLines(levels) {
-    const lv = levels || {};
-    // Bands first (may recreate candle series for z-order); then price lines.
-    updatePrimarySpreadBands(null, lv);
-    if (!zSeries || typeof zSeries.createPriceLine !== 'function') return;
-    priceLines.forEach((pl) => { try { zSeries.removePriceLine(pl); } catch (_) {} });
-    priceLines = [];
-    const enterW = Number(lv.enter_wide);
-    const exitW = Number(lv.exit_wide);
-    const enterN = Number(lv.enter_narrow);
-    const exitN = Number(lv.exit_narrow);
-    const mk = (price, color, title) => {
-      if (!Number.isFinite(price)) return;
-      priceLines.push(zSeries.createPriceLine({
-        price, color, lineWidth: 1, lineStyle: 2, title,
-      }));
-    };
-    mk(enterW, '#2962ff', `S вх ${fmt(enterW, 1)}`);
-    mk(exitW, '#26a69a', `S вых ${fmt(exitW, 1)}`);
-    mk(exitN, '#26a69a', `L вых ${fmt(exitN, 1)}`);
-    mk(enterN, '#2962ff', `L вх ${fmt(enterN, 1)}`);
-  }
 
   /** Снять линию цели ТП с верхнего графика Прода. */
-  function clearTpExitSpreadLine() {
-    if (!tpExitPriceLine) return;
-    try {
-      if (zSeries && typeof zSeries.removePriceLine === 'function') {
-        zSeries.removePriceLine(tpExitPriceLine);
-      }
-    } catch (_) { /* */ }
-    tpExitPriceLine = null;
-  }
 
   /**
    * Горизонталь «цель выхода по ТП» на графике Прода.
    * Уровень — close_forecast.exit_level_spread. Нет открытой / ТП выкл → линии нет.
    */
-  function setTpExitSpreadLine(openTrade, closeForecast, settings) {
-    clearTpExitSpreadLine();
-    if (!zSeries || typeof zSeries.createPriceLine !== 'function') return;
-    if (!openTrade) return;
-    const tpRaw = Number(settings?.take_profit_pct);
-    const tpPct = Number.isFinite(tpRaw) ? tpRaw : 0;
-    if (!(tpPct > 0)) return;
-
-    const fc = closeForecast
-      || (lastCloseForecast && lastCloseForecast.exit_level_spread != null
-        ? lastCloseForecast
-        : null);
-    const pot = exitLevelPotential(fc, openTrade, {
-      settings,
-      depositRub: entryDepositRub(openTrade, settings),
-    });
-    if (!pot || !Number.isFinite(pot.spread)) return;
-
-    const title = `ТП ${fmt(tpPct, tpPct % 1 === 0 ? 0 : 1)}%`;
-    try {
-      tpExitPriceLine = zSeries.createPriceLine({
-        price: Number(pot.spread),
-        color: TP_EXIT_LINE_COLOR,
-        lineWidth: 1,
-        lineStyle: 3,
-        title,
-        axisLabelVisible: true,
-      });
-    } catch (_) {
-      tpExitPriceLine = null;
-    }
-  }
 
   /** Уровни спреда из desk.spread_levels / settings (не хардкод-only). */
-  function resolveSpreadLevelLines(settings, spreadLevelsPayload) {
-    const sl = spreadLevelsPayload || {};
-    const lv = sl.levels || {};
-    const cuts = sl.cuts || {};
-    const cfg = spreadCfgSpread();
-    const num = (v, fallback) => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : fallback;
-    };
-    return {
-      levels: {
-        enter_wide: num(lv.enter_wide ?? settings?.spread_enter_wide, cfg.enter_wide),
-        exit_wide: num(lv.exit_wide ?? settings?.spread_exit_wide, cfg.exit_wide),
-        enter_narrow: num(lv.enter_narrow ?? settings?.spread_enter_narrow, cfg.enter_narrow),
-        exit_narrow: num(lv.exit_narrow ?? settings?.spread_exit_narrow, cfg.exit_narrow),
-      },
-      cuts: {
-        narrow_max: num(cuts.narrow_max, cfg.regime_narrow_max),
-        wide_min: num(cuts.wide_min, cfg.regime_wide_min),
-      },
-    };
-  }
 
-  function setSpreadThresholdLines(levels) {
-    if (!spreadSeries || typeof spreadSeries.createPriceLine !== 'function') return;
-    spreadPriceLines.forEach((pl) => {
-      try { spreadSeries.removePriceLine(pl); } catch (_) {}
-    });
-    spreadPriceLines = [];
-    const lv = levels || {};
-    const enterW = Number(lv.enter_wide);
-    const exitW = Number(lv.exit_wide);
-    const enterN = Number(lv.enter_narrow);
-    const exitN = Number(lv.exit_narrow);
-    const mk = (price, color, title) => {
-      if (!Number.isFinite(price)) return;
-      spreadPriceLines.push(spreadSeries.createPriceLine({
-        price, color, lineWidth: 1, lineStyle: 2, title,
-      }));
-    };
-    // Как Z: синий = вход, бирюзовый = выход; подписи Short/Long (запятая ru-RU).
-    // Cuts режима (3.5/5.5) не рисуем — только в engine для gating.
-    // Порядок сверху вниз как на скрине: S вх → S вых → L вых → L вх.
-    mk(enterW, '#2962ff', `S вх ${fmt(enterW, 1)}`);
-    mk(exitW, '#26a69a', `S вых ${fmt(exitW, 1)}`);
-    mk(exitN, '#26a69a', `L вых ${fmt(exitN, 1)}`);
-    mk(enterN, '#2962ff', `L вх ${fmt(enterN, 1)}`);
-    // Zone fills = торговые полосы L/S вх–вых (не cuts).
-    updateSpreadRegimeBands(null, lv);
-  }
 
-  function barsFingerprint(bars) {
-    if (!bars || !bars.length) return '0';
-    const first = bars[0];
-    const last = bars[bars.length - 1];
-    return [
-      bars.length,
-      first?.time || '',
-      last?.time || '',
-      last?.z ?? '',
-      last?.spread ?? '',
-      last?.timestampMs ?? '',
-    ].join('|');
-  }
 
   /**
    * Live tip Z/S% from monitor / open mark — not parquet/sidecar chart tail.
    * Desk tip1m bars often lag (cold μ/σ or sidecar ≈−1.9 while tip ≈−2.3).
    */
-  function liveTipZSpread(data, openTrade = null) {
-    const open = openTrade || (data && data.open) || null;
-    const mark = (open && open.mark) || {};
-    const mon = (data && data.monitor) || {};
-    const s = (data && data.summary) || {};
-    const dealer = (data && data.dealer) || {};
-    const msk = nowMskParts();
-    const spreadFrozen = dealer.spread_live === false
-      || (msk.spreadLive === false && !msk.weekend);
-    // Same source as шапка/оверлей (useDealerPx), not parquet/ISS last close.
-    const useDealerPx = !!(dealer.ok || dealer.quotes_ok)
-      && dealer.tatn != null && dealer.tatnp != null
-      && !spreadFrozen;
-    let z = null;
-    let sp = null;
-    if (mark.z_now != null && Number.isFinite(Number(mark.z_now))) z = Number(mark.z_now);
-    else if (mon.last_z != null && Number.isFinite(Number(mon.last_z))) z = Number(mon.last_z);
-    else if (s.z != null && Number.isFinite(Number(s.z))) z = Number(s.z);
-    if (spreadFrozen) {
-      const good = lastSpreadLiveBar((data && data.bars) || []);
-      if (good && good.spread != null && Number.isFinite(Number(good.spread))) {
-        sp = Number(good.spread);
-      } else if (dealer.spread != null && Number.isFinite(Number(dealer.spread))) {
-        sp = Number(dealer.spread);
-      } else if (s.spread != null && Number.isFinite(Number(s.spread))) {
-        sp = Number(s.spread);
-      }
-    } else if (useDealerPx && dealer.spread != null && Number.isFinite(Number(dealer.spread))) {
-      sp = Number(dealer.spread);
-    } else if (mark.spread_now != null && Number.isFinite(Number(mark.spread_now))) {
-      sp = Number(mark.spread_now);
-    } else if (s.spread != null && Number.isFinite(Number(s.spread))) {
-      sp = Number(s.spread);
-    }
-    return { z, sp };
-  }
 
   /** Patch last tip1m bar to live tip so last-price label ≡ overlay ≡ monitor. */
-  function alignTip1mBarsToLiveTip(bars, data, openTrade = null) {
-    if (!Array.isArray(bars) || !bars.length) return bars || [];
-    const live = liveTipZSpread(data, openTrade);
-    // Never paint live tip as 0 / null — warmup sentinels make fake candle spikes.
-    const liveZ = (live.z != null && Number.isFinite(live.z) && Math.abs(live.z) > 1e-12)
-      ? live.z
-      : null;
-    const liveSp = (live.sp != null && Number.isFinite(live.sp)) ? live.sp : null;
-    if (liveZ == null && liveSp == null) return bars;
-    const last = bars[bars.length - 1];
-    if (!last) return bars;
-    const curZ = last.z != null ? Number(last.z) : NaN;
-    const curSp = last.spread != null ? Number(last.spread) : NaN;
-    const needZ = liveZ != null && (!Number.isFinite(curZ) || Math.abs(curZ - liveZ) > 1e-6);
-    const needSp = liveSp != null && (!Number.isFinite(curSp) || Math.abs(curSp - liveSp) > 1e-6);
-    if (!needZ && !needSp) return bars;
-    const out = bars.slice();
-    const row = { ...last };
-    if (needZ) {
-      row.z = liveZ;
-      // Forming bar: flat Z OHLC at live tip — do not leave stale z_open/high/low
-      // (or let prevZ→close invent a wick down to entry / sidecar gap).
-      row.z_open = liveZ;
-      row.z_high = liveZ;
-      row.z_low = liveZ;
-    }
-    if (needSp) {
-      row.spread = liveSp;
-      // Close = live (жёлтая last-value на оси). Open/high/low: keep the
-      // forming minute, do not restore a flattened needle wick.
-      const so = row.spread_open != null && Number.isFinite(Number(row.spread_open))
-        ? Number(row.spread_open) : liveSp;
-      const sh = row.spread_high != null && Number.isFinite(Number(row.spread_high))
-        ? Number(row.spread_high) : liveSp;
-      const sl = row.spread_low != null && Number.isFinite(Number(row.spread_low))
-        ? Number(row.spread_low) : liveSp;
-      row.spread_open = so;
-      row.spread_high = Math.max(so, sh, sl, liveSp);
-      row.spread_low = Math.min(so, sh, sl, liveSp);
-    }
-    out[out.length - 1] = row;
-    return out;
-  }
 
   /** Keep Z candles + spread line on identical sorted timestamps (1:1). */
-  function syncChartSeriesByTime(zData, spreadPts) {
-    const zBy = new Map();
-    for (const c of zData || []) {
-      if (c && c.time != null && !zBy.has(c.time)) zBy.set(c.time, c);
-    }
-    const spBy = new Map();
-    for (const p of spreadPts || []) {
-      if (p && p.time != null && Number.isFinite(Number(p.value)) && !spBy.has(p.time)) {
-        spBy.set(p.time, p);
-      }
-    }
-    const times = [];
-    for (const t of zBy.keys()) {
-      if (spBy.has(t)) times.push(t);
-    }
-    times.sort((a, b) => a - b);
-    return {
-      zData: times.map((t) => zBy.get(t)),
-      spreadPts: times.map((t) => spBy.get(t)),
-    };
-  }
 
-  function resolveOpenEntryOnBars(bars, open) {
-    if (!open || !bars || !bars.length) return null;
-    const entryZ = Number(open.entry_z);
-    const entrySp = Number(open.entry_spread);
-    const entrySec = toChartTime(open.entry_time);
-    if (entrySec == null) return null;
-
-    const barTimes = [];
-    const byTime = new Map();
-    for (const b of bars) {
-      const t = toChartTime(b.time, b.timestampMs);
-      if (t == null) continue;
-      barTimes.push(t);
-      if (!byTime.has(t)) byTime.set(t, b);
-    }
-    if (!barTimes.length) return null;
-
-    const maxSnap = Math.max(90, Math.round(estimateBarStepSec(barTimes) * 1.5));
-    const snapped = snapSecToBarTimes(entrySec, barTimes, maxSnap);
-    const z0 = Number.isFinite(entryZ) ? entryZ : NaN;
-    const sp0 = Number.isFinite(entrySp) ? entrySp : NaN;
-
-    // Prefer real entry_time on the axis; snap only to a nearby tip bar.
-    if (snapped != null) {
-      const b = byTime.get(snapped);
-      const barSp = b && b.spread != null ? Number(b.spread) : NaN;
-      return {
-        time: snapped,
-        z: Number.isFinite(z0) ? z0 : Number(b && b.z),
-        spread: Number.isFinite(sp0) ? sp0 : (Number.isFinite(barSp) ? barSp : null),
-        tradeDate: open.entry_time || (b && b.time) || null,
-      };
-    }
-
-    const first = barTimes[0];
-    const last = barTimes[barTimes.length - 1];
-    // Inside (or just past) the painted window — keep exact entry time (inject later).
-    if (entrySec >= first - maxSnap && entrySec <= last + maxSnap) {
-      return {
-        time: entrySec,
-        z: Number.isFinite(z0) ? z0 : 0,
-        spread: Number.isFinite(sp0) ? sp0 : null,
-        tradeDate: open.entry_time,
-        synthetic: true,
-      };
-    }
-    // Entry AFTER series end (stale tip ending Fri, entry today) — never snap
-    // to the last Friday candle; keep real entry_time for axis inject.
-    if (entrySec > last + maxSnap) {
-      return {
-        time: entrySec,
-        z: Number.isFinite(z0) ? z0 : 0,
-        spread: Number.isFinite(sp0) ? sp0 : null,
-        tradeDate: open.entry_time,
-        synthetic: true,
-      };
-    }
-    // Entry before chart window — omit marker.
-    return null;
-  }
 
   /** Спред % на баре tip1m по chart-time (когда API не отдал entry_spread). */
-  function barSpreadAtChartSec(bars, chartSec) {
-    if (chartSec == null || !Array.isArray(bars) || !bars.length) return null;
-    for (const b of bars) {
-      const t = toChartTime(b.time, b.timestampMs);
-      if (t !== chartSec) continue;
-      const sp = b.spread != null ? Number(b.spread) : NaN;
-      if (Number.isFinite(sp)) return sp;
-    }
-    return null;
-  }
 
   /** Y-координата линии highlight: на графике спреда — только %, не Z. */
-  function deskSpreadChartValue(spreadHint, chartSec, zHint, bars) {
-    if (chartPrimarySpread) {
-      if (spreadHint != null && Number.isFinite(Number(spreadHint))) return Number(spreadHint);
-      const fromBar = barSpreadAtChartSec(bars, chartSec);
-      if (fromBar != null) return fromBar;
-      if (chartSec != null && zPriceByTime.has(chartSec)) {
-        const v = Number(zPriceByTime.get(chartSec));
-        if (Number.isFinite(v)) return v;
-      }
-      return NaN;
-    }
-    if (zHint != null && Number.isFinite(Number(zHint))) return Number(zHint);
-    return NaN;
-  }
 
   /** Ensure LW markers can land on entry_time (series must contain the time). */
-  function injectOpenEntryIntoChartSeries(zData, spreadPts, open, bars, {
-    primarySpread = false,
-  } = {}) {
     const entry = resolveOpenEntryOnBars(bars, open);
     if (!entry || entry.time == null) {
       return { zData, spreadPts, bars };
@@ -3091,440 +1336,37 @@
     return { zData: nextZ, spreadPts: nextSp, bars: nextBars };
   }
 
-  function deskTradeById(id) {
-    if (!id) return null;
-    return lastDeskTrades.find((t) => t.id === id) || null;
-  }
 
-  function markerChartPrice(m) {
-    const trade = deskTradeById(m.tradeId || m.text);
-    if (!trade) return 0;
-    const chartSec = m.time;
-    if (chartPrimarySpread) {
-      if (m.isEntry) {
-        const v = deskSpreadChartValue(
-          trade.entrySpread, chartSec, trade.entryZ, lastDeskPaintBars,
-        );
-        return Number.isFinite(v) ? v : 0;
-      }
-      const v = deskSpreadChartValue(
-        trade.exitSpread != null ? trade.exitSpread : trade.entrySpread,
-        chartSec,
-        trade.exitSpread != null ? trade.exitZ : trade.entryZ,
-        lastDeskPaintBars,
-      );
-      return Number.isFinite(v) ? v : 0;
-    }
-    return m.isEntry ? trade.entryZ : (trade.exitZ ?? trade.entryZ);
-  }
 
-  function markerScreenPosition(m) {
-    if (!zChart || !zSeries) return null;
-    const x = zChart.timeScale().timeToCoordinate(m.time);
-    if (x == null) return null;
-    const price = markerChartPrice(m);
-    let y = zSeries.priceToCoordinate(price);
-    if (y == null) return null;
-    const yOffset = m.isEntry ? (m.position === 'belowBar' ? 18 : -18) : 0;
-    return { x, y: y + yOffset };
-  }
 
-  function findNearestDeskMarkerAtPoint(point) {
-    if (!lastDeskMarkers.length || !zChart) return null;
-    let bestPixel = null;
-    for (const m of lastDeskMarkers) {
-      const pos = markerScreenPosition(m);
-      const x = pos?.x ?? zChart.timeScale().timeToCoordinate(m.time);
-      if (x == null) continue;
-      const dx = Math.abs(point.x - x);
-      const hitRadiusXPx = m.isEntry ? MARKER_ENTRY_HIT_RADIUS_X_PX : MARKER_HIT_RADIUS_X_PX;
-      let pixelHit = false;
-      let pixelScore = Number.POSITIVE_INFINITY;
-      if (pos) {
-        const dy = Math.abs(point.y - pos.y);
-        const dist = Math.hypot(dx, dy);
-        pixelHit = dist <= MARKER_HIT_RADIUS_PX || dx <= hitRadiusXPx;
-        pixelScore = dx * 1.5 + dy;
-      } else {
-        pixelHit = dx <= hitRadiusXPx;
-        pixelScore = dx;
-      }
-      if (pixelHit && (!bestPixel || pixelScore < bestPixel.score)) {
-        bestPixel = { marker: m, score: pixelScore };
-      }
-    }
-    return bestPixel?.marker ?? null;
-  }
 
-  function buildMarkerRenderData(markers, activeTradeId) {
-    return markers.map((m) => {
-      const isActive = !!activeTradeId && (m.tradeId === activeTradeId || m.text === activeTradeId);
-      return {
-        time: m.time,
-        position: m.position,
-        color: isActive ? TRADE_HIGHLIGHT_COLOR : m.color,
-        shape: m.shape,
-        text: m.text,
-        size: isActive ? Math.max((m.size || 2.5) * 1.15, 2.8) : (m.size || 2.5),
-      };
-    });
-  }
 
-  function setHighlightSeriesData(data) {
-    if (!openHighlightSeries) return;
-    try {
-      openHighlightSeries.setData(data || []);
-    } catch (e) {
-      console.warn('trade highlight', e);
-    }
-  }
 
-  function highlightDataForTrade(trade) {
-    if (!trade || trade.entryTime == null) return [];
-    const exitTime = trade.exitTime ?? trade.entryTime;
-    let entryVal;
-    let exitVal;
-    if (chartPrimarySpread) {
-      entryVal = deskSpreadChartValue(
-        trade.entrySpread, trade.entryTime, trade.entryZ, lastDeskPaintBars,
-      );
-      exitVal = deskSpreadChartValue(
-        trade.exitSpread != null ? trade.exitSpread : trade.entrySpread,
-        exitTime,
-        trade.exitSpread != null ? trade.exitZ : trade.entryZ,
-        lastDeskPaintBars,
-      );
-    } else {
-      entryVal = Number(trade.entryZ);
-      exitVal = Number(trade.exitZ ?? trade.entryZ);
-    }
-    if (!Number.isFinite(entryVal) || exitTime == null || !Number.isFinite(exitVal)) return [];
-    return [
-      { time: trade.entryTime, value: entryVal },
-      { time: exitTime, value: exitVal },
-    ].sort((a, b) => a.time - b.time);
-  }
 
-  function applyHighlightForActiveTrade() {
-    const trade = deskTradeById(hoverTradeId);
-    if (trade) {
-      setHighlightSeriesData(highlightDataForTrade(trade));
-      return;
-    }
-    setHighlightSeriesData(defaultOpenHighlightData || []);
-  }
 
-  function refreshDeskMarkers() {
-    applyTradeMarkers(
-      buildMarkerRenderData(lastDeskMarkers, hoverTradeId),
-      buildMarkerRenderData(lastMtlrMarkers, null),
-    );
-    applyHighlightForActiveTrade();
-  }
 
-  function scheduleRefreshDeskMarkers() {
-    if (refreshMarkersTimer) clearTimeout(refreshMarkersTimer);
-    refreshMarkersTimer = setTimeout(() => {
-      refreshMarkersTimer = 0;
-      refreshDeskMarkers();
-    }, 100);
-  }
 
-  function onDeskMarkerCrosshair(param) {
-    if (userGestureActive || suppressRangeEvents) return;
-    let nextHover = null;
-    if (param.point && param.point.x >= 0 && param.point.y >= 0) {
-      const marker = findNearestDeskMarkerAtPoint(param.point);
-      if (marker && deskTradeById(marker.tradeId || marker.text)) {
-        nextHover = marker.tradeId || marker.text || null;
-      }
-    }
-    if (nextHover === hoverTradeId) return;
-    hoverTradeId = nextHover;
-    applyHighlightForActiveTrade();
-    scheduleRefreshDeskMarkers();
-  }
 
-  function bindMarkerHover() {
-    if (markerHoverBound || !zChart) return;
-    markerHoverBound = true;
-    zChart.subscribeCrosshairMove((param) => onDeskMarkerCrosshair(param));
-  }
 
-  function clearOpenTradeOnChart() {
-    lastOpenTradeFp = '';
-    defaultOpenHighlightData = null;
-    if (!hoverTradeId) setHighlightSeriesData([]);
-    else applyHighlightForActiveTrade();
-    const el = $('tradeOpenTradeOverlay');
-    if (el) {
-      el.classList.add('hidden');
-      el.innerHTML = '';
-    }
-  }
 
-  function clearAllTradeMarkers() {
-    hoverTradeId = null;
-    lastDeskMarkers = [];
-    lastDeskTrades = [];
-    clearOpenTradeOnChart();
-    try {
-      if (openMarkersPlugin && typeof openMarkersPlugin.setMarkers === 'function') {
-        openMarkersPlugin.setMarkers([]);
-      } else if (zSeries && typeof zSeries.setMarkers === 'function') {
-        zSeries.setMarkers([]);
-      }
-    } catch (_) {}
-    try {
-      if (openSpreadMarkersPlugin && typeof openSpreadMarkersPlugin.setMarkers === 'function') {
-        openSpreadMarkersPlugin.setMarkers([]);
-      } else if (spreadSeries && typeof spreadSeries.setMarkers === 'function') {
-        spreadSeries.setMarkers([]);
-      }
-    } catch (_) {}
-  }
 
-  function applyMarkersToSeries(series, pluginRef, markerData) {
-    if (!series) return pluginRef;
-    try {
-      if (LightweightCharts.createSeriesMarkers) {
-        if (!pluginRef) {
-          return LightweightCharts.createSeriesMarkers(series, markerData);
-        }
-        if (typeof pluginRef.setMarkers === 'function') {
-          pluginRef.setMarkers(markerData);
-        }
-        return pluginRef;
-      }
-      if (typeof series.setMarkers === 'function') {
-        series.setMarkers(markerData);
-      }
-    } catch (e) {
-      console.warn('trade markers', e);
-    }
-    return pluginRef;
-  }
 
-  function applyTradeMarkers(tatnMarkerData, mtlrMarkerData) {
-    openMarkersPlugin = applyMarkersToSeries(
-      zSeries, openMarkersPlugin, tatnMarkerData || [],
-    );
-    openSpreadMarkersPlugin = applyMarkersToSeries(
-      spreadSeries, openSpreadMarkersPlugin, mtlrMarkerData || [],
-    );
-  }
 
   /** Median Δt of chart bars — tip1m ~60s, M15 ~900s. */
-  function estimateBarStepSec(barTimes) {
-    if (!barTimes || barTimes.length < 2) return 60;
-    const diffs = [];
-    const n = Math.min(barTimes.length, 80);
-    const start = Math.max(1, barTimes.length - n);
-    for (let i = start; i < barTimes.length; i++) {
-      const d = barTimes[i] - barTimes[i - 1];
-      if (d > 0 && d < 7200) diffs.push(d);
-    }
-    if (!diffs.length) return 60;
-    diffs.sort((a, b) => a - b);
-    return diffs[Math.floor(diffs.length / 2)] || 60;
-  }
 
   /**
    * Snap entry/exit to a real candle time for LW markers.
    * Returns null if nearest bar is farther than maxDeltaSec — NEVER pile
    * weekend/older trades onto the first Monday tip1m candle.
    */
-  function snapSecToBarTimes(sec, barTimes, maxDeltaSec) {
-    if (sec == null || !barTimes.length) return null;
-    let best = barTimes[0];
-    let bestD = Math.abs(best - sec);
-    for (const t of barTimes) {
-      const d = Math.abs(t - sec);
-      if (d < bestD) {
-        best = t;
-        bestD = d;
-      }
-    }
-    const lim = maxDeltaSec != null
-      ? maxDeltaSec
-      : Math.max(90, Math.round(estimateBarStepSec(barTimes) * 1.5));
-    if (bestD > lim) return null;
-    return best;
-  }
 
   /** Маркеры закрытых + открытой сделки (стиль Теста: стрелка входа, круг выхода). */
-  function isManualTradeSource(src) {
-    const s = String(src || '').toUpperCase();
-    return s === 'MANUAL' || s === 'BROKER' || s.includes('ПОДХВАТ') || s.includes('ADOPT');
-  }
 
-  function isSpreadLevelModeOn(settings, mark) {
-    if (mark && mark.spread_level_mode === false) return false;
-    if (mark && mark.spread_level_mode === true) return true;
-    if (!settings) return true;
-    if (settings.spread_level_mode === false) return false;
-    if (settings.spread_level_mode === true || settings.spread_level_mode == null) return true;
-    return String(settings.spread_level_mode) === '1';
-  }
 
   /** Prod AUTO is spread-levels: drop leftover Z-risk text/score from old enrich. */
-  function sanitizeOpenRisk(mark, settings) {
-    const flags = Array.isArray(mark && mark.risk_flags) ? mark.risk_flags.slice() : [];
-    let score = Number(mark && mark.risk_score);
-    if (!Number.isFinite(score)) score = 0;
-    const levelIn = mark && mark.risk_level;
-    if (!isSpreadLevelModeOn(settings, mark)) {
-      return {
-        flags,
-        score,
-        level: levelIn || 'Ok',
-        red: !!(mark && mark.risk_red),
-      };
-    }
-    const kept = [];
-    for (const f of flags) {
-      const s = String(f || '');
-      if (/Zвх/i.test(s) || /Zвx/i.test(s)) {
-        score -= 2;
-        continue;
-      }
-      if (/\|Z\|/.test(s) || /порог\s*Z/i.test(s)) {
-        score -= 1;
-        continue;
-      }
-      kept.push(f);
-    }
-    if (score < 0) score = 0;
-    const level = score >= 6 ? 'Critical' : score >= 4 ? 'High' : score >= 3 ? 'Elevated' : 'Ok';
-    return { flags: kept, score, level, red: score >= 4 };
-  }
 
-  function deskEntryMarkerColor(isLong, source) {
-    if (isManualTradeSource(source)) {
-      return isLong ? '#4FC3F7' : '#CE93D8';
-    }
-    return isLong ? '#69F0AE' : '#FF8A80';
-  }
 
-  function buildDeskTradeMarkers(closed, open, bars) {
-    const barTimes = [];
-    for (const b of bars || []) {
-      const t = toChartTime(b.time, b.timestampMs);
-      if (t != null) barTimes.push(t);
-    }
-    const maxSnap = Math.max(90, Math.round(estimateBarStepSec(barTimes) * 1.5));
-    const markers = [];
-    const trades = [];
-    const list = [...(closed || [])].sort((a, b) => {
-      const am = toChartTime(a.entry_time) || 0;
-      const bm = toChartTime(b.entry_time) || 0;
-      return am - bm;
-    });
-    let n = 0;
-    const dirShort = (isLong) => (typeof tradeDirectionShort === 'function'
-      ? tradeDirectionShort(isLong ? 'Long' : 'Short')
-      : (isLong ? 'L' : 'S'));
 
-    for (const t of list) {
-      n += 1;
-      const isLong = String(t.direction || '').toUpperCase().includes('LONG');
-      // Номера 1L…N как в таблице; маркеры только если вход/выход попадает в окно графика.
-      const entrySec = snapSecToBarTimes(toChartTime(t.entry_time), barTimes, maxSnap);
-      const exitSec = snapSecToBarTimes(toChartTime(t.exit_time), barTimes, maxSnap);
-      const label = `${n}${dirShort(isLong)}`;
-      const tradeId = t.id != null ? String(t.id) : `desk-${n}`;
-      const entryZ = Number(t.entry_z);
-      const exitZ = Number(t.exit_z);
-      const entrySp = Number(t.entry_spread);
-      const exitSp = Number(t.exit_spread);
-      const entrySpreadResolved = deskSpreadChartValue(entrySp, entrySec, entryZ, bars);
-      const exitSpreadResolved = deskSpreadChartValue(exitSp, exitSec, exitZ, bars);
-      const entryColor = deskEntryMarkerColor(isLong, t.source);
-      if (entrySec != null) {
-        trades.push({
-          id: tradeId,
-          entryTime: entrySec,
-          entryZ: Number.isFinite(entryZ) ? entryZ : 0,
-          exitTime: exitSec != null ? exitSec : entrySec,
-          exitZ: Number.isFinite(exitZ) ? exitZ : (Number.isFinite(entryZ) ? entryZ : 0),
-          entrySpread: Number.isFinite(entrySpreadResolved) ? entrySpreadResolved : null,
-          exitSpread: Number.isFinite(exitSpreadResolved) ? exitSpreadResolved : null,
-          open: false,
-        });
-        markers.push({
-          time: entrySec,
-          position: isLong ? 'belowBar' : 'aboveBar',
-          color: entryColor,
-          shape: isLong ? 'arrowUp' : 'arrowDown',
-          text: label,
-          size: 2.5,
-          tradeId,
-          isEntry: true,
-        });
-      }
-      if (exitSec != null && exitSec !== entrySec) {
-        markers.push({
-          time: exitSec,
-          position: 'inBar',
-          color: isManualTradeSource(t.source) ? '#B39DDB' : '#FFCC80',
-          shape: 'circle',
-          text: label,
-          size: 2.5,
-          tradeId,
-          isEntry: false,
-        });
-      }
-    }
-
-    if (open) {
-      n += 1;
-      const isLong = String(open.direction || '').toUpperCase() === 'LONG';
-      const entry = resolveOpenEntryOnBars(bars, open);
-      const last = bars && bars.length ? bars[bars.length - 1] : null;
-      const exitTime = last ? toChartTime(last.time, last.timestampMs) : null;
-      const mark = open.mark || {};
-      // Prefer aligned last tip bar (same as overlay / last-price), then mark.
-      let exitZ = last != null && last.z != null ? Number(last.z) : NaN;
-      if (!Number.isFinite(exitZ) && mark.z_now != null) exitZ = Number(mark.z_now);
-      let exitSp = last != null && last.spread != null ? Number(last.spread) : NaN;
-      if (!Number.isFinite(exitSp) && mark.spread_now != null) exitSp = Number(mark.spread_now);
-      const entrySpN = Number(entry && entry.spread != null
-        ? entry.spread
-        : (mark.fill_spread != null ? mark.fill_spread : open.entry_spread));
-      const tradeId = open.id != null ? String(open.id) : `desk-open-${n}`;
-      if (entry) {
-        trades.push({
-          id: tradeId,
-          entryTime: entry.time,
-          entryZ: entry.z,
-          exitTime: exitTime != null ? exitTime : entry.time,
-          exitZ: Number.isFinite(exitZ) ? exitZ : entry.z,
-          entrySpread: Number.isFinite(entrySpN) ? entrySpN : null,
-          exitSpread: Number.isFinite(exitSp) ? exitSp : null,
-          open: true,
-        });
-        markers.push({
-          time: entry.time,
-          position: isLong ? 'belowBar' : 'aboveBar',
-          color: deskEntryMarkerColor(isLong, open.source),
-          shape: isLong ? 'arrowUp' : 'arrowDown',
-          text: `${n}${dirShort(isLong)}`,
-          size: 2.5,
-          tradeId,
-          isEntry: true,
-        });
-      }
-    }
-
-    markers.sort((a, b) => a.time - b.time || String(a.text).localeCompare(String(b.text)));
-    return { markers, trades };
-  }
-
-  function updateOpenTradeOnChart(open, bars, closed = [], {
-    mtlrOpen = null,
-    mtlrBars = null,
-    mtlrClosed = null,
-  } = {}) {
     ensureCharts();
     lastDeskPaintBars = Array.isArray(bars) ? bars : [];
     const tatnBuilt = buildDeskTradeMarkers(closed, open, bars);
@@ -3631,169 +1473,14 @@
    * Display-only tip-style Z: rolling μ/σ on ISS M15 + dealer 1m tip as last obs.
    * Never feeds AUTO — UI chart only (for_z stays false / z_kind=dealer_monitor).
    */
-  function attachDealerMonitorZClient(dealerBars, m15Bars) {
-    const src = Array.isArray(dealerBars) ? dealerBars : [];
-    if (!src.length) return src;
-    if (src.some((b) => b && b.z != null && Number.isFinite(Number(b.z))
-      && (b.z_kind === 'dealer_monitor' || (b.source && String(b.source).includes('dealer'))))) {
-      return src;
-    }
-    const m15 = [];
-    for (const b of m15Bars || []) {
-      if (!b) continue;
-      const sp = b.spread != null ? Number(b.spread)
-        : (b.spreadPercent != null ? Number(b.spreadPercent) : NaN);
-      const ms = Number(b.timestampMs || 0);
-      if (!Number.isFinite(sp) || !(ms > 0)) continue;
-      m15.push({ ms, sp });
-    }
-    m15.sort((a, b) => a.ms - b.ms);
-    let completedEnd = 0;
-    let winStart = 0;
-    let total = 0;
-    let totalSq = 0;
-    const out = [];
-    const dayMs = 86_400_000;
-    for (const b of src) {
-      const row = { ...b, for_z: false, z_kind: 'dealer_monitor' };
-      const tipSp = b && b.spread != null ? Number(b.spread) : NaN;
-      const tipMs = b ? Number(b.timestampMs || 0) : 0;
-      if (!Number.isFinite(tipSp) || !(tipMs > 0)) {
-        row.z = null;
-        out.push(row);
-        continue;
-      }
-      if (!m15.length) {
-        row.z = null;
-        out.push(row);
-        continue;
-      }
-      const slotMs = Math.floor(tipMs / M15_MS) * M15_MS;
-      while (completedEnd < m15.length && m15[completedEnd].ms < slotMs) {
-        const s = m15[completedEnd].sp;
-        total += s;
-        totalSq += s * s;
-        completedEnd += 1;
-      }
-      const fromMs = tipMs - Z_ROLL_LOOKBACK_DAYS * dayMs;
-      while (winStart < completedEnd && m15[winStart].ms < fromMs) {
-        const s = m15[winStart].sp;
-        total -= s;
-        totalSq -= s * s;
-        winStart += 1;
-      }
-      const count = completedEnd - winStart;
-      const n = count + 1;
-      if (n < Z_ROLL_MIN_BARS) {
-        row.z = 0;
-      } else {
-        const t = total + tipSp;
-        const tsq = totalSq + tipSp * tipSp;
-        const mean = t / n;
-        let std = Math.sqrt(Math.max((tsq / n) - mean * mean, 0));
-        if (std <= 1e-12) std = 1;
-        row.z = (tipSp - mean) / std;
-      }
-      out.push(row);
-    }
-    // Fallback: rolling on dealer spreads alone if M15 window was empty.
-    if (out.length && out.every((r) => r.z == null) && out.length >= Z_ROLL_MIN_BARS) {
-      for (let i = 0; i < out.length; i += 1) {
-        const from = Math.max(0, i - Z_ROLL_MIN_BARS + 1);
-        let sum = 0;
-        let sumSq = 0;
-        let c = 0;
-        for (let j = from; j <= i; j += 1) {
-          const sp = Number(out[j].spread);
-          if (!Number.isFinite(sp)) continue;
-          sum += sp;
-          sumSq += sp * sp;
-          c += 1;
-        }
-        if (c < 2) {
-          out[i].z = 0;
-          continue;
-        }
-        const mean = sum / c;
-        let std = Math.sqrt(Math.max((sumSq / c) - mean * mean, 0));
-        if (std <= 1e-12) std = 1;
-        out[i].z = (Number(out[i].spread) - mean) / std;
-      }
-    }
-    return out;
-  }
 
   /** Build one spread % OHLC candle: prefer server spread_open/high/low; else prev→close. */
-  function spreadCandleFromBar(b, spClose, prevSp) {
-    const sp = Number(spClose);
-    if (!Number.isFinite(sp)) return null;
-    const so = b && b.spread_open != null ? Number(b.spread_open) : NaN;
-    const sh = b && b.spread_high != null ? Number(b.spread_high) : NaN;
-    const sl = b && b.spread_low != null ? Number(b.spread_low) : NaN;
-    const serverOk = Number.isFinite(so) && Number.isFinite(sh) && Number.isFinite(sl);
-    if (serverOk) {
-      return {
-        open: so,
-        high: Math.max(so, sh, sl, sp),
-        low: Math.min(so, sh, sl, sp),
-        close: sp,
-      };
-    }
-    const open = prevSp == null || !Number.isFinite(prevSp) ? sp : prevSp;
-    return {
-      open,
-      high: Math.max(open, sp),
-      low: Math.min(open, sp),
-      close: sp,
-    };
-  }
 
   /** Build one Z OHLC candle: prefer server z_open/high/low when set; else prevZ→currZ. */
-  function zCandleFromBar(b, zClose, prevZ) {
-    const z = Number(zClose);
-    if (!Number.isFinite(z)) return null;
-    const zo = b && b.z_open != null ? Number(b.z_open) : NaN;
-    const zh = b && b.z_high != null ? Number(b.z_high) : NaN;
-    const zl = b && b.z_low != null ? Number(b.z_low) : NaN;
-    const serverOk = Number.isFinite(zo) && Number.isFinite(zh) && Number.isFinite(zl);
-    if (serverOk) {
-      // Explicit OHLC (incl. flat live-tip align) — never fall back to prevZ wick.
-      return {
-        open: zo,
-        high: Math.max(zo, zh, zl, z),
-        low: Math.min(zo, zh, zl, z),
-        close: z,
-      };
-    }
-    const open = prevZ == null || !Number.isFinite(prevZ) ? z : prevZ;
-    return {
-      open,
-      high: Math.max(open, z),
-      low: Math.min(open, z),
-      close: z,
-    };
-  }
 
   /**
    * Median bar step in chart-time seconds (UTC unix). Null if <2 points.
    */
-  function medianBarStepSec(bars) {
-    const times = [];
-    const seen = new Set();
-    for (const b of bars || []) {
-      const t = toChartTime(b.time, b.timestampMs);
-      if (t == null || seen.has(t)) continue;
-      seen.add(t);
-      times.push(t);
-    }
-    if (times.length < 2) return null;
-    const diffs = [];
-    for (let i = 1; i < Math.min(times.length, 40); i += 1) {
-      diffs.push(times[i] - times[i - 1]);
-    }
-    diffs.sort((a, b) => a - b);
-    return diffs[Math.floor(diffs.length / 2)] || 0;
-  }
 
   /**
    * Z candles from tip1m bars with z (~1m step) — never M15, never TATN mid.
@@ -3802,459 +1489,46 @@
    * Last (forming) bar is always flat at close — live-tip align must not invent
    * a wick from stale sidecar prevZ down to entry / monitor Z.
    */
-  function buildTip1mZCandles(bars) {
-    const pts = [];
-    let prevZ = null;
-    const seen = new Set();
-    const times = [];
-    // Warmup sentinel from short M15 (exact 0.0) — skip so price scale isn't
-    // pinned to zero while live tip is ~-2.x (looks like a blank Z pane).
-    let nonzero = 0;
-    for (const b of bars || []) {
-      if (b && b.z != null && Math.abs(Number(b.z)) > 1e-12) nonzero += 1;
-    }
-    const skipExactZero = nonzero >= 8;
-    for (const b of bars || []) {
-      const t = toChartTime(b.time, b.timestampMs);
-      if (t == null || b.z == null || Number.isNaN(Number(b.z)) || seen.has(t)) continue;
-      // Dealer mid rows without display Z — skipped. Never use TATN price as Z.
-      if (b.interval === '1m' && b.source && String(b.source).includes('dealer') && b.z == null) continue;
-      const z = Number(b.z);
-      if (!Number.isFinite(z)) continue;
-      if (skipExactZero && Math.abs(z) < 1e-12) continue;
-      seen.add(t);
-      times.push(t);
-      const candle = zCandleFromBar(b, z, prevZ);
-      if (!candle) continue;
-      pts.push({ time: t, ...candle });
-      prevZ = z;
-    }
-    // Forming right-edge bar: OHLC = close (no prevZ body / entry-line wick).
-    if (pts.length) {
-      const last = pts[pts.length - 1];
-      const c = Number(last.close);
-      if (Number.isFinite(c)) {
-        pts[pts.length - 1] = { time: last.time, open: c, high: c, low: c, close: c };
-      }
-    }
-    if (pts.length < 2) return pts;
-    const diffs = [];
-    for (let i = 1; i < Math.min(times.length, 40); i += 1) {
-      diffs.push(times[i] - times[i - 1]);
-    }
-    diffs.sort((a, b) => a - b);
-    const med = diffs[Math.floor(diffs.length / 2)] || 0;
-    // M15 masquerading as tip1m → reject (HARD RULE)
-    if (med >= 600) return [];
-    return pts;
-  }
 
   /**
    * Weekday tip1m paint series: Z candles + spread, identical timestamps.
    * Rejects M15-density (HARD RULE). Zip by time — same length, same keys.
    */
-  function buildTip1mChartSeries(bars) {
-    const zPts = buildTip1mZCandles(bars);
-    if (zPts.length < 2) return { zPts: [], spreadPts: [] };
-    const spByTime = new Map();
-    for (const b of bars || []) {
-      const t = toChartTime(b.time, b.timestampMs);
-      if (t == null || spByTime.has(t)) continue;
-      const sp = b.spread != null ? Number(b.spread) : NaN;
-      if (!Number.isFinite(sp)) continue;
-      spByTime.set(t, sp);
-    }
-    const zSynced = [];
-    const spreadPts = [];
-    for (const c of zPts) {
-      if (!spByTime.has(c.time)) continue;
-      zSynced.push(c);
-      spreadPts.push({ time: c.time, value: spByTime.get(c.time) });
-    }
-    return { zPts: zSynced, spreadPts };
-  }
 
   /** Calendar-day span of chart bars (for period chip coverage checks). */
-  function tip1mSpanDays(bars) {
-    if (!Array.isArray(bars) || bars.length < 2) return 0;
-    const msOf = (b) => {
-      const ms = Number(b && b.timestampMs);
-      if (Number.isFinite(ms) && ms > 0) return ms;
-      const s = String((b && (b.time || b.tradeDate)) || '').replace('T', ' ').trim();
-      const t = Date.parse(s.length === 16 ? `${s}:00` : s);
-      return Number.isFinite(t) ? t : 0;
-    };
-    let first = 0;
-    let last = 0;
-    for (let i = 0; i < bars.length; i++) {
-      first = msOf(bars[i]);
-      if (first > 0) break;
-    }
-    for (let i = bars.length - 1; i >= 0; i--) {
-      last = msOf(bars[i]);
-      if (last > 0) break;
-    }
-    if (first <= 0 || last <= first) return 0;
-    return (last - first) / 86_400_000;
-  }
 
-  function filterTip1mBarsByDays(bars, wantDays) {
-    const d = Math.max(1, Number(wantDays) || 7);
-    if (!Array.isArray(bars) || bars.length < 2) return bars || [];
-    let lastMs = 0;
-    for (let i = bars.length - 1; i >= 0; i--) {
-      const ms = Number(bars[i] && bars[i].timestampMs);
-      if (Number.isFinite(ms) && ms > 0) { lastMs = ms; break; }
-    }
-    if (lastMs <= 0) return bars;
-    const cut = lastMs - d * 86_400_000;
-    return bars.filter((b) => Number(b && b.timestampMs) >= cut);
-  }
 
   /**
    * Уменьшить плотность длинного tip1m только для отрисовки.
    * Диапазон дат, open/close и внутригрупповые min/max сохраняются.
    */
-  function thinDeskTip1mBars(bars, maxPoints = 2500) {
-    if (!Array.isArray(bars) || bars.length <= maxPoints) {
-      return { bars: bars || [], stepMin: 1, rawCount: (bars || []).length };
-    }
-    const step = Math.max(2, Math.ceil(bars.length / maxPoints));
-    const out = [];
-    let group = [];
-    let groupDay = '';
-
-    const num = (v) => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
-    const dayOf = (b) => String((b && (b.time || b.tradeDate)) || '').slice(0, 10);
-    const flush = () => {
-      if (!group.length) return;
-      const first = group[0];
-      const last = group[group.length - 1];
-      const spVals = [];
-      const zVals = [];
-      for (const b of group) {
-        for (const key of ['spread', 'spread_open', 'spread_high', 'spread_low']) {
-          const v = num(b && b[key]);
-          if (v != null) spVals.push(v);
-        }
-        for (const key of ['z', 'z_open', 'z_high', 'z_low']) {
-          const v = num(b && b[key]);
-          if (v != null) zVals.push(v);
-        }
-      }
-      const row = {
-        ...last,
-        time: last.time || last.tradeDate,
-        timestampMs: last.timestampMs,
-        interval: `${step}m`,
-        display_step_min: step,
-      };
-      const spOpen = num(first.spread_open) ?? num(first.spread);
-      const spClose = num(last.spread);
-      if (spOpen != null && spClose != null && spVals.length) {
-        row.spread = spClose;
-        row.spread_open = spOpen;
-        row.spread_high = Math.max(...spVals, spOpen, spClose);
-        row.spread_low = Math.min(...spVals, spOpen, spClose);
-      }
-      const zOpen = num(first.z_open) ?? num(first.z);
-      const zClose = num(last.z);
-      if (zOpen != null && zClose != null && zVals.length) {
-        row.z = zClose;
-        row.z_open = zOpen;
-        row.z_high = Math.max(...zVals, zOpen, zClose);
-        row.z_low = Math.min(...zVals, zOpen, zClose);
-      }
-      out.push(row);
-      group = [];
-    };
-
-    for (const b of bars) {
-      const day = dayOf(b);
-      if (group.length && (group.length >= step || day !== groupDay)) flush();
-      if (!group.length) groupDay = day;
-      group.push(b);
-    }
-    flush();
-    return { bars: out, stepMin: step, rawCount: bars.length };
-  }
 
   /**
    * If desk still serves iss_m15 under tip1m labels (pre-reload / race),
    * or tip1m is session-only while period chip asks 1Н/1М/3М/6М —
    * replace with real tip1m (static sidecar → bars1m) or empty — never paint M15.
    */
-  async function ensureWeekdayTip1mBars(data) {
-    if (!data || data.weekend_monitor) return data;
-    const mode = String(data.bars_mode || '');
-    if (mode.startsWith('dealer')) return data;
-    // Chip intent wins over desk payload (old API may coerce 180→7 until reload).
-    const wantDays = Number(days || data.days || 7) || 7;
-    const med = medianBarStepSec(data.bars);
-    const span = tip1mSpanDays(data.bars);
-    // Session-only (~<0.6д) is fine for 1Д; multi-day chips need real lookback.
-    const coversPeriod = wantDays <= 1
-      ? (Array.isArray(data.bars) && data.bars.length >= 2)
-      : span >= Math.min(wantDays * 0.45, wantDays - 0.4);
-    const looksTip = mode === 'tip1m' && (med == null || med < 600)
-      && Array.isArray(data.bars) && data.bars.length >= 2
-      && coversPeriod;
-    if (looksTip) return data;
-
-    const issKeep = (data.bars_iss && data.bars_iss.length)
-      ? data.bars_iss
-      : (mode === 'iss_m15' ? (data.bars || []) : (data.bars_iss || []));
-
-    let tipBars = null;
-    // 1) Sidecar JSON (works without uvicorn reload while SHORT is open)
-    try {
-      const r = await fetch(`/static/desk_tip1m.json?v=${Date.now()}`, { cache: 'no-store' });
-      if (r.ok) {
-        const j = await r.json();
-        const bars = filterTip1mBarsByDays(j && j.bars, wantDays);
-        const spanSide = tip1mSpanDays(bars);
-        const okSpan = wantDays <= 1 || spanSide >= Math.min(wantDays * 0.45, wantDays - 0.4);
-        if (Array.isArray(bars) && bars.length >= 5 && (medianBarStepSec(bars) || 9999) < 600 && okSpan) {
-          tipBars = bars;
-        }
-      }
-    } catch (_) { /* ignore */ }
-
-    // 2) Testing /api/bars1m parquet (may lag vs live tip)
-    if (!tipBars) {
-      try {
-        const d = wantDays;
-        const r = await fetch(`/api/bars1m?csv=${encodeURIComponent('m15_tatn_255d.csv')}&chartDays=${d}`);
-        if (r.ok) {
-          const j = await r.json();
-          const raw = j && j.bars;
-          if (Array.isArray(raw) && raw.length >= 5) {
-            const mapped = raw.map((b) => ({
-              time: b.tradeDate || b.time,
-              timestampMs: b.timestampMs,
-              z: b.zScore != null ? b.zScore : b.z,
-              spread: b.spreadPercent != null ? b.spreadPercent : b.spread,
-              tatn: b.tatnClose != null ? b.tatnClose : b.tatn,
-              tatnp: b.tatnpClose != null ? b.tatnpClose : b.tatnp,
-              interval: '1m',
-              source: 'tip1m',
-              for_z: true,
-            }));
-            if ((medianBarStepSec(mapped) || 9999) < 600) tipBars = mapped;
-          }
-        }
-      } catch (_) { /* ignore */ }
-    }
-
-    if (tipBars && tipBars.length) {
-      const last = tipBars[tipBars.length - 1];
-      const summary = { ...(data.summary || {}) };
-      summary.bars_mode = 'tip1m';
-      summary.window_count = tipBars.length;
-      // Do not replace live markets S% with a stale parquet/sidecar tip.
-      const tipMs = Number(last && last.timestampMs) || 0;
-      const mktTd = String(summary.trade_date || '').replace('T', ' ').trim();
-      let mktMs = 0;
-      if (mktTd.length >= 16) {
-        const p = Date.parse(mktTd.replace(' ', 'T') + '+03:00');
-        if (Number.isFinite(p)) mktMs = p;
-      }
-      const tipStale = tipMs > 0 && mktMs > 0 && (mktMs - tipMs) > 45 * 60 * 1000;
-      // Prefer live tip (monitor / open mark) over sidecar/parquet Z on the tail.
-      const live = liveTipZSpread(data);
-      let barsOut = tipBars;
-      if (!tipStale && (live.z != null || live.sp != null)) {
-        barsOut = alignTip1mBarsToLiveTip(tipBars, data);
-        const aligned = barsOut[barsOut.length - 1] || last;
-        if (aligned.z != null) summary.z = aligned.z;
-        if (aligned.spread != null) summary.spread = aligned.spread;
-        if (aligned.time) summary.trade_date = aligned.time;
-      } else if (!tipStale) {
-        if (last.z != null) summary.z = last.z;
-        if (last.spread != null) summary.spread = last.spread;
-        if (last.time) summary.trade_date = last.time;
-      }
-      return {
-        ...data,
-        days: wantDays,
-        bars: barsOut,
-        bars_iss: issKeep,
-        bars_mode: 'tip1m',
-        tip1m_warming: tipStale ? true : data.tip1m_warming,
-        partial: tipStale ? true : data.partial,
-        summary,
-      };
-    }
-
-    // HARD RULE: empty tip1m > M15 under tip1m label
-    return {
-      ...data,
-      bars: [],
-      bars_iss: issKeep,
-      bars_mode: 'tip1m',
-      partial: true,
-      tip1m_warming: true,
-      summary: { ...(data.summary || {}), bars_mode: 'tip1m' },
-    };
-  }
 
   /**
    * If API still clips MTLR m15 to 2500 bars (~45д), fill 1М/3М/6М from sidecar.
    */
-  async function ensureMtlrChartBars(bars, wantDays) {
-    const d = Math.max(1, Number(wantDays) || 7);
-    const span = tip1mSpanDays(bars);
-    const covers = d <= 30
-      ? (Array.isArray(bars) && bars.length >= 2)
-      : span >= Math.min(d * 0.45, d - 0.4);
-    if (Array.isArray(bars) && bars.length >= 5 && covers) return bars;
-    try {
-      const r = await fetch(`/static/desk_mtlr_m15.json?v=${Date.now()}`, { cache: 'no-store' });
-      if (r.ok) {
-        const j = await r.json();
-        const raw = filterTip1mBarsByDays(j && j.bars, d);
-        const spanSide = tip1mSpanDays(raw);
-        const okSpan = d <= 30 || spanSide >= Math.min(d * 0.45, d - 0.4);
-        if (Array.isArray(raw) && raw.length >= 5 && okSpan) return raw;
-      }
-    } catch (_) { /* keep API bars */ }
-    return bars || [];
-  }
 
   /**
    * Spread % candles for TATN tip1m/dealer (top). Prefer spread_open/high/low; else prevSp→currSp.
    */
-  function buildSpread1mChartSeries(bars) {
-    const candlePts = [];
-    const spreadPts = [];
-    const seen = new Set();
-    let prevSp = null;
-    for (const b of bars || []) {
-      if (!b) continue;
-      const t = toChartTime(b.time, b.timestampMs);
-      if (t == null || seen.has(t)) continue;
-      const sp = b.spread != null ? Number(b.spread) : NaN;
-      if (!Number.isFinite(sp)) continue;
-      seen.add(t);
-      spreadPts.push({ time: t, value: sp });
-      const candle = spreadCandleFromBar(b, sp, prevSp);
-      if (!candle) continue;
-      candlePts.push({ time: t, ...candle });
-      prevSp = sp;
-    }
-    // Reject M15 masquerading as 1m (≥10m median step), но разрешить
-    // явно агрегированный для отрисовки длинный tip1m.
-    if (candlePts.length >= 2) {
-      const diffs = [];
-      for (let i = 1; i < Math.min(candlePts.length, 40); i += 1) {
-        diffs.push(candlePts[i].time - candlePts[i - 1].time);
-      }
-      diffs.sort((a, b) => a - b);
-      const med = diffs[Math.floor(diffs.length / 2)] || 0;
-      const displayAggregated = (bars || []).some(
-        (b) => Number(b && b.display_step_min) > 1,
-      );
-      if (med >= 600 && !displayAggregated) return { zPts: [], spreadPts: [] };
-    }
-    return { zPts: candlePts, spreadPts };
-  }
 
   /**
    * Spread % candles for MTLR m15 (bottom pane). Allows ~15m step.
    */
-  function buildSpreadM15ChartSeries(bars) {
-    const candlePts = [];
-    const seen = new Set();
-    let prevSp = null;
-    for (const b of bars || []) {
-      if (!b) continue;
-      const t = toChartTime(b.time, b.timestampMs);
-      if (t == null || seen.has(t)) continue;
-      const sp = b.spread != null ? Number(b.spread) : NaN;
-      if (!Number.isFinite(sp)) continue;
-      seen.add(t);
-      const candle = spreadCandleFromBar(b, sp, prevSp);
-      if (!candle) continue;
-      candlePts.push({ time: t, ...candle });
-      prevSp = sp;
-    }
-    return candlePts;
-  }
 
-  function chartPointVal(p) {
-    if (!p) return NaN;
-    if (p.value != null) return Number(p.value);
-    return Number(p.close);
-  }
 
-  function chartPrefixEqual(prev, next) {
-    if (!prev || !next || !prev.length || next.length < prev.length) return false;
-    for (let i = 0; i < prev.length; i += 1) {
-      if (prev[i].time !== next[i].time) return false;
-      const a = chartPointVal(prev[i]);
-      const b = chartPointVal(next[i]);
-      if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-      if (Math.abs(a - b) > 1e-9) return false;
-    }
-    return true;
-  }
 
   /** Только хвост изменился — update() вместо setData на тысячах баров. */
-  function canTailUpdateChart(prev, next) {
-    if (!prev || !next || !prev.length) return false;
-    if (next.length > prev.length + 1) return false;
-    if (next.length === prev.length + 1) {
-      return chartPrefixEqual(prev, next.slice(0, prev.length));
-    }
-    if (next.length === prev.length) return true;
-    return false;
-  }
 
-  function applyTailChartUpdate(zData, mtlrCandlePts) {
-    if (!zSeries || !zData.length) return false;
-    const tail = zData[zData.length - 1];
-    if (zSeriesIsLine) {
-      zSeries.update({
-        time: tail.time,
-        value: chartPointVal(tail),
-      });
-    } else {
-      zSeries.update(tail);
-    }
-    if (spreadSeries && mtlrCandlePts && mtlrCandlePts.length) {
-      const mTail = mtlrCandlePts[mtlrCandlePts.length - 1];
-      if (spreadSeriesIsLine) {
-        spreadSeries.update({ time: mTail.time, value: chartPointVal(mTail) });
-      } else {
-        spreadSeries.update(mTail);
-      }
-    }
-    lastPaintZData = zData;
-    lastPaintMtlrData = mtlrCandlePts;
-    return true;
-  }
 
   /**
    * Top: TATN tip1m/dealer spread candles. Bottom: MTLR m15 spread candles + Mechel levels.
    */
-  function renderCharts(bars, entry, exitZ, openTrade = null, closedTrades = [], {
-    dealer1m = false,
-    weekendMonitor = false,
-    zBars = null,
-    spreadLevels = null,
-    spreadCuts = null,
-    lookbackDays = null,
-    mtlrBars = null,
-    mtlrLevels = null,
-    mtlrOpen = null,
-    mtlrClosed = null,
-    corridor = null,
-    closeForecast = null,
-    settings = null,
-  } = {}) {
     ensureCharts();
     const monMode = !!(dealer1m || weekendMonitor);
     if (zSeriesIsLine || !zSeries) {
@@ -4698,7 +1972,6 @@
     return text;
   }
 
-  function renderOpen(open, { barsMode = '', bars = null, settings = null } = {}) {
     const box = $('tradeOpenBox');
     if (!open) {
       box.innerHTML = '<div class="trade-open-empty">Нет открытой позиции</div>';
@@ -5392,617 +2665,6 @@
   }
 
   /** Short RU hint instead of urllib3/SSL traceback spam. */
-  function formatBrokerError(err) {
-    const s = String(err || '');
-    if (/SSL:\s*цепочка/i.test(s)) return s.length > 220 ? `${s.slice(0, 217)}…` : s;
-    if (/certificate verify failed|SSLCertVerification|self-signed certificate|CERTIFICATE_VERIFY_FAILED|Max retries exceeded.*tinkoff|Max retries exceeded.*tbank|Russian Trusted/i.test(s)) {
-      return 'SSL: цепочка сертификатов (Russian Trusted CA / антивирус) — см. live/certs или MOEX_SSL_VERIFY=0';
-    }
-    return s.length > 220 ? `${s.slice(0, 217)}…` : s;
-  }
-
-  function marginHeadroomFromBroker(broker) {
-    const m = broker?.margin;
-    if (!m || typeof m !== 'object') return null;
-    if (m.headroom && typeof m.headroom === 'object') return m.headroom;
-    const liquid = Number(m.liquid_portfolio_rub);
-    const corrected = Number(m.corrected_margin_rub);
-    if (!Number.isFinite(liquid) || !Number.isFinite(corrected) || corrected <= 0) return null;
-    const free = liquid - corrected;
-    const pct = (free / corrected) * 100;
-    let zone = 'red';
-    if (pct > 30) zone = 'green';
-    else if (pct >= 10) zone = 'yellow';
-    return { free_rub: free, pct, zone };
-  }
-
-  function renderMarginHeadroom(broker) {
-    const box = $('tradeMarginHeadroom');
-    const fill = $('tradeMarginHeadroomFill');
-    const text = $('tradeMarginHeadroomText');
-    if (!box || !fill || !text) return;
-    const hr = broker && !broker.error ? marginHeadroomFromBroker(broker) : null;
-    if (!hr) {
-      box.hidden = true;
-      box.classList.remove(
-        'trade-margin-headroom--green',
-        'trade-margin-headroom--yellow',
-        'trade-margin-headroom--red',
-      );
-      fill.style.width = '0';
-      text.textContent = '—';
-      return;
-    }
-    box.hidden = false;
-    box.classList.remove(
-      'trade-margin-headroom--green',
-      'trade-margin-headroom--yellow',
-      'trade-margin-headroom--red',
-    );
-    box.classList.add(`trade-margin-headroom--${hr.zone}`);
-    const pctClamped = Math.min(100, Math.max(0, Number(hr.pct)));
-    fill.style.width = `${pctClamped}%`;
-    const freeAbs = Math.abs(Number(hr.free_rub));
-    const freePrefix = Number(hr.free_rub) < 0 ? '−' : '';
-    const pctStr = Number.isFinite(Number(hr.pct)) ? Number(hr.pct).toFixed(1) : '—';
-    text.textContent = `до колла: ${freePrefix}${fmt(freeAbs, 0)} ₽ (${pctStr}%)`;
-  }
-
-  function renderFunds(broker, { pending = false } = {}) {
-    const box = $('tradeFundsBox');
-    const totalEl = $('tradeFundsTotal');
-    const cashEl = $('tradeFundsCash');
-    const brokerEl = $('tradeBrokerBox');
-    if (!box || !totalEl || !cashEl) return;
-
-    box.classList.remove('is-prod', 'is-error');
-    if (brokerEl) {
-      brokerEl.textContent = '';
-      brokerEl.hidden = true;
-    }
-    if (!broker) {
-      // Prefer last good over pending flash when coalesce kept nothing usable.
-      if (pending && lastGoodBroker && brokerHasTotals(lastGoodBroker)) {
-        broker = lastGoodBroker;
-      } else {
-        totalEl.textContent = pending ? '…' : '—';
-        cashEl.textContent = pending ? 'брокер…' : 'нет токена — вкладка «Счёт»';
-        renderMarginHeadroom(null);
-        return;
-      }
-    }
-    if (broker.error) {
-      box.classList.add('is-error');
-      totalEl.textContent = '—';
-      cashEl.textContent = modeLabel(broker.mode);
-      if (brokerEl) {
-        brokerEl.hidden = false;
-        brokerEl.textContent = `Брокер: ${formatBrokerError(broker.error)}`;
-      }
-      renderMarginHeadroom(null);
-      return;
-    }
-    if (broker.mode === 'prod') box.classList.add('is-prod');
-    const mode = modeLabel(broker.mode);
-    const total = Number(broker.total_rub);
-    const cash = Number(broker.cash_rub);
-    totalEl.textContent = Number.isFinite(total) ? `${fmt(total, 0)} ₽` : '—';
-    // Не дублировать ту же сумму в cash, если она ≈ total
-    if (Number.isFinite(cash) && Number.isFinite(total) && Math.abs(cash - total) > 1) {
-      cashEl.textContent = `${mode} · cash ${fmt(cash, 0)} ₽`;
-    } else {
-      cashEl.textContent = mode;
-    }
-    renderMarginHeadroom(broker);
-  }
-
-  function renderFundsAtOpen(open, fundsTotal) {
-    const el = $('tradeFundsAtOpen');
-    if (!el) return;
-    if (!open) {
-      el.hidden = true;
-      el.textContent = '';
-      return;
-    }
-    const atOpen = equityAtOpenRub(open, { fundsTotal });
-    if (atOpen == null) {
-      el.hidden = true;
-      el.textContent = '';
-      return;
-    }
-    el.hidden = false;
-    el.textContent = `До ${fmt(atOpen, 0)} ₽`;
-    el.title = 'Сумма на счету на входе (база Чист.)';
-  }
-
-  function fmtRubPlain(n, digits = 0) {
-    if (n == null || !Number.isFinite(Number(n))) return '—';
-    return `${fmt(Number(n), digits)} ₽`;
-  }
-
-  /**
-   * % of entry deposit (вложение), not account equity and not deposit×leverage.
-   * 1 decimal for |pct|≥1 (desk style); 2 decimals for tiny close-Δ.
-   */
-  function fmtStakePct(pct) {
-    if (!Number.isFinite(pct)) return '';
-    const abs = Math.abs(pct);
-    const digits = abs >= 1 ? 1 : 2;
-    return `${pct >= 0 ? '+' : '−'}${abs.toFixed(digits)}%`;
-  }
-
-  /** Entry deposit ₽ (settings / UI), never notional. */
-  function entryDepositRub(open, settings) {
-    const fromOpen = Number(open?.entry_deposit_rub);
-    if (Number.isFinite(fromOpen) && fromOpen > 0) return fromOpen;
-    const dep = Number(
-      settings?.entry_deposit_rub
-      ?? readEntryDeposit()
-      ?? 10000,
-    );
-    return Number.isFinite(dep) && dep > 0 ? dep : 10000;
-  }
-
-  /** @deprecated kept for any external callers — prefer entryDepositRub for %. */
-  function stakeNotionalRub(open, settings) {
-    return entryDepositRub(open, settings);
-  }
-
-  /** Prod desk: API mark already has broker expectedYield — never recompute spread MTM for display. */
-  function isBrokerPnlMark(mark) {
-    if (!mark || typeof mark !== 'object') return false;
-    if (mark.pnl_source === 'tinkoff_expected_yield') return true;
-    const y = Number(mark.expected_yield_rub);
-    return Number.isFinite(y);
-  }
-
-  function openProfitRub(open) {
-    const mark = (open && open.mark) || {};
-    // PnL sources policy: broker expectedYield from API — no local MTM fallback.
-    if (isBrokerPnlMark(mark)) {
-      const yieldRub = Number(mark.expected_yield_rub ?? mark.unrealized_pnl_rub);
-      if (Number.isFinite(yieldRub)) return yieldRub;
-    }
-    const mtm = Number(mark.unrealized_pnl_rub);
-    if (Number.isFinite(mtm)) return mtm;
-    const net = Number(mark.net_approx_rub);
-    return Number.isFinite(net) ? net : null;
-  }
-
-  function isOpenProfitAlertHit(open, settings) {
-    if (!open) return false;
-    const deposit = entryDepositRub(open, settings);
-    const profit = openProfitRub(open);
-    if (!(deposit > 0) || profit == null) return false;
-    return profit >= deposit * (PROFIT_ALERT_PCT / 100);
-  }
-
-  function clearProfitAlertBadge() {
-    const toast = $('tradeProfitToast');
-    if (toast) {
-      toast.hidden = true;
-      toast.textContent = '';
-    }
-  }
-
-  let profitToastTimer = null;
-  function maybeFireProfitAlert(open, settings) {
-    if (!isOpenProfitAlertHit(open, settings)) return;
-    const tid = String(open.id ?? open.entry_time ?? '');
-    if (!tid) return;
-    let prev = '';
-    try { prev = localStorage.getItem(LS_PROFIT_ALERT_TRADE) || ''; } catch (_) {}
-    if (prev === tid) return;
-    try { localStorage.setItem(LS_PROFIT_ALERT_TRADE, tid); } catch (_) {}
-    const deposit = entryDepositRub(open, settings);
-    const profit = openProfitRub(open);
-    const pct = deposit > 0 && profit != null ? (profit / deposit) * 100 : PROFIT_ALERT_PCT;
-    const msg =
-      `Прибыль ≥${PROFIT_ALERT_PCT}% от вложения ${fmt(deposit, 0)} ₽` +
-      ` · сейчас ${fmtRub(profit)} (${fmtStakePct(pct)})`;
-    let toast = $('tradeProfitToast');
-    if (!toast) {
-      toast = document.createElement('div');
-      toast.id = 'tradeProfitToast';
-      toast.className = 'trade-profit-toast';
-      toast.setAttribute('role', 'status');
-      const host = $('tradeSideAccountPane') || $('tradeSidePanel') || $('tradeOpenBox') || document.body;
-      host.prepend(toast);
-    }
-    toast.hidden = false;
-    toast.textContent = msg;
-    if (profitToastTimer) clearTimeout(profitToastTimer);
-    profitToastTimer = setTimeout(() => {
-      if (toast && toast.textContent === msg) toast.hidden = true;
-    }, 12000);
-  }
-
-  /** Last good close forecast — lite polls must not wipe full-desk number. */
-  let lastCloseForecast = null;
-
-  /**
-   * Equity / funds right after this trade opened («До» / Δ vs forecast).
-   * Not the % base — percent-of-investment uses entry deposit.
-   * Prefer last entry-leg portfolio_total; else API field; else current − mark PnL.
-   */
-  function equityAtOpenRub(open, {
-    fundsTotal = null,
-    forecastEquityOpen = null,
-  } = {}) {
-    const fromApi = Number(
-      forecastEquityOpen
-      ?? open?.equity_at_open_rub
-      ?? open?.account_after_rub,
-    );
-    if (Number.isFinite(fromApi) && fromApi > 0) return fromApi;
-
-    let legs = open?.legs ?? open?.legs_json;
-    if (typeof legs === 'string') {
-      try { legs = JSON.parse(legs); } catch (_) { legs = null; }
-    }
-    if (Array.isArray(legs)) {
-      for (let i = legs.length - 1; i >= 0; i -= 1) {
-        const leg = legs[i];
-        if (!leg || typeof leg !== 'object') continue;
-        const total = Number(leg.portfolio_total_rub);
-        if (Number.isFinite(total) && total > 0) return total;
-        const cash = Number(leg.portfolio_cash_rub);
-        if (Number.isFinite(cash) && cash > 0) return cash;
-      }
-    }
-
-    const now = Number(fundsTotal);
-    const mtm = openProfitRub(open);
-    if (Number.isFinite(now) && Number.isFinite(mtm)) {
-      const derived = now - mtm;
-      if (Number.isFinite(derived) && derived > 0) return derived;
-    }
-    return null;
-  }
-
-  /**
-   * Потенциал при выходе на L вых / S вых (спред-% уровни).
-   * notional×ΔS/100 − комиссия выхода − overnight (как в прогнозе закрытия).
-   */
-  function exitLevelPotential(fc, open, {
-    depositRub = null,
-    settings = null,
-  } = {}) {
-    if (fc && fc.exit_level_pnl_rub != null && Number.isFinite(Number(fc.exit_level_pnl_rub))
-        && fc.exit_level_spread != null && Number.isFinite(Number(fc.exit_level_spread))) {
-      const pnl = Number(fc.exit_level_pnl_rub);
-      const spread = Number(fc.exit_level_spread);
-      const dep = Number(fc.exit_level_deposit_rub);
-      const deposit = (Number.isFinite(dep) && dep > 0)
-        ? dep
-        : (Number.isFinite(Number(depositRub)) && Number(depositRub) > 0
-          ? Number(depositRub)
-          : entryDepositRub(open, settings));
-      return { pnl, spread, deposit };
-    }
-
-    const dir = String(open?.direction || '').toUpperCase();
-    const mark = open?.mark && typeof open.mark === 'object' ? open.mark : {};
-    const entrySp = Number(mark.fill_spread != null ? mark.fill_spread : open?.entry_spread);
-    if (!Number.isFinite(entrySp)) return null;
-
-    const lv = settings?.spread_exit_narrow != null || settings?.spread_exit_wide != null
-      ? {
-        exitNarrow: Number(settings?.spread_exit_narrow ?? 4.0),
-        exitWide: Number(settings?.spread_exit_wide ?? 5.8),
-      }
-      : {
-        exitNarrow: 4.0,
-        exitWide: 5.8,
-      };
-    let exitSp = null;
-    if (dir.startsWith('L')) exitSp = lv.exitNarrow;
-    else if (dir.startsWith('S')) exitSp = lv.exitWide;
-    if (exitSp == null || !Number.isFinite(exitSp)) return null;
-
-    const notional = Number(
-      mark.notional_rub
-      ?? open?.execution_notional_rub
-      ?? open?.notional_rub
-      ?? 0,
-    );
-    const deposit = (() => {
-      const d = Number(depositRub);
-      if (Number.isFinite(d) && d > 0) return d;
-      return entryDepositRub(open, settings);
-    })();
-    const lev = Number(settings?.leverage ?? open?.leverage ?? 7) || 7;
-    const eff = (Number.isFinite(notional) && notional > 0) ? notional : deposit * lev;
-    if (!(eff > 0)) return null;
-
-    const pnlPts = dir.startsWith('L') ? (exitSp - entrySp) : (entrySp - exitSp);
-    const gross = eff * (pnlPts / 100);
-    const exitComm = (fc && fc.exit_commission_rub != null && Number.isFinite(Number(fc.exit_commission_rub)))
-      ? Number(fc.exit_commission_rub)
-      : eff * 0.0004;
-    const ovn = (fc && fc.overnight_rub != null && Number.isFinite(Number(fc.overnight_rub)))
-      ? Number(fc.overnight_rub)
-      : (Number(mark.overnight_rub) || 0);
-    return { pnl: gross - exitComm - ovn, spread: exitSp, deposit };
-  }
-
-  /** Премиум ₽/день по короткой ноге (как mark / overnight_fee). */
-  function premiumOvernightPerDayRub(open, fc = null) {
-    const fromFc = Number(fc?.overnight_per_day_rub);
-    if (Number.isFinite(fromFc) && fromFc >= 0) return fromFc;
-    const mark = open?.mark && typeof open.mark === 'object' ? open.mark : {};
-    const fromMark = Number(mark.overnight_per_day_rub);
-    if (Number.isFinite(fromMark) && fromMark >= 0) return fromMark;
-    const days = Number(mark.overnight_days ?? fc?.overnight_days);
-    const total = Number(mark.overnight_rub ?? fc?.overnight_rub);
-    if (Number.isFinite(days) && days > 0 && Number.isFinite(total) && total >= 0) {
-      return total / days;
-    }
-    const dir = String(open?.direction || '').toUpperCase();
-    const fillTn = Number(mark.fill_tatn ?? open?.entry_tatn);
-    const fillTp = Number(mark.fill_tatnp ?? open?.entry_tatnp);
-    const lots = Number(open?.quantity_lots) || 0;
-    const notional = Number(
-      mark.notional_rub
-      ?? open?.execution_notional_rub
-      ?? open?.notional_rub
-      ?? 0,
-    );
-    let uncovered = 0;
-    if (lots > 0 && Number.isFinite(fillTn) && Number.isFinite(fillTp) && fillTn > 0 && fillTp > 0) {
-      uncovered = dir.startsWith('L') ? lots * fillTp : lots * fillTn;
-    } else if (Number.isFinite(notional) && notional > 0) {
-      uncovered = notional / 2;
-    }
-    const u = Math.max(0, uncovered);
-    if (u <= 0) return 0;
-    if (u <= 5000) return 0;
-    if (u <= 50000) return 35;
-    if (u <= 100000) return 70;
-    if (u <= 250000) return 175;
-    if (u <= 500000) return 340;
-    if (u <= 1000000) return 680;
-    if (u <= 2500000) return 1700;
-    if (u <= 5000000) return 3400;
-    if (u <= 10000000) return 6800;
-    if (u <= 25000000) return u * 0.00066;
-    if (u <= 50000000) return u * 0.00063;
-    return u * 0.00055;
-  }
-
-  /**
-   * Сколько overnight-суток съедят подушку «при выходе ≈ +X».
-   * days_to_red = ceil(X / ₽/д) — после стольких полуночей плюс при выходе ≤ 0.
-   * floor(X / ₽/д) = ещё полных дней с остатком > 0 (если не кратно).
-   */
-  function exitOvernightCushionLine(cushionRub, perDayRub) {
-    const perDay = Number(perDayRub);
-    const cushion = Number(cushionRub);
-    if (!Number.isFinite(perDay) || perDay < 0) return null;
-    if (!Number.isFinite(cushion)) return null;
-    const rateTxt = Number(perDay).toLocaleString('ru-RU', {
-      maximumFractionDigits: perDay % 1 === 0 ? 0 : 1,
-    });
-    if (cushion <= 0) {
-      return {
-        text: 'овернайт: уже в минусе по модели',
-        cls: 'pnl-neg',
-        days: 0,
-        perDay,
-      };
-    }
-    if (perDay <= 0) {
-      return {
-        text: 'овернайт 0 ₽/д — подушка при выходе не съедается',
-        cls: '',
-        days: null,
-        perDay: 0,
-      };
-    }
-    const daysToRed = Math.ceil(cushion / perDay);
-    const redOn = new Date();
-    redOn.setHours(0, 0, 0, 0);
-    redOn.setDate(redOn.getDate() + Math.max(1, daysToRed));
-    const redDateTxt = `${String(redOn.getDate()).padStart(2, '0')}.${String(redOn.getMonth() + 1).padStart(2, '0')}`;
-    const text = daysToRed <= 0
-      ? `овернайт → минус через < 1 дн. (${redDateTxt}, ${rateTxt} ₽/д)`
-      : `овернайт → минус через ≈ ${daysToRed} дн. (${redDateTxt}, ${rateTxt} ₽/д)`;
-    return { text, cls: '', days: daysToRed, perDay, redDate: redDateTxt };
-  }
-
-  function renderCloseForecast(fc, {
-    hasOpen = false,
-    fundsTotal = null,
-    open = null,
-    depositRub = null,
-    stakeNotional = null,
-    settings = null,
-  } = {}) {
-    const root = $('tradeCloseForecast');
-    const main = $('tradeCloseForecastMain');
-    const deltaEl = $('tradeCloseForecastDelta');
-    const exitEl = $('tradeCloseForecastExit');
-    const ovnEl = $('tradeCloseForecastOvn');
-    const sub = $('tradeCloseForecastSub');
-    if (!root || !main || !sub) return;
-
-    const clearDelta = () => {
-      if (!deltaEl) return;
-      deltaEl.hidden = true;
-      deltaEl.textContent = '';
-      deltaEl.className = 'account-funds-forecast-delta';
-    };
-    const clearExit = () => {
-      if (!exitEl) return;
-      exitEl.hidden = true;
-      exitEl.textContent = '';
-      exitEl.className = 'account-funds-forecast-exit';
-    };
-    const clearOvn = () => {
-      if (!ovnEl) return;
-      ovnEl.hidden = true;
-      ovnEl.textContent = '';
-      ovnEl.className = 'account-funds-forecast-ovn';
-    };
-
-    if (!hasOpen) {
-      lastCloseForecast = null;
-      root.hidden = true;
-      main.textContent = 'Прогноз после закрытия ≈ —';
-      clearDelta();
-      clearExit();
-      clearOvn();
-      sub.textContent = '';
-      return;
-    }
-
-    const incomingOk = fc
-      && fc.forecast_total_rub != null
-      && Number.isFinite(Number(fc.forecast_total_rub));
-    if (incomingOk) {
-      lastCloseForecast = fc;
-    } else if (lastCloseForecast && lastCloseForecast.forecast_total_rub != null) {
-      fc = lastCloseForecast;
-    }
-
-    root.hidden = false;
-    const total = fc && fc.forecast_total_rub != null ? Number(fc.forecast_total_rub) : null;
-    // Same total as «СРЕДСТВА НА СЧЁТЕ» (broker.total_rub), not cash / float equity alone.
-    let equityNow = null;
-    if (fundsTotal != null && Number.isFinite(Number(fundsTotal))) {
-      equityNow = Number(fundsTotal);
-    } else if (fc && fc.equity_now_rub != null && Number.isFinite(Number(fc.equity_now_rub))) {
-      equityNow = Number(fc.equity_now_rub);
-    }
-    // Round first so on-screen lines and «ожид.» share the same integers.
-    const forecastRub = (total != null && Number.isFinite(total)) ? Math.round(total) : null;
-    const accountNowRub = (equityNow != null && Number.isFinite(equityNow))
-      ? Math.round(equityNow)
-      : null;
-    const equityOpen = equityAtOpenRub(open, {
-      fundsTotal: equityNow,
-      forecastEquityOpen: fc?.equity_at_open_rub,
-    });
-    const equityOpenRub = (equityOpen != null && Number.isFinite(equityOpen) && equityOpen > 0)
-      ? Math.round(equityOpen)
-      : null;
-    if (forecastRub != null) {
-      main.textContent = `Прогноз после закрытия ≈ ${fmt(forecastRub, 0)} ₽`;
-    } else {
-      main.textContent = 'Прогноз после закрытия ≈ —';
-    }
-
-    // Primary Δ = round(прогноз) − round(средства на открытии) — account change.
-    // % «от вложения» must use entry deposit (params / open.entry_deposit_rub), not «До».
-    const depositBase = (() => {
-      const d = Number(depositRub);
-      if (Number.isFinite(d) && d > 0) return Math.round(d);
-      const fallback = entryDepositRub(open, null);
-      return Number.isFinite(fallback) && fallback > 0 ? Math.round(fallback) : null;
-    })();
-    let primaryDelta = null;
-    let pctBase = depositBase;
-    let usedMarkFallback = false;
-    const brokerYield = Number(
-      fc?.expected_yield_rub
-      ?? open?.mark?.expected_yield_rub
-      ?? ((open?.mark?.pnl_source === 'tinkoff_expected_yield')
-        ? open?.mark?.unrealized_pnl_rub
-        : null),
-    );
-    if (Number.isFinite(brokerYield)) {
-      // Same number as APK / T‑Invest: Σ expectedYield, not forecast−«До».
-      primaryDelta = Math.round(brokerYield);
-    } else if (forecastRub != null && equityOpenRub != null) {
-      primaryDelta = forecastRub - equityOpenRub;
-    } else {
-      const markNet = openProfitRub(open);
-      if (markNet != null && Number.isFinite(markNet)) {
-        primaryDelta = Math.round(markNet);
-        usedMarkFallback = true;
-      }
-    }
-    if (deltaEl) {
-      if (primaryDelta != null && Number.isFinite(primaryDelta)) {
-        const cls = primaryDelta > 0 ? 'pnl-pos' : primaryDelta < 0 ? 'pnl-neg' : '';
-        deltaEl.hidden = false;
-        deltaEl.className = `account-funds-forecast-delta${cls ? ` ${cls}` : ''}`;
-        let text = `ожид. ≈ ${fmtRub(primaryDelta)}`;
-        if (Number.isFinite(pctBase) && pctBase > 0) {
-          text += ` (${fmtStakePct((primaryDelta / pctBase) * 100)} от вложения ${fmt(pctBase, 0)} ₽)`;
-        } else if (usedMarkFallback) {
-          text += ' (по MTM к открытию)';
-        }
-        deltaEl.textContent = text;
-      } else {
-        clearDelta();
-      }
-    }
-
-    let exitPot = null;
-    if (exitEl) {
-      const pot = exitLevelPotential(fc, open, { depositRub, settings });
-      if (pot && Number.isFinite(pot.pnl) && Number.isFinite(pot.spread)) {
-        exitPot = pot;
-        const pnlRound = Math.round(pot.pnl);
-        const cls = pnlRound > 0 ? 'pnl-pos' : pnlRound < 0 ? 'pnl-neg' : '';
-        exitEl.hidden = false;
-        exitEl.className = `account-funds-forecast-exit${cls ? ` ${cls}` : ''}`;
-        const spTxt = Number(pot.spread).toLocaleString('ru-RU', {
-          minimumFractionDigits: 1,
-          maximumFractionDigits: 1,
-        });
-        let text = `при выходе S ${spTxt}% ≈ ${fmtRub(pnlRound)}`;
-        const dep = Math.round(Number(pot.deposit));
-        if (Number.isFinite(dep) && dep > 0) {
-          text += ` (${fmtStakePct((pnlRound / dep) * 100)} от вложения ${fmt(dep, 0)} ₽)`;
-        }
-        exitEl.textContent = text;
-      } else {
-        clearExit();
-      }
-    }
-
-    if (ovnEl) {
-      if (exitPot && Number.isFinite(exitPot.pnl)) {
-        const perDay = (fc && fc.overnight_per_day_rub != null
-          && Number.isFinite(Number(fc.overnight_per_day_rub)))
-          ? Number(fc.overnight_per_day_rub)
-          : premiumOvernightPerDayRub(open, fc);
-        const line = exitOvernightCushionLine(Math.round(exitPot.pnl), perDay);
-        if (line) {
-          ovnEl.hidden = false;
-          ovnEl.className = `account-funds-forecast-ovn${line.cls ? ` ${line.cls}` : ''}`;
-          ovnEl.textContent = line.text;
-        } else {
-          clearOvn();
-        }
-      } else {
-        clearOvn();
-      }
-    }
-
-    const bits = [];
-    if (forecastRub != null && accountNowRub != null) {
-      const vsNow = forecastRub - accountNowRub;
-      bits.push(`к текущим средствам ≈ ${fmtRub(vsNow)} (комиссии/закрытие)`);
-    }
-    if (fc && fc.exit_commission_rub != null) {
-      bits.push(`комиссии ≈ ${fmtRubPlain(fc.exit_commission_rub, 0)}`);
-    }
-    if (fc && fc.overnight_rub != null) {
-      const d = fc.overnight_days != null ? ` · ${fc.overnight_days}д` : '';
-      bits.push(`overnight ≈ ${fmtRubPlain(fc.overnight_rub, 0)}${d}`);
-    }
-    if (fc && fc.vs_mid_rub != null) {
-      const v = Number(fc.vs_mid_rub);
-      const sign = v > 0 ? '+' : '';
-      bits.push(`vs mid ${sign}${fmt(v, 0)} ₽`);
-    }
-    if (fc && fc.note) bits.push(fc.note);
-    sub.textContent = bits.join(' · ');
-  }
-
   function paramsFocused() {
     const ae = document.activeElement;
     return !!(ae && (ae.id === 'tradeLeverage' || ae.id === 'tradeAutoExec'
@@ -7395,211 +4057,6 @@
     });
   }
 
-  async function ensureMonitorRunning(data) {
-    const settings = data.settings || {};
-    const mon = data.monitor || {};
-    if (settings.monitor_running && !mon.running) {
-      try {
-        await api('/api/live/monitor/start', { method: 'POST' });
-        return true;
-      } catch (_) { /* keep status as-is */ }
-    }
-    return false;
-  }
-
-  function dealerHistBarCount(bars) {
-    let n = 0;
-    for (const b of bars || []) {
-      if (b && String(b.source || '') === 'tinvest_dealer_1m') n += 1;
-    }
-    return n;
-  }
-
-  function spreadBarCount(bars) {
-    let n = 0;
-    for (const b of bars || []) {
-      if (!b || b.spread == null) continue;
-      if (Number.isFinite(Number(b.spread))) n += 1;
-    }
-    return n;
-  }
-
-  function rememberGoodChartBars(bars, data) {
-    const n = dealerHistBarCount(bars);
-    const spreadN = spreadBarCount(bars);
-    const weekend = !!(data && (data.weekend_monitor
-      || String(data.bars_mode || '').startsWith('dealer')
-      || (typeof nowMskParts === 'function' && nowMskParts().weekend)));
-    // ≥5 баров со спредом (не «длина массива» и не только tinvest_dealer_1m) —
-    // иначе lastGood пуст / затирается мусором и следующий poll стирает график.
-    if (n >= 5 || spreadN >= 5) {
-      lastGoodChartBars = bars.slice();
-      lastGoodDeskMeta = {
-        bars_mode: data && data.bars_mode,
-        weekend_monitor: !!(data && data.weekend_monitor) || weekend,
-        partial: !!(data && data.partial),
-      };
-    }
-  }
-
-  function applyPartialBanner(data, extraMsg) {
-    const parts = [];
-    if (data && (data.partial || data.dealer_warming || data.tip1m_warming
-      || (data.dealer && data.dealer.warming))) {
-      parts.push('кэш / частичные данные');
-    }
-    if (data && data.tip1m_warming) parts.push('tip1m греется');
-    if (data && data.dealer && data.dealer.from_cache) parts.push('дилер из кэша');
-    if (extraMsg) parts.push(extraMsg);
-    lastPartialBanner = parts.filter(Boolean).join(' · ');
-    return lastPartialBanner;
-  }
-
-  async function refreshImpl({ hydrateForm = false, forceMoex = false, lite = false } = {}) {
-    if (forceMoex) {
-      await api(`/api/markets/refresh?days=${days}`, { method: 'POST', timeoutMs: 20000 });
-    }
-    const seq = ++deskFetchSeq;
-    const liteQ = lite ? '&lite=1' : '';
-    // Lite must stay snappy; full desk capped so UI never hangs forever.
-    const timeoutMs = lite ? 8000 : 28000;
-    const fetchDesk = () => api(`/api/trade/desk?days=${days}${liteQ}`, { timeoutMs });
-    let data;
-    try {
-      data = await fetchDesk();
-    } catch (e) {
-      const msg = String((e && e.message) || e || '');
-      if (/Таймаут|timeout|Failed to fetch|NetworkError/i.test(msg)) {
-        await new Promise((r) => setTimeout(r, 900));
-        if (seq !== deskFetchSeq) return null;
-        try {
-          data = await fetchDesk();
-        } catch (e2) {
-          if (seq !== deskFetchSeq) return null;
-          // Desk wedged: still upgrade tip1m charts from sidecar (never paint M15).
-          try {
-            const stub = await ensureWeekdayTip1mBars({
-              ok: true,
-              days,
-              lite: !!lite,
-              bars_mode: 'iss_m15',
-              bars: lastGoodChartBars.length ? lastGoodChartBars : [],
-              bars_iss: [],
-              settings: loadCachedParamsLocal() || {},
-              summary: {},
-              position: 'FLAT',
-              partial: true,
-              tip1m_warming: true,
-            });
-            if (stub && (stub.bars || []).length) {
-              rememberGoodChartBars(stub.bars || [], stub);
-              renderDesk(stub, { hydrateForm: false });
-              const el = $('tradeStatus');
-              if (el) {
-                el.textContent = `Торговля · tip1m sidecar · ${msg.replace(/^Таймаут \d+мс: /, 'таймаут ')}`;
-              }
-              return stub;
-            }
-          } catch (_) { /* fall through */ }
-          // Keep last good charts — never wipe to empty nonsense on timeout.
-          if (lastGoodChartBars.length) {
-            const el = $('tradeStatus');
-            const banner = applyPartialBanner(
-              { partial: true, dealer_warming: true },
-              msg.replace(/^Таймаут \d+мс: /, 'таймаут '),
-            );
-            if (el) {
-              el.textContent = `${el.textContent || 'Торговля'} · ${banner}`;
-            }
-            // Keep existing chart series — do not wipe to empty.
-            return lastGoodDeskMeta;
-          }
-          throw e2;
-        }
-      } else {
-        throw e;
-      }
-    }
-    if (seq !== deskFetchSeq) return data;
-    // Monitor start only on full desk (lite is first-paint charts)
-    if (!lite && await ensureMonitorRunning(data)) {
-      data = await api(`/api/trade/desk?days=${days}`, { timeoutMs: 20000 });
-      if (seq !== deskFetchSeq) return data;
-    }
-    // Weekday: never paint iss_m15 under tip1m labels (sidecar / bars1m upgrade).
-    // Keep chip days even if running API still coerces unknown windows → 7.
-    data.days = days;
-    data = await ensureWeekdayTip1mBars(data);
-    if (seq !== deskFetchSeq) return data;
-    // Короткий lite-ответ не должен стирать уже загруженный длинный период.
-    // Это особенно заметно на 3М: после полного ответа следующий опрос мог
-    // заменить 5 000 точек одной текущей свечой.
-    if (lite && days > 1) {
-      const needSpan = Math.min(days * 0.45, days - 0.4);
-      const currentSpan = tip1mSpanDays(data.bars);
-      const savedSpan = tip1mSpanDays(lastGoodChartBars);
-      if (currentSpan < needSpan && savedSpan >= needSpan) {
-        data = {
-          ...data,
-          bars: lastGoodChartBars,
-          bars_mode: 'tip1m',
-          chart_preserved_from_full: true,
-          summary: {
-            ...(data.summary || {}),
-            window_count: lastGoodChartBars.length,
-          },
-        };
-      }
-    }
-    if ((data.bars_mode === 'tip1m' || data.bars_mode === 'dealer_1m') && Array.isArray(data.bars)) {
-      const thinned = thinDeskTip1mBars(data.bars);
-      if (thinned.bars.length !== data.bars.length) {
-        data = {
-          ...data,
-          bars: thinned.bars,
-          chart_raw_count: thinned.rawCount,
-          chart_step_min: thinned.stepMin,
-          summary: {
-            ...(data.summary || {}),
-            chart_raw_count: thinned.rawCount,
-            chart_step_min: thinned.stepMin,
-          },
-        };
-      }
-    }
-    if (seq !== deskFetchSeq) return data;
-    if (data.mtlr && Array.isArray(data.mtlr.bars) && DESK_MTLR_UI_ENABLED) {
-      const mtlrBars = await ensureMtlrChartBars(data.mtlr.bars, days);
-      data.mtlr = { ...data.mtlr, bars: mtlrBars };
-    }
-    if (seq !== deskFetchSeq) return data;
-    if (pendingPeriodFitDays > 0) {
-      const requiredSpan = pendingPeriodFitDays <= 1
-        ? 0
-        : Math.min(pendingPeriodFitDays * 0.45, pendingPeriodFitDays - 0.4);
-      if (tip1mSpanDays(data.bars) >= requiredSpan) {
-        forceFitContent = true;
-        pendingPeriodFitDays = 0;
-      }
-    }
-    rememberGoodChartBars(data.bars || [], data);
-    // Late responses: never force-hydrate over newer in-flight work
-    const hydrate = hydrateForm && seq === deskFetchSeq;
-    renderDesk(data, { hydrateForm: hydrate });
-    ensurePollInterval(data);
-    return data;
-  }
-
-  async function refresh(opts = {}) {
-    if (opts.lite && refreshWorkCount > 0) return lastGoodDeskMeta;
-    refreshWorkCount += 1;
-    try {
-      return await refreshImpl(opts);
-    } finally {
-      refreshWorkCount = Math.max(0, refreshWorkCount - 1);
-    }
-  }
-
   async function saveEntryDeposit() {
     const deposit = readEntryDeposit();
     const addonDep = readNamedDeposit('tradeAddonDeposit');
@@ -7684,144 +4141,14 @@
     }
   }
 
-  function resize() {
-    const zEl = $('tradeZChart');
-    const sEl = $('tradeSpreadChart');
-    suppressRangeEvents = true;
-    try {
-      if (zChart && zEl) zChart.applyOptions({ width: zEl.clientWidth, height: zEl.clientHeight || 300 });
-      if (spreadChart && sEl) spreadChart.applyOptions({ width: sEl.clientWidth, height: sEl.clientHeight || 150 });
-      equalizePriceScales();
-    } finally {
-      scheduleEndSuppress();
-    }
-    if (pinnedRange) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          reassertPinnedRange();
-          forceSyncAfterPaint();
-        });
-      });
-    }
-  }
 
-  function spreadPaneHeadHeight(stackEl) {
-    const heads = stackEl.querySelectorAll('.trade-pane-spread-wrap .pnl-head');
-    let h = 0;
-    heads.forEach((el) => { h += el.offsetHeight || 28; });
-    return h || 28;
-  }
 
-  function loadSpreadChartHeight() {
-    const saved = parseInt(localStorage.getItem(LS_SPREAD_PANE_HEIGHT) || '', 10);
-    if (!Number.isFinite(saved)) return TRADE_SPREAD_DEFAULT;
-    return Math.max(TRADE_SPREAD_MIN, saved);
-  }
 
-  function spreadChartHeightBounds(stackEl) {
-    const headH = spreadPaneHeadHeight(stackEl);
-    const zHead = stackEl.querySelector('.trade-pane-z-wrap .pnl-head');
-    const zHeadH = zHead?.offsetHeight || 28;
-    const total = stackEl.clientHeight - CHART_SPLITTER_HEIGHT - headH - zHeadH;
-    const max = Math.max(TRADE_SPREAD_MIN, total - TRADE_Z_MIN);
-    return { min: TRADE_SPREAD_MIN, max };
-  }
 
-  function applySpreadChartHeight(heightPx) {
-    const stack = $('tradeChartStack');
-    if (!stack) return TRADE_SPREAD_DEFAULT;
-    if (stack.clientHeight <= 0) {
-      const h = Math.round(Math.max(TRADE_SPREAD_MIN, heightPx));
-      stack.style.setProperty('--trade-spread-chart-height', `${h}px`);
-      return h;
-    }
-    const { min, max } = spreadChartHeightBounds(stack);
-    const h = Math.round(Math.max(min, Math.min(max, heightPx)));
-    stack.style.setProperty('--trade-spread-chart-height', `${h}px`);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(resize);
-    });
-    return h;
-  }
 
-  function bindTradeChartVerticalSplit() {
-    const divider = $('tradeSplitDividerH');
-    const stack = $('tradeChartStack');
-    const paneChart = $('tradeSpreadChart');
-    if (!divider || !stack || !paneChart) return;
 
-    applySpreadChartHeight(loadSpreadChartHeight());
 
-    let dragging = false;
-    let startY = 0;
-    let startH = 0;
 
-    const onMove = (e) => {
-      if (!dragging) return;
-      const dy = e.clientY - startY;
-      applySpreadChartHeight(startH - dy);
-    };
-
-    const endDrag = () => {
-      if (!dragging) return;
-      dragging = false;
-      divider.classList.remove('active');
-      document.body.classList.remove('split-dragging-v');
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', endDrag);
-      const h = parseInt(getComputedStyle(stack).getPropertyValue('--trade-spread-chart-height'), 10);
-      if (h > 0) localStorage.setItem(LS_SPREAD_PANE_HEIGHT, String(h));
-      resize();
-    };
-
-    divider.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      dragging = true;
-      startY = e.clientY;
-      startH = paneChart.offsetHeight;
-      divider.classList.add('active');
-      document.body.classList.add('split-dragging-v');
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', endDrag);
-    });
-
-    divider.addEventListener('dblclick', () => {
-      const h = applySpreadChartHeight(TRADE_SPREAD_DEFAULT);
-      localStorage.setItem(LS_SPREAD_PANE_HEIGHT, String(h));
-    });
-
-    window.addEventListener('resize', () => {
-      if (document.getElementById('app')?.dataset?.view !== 'trade') return;
-      // Re-clamp preferred height; do not overwrite LS with early/hidden clamp.
-      applySpreadChartHeight(loadSpreadChartHeight());
-    });
-  }
-
-  function startPoll(ms) {
-    stopPoll();
-    if (ms != null && Number.isFinite(ms) && ms >= 2000) pollMs = ms;
-    pollTimer = setInterval(() => {
-      if (refreshWorkCount > 0) return;
-      pollTick += 1;
-      const doFull = (pollTick % POLL_FULL_EVERY) === 0;
-      refresh({ lite: !doFull }).catch(() => {});
-    }, pollMs);
-  }
-
-  function stopPoll() {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  }
-
-  function ensurePollInterval(data) {
-    const want = (
-      String(data?.bars_mode || '').startsWith('dealer')
-      || data?.weekend_monitor
-      || (data?.dealer && data.dealer.ok)
-    )
-      ? POLL_MS_DEALER_1M
-      : POLL_MS_DEFAULT;
-    if (want !== pollMs) startPoll(want);
-  }
 
   function fmtMtlrSig(sig) {
     const s = String(sig || '');
@@ -8085,6 +4412,7 @@
   }
 
   function bind() {
+    __installTradeDeskModules();
     document.querySelectorAll('#tradePeriodChips .chip').forEach((btn) => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('#tradePeriodChips .chip').forEach((b) => b.classList.remove('active'));

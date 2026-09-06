@@ -9,6 +9,7 @@ from live.pnl_sources import BROKER_DISPLAY_SOURCE, response_pnl_source
 
 ROOT = Path(__file__).resolve().parents[1]
 TRADE_JS = ROOT / "replay" / "static" / "trade.js"
+TRADE_PNL_JS = ROOT / "replay" / "static" / "trade-desk-pnl.js"
 
 
 def test_response_pnl_source_from_enriched_mark():
@@ -40,12 +41,14 @@ def test_response_pnl_source_from_broker_when_mark_plain():
 
 def test_trade_js_broker_pnl_display_guard():
     text = TRADE_JS.read_text(encoding="utf-8")
-    assert "isBrokerPnlMark" in text
-    assert "never recompute spread MTM for display" in text
-    assert "tinkoff_expected_yield" in text
+    pnl = TRADE_PNL_JS.read_text(encoding="utf-8")
+    assert "isBrokerPnlMark" in text or "isBrokerPnlMark" in pnl
+    assert "never recompute spread MTM for display" in pnl
+    assert "tinkoff_expected_yield" in pnl
 
 
 def test_trade_js_open_profit_rub_early_return():
     text = TRADE_JS.read_text(encoding="utf-8")
-    assert "function openProfitRub(open)" in text
-    assert "isBrokerPnlMark(mark)" in text
+    pnl = TRADE_PNL_JS.read_text(encoding="utf-8")
+    assert "function openProfitRub" in text or "function openProfitRub(open)" in pnl
+    assert "isBrokerPnlMark(mark)" in pnl

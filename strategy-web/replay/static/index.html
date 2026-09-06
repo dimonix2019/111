@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MOEX · Торговля / История / Счёт / Тестирование</title>
   <link rel="stylesheet" href="/static/css-shell.css?v=20260906tipDonut1" />
-  <link rel="stylesheet" href="/static/css-testing.css?v=20260906monthPnl1" />
+  <link rel="stylesheet" href="/static/css-testing.css?v=20260906modSplit1" />
   <link rel="stylesheet" href="/static/css-replay-ui.css?v=20260829gap1" />
     <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260906sitCorr1" />
   <link rel="stylesheet" href="/static/css-mobile.css?v=20260831sideTab1" />
@@ -925,14 +925,20 @@
 
   <script src="/static/lightweight-charts.standalone.production.js?v=20260723a12"></script>
   <!-- replay engine split (load order matters) -->
-  <script src="/static/replay-sim.js?v=20260906monthPnl1"></script>
+  <script src="/static/replay-sim.js?v=20260906modSplit1"></script>
   <script src="/static/replay-equity.js?v=20260905utcTs1"></script>
   <script src="/static/replay-signals.js?v=20260829dropRisk1"></script>
   <script src="/static/replay-engine-core.js?v=20260905utcTs1"></script>
   <script src="/static/chart.js?v=20260905deskRestore1"></script>
-  <script src="/static/trade.js?v=20260906pnlSrc1"></script>
+  <script src="/static/trade-desk-corridor.js?v=20260906modSplit1"></script>
+  <script src="/static/trade-desk-chart.js?v=20260906modSplit1"></script>
+  <script src="/static/trade-desk-pnl.js?v=20260906modSplit1"></script>
+  <script src="/static/trade-desk-polling.js?v=20260906modSplit1"></script>
+  <script src="/static/trade.js?v=20260906modSplit1"></script>
   <script src="/static/history.js?v=20260905comment1"></script>
   <script src="/static/live.js?v=20260906brokerPnl1"></script>
-  <script src="/static/app.js?v=20260906asyncSim1"></script>
+  <script src="/static/app-test-chips.js?v=20260906modSplit1"></script>
+  <script src="/static/app-test-sim.js?v=20260906modSplit1"></script>
+  <script src="/static/app.js?v=20260906modSplit1"></script>
 </body>
 </html>
