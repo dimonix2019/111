@@ -220,33 +220,6 @@
   let userGestureTimer = 0;
   /** Выходные / дилер 1м: верхний pane = свечи спреда (как Test), не Z */
   let chartDealer1m = false;
-  /** Узкая полоса для индикатора позиции: пол 1% … Long-вход (Prod 3.2). Пороги Prod не меняем. */
-  const NARROW_ZONE_FLOOR_PCT = 1.0;
-  const STOCH_K_PERIOD = 14;
-  const STOCH_D_PERIOD = 3;
-
-  function narrowZoneBounds(levels) {
-    const enterN = Number(levels?.enter_narrow ?? 3.2);
-    const hi = Number.isFinite(enterN) && enterN > NARROW_ZONE_FLOOR_PCT
-      ? enterN
-      : 3.2;
-    return { lo: NARROW_ZONE_FLOOR_PCT, hi };
-  }
-
-  /** 0…100 внутри [lo,hi]; null если S нет. Вне зоны — clamp + флаг out. */
-  function narrowZonePosition(spreadPct, levels) {
-    const s = Number(spreadPct);
-    if (!Number.isFinite(s)) return null;
-    const { lo, hi } = narrowZoneBounds(levels);
-    const span = hi - lo;
-    if (!(span > 0)) return null;
-    const raw = ((s - lo) / span) * 100;
-    const pct = Math.max(0, Math.min(100, raw));
-    let side = 'in';
-    if (s < lo) side = 'below';
-    else if (s > hi) side = 'above';
-    return { pct, raw, spread: s, lo, hi, side };
-  }
 
   function barSpreadValue(b) {
     if (!b || typeof b !== 'object') return null;
@@ -255,69 +228,6 @@
         : (b.close != null && b.z == null ? b.close : null));
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
-  }
-
-  /** Stochastic по ряду спреда m15: %K(14) / %D(3 SMA). */
-  function spreadStochasticKD(bars, kPeriod = STOCH_K_PERIOD, dPeriod = STOCH_D_PERIOD) {
-    const series = [];
-    for (const b of bars || []) {
-      const v = barSpreadValue(b);
-      if (v != null) series.push(v);
-    }
-    if (series.length < kPeriod) return null;
-    const kArr = [];
-    for (let i = kPeriod - 1; i < series.length; i += 1) {
-      let lo = series[i - kPeriod + 1];
-      let hi = lo;
-      for (let j = i - kPeriod + 1; j <= i; j += 1) {
-        const v = series[j];
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-      }
-      const span = hi - lo;
-      const k = span > 1e-12 ? ((series[i] - lo) / span) * 100 : 50;
-      kArr.push(k);
-    }
-    if (!kArr.length) return null;
-    const kLast = kArr[kArr.length - 1];
-    let dLast = kLast;
-    if (kArr.length >= dPeriod) {
-      let sum = 0;
-      for (let i = kArr.length - dPeriod; i < kArr.length; i += 1) sum += kArr[i];
-      dLast = sum / dPeriod;
-    }
-    return { k: kLast, d: dLast, n: series.length };
-  }
-
-  function renderNarrowZoneMeter(spreadPct, levels, barsIss) {
-    const box = $('tradeNarrowZoneBox');
-    const fill = $('tradeNarrowZoneFill');
-    const mark = $('tradeNarrowZoneMark');
-    const vals = $('tradeNarrowZoneVals');
-    if (!box || !vals) return;
-    const pos = narrowZonePosition(spreadPct, levels);
-    const stoch = spreadStochasticKD(barsIss);
-    if (!pos) {
-      if (fill) fill.style.width = '0%';
-      if (mark) mark.style.left = '0%';
-      vals.innerHTML = '— · нет спреда';
-      return;
-    }
-    if (fill) fill.style.width = `${pos.pct.toFixed(1)}%`;
-    if (mark) mark.style.left = `${pos.pct.toFixed(1)}%`;
-    let sideHtml = '';
-    if (pos.side === 'below') {
-      sideHtml = ` <span class="tnz-out">ниже ${fmt(pos.lo, 1)}%</span>`;
-    } else if (pos.side === 'above') {
-      sideHtml = ` <span class="tnz-out">выше ${fmt(pos.hi, 1)}% · вне узкой</span>`;
-    }
-    const stochHtml = stoch
-      ? `<div class="tnz-stoch">стох. m15 · %K ${fmt(stoch.k, 0)} · %D ${fmt(stoch.d, 0)}</div>`
-      : `<div class="tnz-stoch">стох. m15 · мало баров</div>`;
-    vals.innerHTML =
-      `<b>${fmt(pos.pct, 0)}%</b> в полосе ${fmt(pos.lo, 1)}…${fmt(pos.hi, 1)}`
-      + ` · S ${fmt(pos.spread, 2)}%${sideHtml}`
-      + stochHtml;
   }
 
   function barTradeDay(b) {
@@ -564,26 +474,25 @@
       c = detectSpreadCorridorClient(barsIss, spreadPct);
     }
     const rawPhase = String(c.phase || 'none');
-    // «Сломан» показываем как «нет» — без красного «сломан» и без метрик.
-    const phase = corridorPhaseAbsent(rawPhase) ? 'none' : rawPhase;
-    const meta = CORRIDOR_PHASE_META[rawPhase] || CORRIDOR_PHASE_META.none;
     box.classList.remove(
       'trade-corridor--forming', 'trade-corridor--formed',
       'trade-corridor--broken', 'trade-corridor--none',
     );
-    box.classList.add(`trade-corridor--${phase}`);
-    if (badge) badge.textContent = corridorPhaseAbsent(rawPhase) ? 'нет' : (c.label_ru || meta.badge);
-    const phaseStatus = corridorPhaseAbsent(rawPhase)
-      ? (CORRIDOR_PHASE_META[rawPhase] || CORRIDOR_PHASE_META.none).status
-      : corridorPhaseStatus(phase);
-    if (statusEl) statusEl.textContent = phaseStatus;
-    if (c.title) box.title = c.title;
-
-    // Нет / сломан: только заголовок + бейдж «нет» + статус — без сетки и шкалы.
-    if (corridorPhaseAbsent(rawPhase)) {
+    // Карточка только если коридор сформирован — без пустой «не сформирован» / «формируется».
+    if (rawPhase !== 'formed') {
+      box.hidden = true;
+      box.classList.add('trade-corridor--none');
       if (grid) grid.innerHTML = '';
       return;
     }
+    box.hidden = false;
+    const phase = 'formed';
+    const meta = CORRIDOR_PHASE_META.formed;
+    box.classList.add('trade-corridor--formed');
+    if (badge) badge.textContent = c.label_ru || meta.badge;
+    const phaseStatus = corridorPhaseStatus(phase);
+    if (statusEl) statusEl.textContent = phaseStatus;
+    if (c.title) box.title = c.title;
 
     const lo = Number(c.lo);
     const hi = Number(c.hi);
@@ -6388,8 +6297,8 @@
     if (!m) return false;
     // tradeDate already MSK wall-clock
     const wd = new Date(+m[1], +m[2] - 1, +m[3]).getDay();
-    if (wd === 0 || wd === 6) return false;
     const mins = (+m[4]) * 60 + (+m[5]);
+    if (wd === 0 || wd === 6) return mins >= 10 * 60 && mins < 19 * 60;
     return mins >= 7 * 60 && mins < 23 * 60 + 50;
   }
 
@@ -6444,8 +6353,10 @@
     const wd = get('weekday'); // Mon..Sun
     const weekend = wd === 'Sat' || wd === 'Sun';
     const mins = h * 60 + mi;
-    // AUTO tip1m / TQBR: до 23:50
-    const inSession = !weekend && mins >= 7 * 60 && mins < 23 * 60 + 50;
+    // AUTO tip1m: будни 07:00–23:50; сб/вс 10:00–18:59
+    const inSession = weekend
+      ? (mins >= 10 * 60 && mins < 19 * 60)
+      : (mins >= 7 * 60 && mins < 23 * 60 + 50);
     // Live tip-спред на столе: до 23:45 (выходные — дилер OK)
     const spreadLive = weekend
       ? true
@@ -6798,8 +6709,13 @@
           ? `Спред: дилер 1м (${dealer?.bars_count || bars.length} бар) · не в AUTO`
           : 'Спред: ждём 1м дилерские свечи'
       ));
-      general.push(checkItem('wait',
-        `TQBR закрыта (${msk.label} МСК) — AUTO tip1m только в сессии · дилер = монитор/ручной`));
+      general.push(checkItem(
+        msk.weekend && msk.inSession ? 'ok' : 'wait',
+        msk.weekend && msk.inSession
+          ? `Выходные 10:00–18:59 · AUTO tip1m (${msk.label} МСК)`
+          : (msk.weekend
+            ? `Вне окна выходных 10:00–18:59 (${msk.label} МСК) — AUTO выкл`
+            : `TQBR закрыта (${msk.label} МСК) — AUTO tip1m только в сессии · дилер = монитор/ручной`)));
       const hasMonSp = (bars || []).some((b) => b && b.spread != null
         && (b.source && String(b.source).includes('dealer')));
       general.push(checkItem(hasMonSp || ((bars || []).some((b) => b && b.spread != null)) ? 'ok' : 'wait',
@@ -6955,7 +6871,9 @@
       if (!consecutive) blockers.push('дыра');
       if (!brokerOk) blockers.push('брокер');
       if (ghost) blockers.push('призрак');
-      if (msk.weekend || dealer) blockers.push('дилер/выходные (нет AUTO tip)');
+      if ((msk.weekend || dealer) && !msk.inSession) {
+        blockers.push('дилер/выходные (вне окна AUTO)');
+      }
       if (phase.kind !== 'ready' && blockers.length && !(phase.kind === 'prep' || phase.kind === 'signal')) {
         openItems.push(checkItem('block', `Блокируют: ${blockers.join(', ')}`));
       } else if (phase.kind === 'signal' && blockers.length) {
@@ -7272,15 +7190,6 @@
         : '',
     ].filter(Boolean).join(' ');
 
-    const nzLevels = (data.spread_levels && data.spread_levels.levels)
-      || {
-        enter_narrow: Number(settings?.spread_enter_narrow ?? 3.2),
-      };
-    renderNarrowZoneMeter(
-      spVal,
-      nzLevels,
-      Array.isArray(data.bars_iss) ? data.bars_iss : barsForDist,
-    );
     renderCorridorMeter(
       data.corridor || null,
       spVal,

@@ -1507,6 +1507,10 @@
   border: 1px solid #243044;
 }
 
+.trade-corridor[hidden] {
+  display: none !important;
+}
+
 .trade-corridor-head {
   display: flex;
   align-items: center;

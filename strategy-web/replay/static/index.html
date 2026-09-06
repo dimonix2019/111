@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/css-shell.css?v=20260906tipDonut1" />
   <link rel="stylesheet" href="/static/css-testing.css?v=20260906tipBars1" />
   <link rel="stylesheet" href="/static/css-replay-ui.css?v=20260829gap1" />
-    <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260905deskRestore1" />
+    <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260906sitCorr1" />
   <link rel="stylesheet" href="/static/css-mobile.css?v=20260831sideTab1" />
 </head>
 <body>
@@ -141,7 +141,7 @@
         <button type="button" class="chip" id="btnExtra19" aria-pressed="false"
           title="Экстра-добор на хвостах истории (~3г): Long касание ≤1% → выход 2; Short касание ≥9% (~p98) → выход 7. Только при открытой базе, можно вместе с добором 2/7 (до 3 ног). Уровень 0 при открытой базе почти не бывает. Не Prod AUTO.">экстра 1/9</button>
         <button type="button" class="chip" id="btnWeekendTrading" aria-pressed="false"
-          title="Только Тест: разрешить входы и выходы в субботу и воскресенье по дилерским данным с 10:00 до 18:59 МСК. Prod AUTO не меняется.">выходные</button>
+          title="Тест: входы/выходы сб/вс по дилерским данным 10:00–18:59 МСК (чип выкл — без выходных в прогоне). Prod AUTO в том же окне уже разрешён.">выходные</button>
         <button type="button" class="chip" id="btnShelfFloorCeil" aria-pressed="false"
           title="Добавка: пол–потолок по широкой полке (каузально). Short на потолке, Long на поле. Выход: кромка / цель из панели / нет хода / вынос. Касание 1м. Не подменяет AUTO и не гасит добор. Только Тест, выкл по умолчанию.">пол–потолок (полка)</button>
         <button type="button" class="chip" id="btnAdaptCorridor" hidden aria-hidden="true"
@@ -630,18 +630,8 @@
           </div>
 
           <div class="trade-side-tab-pane" data-side-pane="situation" id="tradeSideSituationPane" role="tabpanel" aria-labelledby="tradeSideTabSituation" hidden>
-            <div class="trade-narrow-zone" id="tradeNarrowZoneBox"
-              title="Позиция спреда в узкой полосе 1%…Long-вход (обычно 3,2%). Не меняет пороги Prod. %K/%D — стохастик по спреду m15.">
-              <div class="trade-narrow-zone-label">Узкая зона · позиция</div>
-              <div class="trade-narrow-zone-meter" aria-hidden="true">
-                <div class="trade-narrow-zone-fill" id="tradeNarrowZoneFill"></div>
-                <div class="trade-narrow-zone-mark" id="tradeNarrowZoneMark"></div>
-              </div>
-              <div class="trade-narrow-zone-vals" id="tradeNarrowZoneVals">—</div>
-            </div>
-
-            <div class="trade-corridor" id="tradeCorridorBox"
-              title="Адаптивный коридор спреда по дневкам (~6–12д). Фильтр внимания — пороги Prod AUTO не меняет.">
+            <div class="trade-corridor" id="tradeCorridorBox" hidden
+              title="Адаптивный коридор спреда по дневкам (~6–12д). Фильтр внимания — пороги Prod AUTO не меняет. Карточка только если коридор сформирован.">
               <div class="trade-corridor-head">
                 <span class="trade-corridor-label">Коридор S</span>
                 <span class="trade-corridor-badge" id="tradeCorridorBadge">—</span>
@@ -1018,9 +1008,9 @@
   <script src="/static/replay-signals.js?v=20260829dropRisk1"></script>
   <script src="/static/replay-engine-core.js?v=20260905utcTs1"></script>
   <script src="/static/chart.js?v=20260905deskRestore1"></script>
-  <script src="/static/trade.js?v=20260905deskRestore1"></script>
+  <script src="/static/trade.js?v=20260906weAuto1"></script>
   <script src="/static/history.js?v=20260905comment1"></script>
   <script src="/static/live.js?v=20260726otc2"></script>
-  <script src="/static/app.js?v=20260906tipBars1"></script>
+  <script src="/static/app.js?v=20260906weAuto1"></script>
 </body>
 </html>
