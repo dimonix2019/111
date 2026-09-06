@@ -662,6 +662,16 @@ select {
   min-width: 0;
 }
 
+.status-bar-text .pnl-pos {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.status-bar-text .pnl-neg {
+  color: #f87171;
+  font-weight: 600;
+}
+
 .status-bar-with-fs .pane-collapse-btn {
   margin-left: auto;
   margin-top: 1px;

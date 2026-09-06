@@ -2515,12 +2515,6 @@
 
   function syncZHeatmapModeUi() {
     const sMode = isTipSpreadLevelsHeatmap();
-    const title = $('zHeatmapTitle');
-    if (title) {
-      title.textContent = sMode
-        ? (hmBand() === 'narrow' ? 'PNL · S% вх × вых · узкий Long' : 'PNL · S% вх × вых · шир. Short')
-        : 'PnL · вход Z × выход Z';
-    }
     const bandRow = $('zHeatmapBandControls');
     if (bandRow) bandRow.hidden = !sMode;
     const exitMaxLab = $('hmExitMaxLabel');
@@ -3066,6 +3060,101 @@
     if (el) el.innerHTML = '';
   }
 
+  const TAG_SHARE_SPEC = [
+    { key: 'base', api: 'main', label: 'База', color: '#22d3ee' },
+    { key: 'addon', api: 'addon', label: 'добор', color: '#c084fc' },
+    { key: 'extra', api: 'extra', label: 'экстра', color: '#a78bfa' },
+    { key: 'shelf', api: 'shelf_ff', label: 'полка', color: '#7c3aed' },
+  ];
+
+  function parseByTagPnl(summary) {
+    const raw = summary && (summary.by_tag || summary.byTag);
+    if (!raw || typeof raw !== 'object') return null;
+    const out = { base: 0, addon: 0, extra: 0, shelf: 0 };
+    let any = false;
+    for (const spec of TAG_SHARE_SPEC) {
+      const cell = raw[spec.api] != null ? raw[spec.api] : raw[spec.key];
+      if (cell == null) continue;
+      const pnl = typeof cell === 'number' ? Number(cell) : Number(cell.pnlRub ?? cell.pnl ?? 0);
+      if (Number.isFinite(pnl)) {
+        out[spec.key] = pnl;
+        any = true;
+      }
+    }
+    return any ? out : null;
+  }
+
+  function collectTagShareFromRows(rows) {
+    const out = { base: 0, addon: 0, extra: 0, shelf: 0 };
+    for (const r of rows || []) {
+      if (!r || r.status !== 'Закрыта') continue;
+      const k = normalizeTradeSrcFilterKey(r);
+      if (k !== 'base' && k !== 'addon' && k !== 'extra' && k !== 'shelf') continue;
+      const pnl = Number(r.netValue);
+      if (Number.isFinite(pnl)) out[k] += pnl;
+    }
+    return out;
+  }
+
+  function formatTagShareRub(rub) {
+    const n = Number(rub) || 0;
+    const sign = n > 0 ? '+' : '';
+    const body = typeof formatAccountRub === 'function'
+      ? formatAccountRub(n)
+      : String(Math.round(n));
+    return `${sign}${body} ₽`;
+  }
+
+  function renderTagShareDonut() {
+    const host = $('tagShareDonut');
+    if (!host) return;
+    const tipRows = tipSimCache.rows
+      ? (typeof tipRowsUpToCursor === 'function'
+        ? tipRowsUpToCursor(tipSimCache.rows)
+        : tipSimCache.rows)
+      : [];
+    const fromRows = collectTagShareFromRows(tipRows);
+    const fromApi = parseByTagPnl(tipSimCache.summary);
+    const pnl = fromApi || fromRows;
+    const absSum = TAG_SHARE_SPEC.reduce((s, spec) => s + Math.abs(pnl[spec.key] || 0), 0);
+    const total = TAG_SHARE_SPEC.reduce((s, spec) => s + (Number(pnl[spec.key]) || 0), 0);
+    const slices = TAG_SHARE_SPEC.map((spec) => {
+      const val = Number(pnl[spec.key]) || 0;
+      const pct = absSum > 0 ? (Math.abs(val) / absSum) * 100 : 0;
+      return { ...spec, val, pct };
+    });
+    let acc = 0;
+    const ring = slices.map((s) => {
+      const dash = `${s.pct.toFixed(2)} ${(100 - s.pct).toFixed(2)}`;
+      const offset = (-acc).toFixed(2);
+      acc += s.pct;
+      return (
+        `<circle class="tag-share-slice" cx="18" cy="18" r="15.915"`
+        + ` stroke="${s.color}" stroke-dasharray="${dash}" stroke-dashoffset="${offset}"></circle>`
+      );
+    }).join('');
+    const legend = slices.map((s) => {
+      const cls = pnlClass(s.val);
+      return (
+        `<div class="tag-share-row">`
+        + `<span class="tag-share-dot" style="background:${s.color}"></span>`
+        + `<span class="tag-share-name">${s.label}</span>`
+        + `<span class="tag-share-pct">${s.pct.toFixed(0)}%</span>`
+        + `<span class="tag-share-rub ${cls}">${formatTagShareRub(s.val)}</span>`
+        + `</div>`
+      );
+    }).join('');
+    const totalCls = pnlClass(total);
+    host.innerHTML =
+      `<svg class="tag-share-svg" viewBox="0 0 36 36" aria-hidden="true">`
+      + `<circle class="tag-share-track" cx="18" cy="18" r="15.915"></circle>`
+      + ring
+      + `<text class="tag-share-center ${totalCls}" x="18" y="17.2">${formatRub(total)}</text>`
+      + `<text class="tag-share-center-sub" x="18" y="21.4">вклад</text>`
+      + `</svg>`
+      + `<div class="tag-share-legend">${legend}</div>`;
+  }
+
   function updateTradesSummary(allRows, visibleRows) {
     const grid = $('tradesSummaryGrid');
     const scrollEl = $('tradesSummaryScroll');
@@ -3176,6 +3265,7 @@
     }
     // Prefer in-session position after risk-filter / table rebuild; LS only until first visible restore.
     applyTradesSummaryScrollTop(summaryScrollRestored ? prevScrollTop : readSavedTradesSummaryScrollTop());
+    renderTagShareDonut();
   }
 
   /**
@@ -4771,9 +4861,26 @@
       } else {
         const tipRows = tipRowsCursor || tipRowsUpToCursor(tipSimCache.rows);
         const tipSum = buildTradeSimSummary(tipRows, getSimNotionalRub());
+        const s = tipSimCache.summary || {};
+        const nTrades = tipSum.closedCount != null ? tipSum.closedCount : (Number(s.trades) || 0);
+        const retPct = Number.isFinite(tipSum.retPct) ? tipSum.retPct : Number(s.retPct) || 0;
+        const pnlRub = Number.isFinite(tipSum.totalPnl)
+          ? tipSum.totalPnl
+          : (Number(s.pnlRub) || 0);
+        const compoundOn = getSimCompound();
+        const equityRub = Number.isFinite(Number(s.finalEquityRub))
+          ? Number(s.finalEquityRub)
+          : (getSimNotionalRub() + pnlRub);
+        const rubVal = compoundOn ? equityRub : pnlRub;
+        const rubSign = !compoundOn && rubVal > 0 ? '+' : '';
+        const rubText = typeof formatAccountRub === 'function'
+          ? `${rubSign}${formatAccountRub(rubVal)} ₽`
+          : `${formatRub(rubVal)} ₽`;
+        const pnlCls = pnlClass(pnlRub) || pnlClass(retPct);
         tipNote =
-          `   ·   tip ${tipSum.closedCount} сд. / `
-          + `<span title="От поля «Капитал» и галки «Капитализация»: лот может расти без потолка">${formatCapitalPct(tipSum.retPct)}</span>`;
+          `   ·   tip ${nTrades} сд.`
+          + ` · <span class="${pnlCls}" title="От поля «Капитал» и галки «Капитализация»: лот может расти без потолка">${formatCapitalPct(retPct)}</span>`
+          + ` · <span class="${pnlCls}">${rubText}</span>`;
       }
       if (!skipChartPaint) {
         if (tip1mChartMeta?.displayStepMin > 1) {
@@ -5319,7 +5426,9 @@
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const started = Date.now();
     const timeoutSec = Math.round(timeoutMs / 1000);
+    let busyLive = true;
     const tickBusy = async () => {
+      if (!busyLive || jobId !== tipSimJobId) return;
       const sec = Math.round((Date.now() - started) / 1000);
       let phase = '';
       try {
@@ -5341,6 +5450,10 @@
     };
     tickBusy();
     const tickTimer = setInterval(tickBusy, 500);
+    const stopBusyTicks = () => {
+      busyLive = false;
+      clearInterval(tickTimer);
+    };
     try {
       const res = await fetch('/api/sim/tip1m', {
         method: 'POST',
@@ -5363,21 +5476,9 @@
         meta: data.meta || null,
         summary: data.summary || null,
       };
+      stopBusyTicks();
       refreshTradesTable();
       refreshUi({ afterParams: true });
-      if (st) {
-        const m = data.meta || {};
-        const simS = m.simSec != null ? Number(m.simSec) : null;
-        const ensS = m.ensureSec != null ? Number(m.ensureSec) : null;
-        const bits = [];
-        if (m.simCacheHit) bits.push('кэш сделок');
-        else if (simS != null) bits.push(`сим ${simS}с`);
-        if (ensS != null && ensS >= 0.05) bits.push(`ряд ${ensS}с`);
-        if (m.cacheTier) bits.push(String(m.cacheTier));
-        st.textContent =
-          `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · готово`
-          + (bits.length ? ` · ${bits.join(' · ')}` : '');
-      }
       if (!isZHeatmapHidden()) scheduleZHeatmapUpdate(engine?.cursor, { immediate: true });
     } catch (e) {
       if (jobId !== tipSimJobId) return;
@@ -5399,7 +5500,7 @@
       }
       if (!timedOut) alert('Касание 1м (сервер): ' + msg);
     } finally {
-      clearInterval(tickTimer);
+      stopBusyTicks();
       clearTimeout(timer);
     }
   }

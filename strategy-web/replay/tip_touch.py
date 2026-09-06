@@ -5084,6 +5084,58 @@ def resolve_test_wallets(
     return {WALLET_MAIN: main, WALLET_ADDON: addon, WALLET_EXTRA: extra}
 
 
+def _by_tag_bucket(trade: dict[str, Any] | None) -> str | None:
+    """main / addon / extra / shelf_ff. Качалка и коридор в бублик не входят."""
+    if not trade:
+        return None
+    tag = str(trade.get("tag") or "").strip().lower()
+    src = str(trade.get("source") or "").strip().lower()
+    blob = f"{tag} {src}"
+    if tag in ("swing", "качалка", "adapt_corridor", "адапт.коридор") or "качалка" in blob:
+        return None
+    if tag in ("addon", "добор") or src in ("добор", "addon"):
+        return "addon"
+    if tag in ("extra", "extreme", "экстра") or src in ("экстра", "extra"):
+        return "extra"
+    if tag in ("shelf_ff", "shelf") or ("пол" in src and "потолок" in src) or src == "полка":
+        return "shelf_ff"
+    if tag in ("main", "база", "") or src in ("база", "main", "auto", ""):
+        return "main"
+    return None
+
+
+def attach_by_tag(result: dict[str, Any]) -> dict[str, Any]:
+    """Сводка вклада тегов — только агрегация, симуляцию не меняет."""
+    if not isinstance(result, dict):
+        return result
+    buckets = {
+        "main": {"n": 0, "pnlRub": 0.0},
+        "addon": {"n": 0, "pnlRub": 0.0},
+        "extra": {"n": 0, "pnlRub": 0.0},
+        "shelf_ff": {"n": 0, "pnlRub": 0.0},
+    }
+    for t in result.get("trades") or []:
+        if str(t.get("status") or "") == "Открыта":
+            continue
+        key = _by_tag_bucket(t if isinstance(t, dict) else None)
+        if key not in buckets:
+            continue
+        try:
+            pnl = float(t.get("net") or 0.0)
+        except (TypeError, ValueError):
+            pnl = 0.0
+        if not math.isfinite(pnl):
+            pnl = 0.0
+        buckets[key]["n"] += 1
+        buckets[key]["pnlRub"] += pnl
+    for key in buckets:
+        buckets[key]["pnlRub"] = round(buckets[key]["pnlRub"], 2)
+    summary = dict(result.get("summary") or {})
+    summary["by_tag"] = buckets
+    result["summary"] = summary
+    return result
+
+
 def wallet_key_for_trade(trade: dict[str, Any] | None) -> str:
     """Кошелёк строки: пол–потолок и база — один; добор/экстра свои."""
     if not trade:
@@ -6392,6 +6444,7 @@ def sim_tip1m(
                 base_meta, hit["trades"], use_replay=use_replay, start=start, end=end
             ),
         }
+        attach_by_tag(payload)
         if not use_replay:
             attach_wallet_summary(
                 payload,
@@ -6532,6 +6585,7 @@ def sim_tip1m(
             result, shelf, notional=float(dep_main)
         )
     apply_ref_100k_metrics(result)
+    attach_by_tag(result)
     result.setdefault("params", {})
     result["params"]["weekendTrading"] = use_weekend
     result["params"]["baseMode"] = use_base
