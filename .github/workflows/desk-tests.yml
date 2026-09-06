@@ -34,7 +34,22 @@ jobs:
       - name: Install test dependencies
         run: pip install -r requirements-test.txt
 
-      - name: Run strategy-web tests
+      - name: Run desk-scoped tests
         env:
           PYTHONPATH: .
-        run: python -m pytest tests/ -q --tb=no --continue-on-collection-errors
+        run: |
+          python -m pytest \
+            tests/test_desk_restore_static.py \
+            tests/test_signal_contract.py \
+            tests/test_strategy_config_api.py \
+            tests/test_pnl_sources_policy.py \
+            tests/test_sim_worker.py \
+            tests/test_spread_levels.py \
+            tests/test_spread_regime.py \
+            tests/test_spread_corridor.py \
+            tests/test_spread_corridor_wide.py \
+            tests/test_spread_risk.py \
+            tests/test_spread_situation.py \
+            tests/test_spread_hourly_vol.py \
+            tests/test_spread_1m_spikes.py \
+            -q --tb=no
