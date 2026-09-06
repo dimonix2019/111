@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 from live import engine, store
 from live.markets_api import build_markets_snapshot
 from live.open_mark import enrich_open_trade
+from live.pnl_sources import response_pnl_source
 from live.tinvest import TInvestClient
 
 router = APIRouter(prefix="/api/trade", tags=["trade"])
@@ -493,6 +494,7 @@ def trade_desk(
             "ok": True,
             "days": days,
             "lite": lite,
+            "pnl_source": response_pnl_source(open_e, broker=broker if isinstance(broker, dict) else None),
             "summary": snap,
             "bars": mkt.get("bars") or [],
             "bars_iss": mkt.get("bars") or [],

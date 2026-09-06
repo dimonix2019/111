@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from live import engine, store
 from live.open_mark import enrich_open_trade
+from live.pnl_sources import response_pnl_source
 from live.tinvest import TInvestClient
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
@@ -286,6 +287,7 @@ def portfolio_summary(
             "date_from": date_from or None,
             "date_to": date_to or None,
             "lite": bool(lite),
+            "pnl_source": response_pnl_source(open_e, broker=broker),
             "settings": settings,
             "position": engine.current_position().value,
             "market": {

@@ -3594,7 +3594,8 @@
       : (isLong ? 'L' : 'S');
     const el = $('tradeOpenTradeOverlay');
     if (!el) return;
-    const net = Number(mark.net_approx_rub ?? mark.unrealized_pnl_rub);
+    const net = openProfitRub(open)
+      ?? Number(mark.net_approx_rub ?? mark.unrealized_pnl_rub);
     const pnlClass = net > 0 ? 'pnl-pos' : net < 0 ? 'pnl-neg' : '';
     const deposit = entryDepositRub(open, null);
     const netText = fmtPnlWithDepositPct(net, deposit);
@@ -4705,8 +4706,9 @@
       return;
     }
     const m = open.mark || {};
-    const pnlCls = (m.unrealized_pnl_rub || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
-    const netCls = (m.net_approx_rub || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
+    const displayPnl = openProfitRub(open);
+    const pnlCls = (displayPnl ?? m.unrealized_pnl_rub ?? 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
+    const netCls = (m.net_approx_rub ?? displayPnl ?? 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
     const spreadEntry = m.fill_spread != null ? m.fill_spread : open.entry_spread;
     const spreadLabel = m.pnl_source === 'tinkoff_expected_yield'
       ? 'Спред'
@@ -4768,8 +4770,8 @@
       (atOpen != null
         ? `<span title="Сумма на счету на входе (база Чист.)">До</span><b>${fmt(atOpen, 0)} ₽</b>`
         : '') +
-      `<span>PnL</span><b class="${pnlCls}">${fmtPnlWithDepositPct(m.unrealized_pnl_rub, deposit)}</b>` +
-      `<span>Нетто</span><b class="${netCls}">${fmtPnlWithDepositPct(m.net_approx_rub, deposit)}</b>` +
+      `<span>PnL</span><b class="${pnlCls}">${fmtPnlWithDepositPct(displayPnl, deposit)}</b>` +
+      `<span>Нетто</span><b class="${netCls}">${fmtPnlWithDepositPct(m.net_approx_rub ?? displayPnl, deposit)}</b>` +
       `<span>Min</span><b class="${minLine.cls}">${minLine.text}</b>` +
       `<span>Max</span><b class="${maxLine.cls}">${maxLine.text}</b>` +
       `<span>Овн</span><b>${fmtRub(m.overnight_rub)} · ${m.overnight_days || 0}д</b>` +
@@ -5546,11 +5548,20 @@
     return entryDepositRub(open, settings);
   }
 
+  /** Prod desk: API mark already has broker expectedYield — never recompute spread MTM for display. */
+  function isBrokerPnlMark(mark) {
+    if (!mark || typeof mark !== 'object') return false;
+    if (mark.pnl_source === 'tinkoff_expected_yield') return true;
+    const y = Number(mark.expected_yield_rub);
+    return Number.isFinite(y);
+  }
+
   function openProfitRub(open) {
     const mark = (open && open.mark) || {};
-    const yieldRub = Number(mark.expected_yield_rub);
-    if (Number.isFinite(yieldRub) && mark.pnl_source === 'tinkoff_expected_yield') {
-      return yieldRub;
+    // PnL sources policy: broker expectedYield from API — no local MTM fallback.
+    if (isBrokerPnlMark(mark)) {
+      const yieldRub = Number(mark.expected_yield_rub ?? mark.unrealized_pnl_rub);
+      if (Number.isFinite(yieldRub)) return yieldRub;
     }
     const mtm = Number(mark.unrealized_pnl_rub);
     if (Number.isFinite(mtm)) return mtm;

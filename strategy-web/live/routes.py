@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from live import engine, store
+from live.pnl_sources import response_pnl_source
 from live.signals import Position
 from live.strategy_config import get_strategy_config
 from live.tinvest import TInvestClient, normalize_token
@@ -135,10 +136,12 @@ def live_status(
         except Exception as d_exc:
             dealer = {"ok": False, "label": "дилер / выходные", "error": str(d_exc), "for_z": False}
 
+        open_t = store.get_open_trade()
         return {
             "settings": store.get_settings_bundle(),
             "monitor": engine.monitor_status(),
-            "open": store.get_open_trade(),
+            "open": open_t,
+            "pnl_source": response_pnl_source(open_t, broker=broker),
             "market": market,
             "broker": broker,
             "dealer": dealer,

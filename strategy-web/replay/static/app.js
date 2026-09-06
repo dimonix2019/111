@@ -3235,6 +3235,7 @@
     const hiddenRed = riskFilter === 'no-red'
       ? allSummary.redCount
       : 0;
+    // Test PnL source: filtered sim rows only (filterTradeRows/chips — not broker, not raw API).
     const profitRub = Number.isFinite(summary.profitRub)
       ? summary.profitRub
       : ((summary.totalPnl || 0) + (summary.openMtm || 0));
