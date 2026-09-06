@@ -1,13 +1,37 @@
 """Статика стола 4.09: OHLC, год на оси, запас до ГО, Src, тысячи."""
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "replay" / "static"
+INDEX_HTML = STATIC / "index.html"
+
+# src/href="/static/<file>?v=<ver>" — единый источник правды: index.html
+CACHE_BUST_RE = re.compile(
+    r'(?:src|href)="/static/(?P<file>[^"?]+\.(?:js|css))\?v=(?P<ver>[^"]+)"'
+)
+
+
+def _read_index_html() -> str:
+    return INDEX_HTML.read_text(encoding="utf-8")
+
+
+def _parse_cache_bust_refs(html: str | None = None) -> dict[str, str]:
+    """filename → ?v= token из index.html (без дублирования в тестах)."""
+    html = html if html is not None else _read_index_html()
+    refs: dict[str, str] = {}
+    for m in CACHE_BUST_RE.finditer(html):
+        refs[m.group("file")] = m.group("ver")
+    return refs
+
+
+def _load_static(name: str) -> str:
+    return (STATIC / name).read_text(encoding="utf-8")
 
 
 def test_axis_year_formatter_in_chart_js():
-    text = (STATIC / "chart.js").read_text(encoding="utf-8")
+    text = _load_static("chart.js")
     assert "year: '2-digit'" in text
     assert "function formatMskAxisDayMonthYear" in text
     assert "function formatOhlcLine" in text
@@ -15,9 +39,9 @@ def test_axis_year_formatter_in_chart_js():
 
 
 def test_trade_ohlc_header_and_tp_line():
-    html = (STATIC / "index.html").read_text(encoding="utf-8")
-    js = (STATIC / "trade.js").read_text(encoding="utf-8")
-    css = (STATIC / "css-shell.css").read_text(encoding="utf-8")
+    html = _read_index_html()
+    js = _load_static("trade.js")
+    css = _load_static("css-shell.css")
     assert 'id="tradeCandleOhlc"' in html
     assert 'id="testCandleOhlc"' in html
     assert 'id="tradeMarginHeadroom"' in html
@@ -29,23 +53,25 @@ def test_trade_ohlc_header_and_tp_line():
 
 
 def test_src_hint_test_tail():
-    text = (STATIC / "replay-sim.js").read_text(encoding="utf-8")
+    text = _load_static("replay-sim.js")
     assert "в Тесте — база / добор / экстра / полка" in text
 
 
 def test_account_rub_uses_grouping_not_k():
-    text = (STATIC / "replay-sim.js").read_text(encoding="utf-8")
+    text = _load_static("replay-sim.js")
     assert "useGrouping: true" in text
     assert "toFixed(2)}k" not in text.split("function formatAccountRub")[1].split("function formatCostRub")[0]
 
 
 def test_tag_share_chip_delta_cache_bust():
-    html = (STATIC / "index.html").read_text(encoding="utf-8")
-    js = (STATIC / "app.js").read_text(encoding="utf-8")
-    sim = (STATIC / "replay-sim.js").read_text(encoding="utf-8")
-    assert "app.js?v=20260906monthPnl1" in html
-    assert "replay-sim.js?v=20260906monthPnl1" in html
-    assert "css-testing.css?v=20260906monthPnl1" in html
+    html = _read_index_html()
+    refs = _parse_cache_bust_refs(html)
+    for name in ("app.js", "replay-sim.js", "css-testing.css"):
+        ver = refs[name]
+        assert f'{name}?v={ver}' in html
+
+    js = _load_static("app.js")
+    sim = _load_static("replay-sim.js")
     assert "function isWeekendChipEntry" in js
     assert "chip_delta" in js
     assert "вклад чипа в итог" in js
@@ -61,21 +87,32 @@ def test_tag_share_chip_delta_cache_bust():
 
 
 def test_cache_bust_desk_restore():
-    html = (STATIC / "index.html").read_text(encoding="utf-8")
-    js = (STATIC / "trade.js").read_text(encoding="utf-8")
-    live = (STATIC / "live.js").read_text(encoding="utf-8")
-    assert "chart.js?v=20260905deskRestore1" in html
-    assert "trade.js?v=20260906quoteTrade1" in html
-    assert "live.js?v=20260906quoteTrade1" in html
+    html = _read_index_html()
+    refs = _parse_cache_bust_refs(html)
+    for name in ("chart.js", "trade.js", "live.js"):
+        assert name in refs
+        assert f'{name}?v={refs[name]}' in html
+
+    js = _load_static("trade.js")
+    live = _load_static("live.js")
     assert "Сессии нет · до 10:00" not in js
     assert "Сессии нет · до 10:00" not in live
     assert "sessionOrdersBlockReason" not in js
     assert "sessionOrdersBlockReason" not in live
 
 
+def test_cache_bust_consistency():
+    """Все src/href с ?v= в index.html → файл существует на диске."""
+    html = _read_index_html()
+    refs = _parse_cache_bust_refs(html)
+    assert refs, "index.html must reference at least one cache-busted static asset"
+    missing = [name for name in refs if not (STATIC / name).is_file()]
+    assert not missing, f"cache-busted assets missing on disk: {missing}"
+
+
 def test_weekend_aligns_last_candle_to_live_spread():
     """Жёлтая last-value на оси = шапка/дилер, не last close 1м (игла/parquet)."""
-    js = (STATIC / "trade.js").read_text(encoding="utf-8")
+    js = _load_static("trade.js")
     assert "function alignTip1mBarsToLiveTip" in js
     assert "useDealerPx && dealer.spread" in js
     # Регрессия: выходные пропускали align — ось жила на flattened close.
