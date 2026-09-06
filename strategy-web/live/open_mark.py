@@ -280,6 +280,23 @@ def legs_unrealized_rub(
     return None
 
 
+def _broker_expected_yield_rub(broker_pnl: dict[str, Any] | None) -> float | None:
+    """GetPortfolio.expectedYield sum, if the caller already parsed it."""
+    if not isinstance(broker_pnl, dict):
+        return None
+    for key in ("net_gross_rub", "expected_yield_rub"):
+        raw = broker_pnl.get(key)
+        if raw is None:
+            continue
+        try:
+            x = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if x == x:
+            return x
+    return None
+
+
 def enrich_open_trade(
     open_t: dict[str, Any] | None,
     *,
@@ -291,6 +308,7 @@ def enrich_open_trade(
     tatnp_now: float | None = None,
     spread_level_mode: bool | None = None,
     settings: dict[str, Any] | None = None,
+    broker_pnl: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if not open_t:
         return None
@@ -329,9 +347,21 @@ def enrich_open_trade(
         if open_t.get("entry_slip_pts") is not None
         else adverse_entry_slip_pts(direction, iss_spread, fill_spread)
     )
+    if fill_spread is not None and s_n is not None:
+        if direction == "LONG":
+            pnl_pts = s_n - fill_spread
+        elif direction == "SHORT":
+            pnl_pts = fill_spread - s_n
+
+    # Prod APK: PnL = Σ expectedYield (GetPortfolio). Skip local spread/leg MTM.
+    broker_yield = _broker_expected_yield_rub(broker_pnl)
+    if broker_yield is not None:
+        unrealized = broker_yield
+        pnl_source = "tinkoff_expected_yield"
 
     if (
-        fill_tatn
+        unrealized is None
+        and fill_tatn
         and fill_tatnp
         and tn_now
         and tp_now
@@ -349,11 +379,6 @@ def enrich_open_trade(
         if legs_pnl is not None:
             unrealized = legs_pnl
             pnl_source = "broker_fills"
-            if fill_spread is not None and s_n is not None:
-                if direction == "LONG":
-                    pnl_pts = s_n - fill_spread
-                elif direction == "SHORT":
-                    pnl_pts = fill_spread - s_n
 
     if unrealized is None and e_s is not None and s_n is not None:
         if direction == "LONG":
@@ -380,7 +405,11 @@ def enrich_open_trade(
         notional_rub=notional,
     )
     overnight_per_day = overnight_fee_per_day_rub(uncovered)
-    net_approx = (unrealized - overnight_rub) if unrealized is not None else None
+    # T‑Invest expectedYield is the on-screen PnL; overnight is already in cash/total.
+    if pnl_source == "tinkoff_expected_yield":
+        net_approx = unrealized
+    else:
+        net_approx = (unrealized - overnight_rub) if unrealized is not None else None
 
     flags: list[str] = []
     score = 0
@@ -449,6 +478,17 @@ def enrich_open_trade(
         "spread_level_mode": use_spread,
         "entry_threshold": entry_threshold,
         "pnl_source": pnl_source,
+        "expected_yield_rub": broker_yield,
+        "tatn_yield_rub": (
+            float(broker_pnl["tatn_yield_rub"])
+            if isinstance(broker_pnl, dict) and broker_pnl.get("tatn_yield_rub") is not None
+            else None
+        ),
+        "tatnp_yield_rub": (
+            float(broker_pnl["tatnp_yield_rub"])
+            if isinstance(broker_pnl, dict) and broker_pnl.get("tatnp_yield_rub") is not None
+            else None
+        ),
         "fill_tatn": fill_tatn,
         "fill_tatnp": fill_tatnp,
         "fill_spread": fill_spread,

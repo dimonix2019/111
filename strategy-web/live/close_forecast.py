@@ -310,24 +310,41 @@ def compute_close_forecast(
         cash = _f(broker.get("cash_rub"))
     out["equity_now_rub"] = equity
     out["cash_now_rub"] = cash
-    try:
-        from live.closed_metrics import account_after_from_legs
 
-        equity_open = account_after_from_legs(
-            open_t.get("legs") or open_t.get("legs_json")
-        )
-    except Exception:
-        equity_open = None
-    if equity_open is None:
-        equity_open = _f(open_t.get("equity_at_open_rub")) or _f(
-            open_t.get("account_after_rub")
-        )
-    if equity_open is None and equity is not None:
-        mtm = _f(mark.get("unrealized_pnl_rub"))
-        if mtm is None:
-            mtm = _f(mark.get("net_approx_rub"))
-        if mtm is not None:
-            equity_open = float(equity) - float(mtm)
+    broker_yield = None
+    if isinstance(broker, dict) and not broker.get("error"):
+        broker_yield = _f(broker.get("expected_yield_rub"))
+        if broker_yield is None and isinstance(broker.get("leg_yield"), dict):
+            broker_yield = _f(broker["leg_yield"].get("net_gross_rub")) or _f(
+                broker["leg_yield"].get("expected_yield_rub")
+            )
+    if broker_yield is None and str(mark.get("pnl_source") or "") == "tinkoff_expected_yield":
+        broker_yield = _f(mark.get("expected_yield_rub")) or _f(mark.get("unrealized_pnl_rub"))
+    out["expected_yield_rub"] = round(broker_yield, 2) if broker_yield is not None else None
+
+    equity_open = None
+    if broker_yield is not None and equity is not None:
+        # Align «До» with broker: current total − expectedYield (not stale legs snapshot).
+        equity_open = float(equity) - float(broker_yield)
+    else:
+        try:
+            from live.closed_metrics import account_after_from_legs
+
+            equity_open = account_after_from_legs(
+                open_t.get("legs") or open_t.get("legs_json")
+            )
+        except Exception:
+            equity_open = None
+        if equity_open is None:
+            equity_open = _f(open_t.get("equity_at_open_rub")) or _f(
+                open_t.get("account_after_rub")
+            )
+        if equity_open is None and equity is not None:
+            mtm = _f(mark.get("unrealized_pnl_rub"))
+            if mtm is None:
+                mtm = _f(mark.get("net_approx_rub"))
+            if mtm is not None:
+                equity_open = float(equity) - float(mtm)
     out["equity_at_open_rub"] = (
         round(float(equity_open), 2) if equity_open is not None else None
     )
@@ -419,6 +436,20 @@ def compute_close_forecast(
             out["exit_level_ovn_days_to_red"] = int(math.ceil(level_pnl / rate))
         else:
             out["exit_level_ovn_days_to_red"] = None
+
+    # Broker expectedYield already in total_rub. Do not hit ISS BID/OFFER (15s×2)
+    # or local fill MTM — that froze /trade/desk and invented −805 vs +584.
+    if broker_yield is not None and equity is not None:
+        out["mid_pnl_rub"] = round(broker_yield, 2)
+        out["adverse_pnl_rub"] = round(broker_yield, 2)
+        out["vs_mid_rub"] = 0.0
+        out["quotes_mode"] = "broker_expected_yield"
+        out["side_note"] = "GetPortfolio.expectedYield"
+        out["forecast_total_rub"] = round(float(equity) - exit_comm, 2)
+        out["ok"] = True
+        out["note"] = "PnL = GetPortfolio.expectedYield"
+        out["commission_pct_per_side"] = COMMISSION_PCT_PER_SIDE
+        return out
 
     mid_tatn = _pick_px(tatn_now, mark.get("tatn_now"))
     mid_tatnp = _pick_px(tatnp_now, mark.get("tatnp_now"))

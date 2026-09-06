@@ -16,7 +16,11 @@ from live.constants import (
     SANDBOX_MARKETDATA_PREFIXES,
     SANDBOX_PREFIXES,
     TATN_FALLBACK_ID,
+    TATN_FIGI,
+    TATN_INSTRUMENT_UID,
     TATNP_FALLBACK_ID,
+    TATNP_FIGI,
+    TATNP_INSTRUMENT_UID,
     USER_AGENT,
 )
 from live.ssl_util import format_tinvest_error, requests_post_verified, resolve_requests_verify
@@ -128,6 +132,138 @@ def quotation_to_float(o: dict[str, Any] | None) -> float | None:
         except ValueError:
             return None
     return units + nano / 1_000_000_000.0
+
+
+def money_to_float(o: Any) -> float | None:
+    """MoneyValue / Quotation / raw number → float ₽."""
+    if o is None:
+        return None
+    if isinstance(o, (int, float)):
+        x = float(o)
+        return x if x == x else None
+    return quotation_to_float(o if isinstance(o, dict) else None)
+
+
+_TATN_IDS = {
+    "TATN",
+    TATN_FALLBACK_ID.upper(),
+    TATN_FIGI.upper(),
+    TATN_INSTRUMENT_UID.upper(),
+}
+_TATNP_IDS = {
+    "TATNP",
+    TATNP_FALLBACK_ID.upper(),
+    TATNP_FIGI.upper(),
+    TATNP_INSTRUMENT_UID.upper(),
+}
+
+
+def collect_portfolio_positions(portfolio: dict[str, Any]) -> list[dict[str, Any]]:
+    """Walk GetPortfolio JSON for positions[] (camel/snake, nested envelope)."""
+    out: list[dict[str, Any]] = []
+    seen: set[int] = set()
+
+    def walk(o: Any, depth: int) -> None:
+        if not isinstance(o, dict) or depth > 8:
+            return
+        arr = o.get("positions") or o.get("Positions")
+        if isinstance(arr, list) and id(arr) not in seen:
+            seen.add(id(arr))
+            for p in arr:
+                if isinstance(p, dict):
+                    out.append(p)
+        for v in o.values():
+            if isinstance(v, dict):
+                walk(v, depth + 1)
+
+    walk(portfolio, 0)
+    return out
+
+
+def _position_identity_keys(pos: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for k in (
+        "ticker",
+        "Ticker",
+        "figi",
+        "FIGI",
+        "instrumentUid",
+        "instrument_uid",
+        "uid",
+        "instrumentId",
+        "instrument_id",
+        "positionUid",
+        "position_uid",
+    ):
+        v = pos.get(k)
+        if v:
+            keys.add(str(v).strip().upper())
+    return keys
+
+
+def _position_current_price_rub(pos: dict[str, Any]) -> float | None:
+    return money_to_float(
+        pos.get("currentPrice")
+        or pos.get("current_price")
+        or pos.get("averagePositionPrice")
+        or pos.get("average_position_price")
+    )
+
+
+def _position_expected_yield_rub(pos: dict[str, Any]) -> float | None:
+    return money_to_float(pos.get("expectedYield") or pos.get("expected_yield"))
+
+
+def parse_spread_leg_broker_pnl(
+    portfolio: dict[str, Any] | None,
+    direction: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Unrealized PnL of TATN/TATNP from GetPortfolio.expectedYield (APK / T‑Invest).
+
+    net_gross_rub = TATN.expectedYield + TATNP.expectedYield — not local spread MTM.
+    """
+    if not isinstance(portfolio, dict):
+        return None
+    tatn_y = tatnp_y = 0.0
+    tatn_ok = tatnp_ok = False
+    tatn_px = tatnp_px = None
+    for pos in collect_portfolio_positions(portfolio):
+        ids = _position_identity_keys(pos)
+        y = _position_expected_yield_rub(pos)
+        if y is None:
+            continue
+        if ids & _TATN_IDS:
+            tatn_y += y
+            tatn_ok = True
+            if tatn_px is None:
+                tatn_px = _position_current_price_rub(pos)
+        elif ids & _TATNP_IDS:
+            tatnp_y += y
+            tatnp_ok = True
+            if tatnp_px is None:
+                tatnp_px = _position_current_price_rub(pos)
+    if not tatn_ok or not tatnp_ok:
+        return None
+    d = (direction or "").upper()
+    if "SHORT" in d:
+        long_y, short_y = tatnp_y, tatn_y
+        long_px, short_px = tatnp_px, tatn_px
+    else:
+        long_y, short_y = tatn_y, tatnp_y
+        long_px, short_px = tatn_px, tatnp_px
+    net = tatn_y + tatnp_y
+    return {
+        "tatn_yield_rub": tatn_y,
+        "tatnp_yield_rub": tatnp_y,
+        "long_leg_yield_rub": long_y,
+        "short_leg_yield_rub": short_y,
+        "net_gross_rub": net,
+        "expected_yield_rub": net,
+        "long_leg_price_rub": long_px,
+        "short_leg_price_rub": short_px,
+        "pnl_source": "tinkoff_expected_yield",
+    }
 
 
 def _find_nested_money(obj: Any, keys: list[str], depth: int = 0) -> dict[str, Any] | None:

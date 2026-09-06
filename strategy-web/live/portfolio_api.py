@@ -234,12 +234,15 @@ def portfolio_summary(
         closed_f = enriched
 
         broker = None
+        pf = None
+        broker_pnl = None
         if not lite:
             mode, token, account = store.get_credentials()
             if token and account:
                 try:
                     client = TInvestClient(mode, token)
                     from live.margin_headroom import enrich_margin_payload
+                    from live.tinvest import parse_spread_leg_broker_pnl
 
                     pf = client.get_portfolio(account)
                     broker = {
@@ -249,6 +252,13 @@ def portfolio_summary(
                         "total_rub": client.portfolio_total_rub(pf),
                         "margin": enrich_margin_payload(client.get_margin_attributes(account)),
                     }
+                    parsed = parse_spread_leg_broker_pnl(
+                        pf, (open_t or {}).get("direction")
+                    )
+                    if parsed:
+                        broker["expected_yield_rub"] = parsed["net_gross_rub"]
+                        broker["leg_yield"] = parsed
+                        broker_pnl = parsed
                 except Exception as exc:
                     broker = {"error": str(exc), "mode": mode}
 
@@ -267,6 +277,7 @@ def portfolio_summary(
                 tatnp_now=snap.get("tatnp") if isinstance(snap, dict) else None,
                 spread_level_mode=parse_spread_level_mode(settings),
                 settings=settings,
+                broker_pnl=broker_pnl,
             )
 
         return {

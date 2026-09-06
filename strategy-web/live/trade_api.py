@@ -84,6 +84,12 @@ def _load_portfolio() -> tuple[Any, Any, Any]:
             "total_rub": client.portfolio_total_rub(pf),
             "margin": enrich_margin_payload(client.get_margin_attributes(account)),
         }
+        from live.tinvest import parse_spread_leg_broker_pnl
+
+        leg_yield = parse_spread_leg_broker_pnl(pf)
+        if leg_yield:
+            broker["expected_yield_rub"] = leg_yield["net_gross_rub"]
+            broker["leg_yield"] = leg_yield
     except Exception as exc:
         from live.ssl_util import format_tinvest_error
 
@@ -347,6 +353,27 @@ def trade_desk(
             mark_td = dealer.get("asof_msk") or mark_td
 
         open_raw = store.get_open_trade()
+        broker_pnl = None
+        if isinstance(broker, dict) and not broker.get("error"):
+            if isinstance(broker.get("leg_yield"), dict):
+                broker_pnl = broker["leg_yield"]
+            elif broker.get("expected_yield_rub") is not None:
+                broker_pnl = {"net_gross_rub": broker["expected_yield_rub"]}
+            if broker_pnl is None and pf is not None:
+                from live.tinvest import parse_spread_leg_broker_pnl
+
+                parsed = parse_spread_leg_broker_pnl(
+                    pf, (open_raw or {}).get("direction")
+                )
+                if parsed:
+                    broker_pnl = parsed
+                    broker = dict(broker)
+                    broker["expected_yield_rub"] = parsed["net_gross_rub"]
+                    broker["leg_yield"] = parsed
+                    with _BROKER_LOCK:
+                        if _BROKER_CACHE.get("broker") is not None:
+                            _BROKER_CACHE["broker"] = broker
+                            _BROKER_CACHE["pf"] = pf
         from live.spread_regime import desk_regime_payload, resolve_from_settings
         from live.spread_levels import desk_spread_levels_payload, parse_spread_level_mode
 
@@ -370,6 +397,7 @@ def trade_desk(
             tatnp_now=mark_tatnp,
             spread_level_mode=parse_spread_level_mode(settings),
             settings=settings,
+            broker_pnl=broker_pnl,
         )
 
         open_stats = None
@@ -402,8 +430,20 @@ def trade_desk(
         # Close forecast on lite too — UI polls lite most ticks; null wiped «Прогноз».
         if open_e:
             try:
-                from live.close_forecast import compute_close_forecast
+                from live.close_forecast import compute_close_forecast, quotes_from_dealer
 
+                # Lite polls: never ISS BID/OFFER (15s×2). Broker yield skips quotes anyway.
+                fc_quotes = None
+                if lite:
+                    fc_quotes = quotes_from_dealer(
+                        dealer if isinstance(dealer, dict) else None
+                    ) or {
+                        "ok": False,
+                        "tatn": {},
+                        "tatnp": {},
+                        "error": None,
+                        "source": "lite",
+                    }
                 close_forecast = compute_close_forecast(
                     open_e,
                     broker=broker if isinstance(broker, dict) else None,
@@ -412,6 +452,7 @@ def trade_desk(
                     trade_date=mark_td,
                     tatn_now=mark_tatn,
                     tatnp_now=mark_tatnp,
+                    quotes=fc_quotes,
                     dealer=dealer if isinstance(dealer, dict) else None,
                 )
             except Exception as fc_exc:

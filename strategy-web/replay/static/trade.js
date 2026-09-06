@@ -4642,10 +4642,14 @@
     const pnlCls = (m.unrealized_pnl_rub || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
     const netCls = (m.net_approx_rub || 0) >= 0 ? 'pnl-pos' : 'pnl-neg';
     const spreadEntry = m.fill_spread != null ? m.fill_spread : open.entry_spread;
-    const spreadLabel = m.pnl_source === 'broker_fills' ? 'Спред (fill→сейч)' : 'Спред';
-    const pnlNote = m.pnl_source === 'broker_fills'
-      ? 'по ценам Тинькофф'
-      : (String(barsMode) === 'dealer_1m' ? 'по спреду дилер 1м' : 'по спреду ISS');
+    const spreadLabel = m.pnl_source === 'tinkoff_expected_yield'
+      ? 'Спред'
+      : (m.pnl_source === 'broker_fills' ? 'Спред (fill→сейч)' : 'Спред');
+    const pnlNote = m.pnl_source === 'tinkoff_expected_yield'
+      ? 'PnL = expectedYield Тинькофф'
+      : (m.pnl_source === 'broker_fills'
+        ? 'по fill vs котировки (не брокер)'
+        : (String(barsMode) === 'dealer_1m' ? 'по спреду дилер 1м' : 'по спреду ISS'));
     const pathMm = computeOpenPathMinMax(open, bars || [], settings || {});
     const deposit = entryDepositRub(open, settings);
     const fundsNow = Number(lastGoodBroker?.total_rub);
@@ -4698,8 +4702,8 @@
       (atOpen != null
         ? `<span title="Сумма на счету на входе (база Чист.)">До</span><b>${fmt(atOpen, 0)} ₽</b>`
         : '') +
-      `<span>PnL ≈</span><b class="${pnlCls}">${fmtPnlWithDepositPct(m.unrealized_pnl_rub, deposit)}</b>` +
-      `<span>Нетто ≈</span><b class="${netCls}">${fmtPnlWithDepositPct(m.net_approx_rub, deposit)}</b>` +
+      `<span>PnL</span><b class="${pnlCls}">${fmtPnlWithDepositPct(m.unrealized_pnl_rub, deposit)}</b>` +
+      `<span>Нетто</span><b class="${netCls}">${fmtPnlWithDepositPct(m.net_approx_rub, deposit)}</b>` +
       `<span>Min</span><b class="${minLine.cls}">${minLine.text}</b>` +
       `<span>Max</span><b class="${maxLine.cls}">${maxLine.text}</b>` +
       `<span>Овн</span><b>${fmtRub(m.overnight_rub)} · ${m.overnight_days || 0}д</b>` +
@@ -5478,6 +5482,10 @@
 
   function openProfitRub(open) {
     const mark = (open && open.mark) || {};
+    const yieldRub = Number(mark.expected_yield_rub);
+    if (Number.isFinite(yieldRub) && mark.pnl_source === 'tinkoff_expected_yield') {
+      return yieldRub;
+    }
     const mtm = Number(mark.unrealized_pnl_rub);
     if (Number.isFinite(mtm)) return mtm;
     const net = Number(mark.net_approx_rub);
@@ -5818,7 +5826,17 @@
     let primaryDelta = null;
     let pctBase = depositBase;
     let usedMarkFallback = false;
-    if (forecastRub != null && equityOpenRub != null) {
+    const brokerYield = Number(
+      fc?.expected_yield_rub
+      ?? open?.mark?.expected_yield_rub
+      ?? ((open?.mark?.pnl_source === 'tinkoff_expected_yield')
+        ? open?.mark?.unrealized_pnl_rub
+        : null),
+    );
+    if (Number.isFinite(brokerYield)) {
+      // Same number as APK / T‑Invest: Σ expectedYield, not forecast−«До».
+      primaryDelta = Math.round(brokerYield);
+    } else if (forecastRub != null && equityOpenRub != null) {
       primaryDelta = forecastRub - equityOpenRub;
     } else {
       const markNet = openProfitRub(open);
