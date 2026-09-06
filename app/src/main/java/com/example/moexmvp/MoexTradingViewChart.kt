@@ -5,6 +5,8 @@ import android.content.Context
 import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.util.Base64
+import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
@@ -311,6 +313,7 @@ internal fun buildTradingViewChartPayloadJson(
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
     formingBar: MarketsFormingBarHint? = null,
+    spreadChart: Boolean = false,
 ): String {
     val candleArr = JSONArray()
     val seenTimes = linkedSetOf<Long>()
@@ -467,6 +470,10 @@ internal fun buildTradingViewChartPayloadJson(
                 .put("baseCloseZ", hint.baseCloseZ ?: JSONObject.NULL),
         )
     }
+    if (spreadChart) {
+        root.put("spreadChart", true)
+        root.put("lastPriceLineColor", "#FACC15")
+    }
     return root.toString()
 }
 
@@ -585,6 +592,30 @@ private fun pushTradingViewPayload(webView: WebView, payloadJson: String) {
     )
 }
 
+/**
+ * WebView графика внутри verticalScroll: без disallowIntercept родитель
+ * ворует ACTION_MOVE и срывает pan/pinch (график «прыгает» к last bar).
+ */
+internal class ChartTouchWebView(context: Context) : WebView(context) {
+    init {
+        isNestedScrollingEnabled = false
+        overScrollMode = View.OVER_SCROLL_NEVER
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN,
+            MotionEvent.ACTION_POINTER_DOWN,
+            MotionEvent.ACTION_MOVE -> parent?.requestDisallowInterceptTouchEvent(true)
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_CANCEL -> {
+                if (event.pointerCount <= 1) parent?.requestDisallowInterceptTouchEvent(false)
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal fun TradingViewZScoreChart(
@@ -608,7 +639,7 @@ internal fun TradingViewZScoreChart(
 
     AndroidView(
         factory = { ctx ->
-            WebView(ctx).apply {
+            ChartTouchWebView(ctx).apply {
                 webViewRef = this
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -619,6 +650,9 @@ internal fun TradingViewZScoreChart(
                 settings.domStorageEnabled = true
                 settings.allowFileAccess = true
                 settings.allowContentAccess = true
+                settings.setSupportZoom(false)
+                settings.builtInZoomControls = false
+                settings.displayZoomControls = false
                 settings.cacheMode = WebSettings.LOAD_NO_CACHE
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
                     @Suppress("DEPRECATION")
@@ -688,6 +722,7 @@ internal fun TradingViewZScoreChartCard(
     formingBarHint: MarketsFormingBarHint? = null,
     formingBarHintText: String? = null,
     showOhlcLegend: Boolean = false,
+    spreadChart: Boolean = false,
 ) {
     if (candles.isEmpty()) return
     var ohlcLegendText by remember {
@@ -715,6 +750,7 @@ internal fun TradingViewZScoreChartCard(
         initialWindowStart,
         areaFillColor,
         formingBarHint,
+        spreadChart,
     ) {
         buildTradingViewChartPayloadJson(
             candles = candles,
@@ -729,6 +765,7 @@ internal fun TradingViewZScoreChartCard(
             initialWindowStart = initialWindowStart,
             areaFillColor = areaFillColor,
             formingBar = formingBarHint,
+            spreadChart = spreadChart,
         )
     }
     Column(

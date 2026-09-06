@@ -1,0 +1,50 @@
+---
+description: После любой правки Android — сборка APK и уведомление об обновлении в приложении
+alwaysApply: true
+---
+
+# Android — всегда собирать APK и публиковать обновление
+
+После **любой** правки Android MVP агент обязан довести цепочку до конца: пользователь с установленной старой сборкой должен получить **push + диалог обновления** и иметь возможность скачать/установить новую версию.
+
+## Когда срабатывает
+
+Любые изменения: `app/`, `app/build.gradle.kts`, `MoexConstants.kt`, Android-ресурсы, keystore, workflow APK.
+
+## Обязательный порядок
+
+1. **Версия** — bump `versionCode` / `versionName` в `app/build.gradle.kts` и новая строка в `APP_CHANGELOG` (`MoexConstants.kt`). Без этого уведомление не сработает.
+2. **Сборка** — агент **сам** запускает `.\gradlew.bat :app:assembleDebug` (Windows) или `./gradlew :app:assembleDebug` (Unix). Не просить пользователя собрать APK.
+3. **Манифест обновления** — обновить `app-update.json` в корне репозитория:
+   ```json
+   {"versionCode":<N>,"versionName":"<X.Y.Z>","apkUrl":"https://raw.githubusercontent.com/dimonix2019/111/gh-pages/moexmvp-debug.apk"}
+   ```
+   `versionCode` должен быть **строго больше** установленной у пользователя сборки.
+4. **APK** — скопировать `app/build/outputs/apk/debug/app-debug.apk` → `moexmvp-debug.apk` в корне (для локальной проверки и ручной публикации).
+5. **Публикация** — обеспечить доступность на rolling release:
+   - URL APK: https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk
+   - Release tag: `moexmvp-debug-latest` (assets: `moexmvp-debug.apk` + `app-update.json`)
+   - Зеркало gh-pages: `gh-pages` ветка с теми же файлами (приложение читает `app-update.json` оттуда и с Release)
+   - Предпочтительно: push на `cursor/*` с новым `versionCode` → CI `.github/workflows/build-apk.yml` опубликует сам
+   - Если CI ещё не успел: `gh release delete moexmvp-debug-latest --yes` + `gh release create moexmvp-debug-latest moexmvp-debug.apk app-update.json` (или `workflow_dispatch`)
+6. **Коммит + push** на feature-ветку (`cursor/android-*`), PR — см. `android-always-pr.mdc`.
+
+## Как работает уведомление в приложении
+
+- Kotlin: `MoexAppUpdate.kt` — fetch `app-update.json` (Release + gh-pages), сравнение `remote.versionCode > BuildConfig.VERSION_CODE`
+- Фон: `checkRemoteAppUpdateAndNotify` → push (раз на versionCode) + диалог при открытом UI
+- UI: `MoexAppUpdateUi.kt`, вкладка «О приложении», кнопка «Проверить обновление»
+- In-app загрузка APK с gh-pages; fallback — браузер / Release URL
+
+## В ответе пользователю (обязательно)
+
+- `versionName` / `versionCode`
+- Результат сборки (успех / ошибка)
+- Обновлён ли `app-update.json` и опубликован ли release
+- Ссылка APK: https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/moexmvp-debug.apk
+
+## Запрещено
+
+- Оставлять правки без `assembleDebug` (если среда позволяет)
+- Bump версии в Gradle без обновления `app-update.json` / публикации release
+- Просить пользователя «соберите сами» вместо агента

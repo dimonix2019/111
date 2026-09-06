@@ -3,9 +3,11 @@ package com.example.moexmvp
 import android.content.Context
 import java.util.Locale
 
-/** Пороги входа спреда (как на рабочем столе: Long узкий, Short широкий). */
+/** Пороги входа/выхода спреда (как на рабочем столе). */
 internal const val DEFAULT_SPREAD_ENTER_NARROW = 3.2
 internal const val DEFAULT_SPREAD_ENTER_WIDE = 6.1
+internal const val DEFAULT_SPREAD_EXIT_NARROW = 4.0
+internal const val DEFAULT_SPREAD_EXIT_WIDE = 5.8
 
 private const val ENTRY_ALERT_PREFS = "moex_entry_level_alerts"
 private const val KEY_LONG_ENABLED = "long_enabled"

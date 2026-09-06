@@ -142,6 +142,10 @@ internal fun MoexScreenTabPortfolio(
                                         refreshPortfolio(null)
                                         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                     } catch (e: Exception) {
+                                        if (e is PartialCloseIncompleteException) {
+                                            partialCloseAlert = e.summary
+                                            partialCloseAlertTradeId = e.tradeId
+                                        }
                                         Toast.makeText(
                                             context,
                                             e.message?.take(200) ?: e.javaClass.simpleName,

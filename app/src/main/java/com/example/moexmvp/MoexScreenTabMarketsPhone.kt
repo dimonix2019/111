@@ -33,12 +33,12 @@ import java.util.Locale
 private const val MARKETS_PHONE_SPREAD_POLL_MS = 30_000L
 private const val MARKETS_PHONE_CHART_HEIGHT_DP = 280
 
-/** Уровни спреда % (Short 6.1/5.8 · Long 3.2/4.0) — только визуализация. */
-private val MARKETS_PHONE_SPREAD_LEVEL_LINES = listOf(
-    ChartReferenceLine(DEFAULT_SPREAD_ENTER_WIDE, Color(0xFF2962FF), "S вх 6,1"),
-    ChartReferenceLine(5.8, Color(0xFF26A69A), "S вых 5,8"),
-    ChartReferenceLine(4.0, Color(0xFF26A69A), "L вых 4"),
-    ChartReferenceLine(DEFAULT_SPREAD_ENTER_NARROW, Color(0xFF2962FF), "L вх 3,2"),
+private data class MarketsPhoneChartState(
+    val overlay: ZChartPortfolioOverlay,
+    val openSide: ZStrategyPosition?,
+    val openEntrySpread: Double?,
+    val openDepositRub: Double?,
+    val openNotionalRub: Double?,
 )
 
 /**
@@ -120,15 +120,28 @@ internal fun MoexScreenTabMarketsPhone(
     val weekStartMs = remember {
         currentWeekMondayMsk().atStartOfDay(moexZoneId).toInstant().toEpochMilli()
     }
-    val chartOverlay by produceState(
-        initialValue = ZChartPortfolioOverlay(emptyList(), emptyList()),
+    val chartState by produceState(
+        initialValue = MarketsPhoneChartState(
+            ZChartPortfolioOverlay(emptyList(), emptyList()),
+            null,
+            null,
+            null,
+            null,
+        ),
         markerPoints,
         screen.sandboxSpreadExecReload,
         screen.portfolioLeverage,
         screen.portfolioCommissionPercent,
+        brokerSide,
     ) {
         if (markerPoints.size < 2) {
-            value = ZChartPortfolioOverlay(emptyList(), emptyList())
+            value = MarketsPhoneChartState(
+                ZChartPortfolioOverlay(emptyList(), emptyList()),
+                null,
+                null,
+                null,
+                null,
+            )
             return@produceState
         }
         value = withContext(Dispatchers.IO) {
@@ -154,15 +167,27 @@ internal fun MoexScreenTabMarketsPhone(
             ).map { marker ->
                 marker.copy(value = markerPoints.getOrNull(marker.index)?.zScore ?: marker.value)
             }
-            ZChartPortfolioOverlay(
-                markers = spreadMarkers,
-                tradeSegments = remapTradingViewTradeSegmentsToDisplayValues(
-                    buildTradingViewTradeSegments(weekOpens, weekClosed, markerPoints),
-                    markerPoints,
+            val openExec = weekOpens.firstOrNull {
+                it.signalType == StrategySignalType.EnterLong ||
+                    it.signalType == StrategySignalType.EnterShort
+            }
+            MarketsPhoneChartState(
+                overlay = ZChartPortfolioOverlay(
+                    markers = spreadMarkers,
+                    tradeSegments = remapTradingViewTradeSegmentsToDisplayValues(
+                        buildTradingViewTradeSegments(weekOpens, weekClosed, markerPoints),
+                        markerPoints,
+                    ),
                 ),
+                openSide = resolveMarketsSpreadChartOpenSide(weekOpens, brokerSide),
+                openEntrySpread = openExec?.entrySpreadPercent,
+                openDepositRub = openExec?.entryPortfolioTotalRub?.takeIf { it > 0 }
+                    ?: openExec?.entryPortfolioCashRub?.takeIf { it > 0 },
+                openNotionalRub = openExec?.executionNotionalRub?.takeIf { it > 0 },
             )
         }
     }
+    val chartOverlay = chartState.overlay
 
     val window = remember(candles.size) {
         intraday1mChartInitialWindow(candles.size, visibleBars = 240)
@@ -176,17 +201,18 @@ internal fun MoexScreenTabMarketsPhone(
     val spreadText = lastSpread?.let {
         String.format(Locale("ru", "RU"), "%.2f%%", it)
     } ?: "—"
-    val spreadRefs = remember(lastSpread) {
-        val cur = lastSpread?.takeIf { it.isFinite() }?.let {
-            ChartReferenceLine(
-                value = it,
-                color = Color(0xFFF0B90B),
-                label = String.format(Locale("ru", "RU"), "%.2f", it),
-                dashOnPx = 6f,
-                dashOffPx = 6f,
-            )
-        }
-        if (cur != null) MARKETS_PHONE_SPREAD_LEVEL_LINES + cur else MARKETS_PHONE_SPREAD_LEVEL_LINES
+    val spreadRefs = remember(
+        chartState.openSide,
+        chartState.openEntrySpread,
+        chartState.openDepositRub,
+        chartState.openNotionalRub,
+    ) {
+        buildMarketsSpreadChartReferenceLines(
+            openSide = chartState.openSide,
+            openEntrySpread = chartState.openEntrySpread,
+            depositRub = chartState.openDepositRub,
+            notionalRub = chartState.openNotionalRub,
+        )
     }
     Column(
         modifier = modifier
@@ -214,6 +240,7 @@ internal fun MoexScreenTabMarketsPhone(
             TradingViewZScoreChartCard(
                 title = "Спред TATN/TATNP, % · 1м · неделя (TradingView)",
                 showOhlcLegend = true,
+                spreadChart = true,
                 candles = candles,
                 displayPoints = markerPoints,
                 chartHeightDp = MARKETS_PHONE_CHART_HEIGHT_DP,
