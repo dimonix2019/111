@@ -116,6 +116,35 @@ def adverse_entry_slip_pts(
     return None
 
 
+def adverse_exit_slip_pts(
+    direction: str | None,
+    signal_spread: float | None,
+    fill_spread: float | None,
+) -> float | None:
+    """Adverse slip на выходе (п.п.): Long = signal−fill, Short = fill−signal."""
+    if signal_spread is None or fill_spread is None:
+        return None
+    try:
+        sig = float(signal_spread)
+        fill = float(fill_spread)
+    except (TypeError, ValueError):
+        return None
+    d = (direction or "").upper()
+    if d == "LONG":
+        return sig - fill
+    if d == "SHORT":
+        return fill - sig
+    return None
+
+
+def spread_from_fill_legs(legs: list[dict[str, Any]] | None) -> float | None:
+    """Spread % from broker exit legs (TATN/TATNP fill prices)."""
+    tatn, tatnp = fill_prices_from_legs({"legs_json": json.dumps(legs or [], ensure_ascii=False)})
+    if tatn is None or tatnp is None or tatnp <= 0:
+        return None
+    return (tatn - tatnp) / tatnp * 100.0
+
+
 def pick_iss_spread_for_slip(
     *,
     snap_spread: float | None,
@@ -499,4 +528,13 @@ def enrich_open_trade(
         "tatn_now": tn_now,
         "tatnp_now": tp_now,
     }
+    pc_status = open_t.get("partial_close_status")
+    if pc_status:
+        out["partial_close"] = {
+            "status": pc_status,
+            "attempts": int(open_t.get("partial_close_attempts") or 0),
+            "filled_lots": open_t.get("partial_close_filled_lots"),
+            "total_lots": lots,
+            "detail": open_t.get("partial_close_detail"),
+        }
     return out

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from live.constants import (
+    DEFAULT_EXIT_SLIPPAGE_MAX_PTS,
     DEFAULT_Z_ENTRY,
     DEFAULT_Z_EXIT,
     MONITOR_CATCHUP_MAX_EDGES,
@@ -56,7 +57,8 @@ from live.spread_levels import (
     parse_spread_level_mode,
 )
 from live import store
-from live.tinvest import TInvestClient
+from live.tinvest import TInvestClient, spread_legs_fill_issues
+from live.partial_close import is_partial_close_in_progress, retry_partial_spread_exit
 
 log = logging.getLogger(__name__)
 
@@ -107,11 +109,24 @@ def _tip_trade_date_weekend(trade_date: str) -> bool | None:
     return dt.weekday() >= 5
 
 
+def _weekend_trading_enabled() -> bool:
+    return (store.get_setting("weekend_trading", "0") or "0") == "1"
+
+
+def _disable_auto_after_exit_failure(reason: str) -> None:
+    """Turn off AUTO until user re-enables after a failed exit guard."""
+    if (store.get_setting("auto_execute", "0") or "0") == "1":
+        store.set_setting("auto_execute", "0")
+        store.log_event(f"AUTO отключён: {reason}", "error")
+
+
 def _auto_orders_allowed(tip: dict[str, Any] | None = None) -> bool:
-    """AUTO/AUTO_TP: будни 07:00–23:50; сб/вс — дилерский бар, без отсечки 10:00."""
+    """AUTO/AUTO_TP: будни 07:00–23:50; сб/вс только при weekend_trading=1."""
     from live.dealer_quotes import is_msk_auto_session, is_msk_weekend
 
     if not is_msk_auto_session():
+        return False
+    if is_msk_weekend() and not _weekend_trading_enabled():
         return False
     if not isinstance(tip, dict):
         return True
@@ -120,7 +135,7 @@ def _auto_orders_allowed(tip: dict[str, Any] | None = None) -> bool:
         return True
     tip_we = _tip_trade_date_weekend(td)
     if is_msk_weekend():
-        return tip_we is True
+        return tip_we is True and _weekend_trading_enabled()
     if tip_we:
         return False
     return is_moex_equity_session_bar(td)
@@ -335,6 +350,11 @@ def open_position(
         raise RuntimeError("Нужны токен и accountId")
     open_t = store.get_open_trade()
     if open_t:
+        if is_partial_close_in_progress(open_t):
+            raise RuntimeError(
+                f"Идёт частичное закрытие #{open_t['id']} "
+                f"(попытка {open_t.get('partial_close_attempts') or 0}/5)"
+            )
         raise RuntimeError(f"Уже есть открытая позиция #{open_t['id']} ({open_t['direction']})")
     client = TInvestClient(mode, token)
     sizing = resolve_lots(client, account)
@@ -481,13 +501,129 @@ def close_position(
     if not open_t:
         raise RuntimeError("Нет открытой позиции")
     client = TInvestClient(mode, token)
+    qty_lots = int(open_t["quantity_lots"])
     legs = client.execute_spread_exit(
         account,
         open_t["entry_signal"] or open_t["direction"],
-        int(open_t["quantity_lots"]),
+        qty_lots,
     )
-    snap = market_snapshot()
+    fill_issues = spread_legs_fill_issues(legs, qty_lots)
+    if fill_issues:
+        legs, closed_ok = retry_partial_spread_exit(
+            client,
+            account,
+            open_t,
+            legs,
+            source=source,
+            market_snapshot_fn=market_snapshot,
+        )
+        open_t = store.get_open_trade() or open_t
+        fill_issues = spread_legs_fill_issues(legs, qty_lots)
+        if not closed_ok:
+            detail = "; ".join(fill_issues) if fill_issues else (
+                str(open_t.get("partial_close_detail") or "остаток на брокере")
+            )
+            store.log_event(
+                f"ВЫХОД #{open_t['id']} НЕ ЗАКРЫТ — неполное исполнение: {detail}",
+                "error",
+            )
+            if _is_auto_source(source):
+                _disable_auto_after_exit_failure(f"неполное исполнение выхода ({detail})")
+            raise RuntimeError(f"Неполное исполнение выхода: {detail}")
+        if fill_issues:
+            try:
+                pf_chk = client.get_portfolio(account)
+                if not client.detect_spread_position(pf_chk):
+                    fill_issues = []
+            except Exception:
+                pass
+        if fill_issues:
+            detail = "; ".join(fill_issues)
+            store.log_event(
+                f"ВЫХОД #{open_t['id']} НЕ ЗАКРЫТ — неполное исполнение: {detail}",
+                "error",
+            )
+            if _is_auto_source(source):
+                _disable_auto_after_exit_failure(f"неполное исполнение выхода ({detail})")
+            raise RuntimeError(f"Неполное исполнение выхода: {detail}")
+
+    from live.open_mark import adverse_exit_slip_pts, spread_from_fill_legs
+
     sig = signal_bar if isinstance(signal_bar, dict) else {}
+    fill_spread = spread_from_fill_legs(legs)
+    direction = str(open_t.get("direction") or "")
+    try:
+        max_slip = float(
+            store.get_setting("exit_slippage_max_pts", str(DEFAULT_EXIT_SLIPPAGE_MAX_PTS))
+            or DEFAULT_EXIT_SLIPPAGE_MAX_PTS
+        )
+    except (TypeError, ValueError):
+        max_slip = DEFAULT_EXIT_SLIPPAGE_MAX_PTS
+
+    if _is_auto_source(source) and fill_spread is not None:
+        sig_sp = sig.get("spreadPercent")
+        if sig_sp is None:
+            sig_sp = sig.get("spread")
+        slip_vs_signal = adverse_exit_slip_pts(direction, sig_sp, fill_spread)
+        if slip_vs_signal is not None and slip_vs_signal > max_slip:
+            detail = (
+                f"проскальзывание {slip_vs_signal:.2f} п.п. "
+                f"(сигнал {float(sig_sp):.2f}% → fill {fill_spread:.2f}%, порог {max_slip:.2f})"
+            )
+            store.log_event(
+                f"ВЫХОД #{open_t['id']} НЕ ЗАКРЫТ — {detail}",
+                "error",
+            )
+            _disable_auto_after_exit_failure(detail)
+            raise RuntimeError(f"Выход отменён: {detail}")
+
+        entry_sp = open_t.get("entry_spread")
+        if entry_sp is not None:
+            try:
+                es = float(entry_sp)
+                fs = float(fill_spread)
+                d = direction.upper()
+                pnl_pts = (fs - es) if d == "LONG" else (es - fs)
+                if pnl_pts < -max_slip:
+                    detail = (
+                        f"fill хуже входа на {abs(pnl_pts):.2f} п.п. "
+                        f"(вход {es:.2f}% → fill {fs:.2f}%)"
+                    )
+                    store.log_event(
+                        f"ВЫХОД #{open_t['id']} НЕ ЗАКРЫТ — {detail}",
+                        "error",
+                    )
+                    _disable_auto_after_exit_failure(detail)
+                    raise RuntimeError(f"Выход отменён: {detail}")
+            except (TypeError, ValueError):
+                pass
+
+    try:
+        pf_after = client.get_portfolio(account)
+        remaining = client.detect_spread_position(pf_after)
+        if remaining:
+            rem_lots = remaining.get("quantity_lots")
+            rem_dir = remaining.get("direction") or "?"
+            detail = f"{rem_dir} {rem_lots} лот"
+            store.log_event(
+                f"ВЫХОД #{open_t['id']} НЕ ЗАКРЫТ — на брокере ещё спред: {detail}",
+                "error",
+            )
+            if _is_auto_source(source):
+                _disable_auto_after_exit_failure(f"брокер не flat ({detail})")
+            raise RuntimeError(f"На брокере осталась позиция: {detail}")
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        if _is_auto_source(source):
+            store.log_event(
+                f"ВЫХОД #{open_t['id']} — не удалось проверить flat: {exc}",
+                "error",
+            )
+            _disable_auto_after_exit_failure(f"reconcile после выхода: {exc}")
+            raise RuntimeError(f"Не удалось проверить flat после выхода: {exc}") from exc
+
+    snap = market_snapshot()
     from live.closed_metrics import coerce_exit_after_entry, exit_time_from_broker_legs
 
     # History/parity: exit_time = signal bar (Test alignment). Broker fill kept separate.
@@ -829,10 +965,28 @@ def _auto_execute_signal(
     if not _auto_orders_allowed(bar if isinstance(bar, dict) else None):
         store.log_event(
             f"AUTO пропуск {signal.value} @ {str((bar or {}).get('tradeDate') or '')[:16]}: "
-            "вне сессии TQBR",
+            + (
+                "выходные (weekend_trading выкл)"
+                if _tip_trade_date_weekend(str((bar or {}).get("tradeDate") or ""))
+                else "вне сессии TQBR"
+            ),
             "warn",
         )
-        return f" · skip {signal.value} (off TQBR)"
+        skip_reason = (
+            "weekend off"
+            if _tip_trade_date_weekend(str((bar or {}).get("tradeDate") or ""))
+            else "off TQBR"
+        )
+        return f" · skip {signal.value} ({skip_reason})"
+
+    open_t_pc = store.get_open_trade()
+    if signal in (Signal.ENTER_LONG, Signal.ENTER_SHORT) and is_partial_close_in_progress(open_t_pc):
+        store.log_event(
+            f"AUTO пропуск {signal.value}: частичное закрытие #{open_t_pc.get('id')} "
+            f"(попытка {open_t_pc.get('partial_close_attempts') or 0}/5)",
+            "warn",
+        )
+        return f" · skip {signal.value} (partial close)"
 
     if signal in (Signal.ENTER_LONG, Signal.ENTER_SHORT) and prev_bar is not None:
         prev_sp = prev_bar.get("spreadPercent")
@@ -1117,9 +1271,14 @@ def _maybe_tp_exit_on_tip(
 
     if auto and not _auto_orders_allowed(tip if isinstance(tip, dict) else None):
         cur_td = str(tip.get("tradeDate") or "")
+        reason = (
+            "выходные (weekend_trading выкл)"
+            if _tip_trade_date_weekend(cur_td)
+            else "вне сессии TQBR"
+        )
         store.log_event(
             f"AUTO_TP пропуск {pos.value} @ {cur_td[:16] if cur_td else '—'} "
-            f"(вне сессии TQBR — не закрываем)",
+            f"({reason} — не закрываем)",
             "warn",
         )
         return msg, False

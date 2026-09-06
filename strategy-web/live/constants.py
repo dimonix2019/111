@@ -76,6 +76,10 @@ SIGNAL_MODE_TIP1M = "tip1m"
 # Take-profit % of deposit (0=off). Same options as Testing tip1m.
 DEFAULT_TAKE_PROFIT_PCT = 0.0
 TAKE_PROFIT_PCT_CHOICES = (0.0, 1.0, 2.0, 3.0)
+# Prod AUTO on Sat/Sun (dealer OTC) — off by default after Sep-2026 weekend losses.
+DEFAULT_WEEKEND_TRADING = False
+# Max adverse exit slip (p.p. spread vs signal bar) before aborting AUTO close.
+DEFAULT_EXIT_SLIPPAGE_MAX_PTS = 0.20
 
 SPREAD_LOT_RESERVE_CASH_FRACTION = 0.25
 SPREAD_LOT_RESERVE_MIN_RUB = 2_000.0

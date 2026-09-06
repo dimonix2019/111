@@ -21,6 +21,7 @@ class PortfolioParamsBody(BaseModel):
     exit_z: float | None = None
     leverage: float | None = None
     auto_execute: bool | None = None
+    weekend_trading: bool | None = None
     entry_deposit_rub: float | None = None
     take_profit_pct: float | None = None
     regime_z_mode: bool | None = None
@@ -322,6 +323,8 @@ def save_portfolio_params(body: PortfolioParamsBody) -> dict[str, Any]:
         )
     if body.auto_execute is not None:
         store.set_setting("auto_execute", "1" if body.auto_execute else "0")
+    if body.weekend_trading is not None:
+        store.set_setting("weekend_trading", "1" if body.weekend_trading else "0")
     if body.regime_z_mode is not None:
         store.set_setting("regime_z_mode", "1" if body.regime_z_mode else "0")
     if body.spread_level_mode is not None:

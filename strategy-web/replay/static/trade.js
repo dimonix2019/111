@@ -4749,9 +4749,22 @@
     const commentHtml = entryComment
       ? `<div class="trade-open-comment"><span class="trade-open-comment-label">Комментарий</span>${escapeHtml(entryComment)}</div>`
       : '';
+    const pc = open.partial_close || {};
+    const pcStatus = String(pc.status || '');
+    const pcFilled = pc.filled_lots != null ? Number(pc.filled_lots) : null;
+    const pcTotal = pc.total_lots != null ? Number(pc.total_lots) : Number(open.quantity_lots) || 0;
+    const pcAttempts = pc.attempts != null ? Number(pc.attempts) : 0;
+    const partialCloseHtml = (pcStatus === 'in_progress' || pcStatus === 'failed')
+      ? `<div class="trade-partial-close-alert" role="alert">` +
+        `Закрытие неполное: ${pcFilled != null ? pcFilled : '?'}/${pcTotal}` +
+        ` · попытка ${pcAttempts}/5` +
+        (pc.detail ? ` · ${escapeHtml(String(pc.detail))}` : '') +
+        `</div>`
+      : '';
     box.innerHTML =
       `<div class="${dirCls}">${escapeHtml(String(open.direction || ''))} · ${open.quantity_lots}+${open.quantity_lots} лот${srcBadge}</div>` +
       manualPlaque +
+      partialCloseHtml +
       commentHtml +
       (profitHit
         ? `<div class="trade-profit-alert" role="status">Прибыль ≥${PROFIT_ALERT_PCT}% ${depLabel}</div>`

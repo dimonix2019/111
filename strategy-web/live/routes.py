@@ -25,6 +25,7 @@ class CredentialsBody(BaseModel):
 class SettingsBody(BaseModel):
     mode: str | None = None
     auto_execute: bool | None = None
+    weekend_trading: bool | None = None
     entry_z: float | None = None
     exit_z: float | None = None
     leverage: float | None = None
@@ -169,6 +170,8 @@ def save_settings(body: SettingsBody) -> dict[str, Any]:
         store.set_setting("execution_mode", "prod" if body.mode == "prod" else "sandbox")
     if body.auto_execute is not None:
         store.set_setting("auto_execute", "1" if body.auto_execute else "0")
+    if body.weekend_trading is not None:
+        store.set_setting("weekend_trading", "1" if body.weekend_trading else "0")
     if body.entry_z is not None:
         store.set_setting("entry_z", str(body.entry_z))
     if body.exit_z is not None:

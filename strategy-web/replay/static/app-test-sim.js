@@ -310,56 +310,23 @@
     }
   }
 
-
-  function thinTip1mBarsForChart(bars) {
-    const raw = Array.isArray(bars) ? bars : [];
-    const n = raw.length;
-    if (n <= TIP1M_CHART_MAX_POINTS) {
-      return { bars: raw, stepMin: 1 };
-    }
-    let minutes = 5;
-    if (Math.ceil(n / 5) > TIP1M_CHART_MAX_POINTS) minutes = 15;
-    if (Math.ceil(n / 15) > TIP1M_CHART_MAX_POINTS) minutes = 30;
-    return { bars: D().aggregateTipBarsByMinutes(raw, minutes), stepMin: minutes };
-  }
-
-  function tip1mBarsRequestKey() {
-    return [
-      D().$('csvSel')?.value || '',
-      D().$('startDate')?.value || '',
-      D().readWindowEndYmd(),
-      String(D().tip1mChartDaysWanted()),
-      'final',
-    ].join('|');
-  }
-
-  function tip1mWindowSpanDays() {
-    const start = $('startDate')?.value || '';
-    const startMs = startYmdToMs(start);
-    if (!Number.isFinite(startMs)) return 0;
-    const endYmd = readWindowEndYmd();
-    const endMs = Number.isFinite(endYmdToMs(endYmd)) ? endYmdToMs(endYmd) : Date.now();
-    return Math.max(1, Math.ceil((endMs - startMs) / 86_400_000) + 1);
-  }
-
-  function tip1mFetchTimeoutMs(csv, chartDays) {
-    const name = String(csv || '');
-    const d = Number(chartDays) || 0;
-    const span = d > 0 ? d : tip1mWindowSpanDays();
-    // CSV «3 года» + окно 3мес не должен брать 90с refresh MOEX.
-    if (span > 0 && span < 200) return 180000;
-    if (name.includes('1095') || /_3y/i.test(name) || span >= 900) return 90000;
-    if (name.includes('365') || span >= 300) return 60000;
-    return 45000;
-  }
-
   function scheduleTipSimFetch({ immediate = false } = {}) {
+    if (!D().isTip1mMode()) return;
+    if (D().tipSimTimer) clearTimeout(D().tipSimTimer);
+    const delay = immediate ? 0 : 160;
+    D().tipSimTimer = setTimeout(() => {
+      D().tipSimTimer = null;
+      fetchTipSim().catch(() => {});
+    }, delay);
+  }
+
   global.__TradeDesk = global.__TradeDesk || { deps: {} };
   global.__TradeDesk.sim = {
     pollTipSimJob: pollTipSimJob,
     tip1mSimTimeoutMs: tip1mSimTimeoutMs,
     loadTip1mChartBars: loadTip1mChartBars,
     ensureTestDeskCorridor: ensureTestDeskCorridor,
-    fetchTipSim: fetchTipSim
+    fetchTipSim: fetchTipSim,
+    scheduleTipSimFetch: scheduleTipSimFetch,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

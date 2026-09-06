@@ -280,6 +280,62 @@ def _find_nested_money(obj: Any, keys: list[str], depth: int = 0) -> dict[str, A
     return None
 
 
+_SPREAD_LEG_MAX_ATTEMPTS = 5
+
+
+def _order_field_int(order: dict[str, Any], *keys: str) -> int:
+    for key in keys:
+        raw = order.get(key)
+        if raw is None:
+            continue
+        try:
+            return max(0, int(str(raw).strip()))
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def order_execution_status(order: dict[str, Any]) -> str:
+    raw = order.get("executionReportStatus") or order.get("execution_report_status") or ""
+    return str(raw).strip().upper()
+
+
+def order_fully_filled(order: dict[str, Any], expected_lots: int | None = None) -> bool:
+    if not isinstance(order, dict):
+        return False
+    requested = _order_field_int(order, "lotsRequested", "lots_requested")
+    executed = _order_field_int(order, "lotsExecuted", "lots_executed")
+    target = max(requested, int(expected_lots or 0))
+    if target <= 0:
+        return False
+    status = order_execution_status(order)
+    if "PARTIAL" in status:
+        return executed >= target
+    if status.endswith("_FILL") or status == "FILL":
+        return executed >= target
+    return executed >= target and executed > 0
+
+
+def spread_legs_fill_issues(legs: list[dict[str, Any]], expected_lots: int) -> list[str]:
+    """Return human-readable issues when any spread leg is not fully filled."""
+    issues: list[str] = []
+    qty = max(1, int(expected_lots))
+    for leg in legs or []:
+        if not isinstance(leg, dict):
+            issues.append("неверная нога")
+            continue
+        order = leg.get("order") if isinstance(leg.get("order"), dict) else {}
+        ticker = str(leg.get("ticker") or "?")
+        executed = _order_field_int(order, "lotsExecuted", "lots_executed")
+        status = order_execution_status(order) or "NO_STATUS"
+        if order_fully_filled(order, qty):
+            continue
+        short = max(0, qty - executed)
+        tail = f" (остаток {short})" if short else ""
+        issues.append(f"{ticker} {status} {executed}/{qty}{tail}")
+    return issues
+
+
 class TInvestClient:
     def __init__(self, mode: str, token: str):
         self.mode = "prod" if mode == "prod" else "sandbox"
@@ -948,6 +1004,53 @@ class TInvestClient:
             ]
         raise RuntimeError("Только ENTER_LONG / ENTER_SHORT")
 
+    def _execute_spread_leg(
+        self,
+        account_id: str,
+        *,
+        ticker: str,
+        iid: str,
+        direction: str,
+        buy_leg: bool,
+        qty: int,
+    ) -> dict[str, Any]:
+        remaining = max(1, qty)
+        total_executed = 0
+        orders: list[dict[str, Any]] = []
+        for _ in range(_SPREAD_LEG_MAX_ATTEMPTS):
+            if remaining <= 0:
+                break
+            order = self.post_market_order(account_id, iid, direction, remaining)
+            orders.append(order)
+            executed = _order_field_int(order, "lotsExecuted", "lots_executed")
+            if executed <= 0:
+                break
+            total_executed += executed
+            remaining = max(0, qty - total_executed)
+            if remaining <= 0:
+                break
+        pf = None
+        try:
+            pf = self.get_portfolio(account_id)
+        except Exception:
+            pass
+        primary = dict(orders[-1]) if orders else {}
+        if orders:
+            primary["lotsRequested"] = str(qty)
+            primary["lotsExecuted"] = str(total_executed)
+            if total_executed >= qty:
+                primary["executionReportStatus"] = "EXECUTION_REPORT_STATUS_FILL"
+            elif total_executed > 0:
+                primary["executionReportStatus"] = "EXECUTION_REPORT_STATUS_PARTIALLYFILL"
+        return {
+            "ticker": ticker,
+            "side": "buy" if buy_leg else "sell",
+            "side_ru": f"{'покупка' if buy_leg else 'продажа'} {qty} лот",
+            "order": primary,
+            "portfolio_cash_rub": self.portfolio_cash_rub(pf) if pf else None,
+            "portfolio_total_rub": self.portfolio_total_rub(pf) if pf else None,
+        }
+
     def execute_spread_exit(
         self, account_id: str, opened_with: str, quantity_lots: int = 1
     ) -> list[dict[str, Any]]:
@@ -963,20 +1066,14 @@ class TInvestClient:
         buy, sell = "ORDER_DIRECTION_BUY", "ORDER_DIRECTION_SELL"
 
         def leg(ticker: str, iid: str, direction: str, buy_leg: bool) -> dict[str, Any]:
-            order = self.post_market_order(account_id, iid, direction, qty)
-            pf = None
-            try:
-                pf = self.get_portfolio(account_id)
-            except Exception:
-                pass
-            return {
-                "ticker": ticker,
-                "side": "buy" if buy_leg else "sell",
-                "side_ru": f"{'покупка' if buy_leg else 'продажа'} {qty} лот",
-                "order": order,
-                "portfolio_cash_rub": self.portfolio_cash_rub(pf) if pf else None,
-                "portfolio_total_rub": self.portfolio_total_rub(pf) if pf else None,
-            }
+            return self._execute_spread_leg(
+                account_id,
+                ticker=ticker,
+                iid=iid,
+                direction=direction,
+                buy_leg=buy_leg,
+                qty=qty,
+            )
 
         if opened_with in ("ENTER_LONG", "EnterLong", "LONG"):
             return [

@@ -1851,6 +1851,18 @@
   line-height: 1.35;
 }
 
+.trade-partial-close-alert {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(251, 146, 60, 0.16);
+  border: 1px solid rgba(251, 146, 60, 0.5);
+  color: #fdba74;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
 .trade-profit-toast {
   position: sticky;
   top: 0;

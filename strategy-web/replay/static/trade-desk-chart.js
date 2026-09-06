@@ -128,6 +128,17 @@
   }
 
   function setPinnedRange(range, { fromUser = false } = {}) {
+    if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to)) return;
+    D().pinnedRange = { from: range.from, to: range.to };
+    if (fromUser && D().lastDataEnd != null) {
+      if (isNearLiveEdge(D().pinnedRange, D().lastDataEnd)) {
+        D().userPinnedAwayFromLive = false;
+      } else {
+        D().userPinnedAwayFromLive = true;
+      }
+    }
+    persistViewport();
+  }
 
   function clearPinState() {
     D().pinnedRange = null;
@@ -161,7 +172,7 @@
   function syncBottomPaneToTopTime() {
     if (!D().zChart || !D().spreadChart) return;
     try {
-      const tr = zChart.timeScale().getVisibleRange();
+      const tr = D().zChart.timeScale().getVisibleRange();
       if (tr && tr.from != null && tr.to != null) {
         D().spreadChart.timeScale().setVisibleRange(tr);
       }
@@ -663,8 +674,8 @@
       try { zRange = D().zChart?.timeScale()?.getVisibleLogicalRange() || null; } catch (_) {}
       try { spRange = D().spreadChart?.timeScale()?.getVisibleLogicalRange() || null; } catch (_) {}
       window.__tradeChartDebug = {
-        D().zSeriesIsLine,
-        D().chartDealer1m,
+        zSeriesIsLine: D().zSeriesIsLine,
+        chartDealer1m: D().chartDealer1m,
         zPts: (extra && extra.zPts) || 0,
         spPts: (extra && extra.spPts) || 0,
         bodyN: (extra && extra.bodyN) || 0,

@@ -237,6 +237,10 @@ def _init(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "live_open_trades", "entry_comment", "TEXT")
     _ensure_column(conn, "live_closed_trades", "entry_comment", "TEXT")
     _ensure_column(conn, "live_closed_trades", "close_comment", "TEXT")
+    _ensure_column(conn, "live_open_trades", "partial_close_status", "TEXT")
+    _ensure_column(conn, "live_open_trades", "partial_close_attempts", "INTEGER")
+    _ensure_column(conn, "live_open_trades", "partial_close_filled_lots", "INTEGER")
+    _ensure_column(conn, "live_open_trades", "partial_close_detail", "TEXT")
     _backfill_closed_trade_comments(conn)
     conn.commit()
 
@@ -316,6 +320,11 @@ def get_settings_bundle() -> dict[str, Any]:
         "token_preview": (token[:4] + "…" + token[-4:]) if len(token) >= 12 else ("***" if token else ""),
         "account_id": account,
         "auto_execute": (get_setting("auto_execute", "0") or "0") == "1",
+        # Prod AUTO on Sat/Sun dealer OTC — default off (replay chip weekend_trading is separate).
+        "weekend_trading": (get_setting("weekend_trading", "0") or "0") == "1",
+        "exit_slippage_max_pts": float(
+            get_setting("exit_slippage_max_pts", "0.20") or "0.20"
+        ),
         "monitor_running": (get_setting("monitor_running", "1") or "1") == "1",
         "entry_z": float(get_setting("entry_z", "1.3") or "1.3"),
         "exit_z": float(get_setting("exit_z", "1.2") or "1.2"),
@@ -463,6 +472,10 @@ def update_open_trade_fields(trade_id: int, fields: dict[str, Any]) -> None:
         "locked_exit_z",
         "account_after_rub",
         "entry_comment",
+        "partial_close_status",
+        "partial_close_attempts",
+        "partial_close_filled_lots",
+        "partial_close_detail",
     }
     cols = []
     vals: list[Any] = []
