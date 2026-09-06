@@ -5,9 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { width: 100%; height: 100%; background: #131722; overflow: hidden; }
+    html, body {
+      width: 100%; height: 100%; background: #131722; overflow: hidden;
+      touch-action: none; -webkit-user-select: none; user-select: none;
+    }
     body { position: relative; }
-    #chart { width: 100%; height: 100%; min-height: 120px; }
+    #chart { width: 100%; height: 100%; min-height: 120px; touch-action: none; }
     #err {
       display: none;
       position: absolute;
@@ -62,6 +65,7 @@
     const MARKER_HIT_RADIUS_X_PX = 44;
     const MARKER_ENTRY_HIT_RADIUS_X_PX = 56;
     const MAX_ZONE_SERIES = 6;
+    const FOLLOW_LIVE_TOLERANCE_BARS = 3;
 
     let chart = null;
     let series = null;
@@ -85,6 +89,13 @@
     let refreshMarkersTimer = 0;
     let replayCursorLine = null;
     let replayMode = false;
+    let userInteracting = false;
+    let followLive = true;
+    let interactEndTimer = 0;
+    let savedLogicalRange = null;
+    let lastAppliedRightOffset = null;
+    let lastChartSize = { w: 0, h: 0 };
+    let gestureBound = false;
 
     function showError(msg) {
       const el = document.getElementById('err');
@@ -356,6 +367,140 @@
       chart.subscribeCrosshairMove(onCrosshairMove);
     }
 
+    function captureLogicalRange() {
+      if (!chart) return;
+      try {
+        const range = chart.timeScale().getVisibleLogicalRange();
+        if (range && Number.isFinite(range.from) && Number.isFinite(range.to)) {
+          savedLogicalRange = { from: range.from, to: range.to };
+        }
+      } catch (e) {}
+    }
+
+    function isNearRightEdge(range, lastIndex) {
+      if (!range || !Number.isFinite(range.to) || !Number.isFinite(lastIndex)) return true;
+      return range.to >= lastIndex - FOLLOW_LIVE_TOLERANCE_BARS;
+    }
+
+    function setUserInteracting(on) {
+      userInteracting = on;
+      if (on) {
+        followLive = false;
+        if (interactEndTimer) {
+          clearTimeout(interactEndTimer);
+          interactEndTimer = 0;
+        }
+        captureLogicalRange();
+      }
+    }
+
+    function onInteractEnd() {
+      interactEndTimer = 0;
+      userInteracting = false;
+      if (chart) {
+        try {
+          const range = chart.timeScale().getVisibleLogicalRange();
+          const lastIndex = Math.max(0, lastCandleTimes.length - 1);
+          followLive = isNearRightEdge(range, lastIndex);
+          if (range) savedLogicalRange = { from: range.from, to: range.to };
+        } catch (e) {}
+      }
+      const queued = pendingPayload;
+      pendingPayload = null;
+      if (queued) renderPayload(queued);
+    }
+
+    function bindGestureGuards(el) {
+      if (!el || gestureBound) return;
+      gestureBound = true;
+      const start = () => setUserInteracting(true);
+      const end = () => {
+        if (interactEndTimer) clearTimeout(interactEndTimer);
+        interactEndTimer = setTimeout(onInteractEnd, 180);
+      };
+      el.addEventListener('touchstart', start, { passive: true });
+      el.addEventListener('touchmove', start, { passive: true });
+      el.addEventListener('touchend', end, { passive: true });
+      el.addEventListener('touchcancel', end, { passive: true });
+      el.addEventListener('mousedown', start);
+      el.addEventListener('mouseup', end);
+      window.addEventListener('mouseup', end);
+    }
+
+    function applyRightOffsetIfNeeded(data, allowSnap) {
+      if (!chart) return;
+      const rightOffset = resolveRightOffsetBars(data);
+      if (rightOffset === lastAppliedRightOffset) return;
+      if (!allowSnap && !followLive) {
+        lastAppliedRightOffset = rightOffset;
+        return;
+      }
+      chart.timeScale().applyOptions({ rightOffset });
+      lastAppliedRightOffset = rightOffset;
+    }
+
+    function restoreOrFollowRange(barCount, data, isFirstFit, barCountChanged) {
+      if (!chart) return;
+      if (isFirstFit) {
+        if (data.window) {
+          applyInitialWindow(barCount, data.window.start, data.window.width);
+        } else {
+          chart.timeScale().fitContent();
+        }
+        followLive = true;
+        captureLogicalRange();
+        return;
+      }
+      if (userInteracting) {
+        if (savedLogicalRange) {
+          try { chart.timeScale().setVisibleLogicalRange(savedLogicalRange); } catch (e) {}
+        }
+        return;
+      }
+      if (followLive) {
+        if (barCountChanged) {
+          try { chart.timeScale().scrollToRealTime(); } catch (e) {}
+        }
+        return;
+      }
+      if (savedLogicalRange) {
+        try { chart.timeScale().setVisibleLogicalRange(savedLogicalRange); } catch (e) {}
+      }
+    }
+
+    function applyCandleData(candles) {
+      const prev = lastCandles;
+      const canUpdateLast =
+        prev.length > 0 &&
+        candles.length === prev.length &&
+        candles[0].time === prev[0].time &&
+        candles[candles.length - 1].time === prev[prev.length - 1].time;
+      const canAppend =
+        prev.length > 0 &&
+        candles.length === prev.length + 1 &&
+        candles[0].time === prev[0].time &&
+        candles[candles.length - 2].time === prev[prev.length - 1].time;
+      if (canUpdateLast) {
+        const last = candles[candles.length - 1];
+        const prevLast = prev[prev.length - 1];
+        if (
+          last.open !== prevLast.open ||
+          last.high !== prevLast.high ||
+          last.low !== prevLast.low ||
+          last.close !== prevLast.close ||
+          last.color !== prevLast.color
+        ) {
+          try { series.update(last); } catch (e) { series.setData(candles); }
+        }
+      } else if (canAppend) {
+        try { series.update(candles[candles.length - 1]); } catch (e) { series.setData(candles); }
+      } else {
+        series.setData(candles);
+      }
+      lastCandles = candles;
+      lastCandleTimes = candles.map((c) => c.time);
+    }
+
     function onChartClick(param) {
       if (!param.point || param.point.x < 0 || param.point.y < 0) {
         applyMarkerSelection(null);
@@ -434,6 +579,11 @@
           timeVisible: true,
           secondsVisible: false,
           rightOffset: RIGHT_OFFSET_BARS,
+          shiftVisibleRangeOnNewBar: false,
+          lockVisibleTimeRangeOnResize: true,
+          rightBarStaysOnScroll: false,
+          fixRightEdge: false,
+          fixLeftEdge: false,
           tickMarkFormatter: formatTick,
         },
         localization: {
@@ -484,10 +634,16 @@
       bindOhlcCrosshair();
 
       bindViewportMarkerRefresh();
+      bindGestureGuards(el);
+      lastAppliedRightOffset = RIGHT_OFFSET_BARS;
 
       const ro = new ResizeObserver(() => {
         const { w: rw, h: rh } = chartSize();
-        if (rw > 0 && rh > 0) chart.resize(rw, rh);
+        if (rw <= 0 || rh <= 0) return;
+        if (Math.abs(rw - lastChartSize.w) < 2 && Math.abs(rh - lastChartSize.h) < 2) return;
+        if (userInteracting) return;
+        lastChartSize = { w: rw, h: rh };
+        chart.resize(rw, rh);
         scheduleRefreshMarkers();
       });
       ro.observe(el);
@@ -564,6 +720,14 @@
       pendingPayload = null;
       document.getElementById('err').style.display = 'none';
 
+      const isFirstFit = !fitted;
+      if (userInteracting && fitted) {
+        pendingPayload = data;
+        return;
+      }
+      const prevBarCount = lastCandleTimes.length;
+      if (!userInteracting) captureLogicalRange();
+
       const prevTradeId = selectedTradeId;
       lastMarkers = (data.markers || []).map((m) => ({
         time: m.time,
@@ -608,9 +772,7 @@
         selectedMarkerKey = null;
       }
 
-      series.setData(candles);
-      lastCandles = candles;
-      lastCandleTimes = candles.map((c) => c.time);
+      applyCandleData(candles);
       pushOhlc(lastCandle());
       updateFormingBarHint(data);
       if (markersPlugin) {
@@ -632,17 +794,19 @@
         }));
       }
 
-      const rightOffset = resolveRightOffsetBars(data);
-      chart.timeScale().applyOptions({ rightOffset });
-
-      if (!fitted || key !== lastPayloadKey) {
-        if (data.window) {
-          applyInitialWindow(candles.length, data.window.start, data.window.width);
-        } else {
-          chart.timeScale().fitContent();
-        }
+      applyRightOffsetIfNeeded(data, isFirstFit);
+      restoreOrFollowRange(
+        candles.length,
+        data,
+        isFirstFit,
+        candles.length !== prevBarCount,
+      );
+      if (isFirstFit) {
         const { w, h } = chartSize();
-        if (w > 0 && h > 0) chart.resize(w, h);
+        if (w > 0 && h > 0) {
+          lastChartSize = { w, h };
+          chart.resize(w, h);
+        }
         fitted = true;
       }
       lastPayloadKey = key;
