@@ -361,6 +361,42 @@ internal fun MoexScreenTabMarkets(
                             }
                         }
                         item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        val act = context as? Activity
+                                        if (act == null) {
+                                            Toast.makeText(context, "Снимок недоступен", Toast.LENGTH_SHORT).show()
+                                            return@TextButton
+                                        }
+                                        scope.launch {
+                                            val file = withContext(Dispatchers.Main) {
+                                                MoexDebugReportAttachments.captureActivityWindow(act)
+                                            }
+                                            Toast.makeText(
+                                                context,
+                                                if (file != null) {
+                                                    "Снимок добавлен — отправьте в «О приложении» → В GitHub"
+                                                } else {
+                                                    "Не удалось сделать снимок"
+                                                },
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        }
+                                    },
+                                ) {
+                                    Text(
+                                        "Снимок в отчёт",
+                                        color = Color(0xFFFFCC80),
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                        }
+                        item {
                             MoexWatchdogStatusCard(
                                 status = watchdogStatus,
                                 onRefresh = { refreshWatchdogStatus(screen) },

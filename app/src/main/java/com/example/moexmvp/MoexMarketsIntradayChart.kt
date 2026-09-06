@@ -36,7 +36,9 @@ internal fun alignIntraday1mCloseSeries(
     if (tatn.isEmpty() && tatnp.isEmpty()) return null
     val tatnByLabel = tatn.associateBy { it.label }
     val tatnpByLabel = tatnp.associateBy { it.label }
-    val orderedLabels = (tatnByLabel.keys + tatnpByLabel.keys).sorted()
+    val orderedLabels = (tatnByLabel.keys + tatnpByLabel.keys)
+        .distinct()
+        .sortedBy(::intraday1mLabelSortKey)
     if (orderedLabels.isEmpty()) return null
     val labels = mutableListOf<String>()
     val tatnCloses = mutableListOf<Double>()

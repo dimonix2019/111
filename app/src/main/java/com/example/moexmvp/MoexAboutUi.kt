@@ -1,5 +1,8 @@
 package com.example.moexmvp
 
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -23,7 +26,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -33,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.LocalTextStyle
+import java.io.File
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -201,9 +211,20 @@ internal fun AboutTabContent(
 @Composable
 private fun EventLogSection(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val scope = rememberCoroutineScope()
     var preview by remember { mutableStateOf("Загрузка журнала…") }
     var lineCount by remember { mutableIntStateOf(0) }
+    var uploadStatus by remember { mutableStateOf<String?>(null) }
+    var uploading by remember { mutableStateOf(false) }
+    var reportNote by remember { mutableStateOf("") }
+    var tokenDraft by remember { mutableStateOf("") }
+    var tokenConfigured by remember { mutableStateOf(debugReportTokenConfigured(context)) }
+    val attachmentFiles = remember { mutableStateListOf<File>() }
+    fun refreshAttachments() {
+        attachmentFiles.clear()
+        attachmentFiles.addAll(MoexDebugReportAttachments.list(context))
+    }
     val saveAsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/plain"),
     ) { uri ->
@@ -217,12 +238,33 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
             ).show()
         }
     }
+    val pickImagesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isNullOrEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            var added = 0
+            withContext(Dispatchers.IO) {
+                uris.forEach { uri ->
+                    if (MoexDebugReportAttachments.addFromUri(context, uri)) added++
+                }
+            }
+            refreshAttachments()
+            Toast.makeText(
+                context,
+                if (added > 0) "Добавлено изображений: $added" else "Не удалось добавить файлы",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
     LaunchedEffect(Unit) {
         val (text, count) = withContext(Dispatchers.IO) {
             MoexDiagnostics.formatForDisplay(context, tail = 12) to MoexDiagnostics.lineCount(context)
         }
         preview = text
         lineCount = count
+        refreshAttachments()
+        tokenConfigured = debugReportTokenConfigured(context)
     }
     Column(
         modifier = modifier
@@ -237,7 +279,7 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
             fontSize = 14.sp
         )
         Text(
-            text = "Записей: $lineCount · ANR «не отвечает» и вылеты пишутся в файл",
+            text = "Записей: $lineCount · вложений: ${attachmentFiles.size} · ветка ${BuildConfig.GIT_BRANCH}",
             color = Color(0xFF9E9E9E),
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 4.dp)
@@ -309,6 +351,186 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
                 Text("Файл", fontSize = 11.sp)
             }
         }
+        Row(
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            OutlinedButton(
+                onClick = { pickImagesLauncher.launch(arrayOf("image/*")) },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFCC80)),
+            ) {
+                Text("Фото", fontSize = 11.sp)
+            }
+            OutlinedButton(
+                onClick = {
+                    if (activity == null) {
+                        Toast.makeText(context, "Снимок недоступен", Toast.LENGTH_SHORT).show()
+                        return@OutlinedButton
+                    }
+                    scope.launch {
+                        val file = withContext(Dispatchers.Main) {
+                            MoexDebugReportAttachments.captureActivityWindow(activity)
+                        }
+                        refreshAttachments()
+                        Toast.makeText(
+                            context,
+                            if (file != null) "Снимок экрана добавлен" else "Не удалось сделать снимок",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFCC80)),
+            ) {
+                Text("Снимок", fontSize = 11.sp)
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { MoexDebugReportAttachments.clear(context) }
+                        refreshAttachments()
+                        Toast.makeText(context, "Вложения очищены", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFBCAAA4)),
+            ) {
+                Text("Очистить", fontSize = 11.sp)
+            }
+        }
+        if (attachmentFiles.isNotEmpty()) {
+            Text(
+                text = attachmentFiles.joinToString { MoexDebugReportAttachments.displayName(it) },
+                color = Color(0xFF80CBC4),
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        OutlinedTextField(
+            value = reportNote,
+            onValueChange = { reportNote = it.take(500) },
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth(),
+            label = { Text("Комментарий к отчёту (необязательно)", fontSize = 11.sp) },
+            textStyle = LocalTextStyle.current.copy(fontSize = 12.sp, color = Color.White),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF81D4FA),
+                unfocusedBorderColor = Color(0xFF455A64),
+                focusedLabelColor = Color(0xFF81D4FA),
+                unfocusedLabelColor = Color(0xFF9E9E9E),
+                cursorColor = Color(0xFF81D4FA),
+            ),
+            singleLine = false,
+            maxLines = 3,
+        )
+        if (!tokenConfigured) {
+            OutlinedTextField(
+                value = tokenDraft,
+                onValueChange = { tokenDraft = it },
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .fillMaxWidth(),
+                label = { Text("GitHub PAT (Contents write)", fontSize = 11.sp) },
+                textStyle = LocalTextStyle.current.copy(fontSize = 12.sp, color = Color.White),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFFFFAB91),
+                    unfocusedBorderColor = Color(0xFF455A64),
+                    focusedLabelColor = Color(0xFFFFAB91),
+                    unfocusedLabelColor = Color(0xFF9E9E9E),
+                    cursorColor = Color(0xFFFFAB91),
+                ),
+                singleLine = true,
+            )
+            TextButton(
+                onClick = {
+                    if (tokenDraft.isBlank()) {
+                        Toast.makeText(context, "Вставьте PAT", Toast.LENGTH_SHORT).show()
+                        return@TextButton
+                    }
+                    saveDebugReportUploadToken(context, tokenDraft)
+                    tokenConfigured = true
+                    tokenDraft = ""
+                    Toast.makeText(context, "Токен сохранён на устройстве", Toast.LENGTH_SHORT).show()
+                },
+            ) {
+                Text("Сохранить токен", color = Color(0xFFFFAB91), fontSize = 11.sp)
+            }
+        }
+        Button(
+            onClick = {
+                if (uploading) return@Button
+                uploading = true
+                uploadStatus = "Загрузка в GitHub…"
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        uploadDebugReportBundle(
+                            context,
+                            userNote = reportNote.ifBlank { null },
+                        )
+                    }
+                    uploading = false
+                    uploadStatus = when {
+                        result.success -> "Готово: ${result.folderPath}\n${result.browserUrl}"
+                        else -> result.errorHint ?: "Ошибка загрузки"
+                    }
+                    if (result.success) {
+                        MoexDiagnostics.log(context, "debug_report", "user_upload ok ${result.folderPath}")
+                    }
+                }
+            },
+            enabled = !uploading,
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF1565C0),
+                disabledContainerColor = Color(0xFF0D47A1),
+            ),
+        ) {
+            Text(if (uploading) "Отправка…" else "В GitHub (ветка ${debugReportTargetBranch()})", fontSize = 12.sp)
+        }
+        uploadStatus?.let { msg ->
+            Text(
+                text = msg,
+                color = if (msg.startsWith("Готово")) Color(0xFF80CBC4) else Color(0xFFFFAB91),
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF121212), RoundedCornerShape(6.dp))
+                    .padding(8.dp),
+            )
+            if (msg.startsWith("Готово") && msg.contains("github.com")) {
+                TextButton(
+                    onClick = {
+                        val url = msg.lineSequence().firstOrNull { it.contains("github.com") } ?: return@TextButton
+                        runCatching {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(url.trim()))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    },
+                ) {
+                    Text("Открыть в браузере", color = Color(0xFF81D4FA), fontSize = 11.sp)
+                }
+            }
+        }
+        Text(
+            text = "На «Рынок» → «Снимок в отчёт» перед отправкой. Скрины из галереи тоже подойдут.",
+            color = Color(0xFF757575),
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
+            modifier = Modifier.padding(top = 4.dp),
+        )
         Row(
             modifier = Modifier
                 .padding(top = 6.dp)

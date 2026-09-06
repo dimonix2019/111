@@ -185,6 +185,15 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+1.7.240 — Fix «Рынок»: Z на графике пересчитывается из spread (не flat persisted); 1D с 06:45; MOEX overlay утра.
+1.7.239 — «О приложении»: кнопка «В GitHub» — журнал + скриншоты в debug-reports/ на ветке сборки.
+1.7.238 — Fix «Рынок» 1D: без overnight-дыры (только сегодня) + MOEX 10м overlay если today=0 в кэше.
+1.7.237 — Fix OTA: cache-bust gh-pages + сначала Release URL (raw CDN отставал от app-update.json).
+1.7.236 — «Рынок»: logcat m15_chart — этапы MOEX/SQLite/overlay/график (adb logcat -s MoexDiagnostics | grep m15_chart).
+1.7.235 — «Рынок»: Z-график читает 15м из SQLite (CACHE_ONLY) и сливает с session; догрузка хвоста MOEX при дыре.
+1.7.234 — Fix «Рынок»: overlay 15м для Z-графика обновляется при каждом poll 1м + fallback MOEX 10м→15м при дырах.
+1.7.233 — Fix «Рынок»: дневные 15м свечи восстанавливаются из 1м TATN/TATNP при дырах MOEX-кэша; принудительная догрузка хвоста.
+1.7.232 — Fix «Рынок»: при отставании MOEX 15м не рисуем «сиротскую» live-свечу через пустой день; догрузка хвоста.
 1.7.231 — Fix OTA: проверка подписи/отката перед установкой; кнопки «Удалить» и «Через браузер» при ошибке.
 1.7.230 — «Рынок»: single-flight MOEX 15м refresh; Z/live overlay на базе 255д (parity с монитором).
 1.7.229 — «Рынок»: commitMarketsM15ToUi (store+live Z атомарно); инварианты пайплайна m15_pipe в logcat.

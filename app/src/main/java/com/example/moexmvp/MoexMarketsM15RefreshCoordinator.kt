@@ -57,6 +57,7 @@ internal fun MoexScreenState.scheduleMarketsM15MoexCatchup(
     val bucketMs = currentM15BucketStartMillis()
     val sealedLagMs = bucketMs - m15Last.timestampMillis
     val needsCatchup = sealedLagMs >= 15 * 60_000L ||
+        m15SeriesHasIntradayTradingGap(marketsM15Source()) ||
         (marketsIntraday1mLastBarMillis > 0L &&
             marketsIntraday1mLastBarMillis > m15Last.timestampMillis + 20 * 60_000L)
     if (!needsCatchup) return
@@ -133,6 +134,12 @@ private suspend fun MoexScreenState.runMarketsM15RefreshLoop() {
 }
 
 private suspend fun MoexScreenState.executeMarketsM15Refresh(request: MarketsM15RefreshRequest): Boolean {
+    val before = snapshotM15Series(marketsM15Source())
+    MarketsM15ChartDiagnostics.logStage(
+        context,
+        "refresh_start",
+        "kind=${request.kind} reason=${request.reason} before{${before.toLogFields()}}",
+    )
     if (request.clearLiveTailZ) {
         withContext(Dispatchers.IO) {
             clearM15LiveTailPersistedZ(PortfolioM15Database.get(context.applicationContext).dao())
@@ -141,6 +148,11 @@ private suspend fun MoexScreenState.executeMarketsM15Refresh(request: MarketsM15
     val loaded = when (request.kind) {
         MarketsM15RefreshKind.CATCHUP -> {
             tryRefreshPortfolio15mLiveFormingTailFromMoex(context, PORTFOLIO_M15_LOOKBACK_DAYS)
+                ?: withPortfolioM15LoadLock {
+                    val dao = PortfolioM15Database.get(context.applicationContext).dao()
+                    mergePortfolio15mRecentTailFromMoex(dao, logContext = context.applicationContext)
+                    loadPortfolio15mLiveFormingTailLocked(context, PORTFOLIO_M15_LOOKBACK_DAYS)
+                }
         }
         MarketsM15RefreshKind.TAIL_STALE,
         MarketsM15RefreshKind.FORCE_INCR,
@@ -150,14 +162,40 @@ private suspend fun MoexScreenState.executeMarketsM15Refresh(request: MarketsM15
         )
     }
     if (loaded == null || loaded.size < 2) {
+        if (request.kind == MarketsM15RefreshKind.CATCHUP) {
+            val fallback = loadM15ForMarkets(
+                mode = PortfolioM15LoadMode.INCREMENTAL,
+                wrapInSession = false,
+            )
+            if (fallback.size >= 2) {
+                commitMarketsM15ToUi(fallback, reason = "${request.reason}_incr_fallback")
+                MoexDiagnostics.log(
+                    context,
+                    "m15_refresh",
+                    "ok kind=CATCHUP→INCR bar=${fallback.last().tradeDate} reason=${request.reason}",
+                )
+                return true
+            }
+        }
         MoexDiagnostics.log(
             context,
             "m15_refresh",
             "skip kind=${request.kind} empty reason=${request.reason}",
         )
+        MarketsM15ChartDiagnostics.logStage(
+            context,
+            "refresh_skip",
+            "kind=${request.kind} reason=${request.reason} before{${before.toLogFields()}}",
+        )
         return false
     }
     commitMarketsM15ToUi(loaded, reason = request.reason)
+    val after = snapshotM15Series(loaded)
+    MarketsM15ChartDiagnostics.logStage(
+        context,
+        "refresh_ok",
+        "kind=${request.kind} reason=${request.reason} after{${after.toLogFields()}}",
+    )
     MoexDiagnostics.log(
         context,
         "m15_refresh",

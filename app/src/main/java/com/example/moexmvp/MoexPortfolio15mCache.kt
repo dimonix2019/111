@@ -1,5 +1,6 @@
 package com.example.moexmvp
 
+import android.content.Context
 import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.sync.Mutex
@@ -153,10 +154,16 @@ internal suspend fun downloadPortfolio15mFullRangeToDao(
 internal suspend fun mergePortfolio15mRecentTailFromMoex(
     dao: PortfolioM15Dao,
     onProgress: DataLoadProgressCallback = null,
+    logContext: Context? = null,
 ) {
     val moexTill = portfolioM15MoexFetchTillDate()
     val tailFrom = LocalDate.now(moexZoneId).minusDays(PORTFOLIO_M15_TAIL_REFETCH_DAYS)
-    if (tailFrom.isAfter(moexTill)) return
+    if (tailFrom.isAfter(moexTill)) {
+        logContext?.let {
+            MarketsM15ChartDiagnostics.logStage(it, "moex_tail_skip", "tailFrom=$tailFrom after moexTill=$moexTill")
+        }
+        return
+    }
     val moexTarget = estimateM15BarCount(tailFrom, moexTill)
     var barsDownloaded = 0
     val tail = fetchPortfolio15mSpreadEntitiesChunked(
@@ -178,6 +185,17 @@ internal suspend fun mergePortfolio15mRecentTailFromMoex(
         },
     )
     insertPortfolio15mEntitiesBatched(dao, tail)
+    logContext?.let { ctx ->
+        val maxTs = dao.maxTsMillis()
+        val maxLabel = maxTs?.let { ts ->
+            Instant.ofEpochMilli(ts).atZone(moexZoneId).format(portfolio15mLabelFormatter)
+        } ?: "—"
+        MarketsM15ChartDiagnostics.logStage(
+            ctx,
+            "moex_tail_merge",
+            "tail_from=$tailFrom till=$moexTill fetched=${tail.size} dao_max=$maxLabel",
+        )
+    }
 }
 
 /**

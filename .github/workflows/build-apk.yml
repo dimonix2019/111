@@ -41,10 +41,17 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
+      - name: Export CI build metadata for APK
+        run: |
+          echo "DEBUG_REPORT_GIT_BRANCH=${{ github.ref_name }}" >> "$GITHUB_ENV"
+          echo "DEBUG_REPORT_GIT_SHA=${{ github.sha }}" >> "$GITHUB_ENV"
+
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --parallel --build-cache
 
       - name: Assemble Debug
+        env:
+          DEBUG_REPORT_UPLOAD_TOKEN: ${{ secrets.DEBUG_REPORT_UPLOAD_TOKEN }}
         run: |
           sed -i 's/\r$//' gradlew
           chmod +x gradlew

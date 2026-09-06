@@ -11,7 +11,9 @@ internal suspend fun MoexScreenState.storeMarketsM15(points: List<DataPoint>) {
     if (points.isEmpty()) return
     withContext(Dispatchers.Main.immediate) {
         marketsM15SessionCache = points
+        marketsM15SqliteChartCache = points
         marketsM15DataEpoch++
+        marketsM15SqliteChartEpoch++
         bumpMarketsLoadedAtFromM15(points)
     }
 }
@@ -40,6 +42,12 @@ internal suspend fun MoexScreenState.commitMarketsM15ToUi(
         portfolioM15Points = points
     }
     publishMarketsLiveZFromPoints(points, snap = snap)
+    refreshMarketsM15TodayChartOverlay(snap)
+    MarketsM15ChartDiagnostics.logStage(
+        context,
+        "commit",
+        "reason=$reason ${snapshotM15Series(points).toLogFields()} alsoPortfolio=$alsoPortfolio",
+    )
     val overlayIssues = validateMarketsUiSnapshot(
         cache = marketsM15Source(),
         portfolio = portfolioM15Points,

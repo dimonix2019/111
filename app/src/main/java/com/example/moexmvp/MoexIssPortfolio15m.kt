@@ -151,13 +151,14 @@ internal fun portfolio15mSeriesIntradayStale(points: List<DataPoint>): Boolean {
     return System.currentTimeMillis() - lastTs > PORTFOLIO_M15_INTRADAY_STALE_MS
 }
 
-/** Нужна догрузка MOEX: хвост устарел или последний бар не за сегодня (МСК). */
+/** Нужна догрузка MOEX: хвост устарел, последний бар не за сегодня, или дыра внутри дня. */
 internal fun portfolio15mSeriesNeedsMoexRefresh(
     points: List<DataPoint>,
     zone: ZoneId = moexZoneId,
 ): Boolean {
     if (points.isEmpty()) return true
     if (portfolio15mSeriesIntradayStale(points)) return true
+    if (m15SeriesHasIntradayTradingGap(points)) return true
     val lastDay = Instant.ofEpochMilli(points.last().timestampMillis).atZone(zone).toLocalDate()
     return lastDay.isBefore(LocalDate.now(zone))
 }
@@ -314,6 +315,11 @@ internal suspend fun loadPortfolio15mDataPoints(
                     maxOf(from, overlapStart)
                 }
                 if (mergeFrom <= moexFetchTill) {
+                    MarketsM15ChartDiagnostics.logStage(
+                        context.applicationContext,
+                        "moex_incr_start",
+                        "mergeFrom=$mergeFrom till=$moexFetchTill dao_last_ts=$lastTs cache_in_db=$cacheInDb",
+                    )
                     val moexTarget = estimateM15BarCount(mergeFrom, moexFetchTill)
                     var barsDownloaded = 0
                     val fresh = fetchPortfolio15mSpreadEntitiesChunked(
@@ -337,6 +343,11 @@ internal suspend fun loadPortfolio15mDataPoints(
                         },
                     )
                     insertPortfolio15mEntitiesBatched(dao, fresh)
+                    MarketsM15ChartDiagnostics.logStage(
+                        context.applicationContext,
+                        "moex_incr_done",
+                        "downloaded=${fresh.size} mergeFrom=$mergeFrom till=$moexFetchTill",
+                    )
                 }
             }
         }
@@ -346,7 +357,7 @@ internal suspend fun loadPortfolio15mDataPoints(
         val tailStillStale = tailAgeMs > PORTFOLIO_M15_TAIL_MAX_AGE_MS ||
             tailAgeMs > PORTFOLIO_M15_INTRADAY_STALE_MS
         if (!skipMoexTailMerge && mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
-            mergePortfolio15mRecentTailFromMoex(dao, onProgress)
+            mergePortfolio15mRecentTailFromMoex(dao, onProgress, context.applicationContext)
         }
 
         val cacheTotal = dao.countSince(queryCutoffMillis).coerceAtLeast(1)
@@ -387,6 +398,11 @@ internal suspend fun loadPortfolio15mDataPoints(
             )
         }
         onProgress?.invoke(DataLoadProgress.idle())
+        MarketsM15ChartDiagnostics.logStage(
+            context.applicationContext,
+            "moex_load",
+            "mode=$mode ${snapshotM15Series(points).toLogFields()} z_recalc=$recalculated dao_rows=${rows.size}",
+        )
         points
     }
 }

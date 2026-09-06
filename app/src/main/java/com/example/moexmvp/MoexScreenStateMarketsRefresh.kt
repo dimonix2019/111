@@ -87,6 +87,12 @@ internal suspend fun MoexScreenState.refreshMarketsIntraday1mQuotes(
         marketsIntraday1mEpoch++
         val m15Last = marketsM15Source().lastOrNull()
         applyMarketsLiveZFromIntraday1mSnap(snap)
+        refreshMarketsM15TodayChartOverlay(snap)
+        MarketsM15ChartDiagnostics.logStage(
+            context,
+            "quotes_1m",
+            "reason=$reason 1m_bars=${maxOf(snap.tatn.size, snap.tatnp.size)} m15{${snapshotM15Series(marketsM15Source()).toLogFields()}}",
+        )
         MarketsQuotesDiagnostics.logQuoteUpdate(context, snap, m15Last, reason)
         if (scope != null) {
             scheduleMarketsM15MoexCatchup(scope, reason = "1m_$reason")
