@@ -1,0 +1,50 @@
+{
+  "description": "Compact tip1m spread-% series for spread-level signal contract (Python core = etalon). Covers SHORT enter 6.1↑, exit 5.8↓, LONG enter 3.2↓, exit 4.0↑, transition zone 3.5–5.5 (no entries).",
+  "thresholds": {
+    "enter_wide": 6.1,
+    "exit_wide": 5.8,
+    "enter_narrow": 3.2,
+    "exit_narrow": 4.0,
+    "narrow_max": 3.5,
+    "wide_min": 5.5
+  },
+  "bars": [
+    {"spread_pct": 7.0, "regime": "wide"},
+    {"spread_pct": 6.5, "regime": "wide"},
+    {"spread_pct": 6.0, "regime": "wide"},
+    {"spread_pct": 6.1, "regime": "wide"},
+    {"spread_pct": 6.4, "regime": "wide"},
+    {"spread_pct": 6.0, "regime": "wide"},
+    {"spread_pct": 5.8, "regime": "wide"},
+    {"spread_pct": 5.5, "regime": "transition"},
+    {"spread_pct": 5.0, "regime": "transition"},
+    {"spread_pct": 4.5, "regime": "transition"},
+    {"spread_pct": 4.0, "regime": "transition"},
+    {"spread_pct": 3.5, "regime": "transition"},
+    {"spread_pct": 3.3, "regime": "narrow"},
+    {"spread_pct": 3.2, "regime": "narrow"},
+    {"spread_pct": 3.0, "regime": "narrow"},
+    {"spread_pct": 3.5, "regime": "transition"},
+    {"spread_pct": 3.8, "regime": "transition"},
+    {"spread_pct": 4.0, "regime": "transition"},
+    {"spread_pct": 4.5, "regime": "transition"},
+    {"spread_pct": 5.6, "regime": "wide"},
+    {"spread_pct": 6.0, "regime": "wide"},
+    {"spread_pct": 6.1, "regime": "wide"},
+    {"spread_pct": 5.9, "regime": "wide"},
+    {"spread_pct": 5.8, "regime": "wide"}
+  ],
+  "expected_edges": [
+    {"bar_index": 3, "signal": "ENTER_SHORT", "note": "cross up 6.1 from 6.0, wide regime"},
+    {"bar_index": 6, "signal": "EXIT_SHORT", "note": "cross down 5.8 from 6.0"},
+    {"bar_index": 13, "signal": "ENTER_LONG", "note": "cross down 3.2 from 3.3, narrow regime"},
+    {"bar_index": 17, "signal": "EXIT_LONG", "note": "cross up 4.0 from 3.8"},
+    {"bar_index": 21, "signal": "ENTER_SHORT", "note": "second short round-trip: 6.0→6.1"},
+    {"bar_index": 23, "signal": "EXIT_SHORT", "note": "5.9→5.8 exit short"}
+  ],
+  "transition_no_entry": [
+    {"bar_index": 8, "note": "5.5→5.0 transition, no short enter (needs 6.1)"},
+    {"bar_index": 11, "note": "4.0→3.5 at narrow_max boundary, still transition"},
+    {"bar_index": 19, "note": "4.5→5.6 enters wide but below enter_wide 6.1"}
+  ]
+}

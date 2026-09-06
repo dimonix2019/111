@@ -1,0 +1,55 @@
+name: Desk tests
+
+on:
+  push:
+    branches:
+      - "cursor/desk-*"
+    paths:
+      - "strategy-web/**"
+      - ".github/workflows/desk-tests.yml"
+  pull_request:
+    branches:
+      - "cursor/desk-*"
+    paths:
+      - "strategy-web/**"
+      - ".github/workflows/desk-tests.yml"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: strategy-web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: strategy-web/requirements-test.txt
+
+      - name: Install test dependencies
+        run: pip install -r requirements-test.txt
+
+      - name: Run desk-scoped tests
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest \
+            tests/test_desk_restore_static.py \
+            tests/test_signal_contract.py \
+            tests/test_strategy_config_api.py \
+            tests/test_pnl_sources_policy.py \
+            tests/test_sim_worker.py \
+            tests/test_spread_levels.py \
+            tests/test_spread_regime.py \
+            tests/test_spread_corridor.py \
+            tests/test_spread_corridor_wide.py \
+            tests/test_spread_risk.py \
+            tests/test_spread_situation.py \
+            tests/test_spread_hourly_vol.py \
+            tests/test_spread_1m_spikes.py \
+            -q --tb=no
