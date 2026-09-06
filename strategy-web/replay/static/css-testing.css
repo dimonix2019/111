@@ -852,9 +852,13 @@ tr.trade-row-red td {
   box-sizing: border-box;
 }
 
-/* Pane basis = splitter height; grow shares leftover column space with heatmap */
+/* Pane basis = splitter height; leftover column space goes to monthly PnL */
 #monthlyPnlPane.trades-collapsible-grow {
   flex: 1 1 var(--monthly-pnl-height, 200px);
+}
+
+#zHeatmapPane {
+  flex: 0 0 auto;
 }
 
 #monthlyPnlPane.is-collapsed {

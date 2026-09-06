@@ -720,16 +720,12 @@
     const monthlyH = isMonthlyPnlHidden()
       ? 0
       : readCssPxVar(summaryEl, '--monthly-pnl-height', loadMonthlyPnlHeight());
-    const heatmapH = isZHeatmapHidden()
-      ? 0
-      : readCssPxVar(summaryEl, '--z-heatmap-height', loadZHeatmapHeight());
     const used = (riskHead?.offsetHeight || 0)
       + (summaryHead?.offsetHeight || 0) + metricsMin
       + (isTradesSummaryHidden() ? 0 : CHART_SPLITTER_HEIGHT)
       + (monthlyHead?.offsetHeight || 0) + monthlyH
       + (isMonthlyPnlHidden() ? 0 : CHART_SPLITTER_HEIGHT)
-      + (heatmapHead?.offsetHeight || 0) + heatmapH
-      + (isZHeatmapHidden() ? 0 : CHART_SPLITTER_HEIGHT)
+      + (heatmapHead?.offsetHeight || 0)
       + 16;
     const max = Math.max(RISK_COMPARE_HEIGHT_MIN, summaryEl.clientHeight - used);
     return { min: RISK_COMPARE_HEIGHT_MIN, max };
@@ -769,13 +765,10 @@
       loadRiskCompareHeight(),
     );
     const heatmapHead = summaryEl.querySelector('#zHeatmapPane .trades-section-head');
-    const heatmapH = isZHeatmapHidden()
-      ? 0
-      : readCssPxVar(summaryEl, '--z-heatmap-height', loadZHeatmapHeight());
     const used = (filters?.offsetHeight || 0)
       + riskH + CHART_SPLITTER_HEIGHT
       + metricsMin + CHART_SPLITTER_HEIGHT
-      + (isZHeatmapHidden() ? 0 : CHART_SPLITTER_HEIGHT + (heatmapHead?.offsetHeight || 0) + heatmapH)
+      + (heatmapHead?.offsetHeight || 0)
       + 16;
     const max = Math.max(MONTHLY_PNL_HEIGHT_MIN, summaryEl.clientHeight - used);
     return { min: MONTHLY_PNL_HEIGHT_MIN, max };
@@ -2224,6 +2217,20 @@
     ].join('');
   }
 
+  function isShelfFloorCeilingSrc(row) {
+    if (!row) return false;
+    const src = String(row.source || '').trim().toLowerCase();
+    const tag = String(row.tag || '').trim().toLowerCase();
+    const reason = String(row.exitReason || row.exit_reason || '').trim().toLowerCase();
+    const blob = `${tag} ${src}`;
+    if (tag === 'shelf_ff' || tag === 'shelf' || tag === 'полка') return true;
+    if (blob.indexOf('shelf_ff') >= 0 || blob.indexOf('полка') >= 0) return true;
+    if (blob.indexOf('пол') >= 0 && blob.indexOf('потол') >= 0) return true;
+    if (reason === 'shelf_edge' || reason === 'shelf_break') return true;
+    if (reason.indexOf('shelf_') === 0 && reason !== 'shelf_displace') return true;
+    return false;
+  }
+
   function normalizeTradeSrcFilterKey(row) {
     if (!row) return 'other';
     const src = String(row.source || '').trim();
@@ -2241,10 +2248,7 @@
     ) {
       return 'extra';
     }
-    if (
-      tag === 'shelf_ff' || tag === 'пол–потолок' || tag === 'пол-потолок'
-      || low === 'полка' || (low.indexOf('пол') >= 0 && low.indexOf('потолок') >= 0)
-    ) {
+    if (isShelfFloorCeilingSrc(row)) {
       return 'shelf';
     }
     if (
@@ -2392,7 +2396,10 @@
 
   function applyZHeatmapScrollTop(preferredTop) {
     const scrollEl = $('tradesZHeatmap');
-    if (!scrollEl) return;
+    if (!scrollEl) {
+      zHeatmapScrollRestored = true;
+      return;
+    }
     const top = preferredTop == null ? readSavedZHeatmapScrollTop() : preferredTop;
     withSuppressedScrollSave(() => { scrollEl.scrollTop = top; });
     if (!zHeatmapScrollRestored && scrollEl.clientHeight > 0 && scrollOffsetFit(scrollEl, 'top', top)) {
@@ -2835,15 +2842,14 @@
   }
 
   function scheduleZHeatmapUpdate(_cursorIndexIgnored, { immediate = false } = {}) {
-    if (zHeatmapTimer) clearTimeout(zHeatmapTimer);
-    const delay = immediate ? 0 : 320;
-    zHeatmapTimer = setTimeout(() => {
+    if (zHeatmapTimer) {
+      clearTimeout(zHeatmapTimer);
       zHeatmapTimer = null;
-      updateZHeatmap();
-    }, delay);
+    }
   }
 
   async function updateZHeatmap() {
+    return;
     const host = $('tradesZHeatmap');
     const scrollEl = $('tradesZHeatmap');
     if (!host) return;
@@ -3136,6 +3142,12 @@
     if (typeof isWeekendTradingMode === 'function' && !isWeekendTradingMode()) {
       pnl.weekend = 0;
     }
+    const rowShelf = Number(fromRows.shelf) || 0;
+    const apiShelf = Number(pnl.shelf) || 0;
+    if (Math.abs(apiShelf) < 1e-9 && Math.abs(rowShelf) >= 1e-9) {
+      pnl.shelf = rowShelf;
+      pnl.base = (Number(pnl.base) || 0) - rowShelf;
+    }
     const absSum = TAG_SHARE_SPEC.reduce((s, spec) => s + Math.abs(pnl[spec.key] || 0), 0);
     const slices = TAG_SHARE_SPEC.map((spec) => {
       const val = Number(pnl[spec.key]) || 0;
@@ -3244,39 +3256,6 @@
     }
     renderMonthlyPnl(visibleRows);
     if (engine) updateRiskCompare(engine.cursor);
-    // Не перезапускать heatmap на каждый refreshUi, если ключ уже посчитан
-    if (engine && !playing && !isZHeatmapHidden()) {
-      const g = readZHeatmapGridParams();
-      const hk = zHeatmapCacheKey(g);
-      if (hk === zHeatmapCache.key && zHeatmapCache.cells) {
-        const host = $('tradesZHeatmap');
-        const lv = readHmSelectedSpreadLevels();
-        const curEntry = g.spreadMode
-          ? (g.band === 'narrow' ? lv.enter_narrow : lv.enter_wide)
-          : thresholds().entry;
-        const curExit = g.spreadMode
-          ? (g.band === 'narrow' ? lv.exit_narrow : lv.exit_wide)
-          : thresholds().exit;
-        const prodMark = g.spreadMode
-          ? (g.band === 'narrow' ? HM_PROD_NARROW : HM_PROD_WIDE)
-          : null;
-        if (host && !host.querySelector('.z-heatmap-table')) {
-          host.innerHTML = renderZHeatmapHtml(
-            zHeatmapCache.cells, g, curEntry, curExit, prodMark,
-          );
-          setZHeatmapExtremes(zHeatmapCache.cells, g);
-        } else if (host) {
-          // только подсветка текущих порогов
-          host.querySelectorAll('td.zh-cell.is-current').forEach((el) => el.classList.remove('is-current'));
-          const cell = host.querySelector(
-            `td.zh-cell[data-entry="${curEntry}"][data-exit="${curExit}"]`,
-          );
-          if (cell) cell.classList.add('is-current');
-        }
-      } else {
-        scheduleZHeatmapUpdate(engine.cursor);
-      }
-    }
     // Prefer in-session position after risk-filter / table rebuild; LS only until first visible restore.
     applyTradesSummaryScrollTop(summaryScrollRestored ? prevScrollTop : readSavedTradesSummaryScrollTop());
     renderTagShareDonut();
@@ -5338,7 +5317,7 @@
       ? 'добор'
       : (tag === 'extra' || tag === 'экстра' || tag === 'extreme')
         ? 'экстра'
-      : (tag === 'shelf_ff' || tag === 'пол–потолок' || tag === 'пол-потолок')
+      : (isShelfFloorCeilingSrc(t) || tag === 'shelf_ff' || tag === 'пол–потолок' || tag === 'пол-потолок')
         ? 'пол–потолок'
       : (tag === 'adapt_corridor' || tag === 'адапт.коридор' || tag.indexOf('адапт') >= 0)
         ? 'адапт.коридор'
@@ -5348,6 +5327,8 @@
     return makeTradeRow({
       index: t.index,
       direction: t.direction,
+      tag: t.tag || (source === 'пол–потолок' ? 'shelf_ff' : null),
+      exitReason: t.exitReason || t.exit_reason || reason || null,
       source,
       entryDate: t.entryDate,
       exitDate: t.exitDate,
@@ -5493,7 +5474,6 @@
       stopBusyTicks();
       refreshTradesTable();
       refreshUi({ afterParams: true });
-      if (!isZHeatmapHidden()) scheduleZHeatmapUpdate(engine?.cursor, { immediate: true });
     } catch (e) {
       if (jobId !== tipSimJobId) return;
       const timedOut = e && e.name === 'AbortError';
@@ -5519,50 +5499,8 @@
     }
   }
 
-  async function fetchTipHeatmap(grid, { timeoutMs } = {}) {
-    const t = thresholds();
-    const lv = readHmSelectedSpreadLevels();
-    const csv = $('csvSel')?.value || 'm15_tatn_255d.csv';
-    const body = {
-      csv,
-      start: $('startDate')?.value || null,
-      end: readWindowEndYmd() || null,
-      entryMin: grid.entryMin,
-      entryMax: grid.entryMax,
-      exitMin: grid.exitMin,
-      exitMax: grid.exitMax,
-      step: grid.step,
-      slip: typeof getSimSlippageSpreadPts === 'function' ? getSimSlippageSpreadPts() : 0.02,
-      notional: getSimNotionalRub(),
-      compound: getSimCompound(),
-      takeProfitPct: t.takeProfitPct || 0,
-      maxHoldDaysNoExitTrend: readHoldParams().maxHoldDaysNoExitTrend,
-      maxHoldDaysIfLosing: readHoldParams().maxHoldDaysIfLosing,
-      spread_level_mode: grid.spreadMode ? 1 : 0,
-      band: grid.band || 'wide',
-      enter_wide: lv.enter_wide,
-      exit_wide: lv.exit_wide,
-      enter_narrow: lv.enter_narrow,
-      exit_narrow: lv.exit_narrow,
-    };
-    const limitMs = Number(timeoutMs) > 0 ? Number(timeoutMs) : tip1mSimTimeoutMs();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), limitMs);
-    try {
-      const res = await fetch('/api/sim/tip1m/heatmap', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || res.statusText);
-      }
-      return res.json();
-    } finally {
-      clearTimeout(timer);
-    }
+  async function fetchTipHeatmap(_grid, { timeoutMs } = {}) {
+    return { cells: [], meta: { heatmapDisabled: true, heatmapSec: 0 } };
   }
 
   function barsLoadTimeoutMs(csv) {

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>MOEX · Торговля / История / Счёт / Тестирование</title>
   <link rel="stylesheet" href="/static/css-shell.css?v=20260906tipDonut1" />
-  <link rel="stylesheet" href="/static/css-testing.css?v=20260906weTag1" />
+  <link rel="stylesheet" href="/static/css-testing.css?v=20260906hmOff1" />
   <link rel="stylesheet" href="/static/css-replay-ui.css?v=20260829gap1" />
     <link rel="stylesheet" href="/static/css-trade-desk.css?v=20260906sitCorr1" />
   <link rel="stylesheet" href="/static/css-mobile.css?v=20260831sideTab1" />
@@ -888,87 +888,9 @@
               <div class="trades-monthly-pnl" id="tradesMonthlyPnl"></div>
             </div>
           </div>
-          <div class="split-divider-h" id="zHeatmapSplitDividerH" role="separator" aria-orientation="horizontal" aria-label="Высота heatmap PnL" title="Вверх — больше · вниз — меньше · двойной клик — сброс"></div>
-          <div class="trades-collapsible trades-collapsible-grow" id="zHeatmapPane">
+          <div class="trades-collapsible" id="zHeatmapPane">
             <div class="trades-section-head trades-section-head--tag-share">
               <div class="tag-share" id="tagShareDonut" role="img" aria-label="Вклад База / добор / экстра / полка / выходные"></div>
-              <div class="trades-section-head-actions">
-                <button type="button" class="pane-collapse-btn" id="btnExpandZHeatmap" aria-pressed="false" title="На весь экран">⛶</button>
-                <button type="button" class="pane-collapse-btn" id="btnCollapseZHeatmap" aria-expanded="true" aria-controls="tradesZHeatmapScroll" title="Скрыть">−</button>
-              </div>
-            </div>
-            <div class="trades-collapsible-body trades-z-heatmap-scroll" id="tradesZHeatmapScroll">
-              <div class="z-heatmap-controls" id="zHeatmapBandControls" hidden>
-                <span class="meta">полоса</span>
-                <div class="chip-group" id="hmBandChips" role="group" aria-label="Полоса S% heatmap">
-                  <button type="button" class="chip active" data-hm-band="wide" title="Широкий Short: enter&gt;exit, выше cut ~5.5">Шир. Short</button>
-                  <button type="button" class="chip" data-hm-band="narrow" title="Узкий Long: enter&lt;exit, ниже cut ~3.5">Узк. Long</button>
-                </div>
-              </div>
-              <div class="z-heatmap-controls" id="zHeatmapControls">
-                <label class="meta" id="hmEntryMinLabel" title="Минимальный порог входа Z для сетки">Вх min
-                  <input type="number" id="hmEntryMin" min="0.3" max="5" step="0.1" value="0.5" />
-                </label>
-                <label class="meta" id="hmEntryMaxLabel" title="Максимальный порог входа Z для сетки">Вх max
-                  <input type="number" id="hmEntryMax" min="0.5" max="5" step="0.1" value="2.5" />
-                </label>
-                <label class="meta" id="hmExitMinLabel" title="Минимальный порог выхода Z (только клетки exit &lt; entry)">Вых min
-                  <input type="number" id="hmExitMin" min="0.1" max="4" step="0.1" value="0.3" />
-                </label>
-                <label class="meta" id="hmExitMaxLabel" title="Макс. S% выхода (спред-уровни)" hidden>Вых max
-                  <input type="number" id="hmExitMax" min="0.1" max="10" step="0.1" value="6.2" />
-                </label>
-                <label class="meta" id="hmStepLabel" title="Шаг сетки по Z">Шаг
-                  <input type="number" id="hmStep" min="0.05" max="0.5" step="0.05" value="0.1" />
-                </label>
-                <button type="button" class="chip" id="btnHmRecompute" title="Пересчитать heatmap">↻</button>
-              </div>
-              <div class="z-heatmap-controls z-heatmap-strategy" id="zHeatmapStrategyControls">
-                <label class="meta z-thresh-only" title="Порог входа теста (как в тулбаре)">Вх ±
-                  <select id="hmEntrySel"></select>
-                </label>
-                <label class="meta z-thresh-only" title="Порог выхода теста (как в тулбаре)">Вых ±
-                  <select id="hmExitSel"></select>
-                </label>
-                <button type="button" class="chip z-thresh-only" id="btnHmCopyLive" title="Скопировать пороги с вкладки Торговля в этот тест">из Торговли</button>
-                <label class="meta" title="Take-profit % от номинала">TP
-                  <select id="hmTpSel">
-                    <option value="0" selected>выкл</option>
-                    <option value="1">1%</option>
-                    <option value="2">2%</option>
-                    <option value="3">3%</option>
-                  </select>
-                </label>
-                <label class="meta tip1m-hold" title="Закрыть, если за N дней нет хода к выходу ≥0,2 п.п. и MTM &lt; 0">Нет хода
-                  <select id="hmHoldNoTrendSel">
-                    <option value="0" selected>выкл</option>
-                    <option value="5">5д</option>
-                    <option value="7">7д</option>
-                    <option value="10">10д</option>
-                  </select>
-                </label>
-                <label class="meta tip1m-hold" title="Закрыть, если N дней в минусе">В минусе
-                  <select id="hmHoldLosingSel">
-                    <option value="0" selected>выкл</option>
-                    <option value="7">7д</option>
-                    <option value="10">10д</option>
-                  </select>
-                </label>
-                <div class="risk-exit-groups hm-risk-exit-groups" id="hmRiskExitGroups" role="group" aria-label="Risk exit heatmap"></div>
-                <label class="meta" title="Номинал сделки">Капитал ₽
-                  <input type="number" id="hmNotionalSel" min="1000" max="10000000" step="1000" value="10000" />
-                </label>
-                <label class="meta" title="Adverse slip (п.п.) — меняет и тест, и heatmap">Slip
-                  <input type="number" id="hmSlip" min="0" max="0.5" step="0.01" value="0.12" />
-                </label>
-                <label class="meta replay-compound" title="Реинвестировать PnL">
-                  <input type="checkbox" id="hmCompoundChk" />
-                  Кап.
-                </label>
-              </div>
-              <div class="z-heatmap-extremes meta" id="zHeatmapExtremes" aria-live="polite"></div>
-              <div class="z-heatmap-status meta" id="zHeatmapStatus" aria-live="polite"></div>
-              <div class="z-heatmap" id="tradesZHeatmap"></div>
             </div>
           </div>
         </div>
@@ -1003,7 +925,7 @@
 
   <script src="/static/lightweight-charts.standalone.production.js?v=20260723a12"></script>
   <!-- replay engine split (load order matters) -->
-  <script src="/static/replay-sim.js?v=20260905deskRestore1"></script>
+  <script src="/static/replay-sim.js?v=20260906shelfBar1"></script>
   <script src="/static/replay-equity.js?v=20260905utcTs1"></script>
   <script src="/static/replay-signals.js?v=20260829dropRisk1"></script>
   <script src="/static/replay-engine-core.js?v=20260905utcTs1"></script>
@@ -1011,6 +933,6 @@
   <script src="/static/trade.js?v=20260906liveSp1"></script>
   <script src="/static/history.js?v=20260905comment1"></script>
   <script src="/static/live.js?v=20260726otc2"></script>
-  <script src="/static/app.js?v=20260906weTag1"></script>
+  <script src="/static/app.js?v=20260906shelfBar1"></script>
 </body>
 </html>

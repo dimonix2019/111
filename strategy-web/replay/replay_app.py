@@ -316,96 +316,9 @@ def api_sim_tip1m(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str
 
 @app.post("/api/sim/tip1m/heatmap")
 def api_sim_tip1m_heatmap(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
-    """Server-side E/X grid for 1m tip-touch (Testing heatmap).
-
-    tip1m + spread_level_mode → S% enter×exit band (wide Short / narrow Long).
-    Otherwise legacy Z± grid.
-    """
-    from replay import tip_touch
-
-    csv = Path(str(body.get("csv") or "m15_tatn_255d.csv")).name
-    if csv not in ALLOWED_CSV:
-        raise HTTPException(400, f"CSV не разрешён: {csv}")
-    try:
-        slip = float(body.get("slip", tip_touch.DEFAULT_SLIP))
-        notional = float(body.get("notional", body.get("capital", tip_touch.DEFAULT_NOTIONAL)))
-        compound = bool(body.get("compound", False))
-        tp = float(body.get("takeProfitPct", body.get("tp", 0)) or 0)
-        start = body.get("start")
-        start_s = str(start).strip() if start else None
-        end = body.get("end")
-        end_s = str(end).strip() if end else None
-        sl_raw = body.get("spread_level_mode", body.get("spreadLevelMode"))
-        if sl_raw is None and not isinstance(body.get("spreadLevels"), dict):
-            sl_raw = body.get("spreadLevels")
-        if isinstance(sl_raw, str):
-            spread_level_mode = sl_raw.strip().lower() in ("1", "true", "yes", "on")
-        elif sl_raw is None:
-            spread_level_mode = False
-        else:
-            spread_level_mode = bool(sl_raw)
-        band = str(body.get("band") or "wide").strip().lower()
-        exit_max_raw = body.get("exitMax", body.get("exit_max"))
-        exit_max = float(exit_max_raw) if exit_max_raw is not None else None
-
-        def _opt_f(*keys: str) -> float | None:
-            for k in keys:
-                if k in body and body.get(k) is not None:
-                    try:
-                        return float(body.get(k))
-                    except (TypeError, ValueError):
-                        return None
-            return None
-
-        levels_raw = body.get("spread_levels")
-        if not isinstance(levels_raw, dict):
-            levels_raw = body.get("levels")
-        if not isinstance(levels_raw, dict) and isinstance(body.get("spreadLevels"), dict):
-            levels_raw = body.get("spreadLevels")
-        if isinstance(levels_raw, dict):
-            for src, dests in (
-                ("enter_wide", ("enterWide", "enter_wide", "spread_enter_wide")),
-                ("exit_wide", ("exitWide", "exit_wide", "spread_exit_wide")),
-                ("enter_narrow", ("enterNarrow", "enter_narrow", "spread_enter_narrow")),
-                ("exit_narrow", ("exitNarrow", "exit_narrow", "spread_exit_narrow")),
-            ):
-                if levels_raw.get(src) is not None:
-                    continue
-                for d in dests:
-                    if d in levels_raw and levels_raw.get(d) is not None:
-                        levels_raw = {**levels_raw, src: levels_raw.get(d)}
-                        break
-
-        return tip_touch.heatmap_tip1m(
-            csv=csv,
-            entry_min=float(body.get("entryMin", 0.5)),
-            entry_max=float(body.get("entryMax", 2.7)),
-            exit_min=float(body.get("exitMin", 0.5)),
-            exit_max=exit_max,
-            step=float(body.get("step", 0.1)),
-            slip=slip,
-            notional=notional,
-            compound=compound,
-            take_profit_pct=tp,
-            start=start_s,
-            end=end_s,
-            spread_level_mode=spread_level_mode,
-            band=band,
-            enter_wide=_opt_f("enterWide", "enter_wide", "spread_enter_wide")
-            or (float(levels_raw["enter_wide"]) if isinstance(levels_raw, dict) and levels_raw.get("enter_wide") is not None else None),
-            exit_wide=_opt_f("exitWide", "exit_wide", "spread_exit_wide")
-            or (float(levels_raw["exit_wide"]) if isinstance(levels_raw, dict) and levels_raw.get("exit_wide") is not None else None),
-            enter_narrow=_opt_f("enterNarrow", "enter_narrow", "spread_enter_narrow")
-            or (float(levels_raw["enter_narrow"]) if isinstance(levels_raw, dict) and levels_raw.get("enter_narrow") is not None else None),
-            exit_narrow=_opt_f("exitNarrow", "exit_narrow", "spread_exit_narrow")
-            or (float(levels_raw["exit_narrow"]) if isinstance(levels_raw, dict) and levels_raw.get("exit_narrow") is not None else None),
-        )
-    except FileNotFoundError as e:
-        raise HTTPException(404, str(e)) from e
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except Exception as e:
-        raise HTTPException(500, f"tip1m heatmap failed: {e}") from e
+    """Heatmap UI removed — do not compute E×X grid (CPU)."""
+    _ = body
+    return {"cells": [], "meta": {"heatmapDisabled": True, "heatmapSec": 0.0}}
 
 
 @app.get("/api/health")
