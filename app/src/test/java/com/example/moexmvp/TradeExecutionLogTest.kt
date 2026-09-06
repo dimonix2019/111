@@ -53,4 +53,47 @@ class TradeExecutionLogTest {
         assertNotNull(bps)
         assertTrue(bps!! > 0)
     }
+
+    @Test
+    fun summarizeSpreadExitPartialFill_detectsPartialLeg() {
+        val legs = listOf(
+            SandboxLegOrderResult(
+                ticker = "TATN",
+                sideRu = "продажа 360 лот",
+                orderJson = JSONObject(
+                    """
+                    {
+                      "lotsRequested": 360,
+                      "lotsExecuted": 35,
+                      "executionReportStatus": "EXECUTION_REPORT_STATUS_PARTIALLYFILL"
+                    }
+                    """.trimIndent()
+                ),
+                portfolioTotalRub = null,
+                portfolioCashRub = null,
+                completedAtMillis = 0L,
+            ),
+            SandboxLegOrderResult(
+                ticker = "TATNP",
+                sideRu = "покупка 360 лот",
+                orderJson = JSONObject(
+                    """
+                    {
+                      "lotsRequested": 360,
+                      "lotsExecuted": 360,
+                      "executionReportStatus": "EXECUTION_REPORT_STATUS_FILL"
+                    }
+                    """.trimIndent()
+                ),
+                portfolioTotalRub = null,
+                portfolioCashRub = null,
+                completedAtMillis = 0L,
+            ),
+        )
+        val summary = summarizeSpreadExitPartialFill(legs, 360)
+        assertNotNull(summary)
+        assertEquals(35, summary!!.filledLots)
+        assertEquals(360, summary.totalLots)
+        assertTrue(summary.detail.contains("TATN"))
+    }
 }

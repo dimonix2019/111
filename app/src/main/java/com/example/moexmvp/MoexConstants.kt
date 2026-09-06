@@ -1,4 +1,4 @@
-package com.example.moexmvp
+﻿package com.example.moexmvp
 
 import java.time.format.DateTimeFormatter
 import okhttp3.OkHttpClient
@@ -196,9 +196,9 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
+2.0.28 — Push + алерт «Закрытие неполное» при частичном исполнении выхода; остаток сделки остаётся открытым.
 2.0.27 — «Рынок»: один last price на оси спреда (без дубля 3,13); линия «ТП 2%» при открытой позиции.
 2.0.26 — «Рынок»: pan/pinch графика не сбрасывается к last bar; follow-live только у правого края.
 2.0.25 — «Рынок»: OHLC текущей/наведённой свечи спреда % рядом с подписью TATN/TATNP.
 2.0.24 — «Рынок»: локальный TradingView-график спреда 1м с зонами, уровнями и сделками; экстренное закрытие перенесено в «Сделка».
-2.0.23 — «О приложении»: четыре алерта спреда с настраиваемыми порогами % (не только вкл/выкл).
 """

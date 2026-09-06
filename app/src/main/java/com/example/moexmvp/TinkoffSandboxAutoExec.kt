@@ -201,6 +201,10 @@ internal suspend fun runSandboxAutoExitIfNeeded(
                 source = "auto_exit",
             )
         }
+        summarizeSpreadExitPartialFill(legs, openTrade.quantityLots)?.let { partial ->
+            notifyPartialCloseIncomplete(app, partial, openTrade.tradeId)
+            throw PartialCloseIncompleteException(partial, openTrade.tradeId)
+        }
         synchronized(autoSpreadDedupLock) {
             app.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_LAST_AUTO_EXIT, dedupKey).commit()

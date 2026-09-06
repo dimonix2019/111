@@ -109,6 +109,8 @@ internal class MoexScreenState(val context: Context) {
     var portfolioTestBusy by mutableStateOf(false)
     var showCloseAllPortfolioDialog by mutableStateOf(false)
     var closeAllPortfolioBusy by mutableStateOf(false)
+    var partialCloseAlert by mutableStateOf<PartialCloseSummary?>(null)
+    var partialCloseAlertTradeId by mutableStateOf<String?>(null)
     var bgMonitorToggleEpoch by mutableStateOf(0)
     var watchdogStatus by mutableStateOf(MoexWatchdog.readStatus(context))
     var strategyTestPortfolioMetrics by mutableStateOf<PortfolioMetrics?>(null)
