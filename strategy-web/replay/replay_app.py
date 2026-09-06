@@ -195,124 +195,152 @@ def api_bars1m(
         raise HTTPException(500, f"bars1m failed: {e}") from e
 
 
-@app.post("/api/sim/tip1m")
-def api_sim_tip1m(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
-    """Server-side Mode B: enter/exit on first 1m tip-Z touch."""
+def _parse_sim_tip1m_body(body: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Parse POST body → (csv name, kwargs for tip_touch.sim_tip1m)."""
     from replay import tip_touch
 
     csv = Path(str(body.get("csv") or "m15_tatn_255d.csv")).name
     if csv not in ALLOWED_CSV:
         raise HTTPException(400, f"CSV не разрешён: {csv}")
+    entry = float(body.get("entry", 1.6))
+    exit_z = float(body.get("exit", body.get("exitZ", 1.3)))
+    slip = float(body.get("slip", tip_touch.DEFAULT_SLIP))
+    notional = float(body.get("notional", body.get("capital", tip_touch.DEFAULT_NOTIONAL)))
+    compound = bool(body.get("compound", False))
+    tp = float(body.get("takeProfitPct", body.get("tp", 0)) or 0)
+    start = body.get("start")
+    start_s = str(start).strip() if start else None
+    end = body.get("end")
+    end_s = str(end).strip() if end else None
+    as_live_raw = body.get("as_live", body.get("asLive", body.get("source")))
+    if isinstance(as_live_raw, str):
+        as_live = as_live_raw.strip().lower() in ("1", "true", "yes", "as_live", "decision", "live")
+    else:
+        as_live = bool(as_live_raw)
+    rz_raw = body.get("regime_z_mode", body.get("regimeZ", body.get("regimeZMode")))
+    if isinstance(rz_raw, str):
+        regime_z_mode = rz_raw.strip().lower() in ("1", "true", "yes", "on")
+    else:
+        regime_z_mode = bool(rz_raw) if rz_raw is not None else False
+    sl_raw = body.get("spread_level_mode", body.get("spreadLevelMode"))
+    if sl_raw is None and not isinstance(body.get("spreadLevels"), dict):
+        sl_raw = body.get("spreadLevels")
+    if isinstance(sl_raw, str):
+        spread_level_mode = sl_raw.strip().lower() in ("1", "true", "yes", "on")
+    elif sl_raw is None:
+        spread_level_mode = True
+    else:
+        spread_level_mode = bool(sl_raw)
+    weekend_raw = body.get("weekend_trading", body.get("weekendTrading", False))
+    if isinstance(weekend_raw, str):
+        weekend_trading = weekend_raw.strip().lower() in ("1", "true", "yes", "on")
+    else:
+        weekend_trading = bool(weekend_raw)
+    levels_raw = body.get("spread_levels")
+    if not isinstance(levels_raw, dict):
+        levels_raw = body.get("levels")
+    if not isinstance(levels_raw, dict) and isinstance(body.get("spreadLevels"), dict):
+        levels_raw = body.get("spreadLevels")
+    spread_levels = levels_raw if isinstance(levels_raw, dict) else None
+    rp_raw = body.get("replay_prod", body.get("replayProd", body.get("as_live_strict")))
+    if isinstance(rp_raw, str):
+        replay_prod = rp_raw.strip().lower() in ("1", "true", "yes", "prod", "strict")
+    else:
+        replay_prod = bool(rp_raw)
+    if isinstance(as_live_raw, str) and as_live_raw.strip().lower() in (
+        "decision",
+        "replay_prod",
+        "prod_only",
+    ):
+        replay_prod = True
+    if as_live:
+        replay_prod = True
+    kwargs: dict[str, Any] = {
+        "entry": entry,
+        "exit_z": exit_z,
+        "slip": slip,
+        "notional": notional,
+        "compound": compound,
+        "take_profit_pct": tp,
+        "start": start_s,
+        "end": end_s,
+        "as_live": as_live,
+        "replay_prod": replay_prod,
+        "regime_z_mode": regime_z_mode,
+        "spread_level_mode": spread_level_mode,
+        "spread_levels": spread_levels,
+        "max_hold_days_if_losing": float(
+            body.get("maxHoldDaysIfLosing") or body.get("max_hold_days_if_losing") or 0
+        ),
+        "max_hold_days_no_exit_trend": float(
+            body.get("maxHoldDaysNoExitTrend")
+            or body.get("max_hold_days_no_exit_trend")
+            or 0
+        ),
+        "addon_mode": tip_touch.parse_addon_mode(body.get("addon_mode", body.get("addonMode"))),
+        "extreme_addon_mode": tip_touch.parse_extreme_addon_mode(
+            body.get("extreme_addon_mode", body.get("extremeAddonMode"))
+        ),
+        "transition_swing_mode": tip_touch.parse_transition_swing_mode(
+            body.get("transition_swing_mode", body.get("transitionSwingMode"))
+        ),
+        "adaptive_corridor_mode": tip_touch.parse_adaptive_corridor_mode(
+            body.get("adaptive_corridor_mode", body.get("adaptiveCorridorMode"))
+        ),
+        "shelf_floor_ceiling_mode": tip_touch.parse_shelf_floor_ceiling_mode(
+            body.get("shelf_floor_ceiling_mode", body.get("shelfFloorCeilingMode"))
+        ),
+        "base_mode": tip_touch.parse_base_mode(
+            body.get("enable_base", body.get("baseMode", body.get("base")))
+        ),
+        "weekend_trading": weekend_trading,
+        "chip_contrib": True,
+    }
+    return csv, kwargs
+
+
+@app.post("/api/sim/tip1m")
+def api_sim_tip1m(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """Server-side Mode B: enter/exit on first 1m tip-Z touch."""
+    from replay import sim_worker, tip_touch
+
     try:
-        entry = float(body.get("entry", 1.6))
-        exit_z = float(body.get("exit", body.get("exitZ", 1.3)))
-        slip = float(body.get("slip", tip_touch.DEFAULT_SLIP))
-        notional = float(body.get("notional", body.get("capital", tip_touch.DEFAULT_NOTIONAL)))
-        compound = bool(body.get("compound", False))
-        tp = float(body.get("takeProfitPct", body.get("tp", 0)) or 0)
-        start = body.get("start")
-        start_s = str(start).strip() if start else None
-        end = body.get("end")
-        end_s = str(end).strip() if end else None
-        as_live_raw = body.get("as_live", body.get("asLive", body.get("source")))
-        if isinstance(as_live_raw, str):
-            as_live = as_live_raw.strip().lower() in ("1", "true", "yes", "as_live", "decision", "live")
-        else:
-            as_live = bool(as_live_raw)
-        rz_raw = body.get("regime_z_mode", body.get("regimeZ", body.get("regimeZMode")))
-        if isinstance(rz_raw, str):
-            regime_z_mode = rz_raw.strip().lower() in ("1", "true", "yes", "on")
-        else:
-            regime_z_mode = bool(rz_raw) if rz_raw is not None else False
-        sl_raw = body.get("spread_level_mode", body.get("spreadLevelMode"))
-        if sl_raw is None and not isinstance(body.get("spreadLevels"), dict):
-            sl_raw = body.get("spreadLevels")
-        if isinstance(sl_raw, str):
-            spread_level_mode = sl_raw.strip().lower() in ("1", "true", "yes", "on")
-        elif sl_raw is None:
-            # Default ON for geometric tip1m (matches Prod primary AUTO).
-            spread_level_mode = True
-        else:
-            spread_level_mode = bool(sl_raw)
-        weekend_raw = body.get("weekend_trading", body.get("weekendTrading", False))
-        if isinstance(weekend_raw, str):
-            weekend_trading = weekend_raw.strip().lower() in ("1", "true", "yes", "on")
-        else:
-            weekend_trading = bool(weekend_raw)
-        levels_raw = body.get("spread_levels")
-        if not isinstance(levels_raw, dict):
-            levels_raw = body.get("levels")
-        if not isinstance(levels_raw, dict) and isinstance(body.get("spreadLevels"), dict):
-            levels_raw = body.get("spreadLevels")
-        spread_levels = levels_raw if isinstance(levels_raw, dict) else None
-        # «как Прод» (as_live) → Prod decision_bars/closed replay for tip1m СДЕЛКИ.
-        # Explicit replay_prod / source=decision still forces the same path.
-        rp_raw = body.get("replay_prod", body.get("replayProd", body.get("as_live_strict")))
-        if isinstance(rp_raw, str):
-            replay_prod = rp_raw.strip().lower() in ("1", "true", "yes", "prod", "strict")
-        else:
-            replay_prod = bool(rp_raw)
-        if isinstance(as_live_raw, str) and as_live_raw.strip().lower() in (
-            "decision",
-            "replay_prod",
-            "prod_only",
-        ):
-            replay_prod = True
-        if as_live:
-            replay_prod = True
-        return tip_touch.sim_tip1m(
-            csv=csv,
-            entry=entry,
-            exit_z=exit_z,
-            slip=slip,
-            notional=notional,
-            compound=compound,
-            take_profit_pct=tp,
-            start=start_s,
-            end=end_s,
-            as_live=as_live,
-            replay_prod=replay_prod,
-            regime_z_mode=regime_z_mode,
-            spread_level_mode=spread_level_mode,
-            spread_levels=spread_levels,
-            max_hold_days_if_losing=float(
-                body.get("maxHoldDaysIfLosing") or body.get("max_hold_days_if_losing") or 0
-            ),
-            max_hold_days_no_exit_trend=float(
-                body.get("maxHoldDaysNoExitTrend")
-                or body.get("max_hold_days_no_exit_trend")
-                or 0
-            ),
-            addon_mode=tip_touch.parse_addon_mode(
-                body.get("addon_mode", body.get("addonMode"))
-            ),
-            extreme_addon_mode=tip_touch.parse_extreme_addon_mode(
-                body.get("extreme_addon_mode", body.get("extremeAddonMode"))
-            ),
-            transition_swing_mode=tip_touch.parse_transition_swing_mode(
-                body.get("transition_swing_mode", body.get("transitionSwingMode"))
-            ),
-            adaptive_corridor_mode=tip_touch.parse_adaptive_corridor_mode(
-                body.get("adaptive_corridor_mode", body.get("adaptiveCorridorMode"))
-            ),
-            shelf_floor_ceiling_mode=tip_touch.parse_shelf_floor_ceiling_mode(
-                body.get("shelf_floor_ceiling_mode", body.get("shelfFloorCeilingMode"))
-            ),
-            base_mode=tip_touch.parse_base_mode(
-                body.get(
-                    "enable_base",
-                    body.get("baseMode", body.get("base")),
-                )
-            ),
-            weekend_trading=weekend_trading,
-            chip_contrib=True,
-        )
+        csv, kwargs = _parse_sim_tip1m_body(body)
+        start_s = kwargs.get("start")
+        end_s = kwargs.get("end")
+        span = sim_worker.sim_span_days(csv, start_s, end_s)
+        if sim_worker.should_run_async(csv, start_s, end_s):
+
+            def _run() -> dict[str, Any]:
+                return tip_touch.sim_tip1m(csv=csv, **kwargs)
+
+            job_id = sim_worker.submit_sim_job(_run, span_days=span)
+            return {
+                "async": True,
+                "job_id": job_id,
+                "status": "pending",
+                "spanDays": span,
+            }
+        return tip_touch.sim_tip1m(csv=csv, **kwargs)
+    except HTTPException:
+        raise
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except Exception as e:
         raise HTTPException(500, f"tip1m sim failed: {e}") from e
+
+
+@app.get("/api/sim/tip1m/status/{job_id}")
+async def api_sim_tip1m_status(job_id: str) -> dict[str, Any]:
+    """Poll async tip1m sim job (long windows >90d)."""
+    from replay import sim_worker
+
+    payload = sim_worker.job_status_payload(job_id)
+    if payload is None:
+        raise HTTPException(404, f"job not found: {job_id}")
+    return payload
 
 
 @app.post("/api/sim/tip1m/heatmap")

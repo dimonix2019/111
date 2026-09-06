@@ -4249,6 +4249,31 @@
     return 600000;
   }
 
+  /** Poll async tip1m sim job (long windows >90d). */
+  async function pollTipSimJob(serverJobId, clientJobId, started, timeoutMs) {
+    const pollMs = 600;
+    while (Date.now() - started < timeoutMs) {
+      if (clientJobId !== tipSimJobId) return null;
+      await new Promise((r) => setTimeout(r, pollMs));
+      if (clientJobId !== tipSimJobId) return null;
+      const sr = await fetch(`/api/sim/tip1m/status/${encodeURIComponent(serverJobId)}`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!sr.ok) {
+        const errText = await sr.text();
+        throw new Error(errText || sr.statusText);
+      }
+      const status = await sr.json();
+      if (status.status === 'done' && status.result) return status.result;
+      if (status.status === 'error') {
+        throw new Error(status.error || 'tip1m sim failed');
+      }
+    }
+    const err = new Error(`таймаут ${Math.round(timeoutMs / 1000)} с`);
+    err.name = 'AbortError';
+    throw err;
+  }
+
   async function ensureTestDeskCorridor({ force = false } = {}) {
     if (!TEST_DRAW_CORRIDOR) return null;
     const now = Date.now();
@@ -5469,7 +5494,7 @@
     markMonthlyPnlPending();
     const st = $('status');
     if (st && !tipSimCache.rows) {
-      st.textContent = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · считаю на сервере…`;
+      st.textContent = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · считаю…`;
     }
     const t = thresholds();
     const csv = $('csvSel')?.value || 'm15_tatn_255d.csv';
@@ -5505,6 +5530,7 @@
     const started = Date.now();
     const timeoutSec = Math.round(timeoutMs / 1000);
     let busyLive = true;
+    let asyncJobId = null;
     const tickBusy = async () => {
       if (!busyLive || jobId !== tipSimJobId) return;
       const sec = Math.round((Date.now() - started) / 1000);
@@ -5519,7 +5545,8 @@
           }
         }
       } catch (_) { /* health/busy не должен ронять сим */ }
-      const line = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · считаю на сервере… ${sec}/${timeoutSec} с${phase}`;
+      const asyncNote = asyncJobId ? ' · фоновая задача' : '';
+      const line = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · считаю… ${sec}/${timeoutSec} с${asyncNote}${phase}`;
       if (st && !tipSimCache.rows) st.textContent = line;
       const grid = $('tradesSummaryGrid');
       if (grid && !tipSimCache.rows) {
@@ -5543,7 +5570,13 @@
         const errText = await res.text();
         throw new Error(errText || res.statusText);
       }
-      const data = await res.json();
+      let data = await res.json();
+      if (data && data.async && data.job_id) {
+        asyncJobId = data.job_id;
+        tickBusy();
+        data = await pollTipSimJob(data.job_id, jobId, started, timeoutMs);
+        if (!data) return;
+      }
       if (jobId !== tipSimJobId) return;
       const entryTh = t.entry;
       const rows = (data.trades || []).map((tr) => tipTradeToRow(tr, entryTh));
