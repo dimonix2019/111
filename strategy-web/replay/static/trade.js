@@ -4441,43 +4441,32 @@
     // Weekday TQBR session: allow if flat. Close always when position open.
     const dealerQuotesOk = !!(dealer && (dealer.manual_ok || dealer.quotes_ok || (dealer.ok && dealer.tatn != null && dealer.tatnp != null)));
     const manualGate = (weekend || dealerPresent) ? dealerQuotesOk : true;
-    const sessionBlock = sessionOrdersBlockReason();
-    const canOpen = flat && manualGate && !sessionBlock;
-    const canClose = !flat && !sessionBlock;
+    const canOpen = flat && manualGate;
     const btnLong = $('tradeBtnLong');
     const btnShort = $('tradeBtnShort');
     const btnClose = $('tradeBtnClose');
-    const openTitle = sessionBlock
-      ? sessionBlock
-      : (!flat
-        ? 'Уже есть открытая позиция'
-        : (!manualGate
-          ? 'Ручной вход недоступен (нет дилерских котировок)'
-          : 'Ручной вход Long (выходные/OTC или TQBR)'));
-    const shortTitle = sessionBlock
-      ? sessionBlock
-      : (!flat
-        ? 'Уже есть открытая позиция'
-        : (!manualGate
-          ? 'Ручной вход недоступен (нет дилерских котировок)'
-          : 'Ручной вход Short (выходные/OTC или TQBR)'));
     if (btnLong) {
       btnLong.disabled = !canOpen;
-      btnLong.title = openTitle;
+      btnLong.title = !flat
+        ? 'Уже есть открытая позиция'
+        : (!manualGate
+          ? 'Ручной вход недоступен (нет дилерских котировок)'
+          : 'Ручной вход Long (выходные/OTC или TQBR)');
     }
     if (btnShort) {
       btnShort.disabled = !canOpen;
-      btnShort.title = shortTitle;
+      btnShort.title = !flat
+        ? 'Уже есть открытая позиция'
+        : (!manualGate
+          ? 'Ручной вход недоступен (нет дилерских котировок)'
+          : 'Ручной вход Short (выходные/OTC или TQBR)');
     }
     if (btnClose) {
-      btnClose.disabled = !canClose;
-      btnClose.title = sessionBlock
-        ? sessionBlock
-        : (flat
-          ? 'Нет открытой позиции'
-          : 'Закрыть открытый спрэд на брокере (OTC/TQBR)');
+      btnClose.disabled = flat;
+      btnClose.title = flat
+        ? 'Нет открытой позиции'
+        : 'Закрыть открытый спрэд на брокере (OTC/TQBR)';
     }
-    setSessionGateHint(sessionBlock, btnClose || btnShort || btnLong);
   }
 
   /** Path Min/Max MTM entry→now (parity closed pnl_min/max; no exit commission). */
@@ -6328,7 +6317,7 @@
     // tradeDate already MSK wall-clock
     const wd = new Date(+m[1], +m[2] - 1, +m[3]).getDay();
     const mins = (+m[4]) * 60 + (+m[5]);
-    if (wd === 0 || wd === 6) return mins >= 10 * 60 && mins < 19 * 60;
+    if (wd === 0 || wd === 6) return true;
     return mins >= 7 * 60 && mins < 23 * 60 + 50;
   }
 
@@ -6383,9 +6372,9 @@
     const wd = get('weekday'); // Mon..Sun
     const weekend = wd === 'Sat' || wd === 'Sun';
     const mins = h * 60 + mi;
-    // AUTO tip1m: будни 07:00–23:50; сб/вс 10:00–18:59
+    // AUTO tip1m: будни 07:00–23:50; сб/вс — дилер (без отсечки 10:00)
     const inSession = weekend
-      ? (mins >= 10 * 60 && mins < 19 * 60)
+      ? true
       : (mins >= 7 * 60 && mins < 23 * 60 + 50);
     // Live tip-спред на столе: до 23:45 (выходные — дилер OK)
     const spreadLive = weekend
@@ -6395,38 +6384,6 @@
       y, mo, d, h, mi, weekend, inSession, spreadLive,
       label: `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`,
     };
-  }
-
-  /** Broker orders: same window as AUTO. Null if allowed. */
-  function sessionOrdersBlockReason(msk) {
-    const p = msk || nowMskParts();
-    if (p.inSession) return null;
-    const mins = p.h * 60 + p.mi;
-    if (p.weekend) {
-      if (mins < 10 * 60) return 'Сессии нет · до 10:00 МСК';
-      return 'Сессии нет · окно 10:00–18:59 МСК';
-    }
-    if (mins < 7 * 60) return 'Сессии нет · до 07:00 МСК';
-    return 'Сессии нет · окно 07:00–23:50 МСК';
-  }
-
-  function setSessionGateHint(reason, afterEl) {
-    if (!afterEl) return;
-    let el = $('tradeSessionGateHint');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'tradeSessionGateHint';
-      el.className = 'meta trade-session-gate-hint';
-      el.setAttribute('role', 'status');
-      afterEl.insertAdjacentElement('afterend', el);
-    }
-    if (reason) {
-      el.hidden = false;
-      el.textContent = reason;
-    } else {
-      el.hidden = true;
-      el.textContent = '';
-    }
   }
 
   function barZ(bar) {
@@ -6772,11 +6729,15 @@
           : 'Спред: ждём 1м дилерские свечи'
       ));
       general.push(checkItem(
-        msk.weekend && msk.inSession ? 'ok' : 'wait',
-        msk.weekend && msk.inSession
-          ? `Выходные 10:00–18:59 · AUTO tip1m (${msk.label} МСК)`
-          : (msk.weekend
-            ? `Вне окна выходных 10:00–18:59 (${msk.label} МСК) — AUTO выкл`
+        msk.weekend
+          ? (dealerManualOk ? 'ok' : 'wait')
+          : (msk.inSession ? 'ok' : 'wait'),
+        msk.weekend
+          ? (dealerManualOk
+            ? `Выходные · дилер живой · AUTO tip1m (${msk.label} МСК)`
+            : `Выходные · нет котировок дилера (${msk.label} МСК)`)
+          : (msk.inSession
+            ? `AUTO tip1m в сессии (${msk.label} МСК)`
             : `TQBR закрыта (${msk.label} МСК) — AUTO tip1m только в сессии · дилер = монитор/ручной`)));
       const hasMonSp = (bars || []).some((b) => b && b.spread != null
         && (b.source && String(b.source).includes('dealer')));
@@ -6933,8 +6894,8 @@
       if (!consecutive) blockers.push('дыра');
       if (!brokerOk) blockers.push('брокер');
       if (ghost) blockers.push('призрак');
-      if ((msk.weekend || dealer) && !msk.inSession) {
-        blockers.push('дилер/выходные (вне окна AUTO)');
+      if (msk.weekend && !dealerManualOk) {
+        blockers.push('нет котировок дилера');
       }
       if (phase.kind !== 'ready' && blockers.length && !(phase.kind === 'prep' || phase.kind === 'signal')) {
         openItems.push(checkItem('block', `Блокируют: ${blockers.join(', ')}`));
@@ -7886,11 +7847,9 @@
     const flat = !liveOpen && String(livePos).toUpperCase() === 'FLAT';
     const basketOpen = mtlr && mtlr.basket_open != null ? Number(mtlr.basket_open) : 0;
     const basketMax = mtlr && mtlr.basket_max != null ? Number(mtlr.basket_max) : 2;
-    const sessionBlock = sessionOrdersBlockReason();
-    const canOpen = flat && basketOpen < basketMax && !sessionBlock;
+    const canOpen = flat && basketOpen < basketMax;
     let openTitle = 'Ручной Long Мечел (брокер, отдельно от Татнефть)';
-    if (sessionBlock) openTitle = sessionBlock;
-    else if (!flat) openTitle = 'Уже есть открытый Мечел';
+    if (!flat) openTitle = 'Уже есть открытый Мечел';
     else if (basketOpen >= basketMax) openTitle = `Корзина заполнена (${basketOpen}/${basketMax})`;
     if (btnLong) {
       btnLong.disabled = !canOpen;
@@ -7898,21 +7857,17 @@
     }
     if (btnShort) {
       btnShort.disabled = !canOpen;
-      btnShort.title = sessionBlock
-        ? sessionBlock
-        : (!flat
-          ? 'Уже есть открытый Мечел'
-          : (basketOpen >= basketMax
-            ? `Корзина заполнена (${basketOpen}/${basketMax})`
-            : 'Ручной Short Мечел'));
+      btnShort.title = !flat
+        ? 'Уже есть открытый Мечел'
+        : (basketOpen >= basketMax
+          ? `Корзина заполнена (${basketOpen}/${basketMax})`
+          : 'Ручной Short Мечел');
     }
     if (btnClose) {
-      btnClose.disabled = !liveOpen || !!sessionBlock;
-      btnClose.title = sessionBlock
-        ? sessionBlock
-        : (liveOpen
-          ? 'Закрыть спред Мечел на брокере'
-          : 'Нет открытого Мечела');
+      btnClose.disabled = !liveOpen;
+      btnClose.title = liveOpen
+        ? 'Закрыть спред Мечел на брокере'
+        : 'Нет открытого Мечела';
     }
   }
 
@@ -8257,11 +8212,6 @@
     }
 
     const manualTrade = async (side) => {
-      const block = sessionOrdersBlockReason();
-      if (block) {
-        alert(block);
-        return;
-      }
       const warn = lastTradeMode === 'prod'
         ? `Боевой счёт: открыть ${side}?`
         : `Открыть ${side} (ручной вход)?`;
@@ -8291,11 +8241,6 @@
       manualTrade('SHORT').catch((e) => alert(e.message));
     });
     $('tradeBtnClose')?.addEventListener('click', async () => {
-      const block = sessionOrdersBlockReason();
-      if (block) {
-        alert(block);
-        return;
-      }
       if (!window.confirm('Закрыть открытый спрэд на брокере?')) return;
       try {
         const res = await api('/api/portfolio/close', { method: 'POST' });
@@ -8313,11 +8258,6 @@
     });
     bindTradeCommentPopup();
     const manualMtlrTrade = async (side) => {
-      const block = sessionOrdersBlockReason();
-      if (block) {
-        alert(block);
-        return;
-      }
       const label = side === 'CLOSE' ? 'закрыть Мечел' : `Мечел ${side}`;
       const warn = lastTradeMode === 'prod'
         ? `Боевой счёт: ${label}?`
@@ -8374,7 +8314,6 @@
     hydrateParamsFromServer().catch(() => {});
   }
 
-  window.MoexSessionGate = { nowMskParts, sessionOrdersBlockReason };
   window.MoexTrade = { onShow, onHide, refresh, bind, resize };
   // alias for old name
   window.MoexMarkets = window.MoexTrade;

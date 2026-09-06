@@ -24,7 +24,7 @@ DEALER_BAR_INTERVAL = "1m"
 DEALER_CANDLE_INTERVAL = "CANDLE_INTERVAL_1_MIN"
 DEALER_TIP_SOURCE = "tinvest_dealer_1m_tip"
 # Live tip overlay for desk spread freezes at 23:45 МСК (weekday).
-# AUTO tip1m: будни 07:00–23:50, сб/вс 10:00–18:59 — не путать с отсечкой спреда 23:45.
+# AUTO tip1m: будни 07:00–23:50; сб/вс — дилер (без отсечки 10:00). Не путать с отсечкой спреда 23:45.
 SPREAD_LIVE_CUTOFF_MINS = 23 * 60 + 45
 SPREAD_LIVE_CUTOFF_LABEL = "23:45"
 SPREAD_LIVE_FROZEN_REASON = "сессия закрыта · спред не обновляем после 23:45"
@@ -85,27 +85,12 @@ def is_msk_tqbr_session(dt: datetime | None = None) -> bool:
 
 
 def is_msk_auto_session(dt: datetime | None = None) -> bool:
-    """Окно Prod AUTO tip1m: будни 07:00–23:50; сб/вс 10:00–18:59 МСК."""
+    """Окно Prod AUTO: будни 07:00–23:50; сб/вс всегда (ориентир — живые котировки дилера)."""
     d = dt or now_msk()
-    mins = d.hour * 60 + d.minute
     if d.weekday() >= 5:
-        return (10 * 60) <= mins < (19 * 60)
+        return True
+    mins = d.hour * 60 + d.minute
     return (7 * 60) <= mins < (23 * 60 + 50)
-
-
-def msk_session_block_reason(dt: datetime | None = None) -> str | None:
-    """None если ордера разрешены; иначе коротко почему (для UI/API)."""
-    d = dt or now_msk()
-    if is_msk_auto_session(d):
-        return None
-    mins = d.hour * 60 + d.minute
-    if d.weekday() >= 5:
-        if mins < 10 * 60:
-            return "сессии нет · до 10:00 МСК"
-        return "сессии нет · окно 10:00–18:59 МСК"
-    if mins < 7 * 60:
-        return "сессии нет · до 07:00 МСК"
-    return "сессии нет · окно 07:00–23:50 МСК"
 
 
 def is_msk_spread_live(dt: datetime | None = None) -> bool:

@@ -45,12 +45,14 @@ def test_close_comment_ghost_and_auto_tp_weekend():
     from live.dealer_quotes import MSK
 
     assert close_comment_for_source("RECONCILE", ghost=True) == "сверка ghost"
-    assert (
-        close_comment_for_source(
-            "AUTO_TP", signal_bar={"tradeDate": "2026-09-05 20:24"}
+    sat_late = datetime(2026, 9, 5, 20, 24, tzinfo=MSK)
+    with patch("live.dealer_quotes.now_msk", return_value=sat_late):
+        assert (
+            close_comment_for_source(
+                "AUTO_TP", signal_bar={"tradeDate": "2026-09-05 20:24"}
+            )
+            == "AUTO_TP"
         )
-        == "AUTO_TP вне сессии"
-    )
     sat_mid = datetime(2026, 9, 5, 12, 0, tzinfo=MSK)
     with patch("live.dealer_quotes.now_msk", return_value=sat_mid):
         assert (
@@ -60,6 +62,14 @@ def test_close_comment_ghost_and_auto_tp_weekend():
                 signal_bar={"tradeDate": "2026-09-05 12:00"},
             )
             == "ТП 2%"
+        )
+    weekday_night = datetime(2026, 9, 4, 6, 30, tzinfo=MSK)
+    with patch("live.dealer_quotes.now_msk", return_value=weekday_night):
+        assert (
+            close_comment_for_source(
+                "AUTO_TP", signal_bar={"tradeDate": "2026-09-04 06:30"}
+            )
+            == "AUTO_TP вне сессии"
         )
 
 

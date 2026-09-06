@@ -97,11 +97,11 @@ def test_moex_session_rejects_preopen_0645():
     assert is_moex_equity_session_bar("2026-07-21 18:45") is True
     assert is_moex_equity_session_bar("2026-07-21 23:45") is True
     assert is_moex_equity_session_bar("2026-07-21 23:50") is False
-    assert is_moex_equity_session_bar("2026-07-19 10:00") is True  # Sunday AUTO window
-    assert is_moex_equity_session_bar("2026-07-19 09:00") is False
-    assert is_moex_equity_session_bar("2026-07-19 19:00") is False
+    assert is_moex_equity_session_bar("2026-07-19 10:00") is True  # Sunday dealer
+    assert is_moex_equity_session_bar("2026-07-19 09:00") is True
+    assert is_moex_equity_session_bar("2026-07-19 19:00") is True
     assert is_moex_equity_session_bar("2026-07-18 18:59") is True  # Saturday
-    assert is_moex_equity_session_bar("2026-07-18 19:00") is False
+    assert is_moex_equity_session_bar("2026-07-18 19:00") is True
 
 
 def test_bar_settled_needs_next_or_time():

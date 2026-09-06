@@ -41,8 +41,15 @@ def test_account_rub_uses_grouping_not_k():
 
 def test_cache_bust_desk_restore():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "trade.js").read_text(encoding="utf-8")
+    live = (STATIC / "live.js").read_text(encoding="utf-8")
     assert "chart.js?v=20260905deskRestore1" in html
-    assert "trade.js?v=20260906sessGate1" in html
+    assert "trade.js?v=20260906quoteTrade1" in html
+    assert "live.js?v=20260906quoteTrade1" in html
+    assert "Сессии нет · до 10:00" not in js
+    assert "Сессии нет · до 10:00" not in live
+    assert "sessionOrdersBlockReason" not in js
+    assert "sessionOrdersBlockReason" not in live
 
 
 def test_weekend_aligns_last_candle_to_live_spread():

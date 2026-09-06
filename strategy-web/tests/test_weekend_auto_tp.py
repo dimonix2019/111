@@ -1,4 +1,4 @@
-"""Weekend AUTO: сб/вс 10:00–18:59 МСК по tip1m; вне окна — запрет."""
+"""Weekend AUTO: сб/вс по дилерским барам без отсечки 10:00; будни 07:00–23:50."""
 
 from __future__ import annotations
 
@@ -77,6 +77,12 @@ _TP_TIP_SAT_LATE = {
     "zScore": 1.39,
     "spread": 3.50,
 }
+_TP_TIP_SUN_MORNING = {
+    "tradeDate": "2026-09-06 09:00:00",
+    "timestampMs": 1,
+    "zScore": 1.39,
+    "spread": 3.50,
+}
 _TP_TIP_WEEKDAY = {
     "tradeDate": "2026-09-04 12:00:00",
     "timestampMs": 1,
@@ -88,8 +94,9 @@ _TP_TIP_WEEKDAY = {
 def test_auto_session_hours_saturday_and_weekday():
     assert is_msk_auto_session(_msk("2026-09-05 10:00")) is True
     assert is_msk_auto_session(_msk("2026-09-05 18:59")) is True
-    assert is_msk_auto_session(_msk("2026-09-05 09:00")) is False
-    assert is_msk_auto_session(_msk("2026-09-05 19:00")) is False
+    assert is_msk_auto_session(_msk("2026-09-05 09:00")) is True
+    assert is_msk_auto_session(_msk("2026-09-05 19:00")) is True
+    assert is_msk_auto_session(_msk("2026-09-06 09:00")) is True
     assert is_msk_auto_session(_msk("2026-09-04 07:00")) is True
     assert is_msk_auto_session(_msk("2026-09-04 23:49")) is True
     assert is_msk_auto_session(_msk("2026-09-04 06:59")) is False
@@ -99,27 +106,30 @@ def test_auto_session_hours_saturday_and_weekday():
 def test_session_bar_saturday_window():
     assert is_moex_equity_session_bar("2026-09-05 10:00") is True
     assert is_moex_equity_session_bar("2026-09-05 18:59") is True
-    assert is_moex_equity_session_bar("2026-09-05 09:00") is False
-    assert is_moex_equity_session_bar("2026-09-05 19:00") is False
+    assert is_moex_equity_session_bar("2026-09-05 09:00") is True
+    assert is_moex_equity_session_bar("2026-09-05 19:00") is True
+    assert is_moex_equity_session_bar("2026-09-06 09:00") is True
     assert is_moex_equity_session_bar("2026-09-04 12:00") is True
+    assert is_moex_equity_session_bar("2026-09-04 06:45") is False
 
 
-def test_auto_orders_allowed_saturday_midday():
+def test_auto_orders_allowed_saturday_dealer_bars():
     with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 12:00")):
         assert engine._auto_orders_allowed() is True
         assert engine._auto_orders_allowed(_TP_TIP_SAT_MID) is True
-        assert engine._auto_orders_allowed(_TP_TIP_SAT_MORNING) is False
-        assert engine._auto_orders_allowed(_TP_TIP_SAT_EVENING) is False
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_MORNING) is True
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_EVENING) is True
+        assert engine._auto_orders_allowed(_TP_TIP_WEEKDAY) is False
 
 
-def test_auto_orders_blocked_saturday_09_and_19():
+def test_auto_orders_allowed_saturday_09_and_19():
     with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 09:00")):
-        assert engine._auto_orders_allowed() is False
-        assert engine._auto_orders_allowed(_TP_TIP_SAT_MID) is False
+        assert engine._auto_orders_allowed() is True
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_MORNING) is True
     with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 19:00")):
-        assert engine._auto_orders_allowed() is False
-        assert engine._auto_orders_allowed(_TP_TIP_SAT_MID) is False
-        assert engine._auto_orders_allowed(_TP_TIP_SAT_LATE) is False
+        assert engine._auto_orders_allowed() is True
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_MID) is True
+        assert engine._auto_orders_allowed(_TP_TIP_SAT_LATE) is True
 
 
 def test_auto_orders_weekday_unchanged():
@@ -133,27 +143,30 @@ def test_auto_orders_weekday_unchanged():
         assert engine._auto_orders_allowed() is False
 
 
-def test_close_position_auto_tp_refuses_saturday_evening():
+def test_close_position_auto_tp_saturday_evening_passes_session():
     with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 20:22")):
-        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
-            engine.close_position(source="AUTO_TP")
-        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
-            engine.close_position(source="AUTO")
+        with patch.object(engine.store, "get_credentials", return_value=("prod", "", "")):
+            with pytest.raises(RuntimeError, match="токен"):
+                engine.close_position(source="AUTO_TP", signal_bar=_TP_TIP_SAT_LATE)
+            with pytest.raises(RuntimeError, match="токен"):
+                engine.close_position(source="AUTO", signal_bar=_TP_TIP_SAT_LATE)
 
 
-def test_open_position_auto_refuses_saturday_morning():
+def test_open_position_auto_saturday_morning_passes_session():
     with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 09:00")):
-        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
-            engine.open_position(Position.LONG, source="AUTO")
+        with patch.object(engine.store, "get_credentials", return_value=("prod", "", "")):
+            with pytest.raises(RuntimeError, match="токен"):
+                engine.open_position(Position.LONG, source="AUTO", signal_bar=_TP_TIP_SAT_MORNING)
 
 
-def test_weekend_auto_tp_does_not_call_close_outside_window(tmp_path, monkeypatch):
+def test_saturday_evening_auto_tp_still_closes(tmp_path, monkeypatch):
     _cred_db(tmp_path, monkeypatch, "weekend_tp.db")
     _insert_long()
     result: dict = {}
     with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-05 20:22")):
         with patch.object(engine, "close_position") as close:
-            msg, fired = engine._maybe_tp_exit_on_tip(
+            close.return_value = {"ok": True}
+            _msg, fired = engine._maybe_tp_exit_on_tip(
                 tip=_TP_TIP_SAT_LATE,
                 settings=_TP_SETTINGS,
                 auto=True,
@@ -162,8 +175,9 @@ def test_weekend_auto_tp_does_not_call_close_outside_window(tmp_path, monkeypatc
                 msg="x",
                 result=result,
             )
-    assert fired is False
-    close.assert_not_called()
+    assert fired is True
+    close.assert_called_once()
+    assert close.call_args.kwargs.get("source") == "AUTO_TP"
     assert store.get_open_trade() is not None
 
 
@@ -209,33 +223,32 @@ def test_weekday_auto_tp_still_closes(tmp_path, monkeypatch):
     assert close.call_args.kwargs.get("source") == "AUTO_TP"
 
 
-def test_msk_session_block_reason_sunday_morning():
-    from live.dealer_quotes import msk_session_block_reason
-
-    assert msk_session_block_reason(_msk("2026-09-06 09:00")) == "сессии нет · до 10:00 МСК"
-    assert msk_session_block_reason(_msk("2026-09-06 10:00")) is None
-    assert msk_session_block_reason(_msk("2026-09-06 18:59")) is None
-    assert "10:00–18:59" in (msk_session_block_reason(_msk("2026-09-06 19:00")) or "")
-
-
-def test_manual_sunday_09_reject():
+def test_manual_sunday_09_allow():
     with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-06 09:00")):
-        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
-            engine.open_position(Position.LONG, source="MANUAL")
-        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
-            engine.open_position(Position.SHORT, source="MANUAL")
-        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
-            engine.close_position(source="MANUAL")
-        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
-            engine.close_position(source="PORTFOLIO")
-
-
-def test_manual_sunday_10_allow_session_gate():
-    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-06 10:00")):
         assert engine._auto_orders_allowed() is True
+        assert engine._auto_orders_allowed(_TP_TIP_SUN_MORNING) is True
         with patch.object(engine.store, "get_credentials", return_value=("prod", "", "")):
             with pytest.raises(RuntimeError, match="токен"):
                 engine.open_position(Position.LONG, source="MANUAL")
             with pytest.raises(RuntimeError, match="токен"):
+                engine.open_position(Position.SHORT, source="MANUAL")
+            with pytest.raises(RuntimeError, match="токен"):
                 engine.close_position(source="MANUAL")
+            with pytest.raises(RuntimeError, match="токен"):
+                engine.close_position(source="PORTFOLIO")
 
+
+def test_auto_sunday_09_allow_session_gate():
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-06 09:00")):
+        with patch.object(engine.store, "get_credentials", return_value=("prod", "", "")):
+            with pytest.raises(RuntimeError, match="токен"):
+                engine.open_position(
+                    Position.LONG, source="AUTO", signal_bar=_TP_TIP_SUN_MORNING
+                )
+            with pytest.raises(RuntimeError, match="токен"):
+                engine.close_position(source="AUTO_TP", signal_bar=_TP_TIP_SUN_MORNING)
+
+
+def test_auto_weekend_rejects_weekday_leftover_tip():
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-06 09:00")):
+        assert engine._auto_orders_allowed(_TP_TIP_WEEKDAY) is False

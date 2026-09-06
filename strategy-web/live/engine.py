@@ -94,35 +94,36 @@ def _is_auto_source(source: str | None) -> bool:
     return str(source or "").upper().startswith("AUTO")
 
 
+def _tip_trade_date_weekend(trade_date: str) -> bool | None:
+    from datetime import datetime
+
+    s = str(trade_date or "").replace("T", " ").strip()
+    if len(s) < 10:
+        return None
+    try:
+        dt = datetime.strptime(s[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+    return dt.weekday() >= 5
+
+
 def _auto_orders_allowed(tip: dict[str, Any] | None = None) -> bool:
-    """AUTO/AUTO_TP: будни 07:00–23:50; сб/вс 10:00–18:59 МСК по tip1m."""
-    from live.dealer_quotes import is_msk_auto_session
+    """AUTO/AUTO_TP: будни 07:00–23:50; сб/вс — дилерский бар, без отсечки 10:00."""
+    from live.dealer_quotes import is_msk_auto_session, is_msk_weekend
 
     if not is_msk_auto_session():
         return False
-    if isinstance(tip, dict):
-        td = str(tip.get("tradeDate") or "")
-        if td and not is_moex_equity_session_bar(td):
-            return False
-    return True
-
-
-def _require_session_orders(
-    *,
-    source: str | None = None,
-    tip: dict[str, Any] | None = None,
-    action: str = "вход",
-) -> None:
-    """Брокерские ордера (AUTO и ручные) — то же окно, что AUTO tip1m."""
-    if _auto_orders_allowed(tip if isinstance(tip, dict) else None):
-        return
-    from live.dealer_quotes import msk_session_block_reason
-
-    reason = msk_session_block_reason() or "сессии нет"
-    kind = "AUTO" if _is_auto_source(source) else "ручной"
-    if action == "закрытие":
-        raise RuntimeError(f"{kind} закрытие вне сессии TQBR запрещено ({reason})")
-    raise RuntimeError(f"{kind} вход вне сессии TQBR запрещён ({reason})")
+    if not isinstance(tip, dict):
+        return True
+    td = str(tip.get("tradeDate") or "")
+    if not td:
+        return True
+    tip_we = _tip_trade_date_weekend(td)
+    if is_msk_weekend():
+        return tip_we is True
+    if tip_we:
+        return False
+    return is_moex_equity_session_bar(td)
 
 
 # Windows: не уводить ПК в сон, пока крутится монитор.
@@ -325,11 +326,10 @@ def open_position(
 ) -> dict[str, Any]:
     if position not in (Position.LONG, Position.SHORT):
         raise RuntimeError("position must be LONG or SHORT")
-    _require_session_orders(
-        source=source,
-        tip=signal_bar if isinstance(signal_bar, dict) else None,
-        action="вход",
-    )
+    if _is_auto_source(source) and not _auto_orders_allowed(
+        signal_bar if isinstance(signal_bar, dict) else None
+    ):
+        raise RuntimeError("AUTO вход вне сессии TQBR запрещён")
     mode, token, account = store.get_credentials()
     if not token or not account:
         raise RuntimeError("Нужны токен и accountId")
@@ -470,11 +470,10 @@ def close_position(
     source: str = "MANUAL",
     signal_bar: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    _require_session_orders(
-        source=source,
-        tip=signal_bar if isinstance(signal_bar, dict) else None,
-        action="закрытие",
-    )
+    if _is_auto_source(source) and not _auto_orders_allowed(
+        signal_bar if isinstance(signal_bar, dict) else None
+    ):
+        raise RuntimeError("AUTO закрытие вне сессии TQBR запрещено")
     mode, token, account = store.get_credentials()
     if not token or not account:
         raise RuntimeError("Нужны токен и accountId")
