@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520">
+<rect x="0" y="0" width="1200" height="520" rx="0" fill="#f7f8fa"/>
+<text x="40" y="40" text-anchor="start" font-size="24" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Мини-карта: Архитектура</text>
+<text x="40" y="64" text-anchor="start" font-size="14" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">Цепочка одного стрима. Под каждым этапом — Definition of Done и откуда взять вход.</text>
+<rect x="40" y="96" width="240" height="150" rx="12" fill="#e8f6f5" stroke="#0e7c7b" stroke-width="2"/>
+<text x="160" y="128" text-anchor="middle" font-size="16" fill="#0e7c7b" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">1. Концепт</text>
+<text x="160" y="154" text-anchor="middle" font-size="13" fill="#1a2744" font-family="DejaVu Sans, Arial, sans-serif">документ готов</text>
+<text x="160" y="176" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">вход: протоколы,</text>
+<text x="160" y="194" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">требования, ИБ</text>
+<text x="160" y="222" text-anchor="middle" font-size="12" fill="#0e7c7b" font-family="DejaVu Sans, Arial, sans-serif">DoD: версия согласована</text>
+<polygon points="292,171 318,171 318,163 348,176 318,189 318,181 292,181" fill="#1a2744"/>
+<rect x="360" y="96" width="240" height="150" rx="12" fill="#e8f6f5" stroke="#0e7c7b" stroke-width="2"/>
+<text x="480" y="128" text-anchor="middle" font-size="16" fill="#0e7c7b" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">2. Сетевые схемы</text>
+<text x="480" y="154" text-anchor="middle" font-size="13" fill="#1a2744" font-family="DejaVu Sans, Arial, sans-serif">рисуются по концепту</text>
+<text x="480" y="176" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">вход: концепт + инфра</text>
+<text x="480" y="194" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">выход: схемы на диске</text>
+<text x="480" y="222" text-anchor="middle" font-size="12" fill="#0e7c7b" font-family="DejaVu Sans, Arial, sans-serif">DoD: схемы в master</text>
+<polygon points="612,171 638,171 638,163 668,176 638,189 638,181 612,181" fill="#1a2744"/>
+<rect x="680" y="96" width="240" height="150" rx="12" fill="#fff4c4" stroke="#d4a017" stroke-width="2"/>
+<text x="800" y="128" text-anchor="middle" font-size="16" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">3. Сайзинг ★</text>
+<text x="800" y="154" text-anchor="middle" font-size="13" fill="#1a2744" font-family="DejaVu Sans, Arial, sans-serif">фокус этой недели</text>
+<text x="800" y="176" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">вход: схемы + нагрузка</text>
+<text x="800" y="194" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">выход: таблица CPU/RAM</text>
+<text x="800" y="222" text-anchor="middle" font-size="12" fill="#8a6d12" font-family="DejaVu Sans, Arial, sans-serif">DoD: согласовано с инфра</text>
+<polygon points="932,171 958,171 958,163 988,176 958,189 958,181 932,181" fill="#d4a017"/>
+<rect x="1000" y="96" width="160" height="150" rx="12" fill="#fff8dc" stroke="#f4c542" stroke-width="2"/>
+<text x="1080" y="160" text-anchor="middle" font-size="16" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">пакет ОЭ</text>
+<text x="1080" y="186" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">арх.артефакты</text>
+<rect x="40" y="280" width="1120" height="200" rx="12" fill="#ffffff" stroke="#d8dee8" stroke-width="1"/>
+<text x="60" y="312" text-anchor="start" font-size="15" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Связи с другими стримами (не держать в голове)</text>
+<text x="60" y="344" text-anchor="start" font-size="14" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">ИБ → замечания к концепту и схемам до допуска в ОЭ</text>
+<text x="60" y="370" text-anchor="start" font-size="14" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">Инфраструктура → контур и стенд нужны, иначе сайзинг «в воздухе»</text>
+<text x="60" y="396" text-anchor="start" font-size="14" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">Качество данных → только если блокирует опытную эксплуатацию</text>
+<text x="60" y="422" text-anchor="start" font-size="14" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">Источники: концепт на общем диске; схемы — там же; протоколы — в ИИ; задачи — Confluence ID в реестре</text>
+<text x="60" y="454" text-anchor="start" font-size="13" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">Правило: на этой мини-карте 4 блока, не 30 задач. Детали — в реестре.</text>
+</svg>
