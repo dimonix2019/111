@@ -42,4 +42,14 @@ def test_account_rub_uses_grouping_not_k():
 def test_cache_bust_desk_restore():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert "chart.js?v=20260905deskRestore1" in html
-    assert "trade.js?v=20260905deskRestore1" in html
+    assert "trade.js?v=20260906liveSp1" in html
+
+
+def test_weekend_aligns_last_candle_to_live_spread():
+    """Жёлтая last-value на оси = шапка/дилер, не last close 1м (игла/parquet)."""
+    js = (STATIC / "trade.js").read_text(encoding="utf-8")
+    assert "function alignTip1mBarsToLiveTip" in js
+    assert "useDealerPx && dealer.spread" in js
+    # Регрессия: выходные пропускали align — ось жила на flattened close.
+    assert "} else if (!weekendMonitor && chartBars.length)" not in js
+    assert "alignTip1mBarsToLiveTip(chartBars, data, data.open || null)" in js

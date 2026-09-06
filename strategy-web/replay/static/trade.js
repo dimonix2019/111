@@ -2749,6 +2749,10 @@
     const msk = nowMskParts();
     const spreadFrozen = dealer.spread_live === false
       || (msk.spreadLive === false && !msk.weekend);
+    // Same source as шапка/оверлей (useDealerPx), not parquet/ISS last close.
+    const useDealerPx = !!(dealer.ok || dealer.quotes_ok)
+      && dealer.tatn != null && dealer.tatnp != null
+      && !spreadFrozen;
     let z = null;
     let sp = null;
     if (mark.z_now != null && Number.isFinite(Number(mark.z_now))) z = Number(mark.z_now);
@@ -2763,6 +2767,8 @@
       } else if (s.spread != null && Number.isFinite(Number(s.spread))) {
         sp = Number(s.spread);
       }
+    } else if (useDealerPx && dealer.spread != null && Number.isFinite(Number(dealer.spread))) {
+      sp = Number(dealer.spread);
     } else if (mark.spread_now != null && Number.isFinite(Number(mark.spread_now))) {
       sp = Number(mark.spread_now);
     } else if (s.spread != null && Number.isFinite(Number(s.spread))) {
@@ -2798,7 +2804,20 @@
       row.z_high = liveZ;
       row.z_low = liveZ;
     }
-    if (needSp) row.spread = liveSp;
+    if (needSp) {
+      row.spread = liveSp;
+      // Close = live (жёлтая last-value на оси). Open/high/low: keep the
+      // forming minute, do not restore a flattened needle wick.
+      const so = row.spread_open != null && Number.isFinite(Number(row.spread_open))
+        ? Number(row.spread_open) : liveSp;
+      const sh = row.spread_high != null && Number.isFinite(Number(row.spread_high))
+        ? Number(row.spread_high) : liveSp;
+      const sl = row.spread_low != null && Number.isFinite(Number(row.spread_low))
+        ? Number(row.spread_low) : liveSp;
+      row.spread_open = so;
+      row.spread_high = Math.max(so, sh, sl, liveSp);
+      row.spread_low = Math.min(so, sh, sl, liveSp);
+    }
     out[out.length - 1] = row;
     return out;
   }
@@ -7096,13 +7115,17 @@
         s.z = lastMon.z;
         s.z_kind = 'dealer_monitor';
       }
-    } else if (!weekendMonitor && chartBars.length) {
-      // tip1m: last candle/overlay must track live tip (monitor / mark), not sidecar Z.
+    }
+    if (chartBars.length) {
+      // Жёлтая last-value = шапка/оверлей (дилер 3,12), не last close parquet/игла (3,01).
+      // Выходные раньше пропускали align — ось жила на lastGood / flattened 1m.
       chartBars = alignTip1mBarsToLiveTip(chartBars, data, data.open || null);
       data = { ...data, bars: chartBars };
       const lastTip = chartBars[chartBars.length - 1];
       if (lastTip) {
-        if (lastTip.z != null) s.z = lastTip.z;
+        if (lastTip.z != null && !(dealer1mMode || weekendMonitor || barsLookDealer)) {
+          s.z = lastTip.z;
+        }
         if (lastTip.spread != null) s.spread = lastTip.spread;
       }
     }
