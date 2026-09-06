@@ -1025,6 +1025,12 @@ tr.trade-row-red td {
   grid-column: 1 / -1;
 }
 
+.trades-summary-item.wide .ts-value {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
 .trades-summary-note {
   margin-top: 6px;
   font-size: 10px;
@@ -1089,6 +1095,14 @@ tr.trade-row-red td {
   font-size: 11px;
   color: var(--muted);
   padding: 2px 0 4px;
+}
+
+.trades-monthly-pnl.is-pending {
+  opacity: 0.72;
+}
+
+.trades-monthly-pnl.is-pending .tm-mean-badge {
+  color: #fde68a;
 }
 
 .trades-monthly-hist {

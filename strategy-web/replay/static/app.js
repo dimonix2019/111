@@ -2064,7 +2064,8 @@
     syncHmStrategyControlsFromToolbar();
     if (isTip1mMode()) {
       tipSimCache = { key: '', rows: null, meta: null, summary: null };
-    clearTipManualOverrides();
+      clearTipManualOverrides();
+      markMonthlyPnlPending();
       // Debounced: slider/select spam shouldn't fire N full-year sims.
       scheduleTipSimFetch({ immediate: false });
       refreshUi({ afterParams: true });
@@ -3218,9 +3219,24 @@
     const hiddenRed = riskFilter === 'no-red'
       ? allSummary.redCount
       : 0;
+    const profitRub = Number.isFinite(summary.profitRub)
+      ? summary.profitRub
+      : ((summary.totalPnl || 0) + (summary.openMtm || 0));
+    const profitPct = Number.isFinite(summary.retPct)
+      ? summary.retPct
+      : (notional > 0 ? (profitRub / notional) * 100 : 0);
+    const profitText = typeof formatProfitAccountRub === 'function'
+      ? formatProfitAccountRub(profitRub)
+      : formatRub(profitRub);
     const items = [
-      { label: 'Итого PnL', value: formatRub(summary.totalPnl), cls: pnlClass(summary.totalPnl), wide: true },
-      { label: 'Доходность', value: formatCapitalPct(summary.retPct), cls: pnlClass(summary.retPct) },
+      {
+        label: 'Итого PnL',
+        value: profitText,
+        cls: pnlClass(profitRub),
+        wide: true,
+        hint: 'Чистая прибыль: закрытый net + MTM открытых. Без депозита и без тела вложений.',
+      },
+      { label: 'Доходность', value: formatCapitalPct(profitPct), cls: pnlClass(profitPct) },
     ];
     items.push(
       {
@@ -3244,7 +3260,8 @@
         ? ` title="${String(it.hint).replace(/"/g, '&quot;')}"`
         : '';
       return (
-        `<div class="trades-summary-item${it.wide ? ' wide' : ''}"${hint}>`
+        `<div class="trades-summary-item${it.wide ? ' wide' : ''}"${hint}`
+        + `${it.wide ? ` data-profit-rub="${profitRub}"` : ''}>`
         + `<span class="ts-label">${it.label}</span>`
         + `<span class="ts-value ${it.cls || ''}">${it.value}</span>`
         + `</div>`
@@ -3358,6 +3375,23 @@
     return ticks;
   }
 
+  function markMonthlyPnlPending() {
+    const el = $('tradesMonthlyPnl');
+    if (!el) return;
+    el.classList.add('is-pending');
+    el.dataset.pending = '1';
+    el.removeAttribute('data-month-keys');
+    el.removeAttribute('data-mean-pct');
+    el.removeAttribute('data-mean-rub');
+    el.innerHTML = (
+      `<div class="trades-monthly-title">`
+      + `<span class="tm-title-text">PnL по месяцам</span>`
+      + `<span class="tm-mean-badge">пересчёт…</span>`
+      + `</div>`
+      + `<div class="trades-monthly-empty">пересчёт сделок…</div>`
+    );
+  }
+
   function renderMonthlyPnl(visibleRows) {
     const el = $('tradesMonthlyPnl');
     const scrollEl = $('tradesMonthlyPnlScroll');
@@ -3368,7 +3402,12 @@
     const months = typeof buildMonthlyPnl === 'function'
       ? buildMonthlyPnl(visibleRows, { notional, compound })
       : [];
+    el.classList.remove('is-pending');
+    el.dataset.pending = '0';
     if (!months.length) {
+      el.dataset.monthKeys = '';
+      el.dataset.meanPct = '';
+      el.dataset.meanRub = '';
       el.innerHTML = (
         `<div class="trades-monthly-title">PnL по месяцам</div>`
         + `<div class="trades-monthly-empty">Нет закрытых сделок</div>`
@@ -3392,6 +3431,9 @@
     }
     const meanPct = sumPct / months.length;
     const meanPnl = sumPnl / months.length;
+    el.dataset.monthKeys = months.map((m) => m.key).join(',');
+    el.dataset.meanPct = String(meanPct);
+    el.dataset.meanRub = String(meanPnl);
     const yMin = Math.min(0, minPct);
     const yMax = Math.max(0, maxPct);
 
@@ -4381,6 +4423,7 @@
           grid.innerHTML =
             '<div class="trades-summary-note wide">касание 1м · считаю сделки на сервере…</div>';
         }
+        markMonthlyPnlPending();
         return;
       }
       rows = tipRowsUpToCursor(tipSimCache.rows);
@@ -4882,19 +4925,17 @@
         const pnlRub = Number.isFinite(tipSum.totalPnl)
           ? tipSum.totalPnl
           : (Number(s.pnlRub) || 0);
-        const compoundOn = getSimCompound();
-        const equityRub = Number.isFinite(Number(s.finalEquityRub))
-          ? Number(s.finalEquityRub)
-          : (getSimNotionalRub() + pnlRub);
-        const rubVal = compoundOn ? equityRub : pnlRub;
-        const rubSign = !compoundOn && rubVal > 0 ? '+' : '';
-        const rubText = typeof formatAccountRub === 'function'
-          ? `${rubSign}${formatAccountRub(rubVal)} ₽`
-          : `${formatRub(rubVal)} ₽`;
-        const pnlCls = pnlClass(pnlRub) || pnlClass(retPct);
+        const profitRub = Number.isFinite(tipSum.profitRub)
+          ? tipSum.profitRub
+          : (pnlRub + (Number.isFinite(tipSum.openMtm) ? tipSum.openMtm : 0));
+        const profitPct = Number.isFinite(tipSum.retPct) ? tipSum.retPct : retPct;
+        const rubText = typeof formatProfitAccountRub === 'function'
+          ? formatProfitAccountRub(profitRub)
+          : formatRub(profitRub);
+        const pnlCls = pnlClass(profitRub) || pnlClass(profitPct);
         tipNote =
           `   ·   tip ${nTrades} сд.`
-          + ` · <span class="${pnlCls}" title="От поля «Капитал» и галки «Капитализация»: лот может расти без потолка">${formatCapitalPct(retPct)}</span>`
+          + ` · <span class="${pnlCls}" title="Чистая прибыль (закрытый net + MTM открытых), без депозита">${formatCapitalPct(profitPct)}</span>`
           + ` · <span class="${pnlCls}">${rubText}</span>`;
       }
       if (!skipChartPaint) {
@@ -5408,6 +5449,7 @@
       return;
     }
     const jobId = ++tipSimJobId;
+    markMonthlyPnlPending();
     const st = $('status');
     if (st && !tipSimCache.rows) {
       st.textContent = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · считаю на сервере…`;
@@ -5461,7 +5503,7 @@
         }
       } catch (_) { /* health/busy не должен ронять сим */ }
       const line = `${isWeekendTradingMode() ? 'выходные · ' : ''}касание 1м · считаю на сервере… ${sec}/${timeoutSec} с${phase}`;
-      if (st) st.textContent = line;
+      if (st && !tipSimCache.rows) st.textContent = line;
       const grid = $('tradesSummaryGrid');
       if (grid && !tipSimCache.rows) {
         grid.innerHTML = `<div class="trades-summary-note wide">${line}</div>`;

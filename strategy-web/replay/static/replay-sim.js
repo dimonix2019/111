@@ -401,6 +401,14 @@ function formatAccountRub(value) {
   return `${sign}${Math.round(Math.abs(n)).toLocaleString('ru-RU', { useGrouping: true })}`;
 }
 
+/** Прибыль (не equity): +569 066 ₽ / −12 000 ₽. */
+function formatProfitAccountRub(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '— ₽';
+  const sign = n > 0 ? '+' : (n < 0 ? '−' : '');
+  return `${sign}${Math.round(Math.abs(n)).toLocaleString('ru-RU', { useGrouping: true })} ₽`;
+}
+
 function formatCostRub(value) {
   if (value <= 0) return '0';
   return `−${value.toFixed(0)}`;
@@ -889,6 +897,13 @@ function buildTradeSimSummary(rows, notionalRub = getSimNotionalRub()) {
   const wins = closed.filter((r) => r.netValue > 0);
   const losses = closed.filter((r) => r.netValue < 0);
   const totalPnl = closed.reduce((s, r) => s + r.netValue, 0);
+  let openMtm = 0;
+  for (const r of open) {
+    const v = Number(r.openMtm != null ? r.openMtm : r.mtm);
+    if (Number.isFinite(v)) openMtm += v;
+  }
+  /** Чистая прибыль: закрытый net + MTM открытых. Без депозита и без тела вложений. */
+  const profitRub = totalPnl + openMtm;
   const longPnl = longs.reduce((s, r) => s + r.netValue, 0);
   const shortPnl = shorts.reduce((s, r) => s + r.netValue, 0);
   const grossWin = wins.reduce((s, r) => s + r.netValue, 0);
@@ -898,7 +913,7 @@ function buildTradeSimSummary(rows, notionalRub = getSimNotionalRub()) {
   const avgLoss = losses.length ? losses.reduce((s, r) => s + r.netValue, 0) / losses.length : 0;
   const winRate = closed.length ? (wins.length * 100) / closed.length : 0;
   const profitFactor = grossLossAbs > 0 ? grossWin / grossLossAbs : (grossWin > 0 ? Infinity : null);
-  const retPct = notionalRub > 0 ? (totalPnl / notionalRub) * 100 : 0;
+  const retPct = notionalRub > 0 ? (profitRub / notionalRub) * 100 : 0;
 
   const REF_ACCOUNT = 100000;
   const refClosed = closed.filter(
@@ -925,6 +940,8 @@ function buildTradeSimSummary(rows, notionalRub = getSimNotionalRub()) {
     openCount: open.length,
     redCount: redClosed.length,
     totalPnl,
+    openMtm,
+    profitRub,
     retPct,
     totalPnlRef100k,
     retPctRef100k,

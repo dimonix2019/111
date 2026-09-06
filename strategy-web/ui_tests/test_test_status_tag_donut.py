@@ -8,7 +8,7 @@ import pytest
 from playwright.sync_api import Page, Route, expect
 
 BASE_URL = os.environ.get("MOEX_DESK_URL", "http://127.0.0.1:8765").rstrip("/")
-CACHE_BUST = "20260906chipDelta1"
+CACHE_BUST = "20260906monthPnl1"
 
 
 def _ok_json(route: Route, payload: dict) -> None:

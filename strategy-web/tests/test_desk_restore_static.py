@@ -42,11 +42,22 @@ def test_account_rub_uses_grouping_not_k():
 def test_tag_share_chip_delta_cache_bust():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     js = (STATIC / "app.js").read_text(encoding="utf-8")
-    assert "app.js?v=20260906chipDelta1" in html
-    assert "replay-sim.js?v=20260906chipDelta1" in html
+    sim = (STATIC / "replay-sim.js").read_text(encoding="utf-8")
+    assert "app.js?v=20260906monthPnl1" in html
+    assert "replay-sim.js?v=20260906monthPnl1" in html
+    assert "css-testing.css?v=20260906monthPnl1" in html
     assert "function isWeekendChipEntry" in js
     assert "chip_delta" in js
     assert "вклад чипа в итог" in js
+    assert "function markMonthlyPnlPending" in js
+    assert "data-month-keys" in js
+    assert "Чистая прибыль" in js
+    assert "function formatProfitAccountRub" in sim
+    assert "profitRub" in sim
+    tip_note = js.split("const profitRub = Number.isFinite(tipSum.profitRub)", 1)[1].split("tipNote =", 1)[0]
+    assert "formatProfitAccountRub" in tip_note
+    assert "finalEquityRub" not in tip_note
+    assert "equityRub" not in tip_note
 
 
 def test_cache_bust_desk_restore():
