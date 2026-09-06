@@ -42,7 +42,7 @@ def test_account_rub_uses_grouping_not_k():
 def test_cache_bust_desk_restore():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert "chart.js?v=20260905deskRestore1" in html
-    assert "trade.js?v=20260906liveSp1" in html
+    assert "trade.js?v=20260906sessGate1" in html
 
 
 def test_weekend_aligns_last_candle_to_live_spread():

@@ -207,3 +207,35 @@ def test_weekday_auto_tp_still_closes(tmp_path, monkeypatch):
     assert fired is True
     close.assert_called_once()
     assert close.call_args.kwargs.get("source") == "AUTO_TP"
+
+
+def test_msk_session_block_reason_sunday_morning():
+    from live.dealer_quotes import msk_session_block_reason
+
+    assert msk_session_block_reason(_msk("2026-09-06 09:00")) == "сессии нет · до 10:00 МСК"
+    assert msk_session_block_reason(_msk("2026-09-06 10:00")) is None
+    assert msk_session_block_reason(_msk("2026-09-06 18:59")) is None
+    assert "10:00–18:59" in (msk_session_block_reason(_msk("2026-09-06 19:00")) or "")
+
+
+def test_manual_sunday_09_reject():
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-06 09:00")):
+        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
+            engine.open_position(Position.LONG, source="MANUAL")
+        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
+            engine.open_position(Position.SHORT, source="MANUAL")
+        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
+            engine.close_position(source="MANUAL")
+        with pytest.raises(RuntimeError, match="вне сессии TQBR"):
+            engine.close_position(source="PORTFOLIO")
+
+
+def test_manual_sunday_10_allow_session_gate():
+    with patch("live.dealer_quotes.now_msk", return_value=_msk("2026-09-06 10:00")):
+        assert engine._auto_orders_allowed() is True
+        with patch.object(engine.store, "get_credentials", return_value=("prod", "", "")):
+            with pytest.raises(RuntimeError, match="токен"):
+                engine.open_position(Position.LONG, source="MANUAL")
+            with pytest.raises(RuntimeError, match="токен"):
+                engine.close_position(source="MANUAL")
+

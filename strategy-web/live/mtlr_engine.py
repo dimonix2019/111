@@ -170,6 +170,15 @@ def resolve_mtlr_lots(client: TInvestClient, account_id: str) -> dict[str, Any]:
     }
 
 
+def _require_mtlr_session(action: str = "вход") -> None:
+    from live.dealer_quotes import is_msk_auto_session, msk_session_block_reason
+
+    if is_msk_auto_session():
+        return
+    reason = msk_session_block_reason() or "сессии нет"
+    raise RuntimeError(f"Мечел {action} вне сессии TQBR запрещён ({reason})")
+
+
 def open_mtlr_position(
     position: Position,
     *,
@@ -178,6 +187,7 @@ def open_mtlr_position(
 ) -> dict[str, Any]:
     if position not in (Position.LONG, Position.SHORT):
         raise RuntimeError("position must be LONG or SHORT")
+    _require_mtlr_session("вход")
     ok, reason = can_open_mtlr()
     if not ok:
         raise RuntimeError(reason)
@@ -267,6 +277,7 @@ def close_mtlr_position(
     source: str = "AUTO",
     signal_bar: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    _require_mtlr_session("закрытие")
     mode, token, account = store.get_credentials()
     if not token or not account:
         raise RuntimeError("Нужны токен и accountId")

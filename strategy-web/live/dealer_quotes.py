@@ -93,6 +93,21 @@ def is_msk_auto_session(dt: datetime | None = None) -> bool:
     return (7 * 60) <= mins < (23 * 60 + 50)
 
 
+def msk_session_block_reason(dt: datetime | None = None) -> str | None:
+    """None если ордера разрешены; иначе коротко почему (для UI/API)."""
+    d = dt or now_msk()
+    if is_msk_auto_session(d):
+        return None
+    mins = d.hour * 60 + d.minute
+    if d.weekday() >= 5:
+        if mins < 10 * 60:
+            return "сессии нет · до 10:00 МСК"
+        return "сессии нет · окно 10:00–18:59 МСК"
+    if mins < 7 * 60:
+        return "сессии нет · до 07:00 МСК"
+    return "сессии нет · окно 07:00–23:50 МСК"
+
+
 def is_msk_spread_live(dt: datetime | None = None) -> bool:
     """Можно ли обновлять live tip-спред на столе.
 

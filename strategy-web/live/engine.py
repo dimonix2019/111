@@ -107,6 +107,24 @@ def _auto_orders_allowed(tip: dict[str, Any] | None = None) -> bool:
     return True
 
 
+def _require_session_orders(
+    *,
+    source: str | None = None,
+    tip: dict[str, Any] | None = None,
+    action: str = "вход",
+) -> None:
+    """Брокерские ордера (AUTO и ручные) — то же окно, что AUTO tip1m."""
+    if _auto_orders_allowed(tip if isinstance(tip, dict) else None):
+        return
+    from live.dealer_quotes import msk_session_block_reason
+
+    reason = msk_session_block_reason() or "сессии нет"
+    kind = "AUTO" if _is_auto_source(source) else "ручной"
+    if action == "закрытие":
+        raise RuntimeError(f"{kind} закрытие вне сессии TQBR запрещено ({reason})")
+    raise RuntimeError(f"{kind} вход вне сессии TQBR запрещён ({reason})")
+
+
 # Windows: не уводить ПК в сон, пока крутится монитор.
 _ES_CONTINUOUS = 0x80000000
 _ES_SYSTEM_REQUIRED = 0x00000001
@@ -307,10 +325,11 @@ def open_position(
 ) -> dict[str, Any]:
     if position not in (Position.LONG, Position.SHORT):
         raise RuntimeError("position must be LONG or SHORT")
-    if _is_auto_source(source) and not _auto_orders_allowed(
-        signal_bar if isinstance(signal_bar, dict) else None
-    ):
-        raise RuntimeError("AUTO вход вне сессии TQBR запрещён")
+    _require_session_orders(
+        source=source,
+        tip=signal_bar if isinstance(signal_bar, dict) else None,
+        action="вход",
+    )
     mode, token, account = store.get_credentials()
     if not token or not account:
         raise RuntimeError("Нужны токен и accountId")
@@ -451,10 +470,11 @@ def close_position(
     source: str = "MANUAL",
     signal_bar: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if _is_auto_source(source) and not _auto_orders_allowed(
-        signal_bar if isinstance(signal_bar, dict) else None
-    ):
-        raise RuntimeError("AUTO закрытие вне сессии TQBR запрещено")
+    _require_session_orders(
+        source=source,
+        tip=signal_bar if isinstance(signal_bar, dict) else None,
+        action="закрытие",
+    )
     mode, token, account = store.get_credentials()
     if not token or not account:
         raise RuntimeError("Нужны токен и accountId")

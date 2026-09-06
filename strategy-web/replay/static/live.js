@@ -52,8 +52,49 @@
       : '<span class="badge-mode-sandbox">Sandbox</span>';
   }
 
+  function sessionOrdersBlockReason() {
+    if (typeof window.MoexSessionGate?.sessionOrdersBlockReason === 'function') {
+      return window.MoexSessionGate.sessionOrdersBlockReason();
+    }
+    return null;
+  }
+
   function currentMode() {
     return $('liveMode').value === 'prod' ? 'prod' : 'sandbox';
+  }
+
+  function syncLiveTradeButtons() {
+    const block = sessionOrdersBlockReason();
+    const btnLong = $('liveBtnLong');
+    const btnShort = $('liveBtnShort');
+    if (btnLong) {
+      btnLong.disabled = !!block;
+      btnLong.title = block || 'Ручной Long на брокере';
+    }
+    if (btnShort) {
+      btnShort.disabled = !!block;
+      btnShort.title = block || 'Ручной Short на брокере';
+    }
+    let hint = $('liveSessionGateHint');
+    if (!hint && (btnShort || btnLong)) {
+      const row = (btnShort || btnLong).parentElement;
+      if (row) {
+        hint = document.createElement('div');
+        hint.id = 'liveSessionGateHint';
+        hint.className = 'meta live-session-gate-hint';
+        hint.setAttribute('role', 'status');
+        row.insertAdjacentElement('afterend', hint);
+      }
+    }
+    if (hint) {
+      if (block) {
+        hint.hidden = false;
+        hint.textContent = block;
+      } else {
+        hint.hidden = true;
+        hint.textContent = '';
+      }
+    }
   }
 
   function syncFormFromSettings(s) {
@@ -154,6 +195,7 @@
     }
 
     renderFunds(b, s.mode);
+    syncLiveTradeButtons();
 
     const ev = $('liveEvents');
     if (ev) {
@@ -364,6 +406,11 @@
     });
 
     const trade = (side) => {
+      const block = sessionOrdersBlockReason();
+      if (block) {
+        alert(block);
+        return;
+      }
       const warn =
         currentMode() === 'prod'
           ? `Боевой счёт: отправить ${side}?`
@@ -375,6 +422,7 @@
     };
     $('liveBtnLong')?.addEventListener('click', () => trade('LONG'));
     $('liveBtnShort')?.addEventListener('click', () => trade('SHORT'));
+    syncLiveTradeButtons();
   }
 
   window.MoexLive = {
