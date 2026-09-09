@@ -190,52 +190,126 @@ internal data class TInvestSpreadOp(
     val priceRub: Double?,
     val paymentRub: Double,
 )
-internal class SpreadEpisode {
-    var entryMs: Long = 0L
-    var exitMs: Long = 0L
-    var tatnQty: Double = 0.0
-    var tatnpQty: Double = 0.0
-    var peakLots: Double = 0.0
-    var cashRub: Double = 0.0
-    // VWAP открывающих и закрывающих операций по каждому тикеру.
-    var openCostN: Double = 0.0; var openQtyN: Double = 0.0
-    var openCostP: Double = 0.0; var openQtyP: Double = 0.0
-    var closeCostN: Double = 0.0; var closeQtyN: Double = 0.0
-    var closeCostP: Double = 0.0; var closeQtyP: Double = 0.0
 
-    fun isFlat(): Boolean = kotlin.math.abs(tatnQty) < 1e-9 && kotlin.math.abs(tatnpQty) < 1e-9
+/** Парное событие: нога TATN + противоположная нога TATNP в пределах минуты. */
+internal data class SpreadPairEvent(
+    val startMs: Long,
+    val endMs: Long,
+    val tatnQty: Double,
+    val tatnpQty: Double,
+    val cashRub: Double,
+    val priceTatn: Double?,
+    val priceTatnp: Double?,
+) {
+    /** LONG = купили TATN / продали TATNP; SHORT = наоборот. */
+    val side: String?
+        get() = when {
+            tatnQty > 0 && tatnpQty < 0 -> "LONG"
+            tatnQty < 0 && tatnpQty > 0 -> "SHORT"
+            else -> null
+        }
+}
 
-    fun add(op: TInvestSpreadOp) {
-        if (entryMs == 0L) entryMs = op.millis
-        exitMs = op.millis
-        cashRub += op.paymentRub
-        val prevQty = if (op.ticker == "TATN") tatnQty else tatnpQty
-        val newQty = prevQty + op.signedQty
-        val opening = kotlin.math.abs(newQty) > kotlin.math.abs(prevQty)
-        val px = op.priceRub
-        if (px != null && px > 0) {
-            val q = kotlin.math.abs(op.signedQty)
-            if (op.ticker == "TATN") {
-                if (opening) { openCostN += px * q; openQtyN += q } else { closeCostN += px * q; closeQtyN += q }
+internal data class SpreadMatchedTrade(
+    val direction: String,
+    val entry: SpreadPairEvent,
+    val exit: SpreadPairEvent,
+    val lots: Int,
+    val pnlRub: Double,
+)
+
+internal const val LEG_PAIR_WINDOW_MS = 60_000L
+
+/**
+ * Склейка ног в парные события: каждая операция ищет противоположную по знаку
+ * операцию другого тикера в пределах [LEG_PAIR_WINDOW_MS] (ноги одной пары идут
+ * подряд с разницей в секунды; выход+вход в одну минуту не слипаются).
+ */
+internal fun pairSpreadLegs(ops: List<TInvestSpreadOp>): List<SpreadPairEvent> {
+    val events = mutableListOf<SpreadPairEvent>()
+    val pending = mutableListOf<TInvestSpreadOp>()
+    for (op in ops) {
+        val matchIdx = pending.indexOfFirst {
+            it.ticker != op.ticker &&
+                it.signedQty * op.signedQty < 0 &&
+                op.millis - it.millis <= LEG_PAIR_WINDOW_MS
+        }
+        if (matchIdx < 0) {
+            pending += op
+            continue
+        }
+        val other = pending.removeAt(matchIdx)
+        val legs = listOf(other, op)
+        val tn = legs.filter { it.ticker == "TATN" }.sumOf { it.signedQty }
+        val tp = legs.filter { it.ticker == "TATNP" }.sumOf { it.signedQty }
+        events += SpreadPairEvent(
+            startMs = minOf(other.millis, op.millis),
+            endMs = maxOf(other.millis, op.millis),
+            tatnQty = tn,
+            tatnpQty = tp,
+            cashRub = legs.sumOf { it.paymentRub },
+            priceTatn = legs.firstOrNull { it.ticker == "TATN" }?.priceRub,
+            priceTatnp = legs.firstOrNull { it.ticker == "TATNP" }?.priceRub,
+        )
+    }
+    return events
+}
+
+/**
+ * Матчинг событий в сделки: LONG-событие открывает лонг, следующее SHORT-событие
+ * его закрывает (и наоборот). PnL: если лоты входа и выхода совпали — по реальным
+ * платежам + комиссии за удержание; при частичном fill — по ценам на лоты входа
+ * (платёж при частичном исполнении отражает только исполненную часть).
+ */
+internal fun matchSpreadTrades(
+    events: List<SpreadPairEvent>,
+    feePayments: List<Pair<Long, Double>>,
+): List<SpreadMatchedTrade> {
+    fun feesBetween(from: Long, to: Long): Double =
+        feePayments.filter { it.first in from..to }.sumOf { it.second }
+    val trades = mutableListOf<SpreadMatchedTrade>()
+    var open: SpreadPairEvent? = null
+    var openSide: String? = null
+    for (ev in events) {
+        val side = ev.side ?: continue
+        val cur = open
+        if (cur == null) {
+            open = ev
+            openSide = side
+            continue
+        }
+        if (side == openSide) {
+            // переворот/добор без закрытия — предыдущее считаем незакрытым, заменяем
+            open = ev
+            openSide = side
+            continue
+        }
+        val lotsEntry = minOf(kotlin.math.abs(cur.tatnQty), kotlin.math.abs(cur.tatnpQty))
+        val lotsExit = minOf(kotlin.math.abs(ev.tatnQty), kotlin.math.abs(ev.tatnpQty))
+        val pnl = if (kotlin.math.abs(lotsEntry - lotsExit) < 1.0) {
+            cur.cashRub + ev.cashRub + feesBetween(cur.startMs - 60_000L, ev.endMs + 5 * 60_000L)
+        } else {
+            val lots = lotsEntry
+            val en = cur.priceTatn; val ep = cur.priceTatnp
+            val xn = ev.priceTatn; val xp = ev.priceTatnp
+            if (en != null && ep != null && xn != null && xp != null) {
+                if (openSide == "LONG") lots * ((xn - en) - (xp - ep))
+                else lots * ((en - xn) - (ep - xp))
             } else {
-                if (opening) { openCostP += px * q; openQtyP += q } else { closeCostP += px * q; closeQtyP += q }
+                cur.cashRub + ev.cashRub
             }
         }
-        if (op.ticker == "TATN") tatnQty = newQty else tatnpQty = newQty
-        peakLots = maxOf(peakLots, kotlin.math.abs(tatnQty), kotlin.math.abs(tatnpQty))
+        trades += SpreadMatchedTrade(
+            direction = if (openSide == "SHORT") "Short" else "Long",
+            entry = cur,
+            exit = ev,
+            lots = lotsEntry.toInt().coerceAtLeast(1),
+            pnlRub = pnl,
+        )
+        open = null
+        openSide = null
     }
-
-    fun openVwap(ticker: String): Double? {
-        val c = if (ticker == "TATN") openCostN else openCostP
-        val q = if (ticker == "TATN") openQtyN else openQtyP
-        return if (q > 0) c / q else null
-    }
-
-    fun closeVwap(ticker: String): Double? {
-        val c = if (ticker == "TATN") closeCostN else closeCostP
-        val q = if (ticker == "TATN") closeQtyN else closeQtyP
-        return if (q > 0) c / q else null
-    }
+    return trades
 }
 
 private fun spreadPctFromPrices(tatn: Double?, tatnp: Double?): Double? {
@@ -244,40 +318,9 @@ private fun spreadPctFromPrices(tatn: Double?, tatnp: Double?): Double? {
 }
 
 /**
- * Обход операций: эпизод = от ухода из нуля до возврата в ноль по обоим тикерам.
- * Комиссии/овернайт между входом и выходом добавляются в cash эпизода.
- */
-internal fun walkSpreadEpisodes(
-    ops: List<TInvestSpreadOp>,
-    feePayments: List<Pair<Long, Double>>,
-): List<SpreadEpisode> {
-    fun feesBetween(from: Long, to: Long): Double =
-        feePayments.filter { it.first in from..to }.sumOf { it.second }
-    val episodes = mutableListOf<SpreadEpisode>()
-    var cur: SpreadEpisode? = null
-    var curTatn = 0.0
-    var curTatnp = 0.0
-    for (op in ops) {
-        val flat = kotlin.math.abs(curTatn) < 1e-9 && kotlin.math.abs(curTatnp) < 1e-9
-        if (flat && cur == null) {
-            cur = SpreadEpisode()
-        }
-        val ep = cur ?: continue
-        ep.add(op)
-        if (op.ticker == "TATN") curTatn += op.signedQty else curTatnp += op.signedQty
-        if (kotlin.math.abs(curTatn) < 1e-9 && kotlin.math.abs(curTatnp) < 1e-9) {
-            ep.cashRub += feesBetween(ep.entryMs - 60_000L, ep.exitMs + 5 * 60_000L)
-            episodes += ep
-            cur = null
-        }
-    }
-    return episodes
-}
-
-/**
  * Закрытые пары TATN/TATNP за [days] дней из операций счёта Т-Инвест:
- * эпизод = от ухода из нуля до возврата в ноль по обоим тикерам;
- * PnL = сумма платежей по операциям эпизода (покупки −, продажи +, комиссии −).
+ * ноги склеиваются в пары (±60 сек), пары матчатся вход→выход;
+ * PnL = реальные платежи + комиссии (при полном круге) или по ценам (при частичном fill).
  */
 internal suspend fun fetchSpreadTradesFromTInvest(
     context: Context,
@@ -300,6 +343,27 @@ internal suspend fun fetchSpreadTradesFromTInvest(
         )
     }.getOrNull() ?: return@withContext null
 
+    // В GetOperations у операций часто нет поля ticker — только figi/instrumentUid,
+    // поэтому сначала узнаём id инструментов и матчим по ним.
+    val tatnIds = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
+        .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
+        .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATN_INSTRUMENT_ID, "BBG004RVFFC0") }
+    val tatnpIds = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
+        .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
+        .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATNP_INSTRUMENT_ID, "BBG004S68829") }
+
+    fun tickerOf(op: org.json.JSONObject): String? {
+        for (k in listOf("instrumentUid", "instrument_uid", "uid", "figi", "FIGI")) {
+            val v = op.optString(k, "").trim().uppercase(Locale.US)
+            if (v.isEmpty()) continue
+            if (v in tatnIds) return "TATN"
+            if (v in tatnpIds) return "TATNP"
+        }
+        return resolveOperationTicker(op)
+    }
+
+    var skippedNoTicker = 0
+    var skippedType = 0
     val ops = mutableListOf<TInvestSpreadOp>()
     val feePayments = mutableListOf<Pair<Long, Double>>()
     for (op in collectOperationsArray(root)) {
@@ -312,42 +376,59 @@ internal suspend fun fetchSpreadTradesFromTInvest(
         }
         val isBuy = "BUY" in type
         val isSell = "SELL" in type || ("SALE" in type)
-        if (!isBuy && !isSell) continue
-        val ticker = resolveOperationTicker(op) ?: continue
-        val qty = op.optDouble("quantity", 0.0).let { if (it > 0) it else op.optDouble("lots", 0.0) }
+        if (!isBuy && !isSell) {
+            skippedType++
+            continue
+        }
+        val ticker = tickerOf(op)
+        if (ticker == null) {
+            skippedNoTicker++
+            continue
+        }
+        val price = parseOperationMoneyField(op, "price")
+        // Истинное исполнение = payment/price: при частичном fill поле quantity врёт
+        // (06.09: quantity=360, исполнено 35 — payment = 35×price).
+        val qtyFromPayment = if (price != null && price > 0.0 && payment != 0.0) {
+            kotlin.math.abs(payment) / price
+        } else {
+            0.0
+        }
+        val qty = when {
+            qtyFromPayment > 0.0 -> qtyFromPayment
+            else -> op.optDouble("quantity", 0.0).let { if (it > 0) it else op.optDouble("lots", 0.0) }
+        }
         if (qty <= 0.0) continue
         ops += TInvestSpreadOp(
             millis = ms,
             ticker = ticker,
             signedQty = if (isBuy) qty else -qty,
-            priceRub = parseOperationMoneyField(op, "price"),
+            priceRub = price,
             paymentRub = payment,
         )
     }
+    MoexDiagnostics.log(
+        context,
+        "trade_history",
+        "GetOperations 14д: операций TATN/TATNP=${ops.size}, без тикера=$skippedNoTicker, прочие типы=$skippedType, комиссий=${feePayments.size}",
+    )
     if (ops.isEmpty()) return@withContext null
     ops.sortBy { it.millis }
     feePayments.sortBy { it.first }
 
-    val episodes = walkSpreadEpisodes(ops, feePayments)
-    if (episodes.isEmpty()) return@withContext null
+    val events = pairSpreadLegs(ops)
+    val trades = matchSpreadTrades(events, feePayments)
+    if (trades.isEmpty()) return@withContext null
 
-    episodes.mapIndexedNotNull { idx, ep ->
-        // Направление: лонг = в эпизоде покупали TATN (openQtyN — объём открытия TATN).
-        val isLong = ep.openQtyN >= ep.openQtyP
-        val dirLabel = if (isLong) "Long" else "Short"
-        val entrySpread = spreadPctFromPrices(ep.openVwap("TATN"), ep.openVwap("TATNP"))
-        val exitSpread = spreadPctFromPrices(ep.closeVwap("TATN"), ep.closeVwap("TATNP"))
-        val lots = ep.peakLots.toInt().coerceAtLeast(1)
-        if (lots < 1) return@mapIndexedNotNull null
+    trades.mapIndexed { idx, t ->
         TradeTabClosedTrade(
             id = "Т${idx + 1}",
-            directionLabel = dirLabel,
-            entryTimeMsk = formatPortfolioExecutionTableMsk(ep.entryMs),
-            exitTimeMsk = formatPortfolioExecutionTableMsk(ep.exitMs),
-            quantityLots = lots,
-            entrySpreadPercent = entrySpread,
-            exitSpreadPercent = exitSpread,
-            pnlRub = ep.cashRub,
+            directionLabel = t.direction,
+            entryTimeMsk = formatPortfolioExecutionTableMsk(t.entry.startMs),
+            exitTimeMsk = formatPortfolioExecutionTableMsk(t.exit.endMs),
+            quantityLots = t.lots,
+            entrySpreadPercent = spreadPctFromPrices(t.entry.priceTatn, t.entry.priceTatnp),
+            exitSpreadPercent = spreadPctFromPrices(t.exit.priceTatn, t.exit.priceTatnp),
+            pnlRub = t.pnlRub,
             sourceLabel = "",
         )
     }.sortedByDescending { it.exitTimeMsk }

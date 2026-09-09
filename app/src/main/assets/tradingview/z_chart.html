@@ -478,7 +478,7 @@
         if (!startMargins) return;
         const dy = y - dragY;
         if (Math.abs(dy) > 4) moved = true;
-        const factor = Math.exp(dy / 180); // вниз = растянуть (zoom out), вверх = сжать (zoom in)
+        const factor = Math.exp(dy / 60); // вниз = растянуть (zoom out), вверх = сжать (zoom in), ×3 чувствительность
         applyPriceAxisMargins(startMargins.top * factor, startMargins.bottom * factor);
       };
       const end = () => {
