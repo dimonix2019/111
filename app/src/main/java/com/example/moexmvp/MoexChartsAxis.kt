@@ -407,11 +407,37 @@ internal fun buildAxisScale(
     )
 }
 
+/**
+ * Строит «красивые» тики оси Y: шаг всегда round number (0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10…).
+ * Количество тиков может отличаться от [count], но шаг будет читаемым.
+ */
 internal fun buildYTicks(min: Double, max: Double, count: Int): List<Double> {
     if (count <= 1) return listOf(min)
-    val step = (max - min) / (count - 1)
-    return (0 until count).map { index ->
-        min + step * index
+    if (max == min) return listOf(min)
+
+    val range = max - min
+    val rawStep = range / (count - 1)
+
+    // Определяем порядок (mag = floor(log10(rawStep))), затем «красивый» множитель
+    val mag = kotlin.math.floor(kotlin.math.log10(rawStep))
+    val gridStep = rawStep / kotlin.math.pow(10.0, mag)
+
+    val niceStep = when {
+        gridStep <= 1.5 -> 1.0
+        gridStep <= 3.0 -> 2.0
+        gridStep <= 7.0 -> 5.0
+        else -> 10.0
+    }
+    val step = niceStep * kotlin.math.pow(10.0, mag)
+
+    // Строим тики с красивым шагом (могут выходить за [min, max] на half-step — стандарт для графиков)
+    return buildList {
+        var tick = kotlin.math.floor(min / step) * step
+        val epsilon = step * 1e-9
+        while (tick <= max + epsilon) {
+            add(tick)
+            tick += step
+        }
     }
 }
 

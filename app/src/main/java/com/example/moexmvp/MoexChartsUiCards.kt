@@ -148,6 +148,24 @@ internal fun ChartCard(
                 xLabelStyle = xLabelStyle,
             )
             if (rightAxisPercentBase != null && rightAxisPercentBase != 0.0) {
+                // При зуме — тики из visibleYRange, иначе — из axisScale (полный диапазон)
+                val dataRange = remember(series) {
+                    val all = series.flatMap { it.values }
+                    if (all.isEmpty()) 0.0 to 1.0 else (all.minOrNull() ?: 0.0) to (all.maxOrNull() ?: 1.0)
+                }
+                val visY = if (enableZoomPan) {
+                    val span = (dataRange.second - dataRange.first).coerceAtLeast(1e-9)
+                    val visSpan = span / yZoom.coerceIn(1f, CHART_Y_ZOOM_MAX)
+                    (yCenter - visSpan / 2.0) to (yCenter + visSpan / 2.0)
+                } else dataRange
+                val rightTicks = remember(visY, enableZoomPan, axisScale.yTicks) {
+                    if (enableZoomPan) {
+                        val visTicks = buildYTicks(visY.first, visY.second, count = 5)
+                        if (visTicks.isNotEmpty()) visTicks else listOf(visY.first, visY.second)
+                    } else {
+                        axisScale.yTicks
+                    }
+                }
                 Column(
                     modifier = Modifier
                         .height(chartHeightDp.dp)
@@ -155,7 +173,7 @@ internal fun ChartCard(
                     verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.End
                 ) {
-                    axisScale.yTicks
+                    rightTicks
                         .asReversed()
                         .forEach { tick ->
                             Text(
