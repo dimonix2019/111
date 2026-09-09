@@ -101,7 +101,8 @@ internal object MoexDiagnostics {
     }
 
     fun log(context: Context, category: String, message: String) {
-        val line = "${timestamp()} [$category] $message"
+        val clipped = if (message.length > 400) message.take(400) + "…" else message
+        val line = "${timestamp()} [$category] $clipped"
         Log.i(TAG, line)
         if (!mayWriteToFile(context)) return
         appendLine(context.applicationContext, line)

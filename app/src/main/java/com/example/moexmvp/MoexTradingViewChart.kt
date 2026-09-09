@@ -5,6 +5,8 @@ import android.content.Context
 import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.util.Base64
+import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
@@ -24,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -311,6 +314,7 @@ internal fun buildTradingViewChartPayloadJson(
     initialWindowStart: Float = 0f,
     areaFillColor: String? = null,
     formingBar: MarketsFormingBarHint? = null,
+    spreadChart: Boolean = false,
 ): String {
     val candleArr = JSONArray()
     val seenTimes = linkedSetOf<Long>()
@@ -467,6 +471,10 @@ internal fun buildTradingViewChartPayloadJson(
                 .put("baseCloseZ", hint.baseCloseZ ?: JSONObject.NULL),
         )
     }
+    if (spreadChart) {
+        root.put("spreadChart", true)
+        root.put("lastPriceLineColor", "#FACC15")
+    }
     return root.toString()
 }
 
@@ -579,10 +587,36 @@ internal fun injectTradingViewLibrary(template: String, libraryJs: String): Stri
 
 private fun pushTradingViewPayload(webView: WebView, payloadJson: String) {
     val b64 = Base64.encodeToString(payloadJson.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-    webView.evaluateJavascript(
-        "window.updateMoexChartFromBase64('$b64')",
-        null,
-    )
+    runCatching {
+        webView.evaluateJavascript(
+            "window.updateMoexChartFromBase64('$b64')",
+            null,
+        )
+    }
+}
+
+/**
+ * WebView графика внутри verticalScroll: без disallowIntercept родитель
+ * ворует ACTION_MOVE и срывает pan/pinch (график «прыгает» к last bar).
+ */
+internal class ChartTouchWebView(context: Context) : WebView(context) {
+    init {
+        isNestedScrollingEnabled = false
+        overScrollMode = View.OVER_SCROLL_NEVER
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN,
+            MotionEvent.ACTION_POINTER_DOWN,
+            MotionEvent.ACTION_MOVE -> parent?.requestDisallowInterceptTouchEvent(true)
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_CANCEL -> {
+                if (event.pointerCount <= 1) parent?.requestDisallowInterceptTouchEvent(false)
+            }
+        }
+        return super.onTouchEvent(event)
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -596,6 +630,7 @@ internal fun TradingViewZScoreChart(
     val html = remember { loadTradingViewChartHtml(context.applicationContext) }
     var pageReady by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var webViewGeneration by remember { mutableStateOf(0) }
     val ohlcListener = remember {
         AtomicReference<(Double, Double, Double, Double) -> Unit> { _, _, _, _ -> }
     }
@@ -606,9 +641,10 @@ internal fun TradingViewZScoreChart(
         pushTradingViewPayload(view, payloadJson)
     }
 
+    key(webViewGeneration) {
     AndroidView(
         factory = { ctx ->
-            WebView(ctx).apply {
+            ChartTouchWebView(ctx).apply {
                 webViewRef = this
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -619,6 +655,9 @@ internal fun TradingViewZScoreChart(
                 settings.domStorageEnabled = true
                 settings.allowFileAccess = true
                 settings.allowContentAccess = true
+                settings.setSupportZoom(false)
+                settings.builtInZoomControls = false
+                settings.displayZoomControls = false
                 settings.cacheMode = WebSettings.LOAD_NO_CACHE
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
                     @Suppress("DEPRECATION")
@@ -650,6 +689,12 @@ internal fun TradingViewZScoreChart(
                             context.applicationContext,
                             "didCrash=${detail?.didCrash()} rendererPriorityAtExit=${detail?.rendererPriorityAtExit()}",
                         )
+                        val dead = view
+                        dead?.post {
+                            pageReady = false
+                            webViewRef = null
+                            webViewGeneration++
+                        }
                         return true
                     }
                 }
@@ -661,6 +706,7 @@ internal fun TradingViewZScoreChart(
         },
         modifier = modifier,
     )
+    }
 
     LaunchedEffect(pageReady, payloadJson) {
         if (pageReady) deliverPayload()
@@ -688,6 +734,7 @@ internal fun TradingViewZScoreChartCard(
     formingBarHint: MarketsFormingBarHint? = null,
     formingBarHintText: String? = null,
     showOhlcLegend: Boolean = false,
+    spreadChart: Boolean = false,
 ) {
     if (candles.isEmpty()) return
     var ohlcLegendText by remember {
@@ -715,6 +762,7 @@ internal fun TradingViewZScoreChartCard(
         initialWindowStart,
         areaFillColor,
         formingBarHint,
+        spreadChart,
     ) {
         buildTradingViewChartPayloadJson(
             candles = candles,
@@ -729,6 +777,7 @@ internal fun TradingViewZScoreChartCard(
             initialWindowStart = initialWindowStart,
             areaFillColor = areaFillColor,
             formingBar = formingBarHint,
+            spreadChart = spreadChart,
         )
     }
     Column(

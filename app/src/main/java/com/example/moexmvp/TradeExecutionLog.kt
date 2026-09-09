@@ -209,7 +209,7 @@ internal object TradeExecutionLog {
         val ops = collectOperationsForTradeLog(root)
         var added = 0
         for (op in ops) {
-            val ticker = resolveOperationTicker(op) ?: continue
+            val ticker = resolveOperationTickerFromInstrument(op) ?: continue
             if (ticker != "TATN" && ticker != "TATNP") continue
             val opMillis = parseOperationDateMillisForLog(op) ?: continue
             val price = parseOperationPriceRub(op) ?: continue
@@ -493,7 +493,7 @@ private fun parseOperationQuantityUnits(op: JSONObject): Int {
     return q?.let { quotationUnitsToDouble(it)?.toInt() } ?: op.optInt("quantity", 0)
 }
 
-private fun resolveOperationTicker(op: JSONObject): String? {
+private fun resolveOperationTickerFromInstrument(op: JSONObject): String? {
     val inst = op.optJSONObject("instrument") ?: op.optJSONObject("Instrument")
     return jsonFirstNonBlank(inst ?: op, "ticker", "Ticker")?.uppercase(Locale.US)
 }

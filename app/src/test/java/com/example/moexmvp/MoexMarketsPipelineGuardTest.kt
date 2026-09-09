@@ -77,4 +77,32 @@ class MoexMarketsPipelineGuardTest {
         val issues = validateMarketsUiSnapshot(cache, portfolio, liveZ = null, liveBarAt = null)
         assertTrue(issues.any { it.code == "cache_portfolio_tail" })
     }
+
+    @Test
+    fun expectedM15Gaps_skipNightAndEveningAuction() {
+        assertTrue(isExpectedM15CalendarGapMinutes(15))
+        assertTrue(isExpectedM15CalendarGapMinutes(30))
+        assertTrue(isExpectedM15CalendarGapMinutes(435))
+        assertTrue(!isExpectedM15CalendarGapMinutes(45))
+        val overnight = listOf(
+            point("2026-09-04 18:30", 0.5),
+            point("2026-09-04 19:00", 0.6),
+            point("2026-09-04 23:30", 0.7),
+            point("2026-09-05 06:45", 0.8),
+        )
+        val issues = validateMarketsM15CanonicalSeries(overnight)
+        assertTrue(issues.none { it.code == "gap" })
+    }
+
+    @Test
+    fun formatPipelineIssues_summarizesRepeats() {
+        val text = formatMarketsM15PipelineIssues(
+            listOf(
+                MarketsM15PipelineIssue("gap", "a"),
+                MarketsM15PipelineIssue("gap", "b"),
+            ),
+        )
+        assertTrue(text.contains("gap x2"))
+        assertTrue(text.length < 80)
+    }
 }

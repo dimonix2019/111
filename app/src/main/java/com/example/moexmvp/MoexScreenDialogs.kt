@@ -103,6 +103,35 @@ internal fun MoexScreenDialogs(
         )
     }
 
+    partialCloseAlert?.let { summary ->
+        val tid = partialCloseAlertTradeId ?: "—"
+        AlertDialog(
+            onDismissRequest = {
+                partialCloseAlert = null
+                partialCloseAlertTradeId = null
+            },
+            title = { Text("Закрытие неполное", color = Color.White) },
+            text = {
+                Text(
+                    "Сделка $tid: исполнено ${summary.filledLots}/${summary.totalLots} лот.\n${summary.detail}",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 14.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        partialCloseAlert = null
+                        partialCloseAlertTradeId = null
+                    },
+                ) {
+                    Text("Понятно")
+                }
+            },
+            containerColor = Color(0xFF263238),
+        )
+    }
+
     if (showCloseAllPortfolioDialog) {
         AlertDialog(
             onDismissRequest = { if (!closeAllPortfolioBusy) showCloseAllPortfolioDialog = false },

@@ -62,6 +62,10 @@ internal suspend fun closePortfolioOpenTrade(
             source = "portfolio_close",
         )
     }
+    summarizeSpreadExitPartialFill(legs, execution.quantityLots)?.let { partial ->
+        notifyPartialCloseIncomplete(context, partial, execution.tradeId)
+        throw PartialCloseIncompleteException(partial, execution.tradeId)
+    }
     val closedRecord = if (mode == TinkoffExecutionMode.Prod) {
         recordProdClosedTradeAfterExit(
             context = context,

@@ -39,4 +39,54 @@ class MoexChartInteractionTest {
         assertEquals(0.6f, state.windowStart, 1e-4f)
         assertEquals(1f, state.yZoom, 1e-4f)
     }
+
+    @Test
+    fun chartShouldFollowLive_falseWhileInteracting() {
+        assertTrue(!chartShouldFollowLive(userInteracting = true, visibleRangeTo = 99.0, lastBarLogicalIndex = 100.0))
+    }
+
+    @Test
+    fun chartShouldFollowLive_trueNearRightEdge() {
+        assertTrue(chartShouldFollowLive(userInteracting = false, visibleRangeTo = 98.5, lastBarLogicalIndex = 100.0))
+        assertTrue(chartShouldFollowLive(userInteracting = false, visibleRangeTo = 104.0, lastBarLogicalIndex = 100.0))
+    }
+
+    @Test
+    fun chartShouldFollowLive_falseWhenPannedIntoHistory() {
+        assertTrue(!chartShouldFollowLive(userInteracting = false, visibleRangeTo = 40.0, lastBarLogicalIndex = 100.0))
+    }
+
+    @Test
+    fun buildYTicks_zoomedRangeUsesTenthSteps() {
+        val ticks = buildYTicks(4.0, 4.4, count = 5)
+        val step = ticks.zipWithNext().map { it.second - it.first }.minOrNull() ?: 0.0
+        assertEquals(0.1, step, 1e-9)
+        assertTrue(ticks.any { kotlin.math.abs(it - 4.0) < 1e-9 })
+        assertTrue(ticks.any { kotlin.math.abs(it - 4.1) < 1e-9 })
+        assertTrue(ticks.any { kotlin.math.abs(it - 4.2) < 1e-9 })
+    }
+
+    @Test
+    fun zChartHtml_priceAxisZoomLocksVisibleRange() {
+        val html = listOf(
+            java.io.File("src/main/assets/tradingview/z_chart.html"),
+            java.io.File("app/src/main/assets/tradingview/z_chart.html"),
+        ).first { it.isFile }.readText()
+        assertTrue(html.contains("autoscaleInfoProvider"))
+        assertTrue(html.contains("applyLockedPriceRange"))
+        assertTrue(html.contains("minMove: 0.01"))
+        assertTrue(html.contains("Math.exp(dy / 60)"))
+    }
+
+    @Test
+    fun zChartHtml_doesNotAutoScrollWhileUserPans() {
+        val html = listOf(
+            java.io.File("src/main/assets/tradingview/z_chart.html"),
+            java.io.File("app/src/main/assets/tradingview/z_chart.html"),
+        ).first { it.isFile }.readText()
+        assertTrue(html.contains("shiftVisibleRangeOnNewBar: false"))
+        assertTrue(html.contains("userInteracting && fitted"))
+        assertTrue(html.contains("bindGestureGuards"))
+        assertTrue(html.contains("touch-action: none"))
+    }
 }

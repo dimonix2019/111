@@ -80,6 +80,24 @@ internal fun chartInitialWindowStartWithRightGap(windowWidth: Float): Float =
         windowWidth,
     )
 
+/** Допуск «у правого края» для follow-live (как TradingView), в логических барах. */
+internal const val CHART_FOLLOW_LIVE_TOLERANCE_BARS = 3.0
+
+/**
+ * Автоследование к последнему бару: только если пользователь не пан/зумит
+ * и правый край окна ещё рядом с last bar. Иначе оставляем историю.
+ */
+internal fun chartShouldFollowLive(
+    userInteracting: Boolean,
+    visibleRangeTo: Double,
+    lastBarLogicalIndex: Double,
+    toleranceBars: Double = CHART_FOLLOW_LIVE_TOLERANCE_BARS,
+): Boolean {
+    if (userInteracting) return false
+    if (!visibleRangeTo.isFinite() || !lastBarLogicalIndex.isFinite()) return false
+    return visibleRangeTo >= lastBarLogicalIndex - toleranceBars
+}
+
 internal class ChartViewportState(
     initialWindowWidth: Float,
     initialWindowStart: Float,

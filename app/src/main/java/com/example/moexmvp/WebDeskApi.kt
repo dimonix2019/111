@@ -40,6 +40,20 @@ internal data class WebDeskOpenMark(
     val entryDepositRub: Double,
 )
 
+/** Закрытая сделка из журнала web-стола (`/api/live/trades`). */
+internal data class WebDeskClosedTrade(
+    val id: Long,
+    val direction: String,
+    val entryTime: String?,
+    val exitTime: String?,
+    val entrySpread: Double?,
+    val exitSpread: Double?,
+    val pnlRub: Double?,
+    val quantityLots: Int,
+    val source: String?,
+    val closeComment: String?,
+)
+
 /** HTTP client for strategy-web desk over Tailscale/LAN. */
 internal object WebDeskApi {
     suspend fun fetchHealthLive(context: Context): Result<WebDeskHealthLive> =
@@ -168,6 +182,47 @@ internal object WebDeskApi {
                         netApproxRub = optMarkRub("net_approx_rub"),
                         entryDepositRub = if (deposit.isFinite() && deposit > 0) deposit else 10_000.0,
                     )
+                }
+            }
+        }
+
+    /** Журнал закрытых сделок web-стола (AUTO + ручные, в т.ч. подхваченные с брокера). */
+    suspend fun fetchClosedTrades(context: Context): Result<List<WebDeskClosedTrade>> =
+        withContext(Dispatchers.IO) {
+            val base = WebDeskPrefs.normalizedBaseUrl(context)
+                ?: return@withContext Result.failure(IllegalStateException("URL не задан"))
+            runCatching {
+                val req = Request.Builder().url("$base/api/live/trades").get().build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        error("HTTP ${resp.code}")
+                    }
+                    val body = resp.body?.string().orEmpty()
+                    val arr = JSONObject(body).optJSONArray("closed")
+                        ?: return@use emptyList<WebDeskClosedTrade>()
+                    buildList {
+                        for (i in 0 until arr.length()) {
+                            val o = arr.optJSONObject(i) ?: continue
+                            fun optStr(key: String): String? =
+                                o.optString(key).takeIf { o.has(key) && !o.isNull(key) && it.isNotBlank() }
+                            fun optD(key: String): Double? =
+                                o.optDouble(key).takeIf { o.has(key) && !o.isNull(key) && it.isFinite() }
+                            add(
+                                WebDeskClosedTrade(
+                                    id = o.optLong("id", 0L),
+                                    direction = o.optString("direction", ""),
+                                    entryTime = optStr("entry_time"),
+                                    exitTime = optStr("exit_time"),
+                                    entrySpread = optD("entry_spread"),
+                                    exitSpread = optD("exit_spread"),
+                                    pnlRub = optD("pnl_rub"),
+                                    quantityLots = o.optInt("quantity_lots", 0),
+                                    source = optStr("source"),
+                                    closeComment = optStr("close_comment"),
+                                ),
+                            )
+                        }
+                    }
                 }
             }
         }
