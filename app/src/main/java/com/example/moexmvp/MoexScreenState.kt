@@ -144,4 +144,10 @@ internal class MoexScreenState(val context: Context) {
     /** Снимок открытой сделки TATN/TATNP (вкладка «Сделка»). */
     var tradeScreenSnapshot by mutableStateOf<TradeScreenSnapshot?>(null)
     var tradeScreenLoading by mutableStateOf(false)
+    /** Таблица закрытых сделок (2 недели) на вкладке «Сделка» + источник данных. */
+    var tradeTabClosedTrades by mutableStateOf<List<TradeTabClosedTrade>>(emptyList())
+    var tradeTabTradesSource by mutableStateOf<String?>(null)
+    /** Ручной вход Long/Short со вкладки «Сделка»: занятость + подтверждение. */
+    var tradeManualEntryBusy by mutableStateOf(false)
+    var tradeManualEntryConfirm by mutableStateOf<StrategySignalType?>(null)
 }

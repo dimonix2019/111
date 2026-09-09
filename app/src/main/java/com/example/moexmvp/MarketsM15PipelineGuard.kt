@@ -35,11 +35,13 @@ internal fun validateMarketsM15CanonicalSeries(points: List<DataPoint>): List<Ma
         )
         if (gapMin <= 0L) {
             issues += MarketsM15PipelineIssue("time", "не монотонный шаг ${prev.tradeDate}→${p.tradeDate}")
-        } else if (gapMin != 15L && gapMin < 12 * 60L) {
-            issues += MarketsM15PipelineIssue(
-                "gap",
-                "пропуск ${prev.tradeDate}→${p.tradeDate} Δ=${gapMin}min",
-            )
+        } else if (!isExpectedM15CalendarGapMinutes(gapMin)) {
+            if (issues.count { it.code == "gap" } < 5) {
+                issues += MarketsM15PipelineIssue(
+                    "gap",
+                    "пропуск ${prev.tradeDate}→${p.tradeDate} Δ=${gapMin}min",
+                )
+            }
         }
     }
     return issues
@@ -118,5 +120,14 @@ internal fun validateMarketsUiSnapshot(
     return issues
 }
 
-internal fun formatMarketsM15PipelineIssues(issues: List<MarketsM15PipelineIssue>): String =
-    issues.joinToString("; ") { "${it.code}:${it.detail}" }
+/** 15м: слот, вечерний разрыв 18:30→19:00, ночь/выходные — не дыры ряда. */
+internal fun isExpectedM15CalendarGapMinutes(gapMin: Long): Boolean =
+    gapMin == 15L || gapMin == 30L || gapMin >= 4 * 60L
+
+internal fun formatMarketsM15PipelineIssues(issues: List<MarketsM15PipelineIssue>): String {
+    if (issues.isEmpty()) return ""
+    return issues.groupBy { it.code }.entries.joinToString("; ") { (code, list) ->
+        val sample = list.first().detail.take(80)
+        if (list.size == 1) "$code:$sample" else "$code x${list.size} e.g. $sample"
+    }
+}

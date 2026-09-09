@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
@@ -17,10 +18,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -213,6 +216,9 @@ internal suspend fun MoexScreenState.refreshTradeScreenFromBroker() {
     tradeScreenLoading = true
     val snap = withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context) }
     tradeScreenSnapshot = snap
+    val (trades, source) = withContext(Dispatchers.IO) { loadTradeTabClosedTrades(context) }
+    tradeTabClosedTrades = trades
+    tradeTabTradesSource = source
     tradeScreenLoading = false
 }
 
@@ -305,7 +311,9 @@ internal fun MoexScreenTabTrade(
                     TradeMetricRow("Деньги (₽)", formatRubPlain(it))
                 }
             }
+            TradeManualOpenButtons(screen, scope, enabled = !loading)
             snap.margin?.let { TradeMarginCard(it) }
+            TradeClosedTradesCard(screen.tradeTabClosedTrades, screen.tradeTabTradesSource)
             TradeFooterNote(snap.loadedAtMillis, loading)
             return@Column
         }
@@ -371,6 +379,8 @@ internal fun MoexScreenTabTrade(
         }
 
         snap.margin?.let { TradeMarginCard(it) }
+
+        TradeClosedTradesCard(screen.tradeTabClosedTrades, screen.tradeTabTradesSource)
 
         TradeInfoCard(title = "Источник данных") {
             Text(
@@ -503,4 +513,190 @@ private fun formatHoldDuration(millis: Long): String {
     } else {
         String.format(Locale.US, "%.1f ч", hours)
     }
+}
+
+@Composable
+private fun TradeManualOpenButtons(
+    screen: MoexScreenState,
+    scope: CoroutineScope,
+    enabled: Boolean,
+) {
+    val busy = screen.tradeManualEntryBusy
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Button(
+            onClick = { screen.tradeManualEntryConfirm = StrategySignalType.EnterLong },
+            enabled = enabled && !busy,
+            modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF2E7D32),
+                contentColor = Color.White,
+            ),
+        ) {
+            Text(
+                if (busy) "Отправка…" else "Открыть Long",
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+            )
+        }
+        Button(
+            onClick = { screen.tradeManualEntryConfirm = StrategySignalType.EnterShort },
+            enabled = enabled && !busy,
+            modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFC62828),
+                contentColor = Color.White,
+            ),
+        ) {
+            Text(
+                if (busy) "Отправка…" else "Открыть Short",
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+            )
+        }
+    }
+
+    screen.tradeManualEntryConfirm?.let { signal ->
+        val dir = if (signal == StrategySignalType.EnterShort) "Short" else "Long"
+        AlertDialog(
+            onDismissRequest = { if (!busy) screen.tradeManualEntryConfirm = null },
+            title = { Text("Открыть $dir?", color = Color.White) },
+            text = {
+                Text(
+                    "Боевой счёт T‑Invest: две рыночные заявки (пара TATN/TATNP), " +
+                        "лоты — по расчёту как у AUTO. Web-стол подхватит сделку сверкой.",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 13.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !busy,
+                    onClick = {
+                        screen.tradeManualEntryBusy = true
+                        scope.launch {
+                            try {
+                                val msg = withContext(Dispatchers.IO) {
+                                    runManualSpreadEntryFromTradeTab(
+                                        screen.context.applicationContext,
+                                        signal,
+                                    ).getOrThrow()
+                                }
+                                Toast.makeText(screen.context, msg, Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    screen.context,
+                                    e.message?.take(300) ?: e.javaClass.simpleName,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } finally {
+                                screen.tradeManualEntryBusy = false
+                                screen.tradeManualEntryConfirm = null
+                                screen.refreshTradeScreenFromBroker()
+                            }
+                        }
+                    },
+                ) {
+                    Text("Открыть", color = Color(0xFFA5D6A7))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !busy,
+                    onClick = { screen.tradeManualEntryConfirm = null },
+                ) {
+                    Text("Отмена")
+                }
+            },
+            containerColor = Color(0xFF263238),
+        )
+    }
+}
+
+@Composable
+private fun TradeClosedTradesCard(
+    rows: List<TradeTabClosedTrade>,
+    source: String?,
+) {
+    TradeInfoCard(title = "Сделки · 2 недели") {
+        if (rows.isEmpty()) {
+            Text(
+                "Нет закрытых сделок за период" + (source?.let { " ($it)" }.orEmpty()),
+                color = Color(0xFF757575),
+                fontSize = 11.sp,
+            )
+            return@TradeInfoCard
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TradeTableHeadCell("Сделка", 1.4f)
+            TradeTableHeadCell("Вход → выход", 1.9f)
+            TradeTableHeadCell("Спред", 1.3f)
+            TradeTableHeadCell("PnL", 1.0f)
+        }
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 3.dp),
+            ) {
+                val dirColor = if (row.directionLabel == "Short") Color(0xFFEF5350) else Color(0xFF26A69A)
+                Column(modifier = Modifier.weight(1.4f)) {
+                    Text(row.id, color = Color(0xFFE0E0E0), fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        "${row.directionLabel} · ${row.quantityLots} л" +
+                            (row.sourceLabel.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
+                        color = dirColor,
+                        fontSize = 9.sp,
+                    )
+                }
+                Column(modifier = Modifier.weight(1.9f)) {
+                    Text(row.entryTimeMsk.ifBlank { "—" }, color = Color(0xFFB0BEC5), fontSize = 9.sp)
+                    Text(row.exitTimeMsk.ifBlank { "—" }, color = Color(0xFFB0BEC5), fontSize = 9.sp)
+                }
+                Text(
+                    formatSpreadPair(row.entrySpreadPercent, row.exitSpreadPercent),
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 9.sp,
+                    modifier = Modifier.weight(1.3f),
+                )
+                val pnlColor = when {
+                    row.pnlRub == null -> Color(0xFF757575)
+                    row.pnlRub > 0 -> Color(0xFF66BB6A)
+                    row.pnlRub < 0 -> Color(0xFFEF5350)
+                    else -> Color(0xFFE0E0E0)
+                }
+                Text(
+                    row.pnlRub?.let { formatRubSigned(it) } ?: "—",
+                    color = pnlColor,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1.0f),
+                )
+            }
+        }
+        source?.let {
+            Text(
+                "Источник: $it",
+                color = Color(0xFF616161),
+                fontSize = 9.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.TradeTableHeadCell(
+    text: String,
+    weight: Float,
+) {
+    Text(
+        text,
+        color = Color(0xFF757575),
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.weight(weight),
+    )
 }

@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -586,10 +587,12 @@ internal fun injectTradingViewLibrary(template: String, libraryJs: String): Stri
 
 private fun pushTradingViewPayload(webView: WebView, payloadJson: String) {
     val b64 = Base64.encodeToString(payloadJson.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-    webView.evaluateJavascript(
-        "window.updateMoexChartFromBase64('$b64')",
-        null,
-    )
+    runCatching {
+        webView.evaluateJavascript(
+            "window.updateMoexChartFromBase64('$b64')",
+            null,
+        )
+    }
 }
 
 /**
@@ -627,6 +630,7 @@ internal fun TradingViewZScoreChart(
     val html = remember { loadTradingViewChartHtml(context.applicationContext) }
     var pageReady by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var webViewGeneration by remember { mutableStateOf(0) }
     val ohlcListener = remember {
         AtomicReference<(Double, Double, Double, Double) -> Unit> { _, _, _, _ -> }
     }
@@ -637,6 +641,7 @@ internal fun TradingViewZScoreChart(
         pushTradingViewPayload(view, payloadJson)
     }
 
+    key(webViewGeneration) {
     AndroidView(
         factory = { ctx ->
             ChartTouchWebView(ctx).apply {
@@ -684,6 +689,12 @@ internal fun TradingViewZScoreChart(
                             context.applicationContext,
                             "didCrash=${detail?.didCrash()} rendererPriorityAtExit=${detail?.rendererPriorityAtExit()}",
                         )
+                        val dead = view
+                        dead?.post {
+                            pageReady = false
+                            webViewRef = null
+                            webViewGeneration++
+                        }
                         return true
                     }
                 }
@@ -695,6 +706,7 @@ internal fun TradingViewZScoreChart(
         },
         modifier = modifier,
     )
+    }
 
     LaunchedEffect(pageReady, payloadJson) {
         if (pageReady) deliverPayload()
