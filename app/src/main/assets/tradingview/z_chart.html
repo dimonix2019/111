@@ -427,6 +427,96 @@
       window.addEventListener('mouseup', end);
     }
 
+    // --- Вертикальный зум: палец/мышь по правой ценовой шкале ---
+    // Библиотека на части устройств не ловит touch-drag по оси, поэтому своя полоса поверх шкалы.
+    let priceAxisZoomEl = null;
+    let priceAxisMargins = { top: 0.1, bottom: 0.1 };
+
+    function layoutPriceAxisZoom(container) {
+      if (!chart || !priceAxisZoomEl || !container) return;
+      try {
+        const w = chart.priceScale('right').width();
+        const timeH = chart.timeScale().height();
+        const totalH = container.clientHeight;
+        priceAxisZoomEl.style.width = Math.max(40, w) + 'px';
+        priceAxisZoomEl.style.height = Math.max(40, totalH - timeH) + 'px';
+      } catch (e) {}
+    }
+
+    function applyPriceAxisMargins(top, bottom) {
+      if (!chart) return;
+      priceAxisMargins = {
+        top: Math.min(0.85, Math.max(0.02, top)),
+        bottom: Math.min(0.85, Math.max(0.02, bottom)),
+      };
+      window.__priceAxisMargins = priceAxisMargins; // тестовый хук
+      try {
+        chart.priceScale('right').applyOptions({
+          scaleMargins: { top: priceAxisMargins.top, bottom: priceAxisMargins.bottom },
+        });
+      } catch (e) {}
+    }
+
+    function bindPriceAxisZoom(container) {
+      if (!container || priceAxisZoomEl) return;
+      priceAxisZoomEl = document.createElement('div');
+      priceAxisZoomEl.id = 'priceAxisZoom';
+      priceAxisZoomEl.style.cssText =
+        'position:absolute;top:0;right:0;z-index:6;touch-action:none;background:rgba(0,0,0,0);';
+      container.appendChild(priceAxisZoomEl);
+      let dragY = 0;
+      let startMargins = null;
+      let moved = false;
+      let lastTapAt = 0;
+      const begin = (y) => {
+        dragY = y;
+        moved = false;
+        startMargins = { top: priceAxisMargins.top, bottom: priceAxisMargins.bottom };
+        setUserInteracting(true);
+      };
+      const move = (y) => {
+        if (!startMargins) return;
+        const dy = y - dragY;
+        if (Math.abs(dy) > 4) moved = true;
+        const factor = Math.exp(dy / 180); // вниз = растянуть (zoom out), вверх = сжать (zoom in)
+        applyPriceAxisMargins(startMargins.top * factor, startMargins.bottom * factor);
+      };
+      const end = () => {
+        if (!startMargins) return;
+        startMargins = null;
+        const now = Date.now();
+        if (!moved) {
+          if (now - lastTapAt < 350) {
+            applyPriceAxisMargins(0.1, 0.1); // двойной тап по шкале — сброс зума
+            lastTapAt = 0;
+          } else {
+            lastTapAt = now;
+          }
+        }
+        onInteractEnd();
+      };
+      priceAxisZoomEl.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) { startMargins = null; return; }
+        begin(e.touches[0].clientY);
+      }, { passive: true });
+      priceAxisZoomEl.addEventListener('touchmove', (e) => {
+        if (e.touches.length !== 1) return;
+        move(e.touches[0].clientY);
+      }, { passive: true });
+      priceAxisZoomEl.addEventListener('touchend', end, { passive: true });
+      priceAxisZoomEl.addEventListener('touchcancel', () => {
+        startMargins = null;
+        onInteractEnd();
+      }, { passive: true });
+      priceAxisZoomEl.addEventListener('mousedown', (e) => {
+        begin(e.clientY);
+        e.preventDefault();
+      });
+      window.addEventListener('mousemove', (e) => move(e.clientY));
+      window.addEventListener('mouseup', end);
+      layoutPriceAxisZoom(container);
+    }
+
     function applyRightOffsetIfNeeded(data, allowSnap) {
       if (!chart) return;
       const rightOffset = resolveRightOffsetBars(data);
@@ -635,6 +725,7 @@
 
       bindViewportMarkerRefresh();
       bindGestureGuards(el);
+      bindPriceAxisZoom(el);
       lastAppliedRightOffset = RIGHT_OFFSET_BARS;
 
       const ro = new ResizeObserver(() => {
@@ -644,6 +735,7 @@
         if (userInteracting) return;
         lastChartSize = { w: rw, h: rh };
         chart.resize(rw, rh);
+        layoutPriceAxisZoom(el);
         scheduleRefreshMarkers();
       });
       ro.observe(el);
@@ -719,6 +811,7 @@
       }
       pendingPayload = null;
       document.getElementById('err').style.display = 'none';
+      layoutPriceAxisZoom(document.getElementById('chart'));
 
       const isFirstFit = !fitted;
       if (userInteracting && fitted) {

@@ -179,7 +179,7 @@ internal suspend fun fetchSpreadRealizedLegPnlFromOperations(
     return OperationsLegCapture(legPnl = legPnl, commissionRub = commissionRub)
 }
 
-private fun collectOperationsArray(root: JSONObject): List<JSONObject> {
+internal fun collectOperationsArray(root: JSONObject): List<JSONObject> {
     val out = mutableListOf<JSONObject>()
     fun walk(o: JSONObject?, depth: Int) {
         if (o == null || depth > 8) return
@@ -198,7 +198,7 @@ private fun collectOperationsArray(root: JSONObject): List<JSONObject> {
     return out
 }
 
-private fun parseOperationDateMillis(op: JSONObject): Long? {
+internal fun parseOperationDateMillis(op: JSONObject): Long? {
     val raw = op.firstNonBlankString("date", "Date", "datetime", "operationDate")
         ?: return null
     return runCatching { Instant.parse(raw.trim()).toEpochMilli() }.getOrNull()
@@ -212,7 +212,7 @@ private fun JSONObject.firstNonBlankString(vararg keys: String): String? {
     return null
 }
 
-private fun resolveOperationTicker(op: JSONObject): String? {
+internal fun resolveOperationTicker(op: JSONObject): String? {
     op.firstNonBlankString("ticker", "Ticker")?.uppercase(Locale.US)?.let { return it }
     val figi = op.firstNonBlankString("figi", "FIGI")?.uppercase(Locale.US).orEmpty()
     val uid = op.firstNonBlankString(
@@ -236,7 +236,7 @@ private fun resolveOperationTicker(op: JSONObject): String? {
     }
 }
 
-private fun parseOperationMoneyField(op: JSONObject, vararg keys: String): Double? {
+internal fun parseOperationMoneyField(op: JSONObject, vararg keys: String): Double? {
     for (k in keys) {
         op.optJSONObject(k)?.let { return quotationUnitsToDouble(it) }
     }
