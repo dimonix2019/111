@@ -61,6 +61,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -407,11 +408,38 @@ internal fun buildAxisScale(
     )
 }
 
+/**
+ * «Красивые» тики оси Y: шаг 0.01 / 0.02 / 0.05 / 0.1 / 0.2 / 0.5 / 1…
+ * При вертикальном зуме видимый диапазон уже, шаг мельчает (4.0, 4.1, 4.2 вместо 4.0, 4.5, 5.0).
+ */
 internal fun buildYTicks(min: Double, max: Double, count: Int): List<Double> {
     if (count <= 1) return listOf(min)
-    val step = (max - min) / (count - 1)
-    return (0 until count).map { index ->
-        min + step * index
+    if (max == min) return listOf(min)
+
+    val range = max - min
+    val rawStep = range / (count - 1).coerceAtLeast(1)
+    if (rawStep <= 0.0 || !rawStep.isFinite()) return listOf(min, max)
+
+    val mag = kotlin.math.floor(kotlin.math.log10(rawStep))
+    val gridStep = rawStep / 10.0.pow(mag)
+    val niceStep = when {
+        gridStep <= 1.5 -> 1.0
+        gridStep <= 3.0 -> 2.0
+        gridStep <= 7.0 -> 5.0
+        else -> 10.0
+    }
+    val step = niceStep * 10.0.pow(mag)
+
+    return buildList {
+        var tick = kotlin.math.floor(min / step) * step
+        val epsilon = step * 1e-9
+        var n = 0
+        while (tick <= max + epsilon && n < 40) {
+            add(tick)
+            tick += step
+            n++
+        }
+        if (isEmpty()) add(min)
     }
 }
 

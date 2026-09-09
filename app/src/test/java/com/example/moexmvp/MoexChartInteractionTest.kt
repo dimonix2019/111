@@ -57,6 +57,28 @@ class MoexChartInteractionTest {
     }
 
     @Test
+    fun buildYTicks_zoomedRangeUsesTenthSteps() {
+        val ticks = buildYTicks(4.0, 4.4, count = 5)
+        val step = ticks.zipWithNext().map { it.second - it.first }.minOrNull() ?: 0.0
+        assertEquals(0.1, step, 1e-9)
+        assertTrue(ticks.any { kotlin.math.abs(it - 4.0) < 1e-9 })
+        assertTrue(ticks.any { kotlin.math.abs(it - 4.1) < 1e-9 })
+        assertTrue(ticks.any { kotlin.math.abs(it - 4.2) < 1e-9 })
+    }
+
+    @Test
+    fun zChartHtml_priceAxisZoomLocksVisibleRange() {
+        val html = listOf(
+            java.io.File("src/main/assets/tradingview/z_chart.html"),
+            java.io.File("app/src/main/assets/tradingview/z_chart.html"),
+        ).first { it.isFile }.readText()
+        assertTrue(html.contains("autoscaleInfoProvider"))
+        assertTrue(html.contains("applyLockedPriceRange"))
+        assertTrue(html.contains("minMove: 0.01"))
+        assertTrue(html.contains("Math.exp(dy / 60)"))
+    }
+
+    @Test
     fun zChartHtml_doesNotAutoScrollWhileUserPans() {
         val html = listOf(
             java.io.File("src/main/assets/tradingview/z_chart.html"),

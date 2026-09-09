@@ -431,6 +431,8 @@
     // Библиотека на части устройств не ловит touch-drag по оси, поэтому своя полоса поверх шкалы.
     let priceAxisZoomEl = null;
     let priceAxisMargins = { top: 0.1, bottom: 0.1 };
+    /** Зафиксированный min/max цены: scaleMargins не меняет шаг тиков, поэтому зум шкалы — через autoscaleInfoProvider. */
+    let priceAxisLockedRange = null;
 
     function layoutPriceAxisZoom(container) {
       if (!chart || !priceAxisZoomEl || !container) return;
@@ -457,6 +459,48 @@
       } catch (e) {}
     }
 
+    function plotHeightPx(container) {
+      if (!chart) return 0;
+      try {
+        const timeH = chart.timeScale().height();
+        return Math.max(40, (container ? container.clientHeight : 0) - timeH);
+      } catch (e) {
+        return container ? container.clientHeight : 0;
+      }
+    }
+
+    function readVisiblePriceRange(container) {
+      if (!series) return null;
+      const h = plotHeightPx(container);
+      const p0 = series.coordinateToPrice(1);
+      const p1 = series.coordinateToPrice(Math.max(2, h - 1));
+      if (p0 == null || p1 == null || Number.isNaN(p0) || Number.isNaN(p1)) return null;
+      const minValue = Math.min(p0, p1);
+      const maxValue = Math.max(p0, p1);
+      if (!(maxValue > minValue)) return null;
+      return { minValue, maxValue };
+    }
+
+    function applyLockedPriceRange(range) {
+      if (!series) return;
+      priceAxisLockedRange = range;
+      window.__priceAxisLockedRange = range;
+      try {
+        series.applyOptions({
+          autoscaleInfoProvider: range
+            ? () => ({
+                priceRange: { minValue: range.minValue, maxValue: range.maxValue },
+              })
+            : () => null,
+        });
+      } catch (e) {}
+    }
+
+    function resetPriceAxisZoom() {
+      applyLockedPriceRange(null);
+      applyPriceAxisMargins(0.1, 0.1);
+    }
+
     function bindPriceAxisZoom(container) {
       if (!container || priceAxisZoomEl) return;
       priceAxisZoomEl = document.createElement('div');
@@ -466,12 +510,16 @@
       container.appendChild(priceAxisZoomEl);
       let dragY = 0;
       let startMargins = null;
+      let startRange = null;
       let moved = false;
       let lastTapAt = 0;
       const begin = (y) => {
         dragY = y;
         moved = false;
         startMargins = { top: priceAxisMargins.top, bottom: priceAxisMargins.bottom };
+        startRange = priceAxisLockedRange
+          ? { minValue: priceAxisLockedRange.minValue, maxValue: priceAxisLockedRange.maxValue }
+          : readVisiblePriceRange(container);
         setUserInteracting(true);
       };
       const move = (y) => {
@@ -479,15 +527,23 @@
         const dy = y - dragY;
         if (Math.abs(dy) > 4) moved = true;
         const factor = Math.exp(dy / 60); // вниз = растянуть (zoom out), вверх = сжать (zoom in), ×3 чувствительность
-        applyPriceAxisMargins(startMargins.top * factor, startMargins.bottom * factor);
+        if (startRange && startRange.maxValue > startRange.minValue) {
+          const mid = (startRange.minValue + startRange.maxValue) / 2;
+          const half = Math.max(0.05, ((startRange.maxValue - startRange.minValue) * factor) / 2);
+          applyLockedPriceRange({ minValue: mid - half, maxValue: mid + half });
+          applyPriceAxisMargins(0.02, 0.02);
+        } else {
+          applyPriceAxisMargins(startMargins.top * factor, startMargins.bottom * factor);
+        }
       };
       const end = () => {
         if (!startMargins) return;
         startMargins = null;
+        startRange = null;
         const now = Date.now();
         if (!moved) {
           if (now - lastTapAt < 350) {
-            applyPriceAxisMargins(0.1, 0.1); // двойной тап по шкале — сброс зума
+            resetPriceAxisZoom(); // двойной тап по шкале — сброс зума
             lastTapAt = 0;
           } else {
             lastTapAt = now;
@@ -706,7 +762,9 @@
         priceLineWidth: 1,
         priceLineColor: TV.currentZ,
         priceLineStyle: LightweightCharts.LineStyle.Dashed,
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
       });
+      if (priceAxisLockedRange) applyLockedPriceRange(priceAxisLockedRange);
 
       highlightSeries = chart.addSeries(LightweightCharts.LineSeries, {
         color: TV.selected,

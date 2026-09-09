@@ -118,6 +118,8 @@ class MoexTradingViewChartTest {
         assertTrue(html.contains("function pushOhlc"))
         assertTrue(html.contains("data.spreadChart"))
         assertTrue(html.contains("lastPriceLineColor"))
+        assertTrue(html.contains("autoscaleInfoProvider"))
+        assertTrue(html.contains("applyLockedPriceRange"))
     }
 
     @Test
