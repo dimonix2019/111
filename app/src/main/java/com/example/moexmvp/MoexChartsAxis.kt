@@ -420,7 +420,7 @@ internal fun buildYTicks(min: Double, max: Double, count: Int): List<Double> {
 
     // Определяем порядок (mag = floor(log10(rawStep))), затем «красивый» множитель
     val mag = kotlin.math.floor(kotlin.math.log10(rawStep))
-    val gridStep = rawStep / kotlin.math.pow(10.0, mag)
+    val gridStep = rawStep / 10.0.pow(mag)
 
     val niceStep = when {
         gridStep <= 1.5 -> 1.0
@@ -428,7 +428,7 @@ internal fun buildYTicks(min: Double, max: Double, count: Int): List<Double> {
         gridStep <= 7.0 -> 5.0
         else -> 10.0
     }
-    val step = niceStep * kotlin.math.pow(10.0, mag)
+    val step = niceStep * 10.0.pow(mag)
 
     // Строим тики с красивым шагом (могут выходить за [min, max] на half-step — стандарт для графиков)
     return buildList {

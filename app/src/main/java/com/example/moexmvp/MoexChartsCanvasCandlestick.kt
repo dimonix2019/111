@@ -279,7 +279,7 @@ internal fun CandlestickChart(
         } else {
             1f
         }
-        val candleStrokeMul = kotlin.math.sqrt(xStretch * yStretch).coerceIn(1f, 4f)
+        val candleStrokeMul = kotlin.math.sqrt(xStretch * yStretch).coerceIn(1f, 20f)
 
         yTicks.forEach { tick ->
             val y = yForValue(tick)

@@ -82,7 +82,11 @@ internal fun ChartCard(
     m15TimeLabels: Boolean = false,
     xLabelStyle: ChartXLabelStyle = ChartXLabelStyleTilted,
     /** Доп. строка под выбранной точкой (например PnL симуляции по Z). */
-    tradeTapHintFormatter: ((Int) -> String?)? = null
+    tradeTapHintFormatter: ((Int) -> String?)? = null,
+    /** Текущий коэффициент зума по Y (1.0 = без зума). */
+    yZoom: Float = 1f,
+    /** Текущий центр видимого диапазона Y. */
+    yCenter: Double = 0.0,
 ) {
     val axisScale = remember(series, labels, yScale, referenceLines, m15TimeLabels) {
         val base = buildAxisScale(
