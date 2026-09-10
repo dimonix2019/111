@@ -185,7 +185,7 @@ internal const val APK_GITHUB_RELEASES_PAGE_URL = "https://github.com/dimonix201
 
 /** Shown on the About tab (последние 5 версий; старые записи не храним). */
 internal const val APP_CHANGELOG = """
-2.0.34 — График: неограниченный вертикальный zoom (CHART_Y_ZOOM_MAX поднимено от 24 до 10_000); pinch-zoom по Y теперь без жёсткого потолка.
+2.0.34 — График: неограниченный вертикальный zoom (CHART_Y_ZOOM_MAX поднимено от 24 до 10_000); pinch-zoom по Y теперь без жёсткого потолка. Pushed for CI publish.
 2.0.33 — Fix OTA: проверка подписи/отката перед установкой; кнопки «Удалить» и «Через браузер» при ошибке.
 1.7.230 — «Рынок»: single-flight MOEX 15м refresh; Z/live overlay на базе 255д (parity с монитором).
 1.7.229 — «Рынок»: commitMarketsM15ToUi (store+live Z атомарно); инварианты пайплайна m15_pipe в logcat.
