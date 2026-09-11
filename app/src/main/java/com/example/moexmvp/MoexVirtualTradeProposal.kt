@@ -195,11 +195,7 @@ internal fun suppressUserCancelledEntry(
         rememberSandboxAutoEntryDedup(app, proposal.signalType, proposal.timestampMillis)
     }
     val lastBar = loadLastProcessed15mBarTimestamp(app)
-        ?: runCatching {
-            loadZStrategySignalSeries(app, PortfolioM15LoadMode.CACHE_ONLY)
-                .lastOrNull()
-                ?.timestampMillis
-        }.getOrNull()
+        ?: loadStrategySignalEvents(app).maxOfOrNull { it.timestampMillis }
     if (lastBar != null && lastBar > 0L) {
         saveLastProcessed15mBarTimestamp(app, lastBar)
     }
