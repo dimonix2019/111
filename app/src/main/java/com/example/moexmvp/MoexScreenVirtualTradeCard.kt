@@ -60,7 +60,13 @@ internal fun MoexScreenVirtualTradeCard(
                 proposal = proposal,
                 sandboxState = sandboxExecState,
                 executionMode = executionMode,
-                onAccept = {
+                depositRub = takeProfitDepositRub(
+                    screen.tradeScreenSnapshot?.portfolioTotalRub,
+                    screen.tradeScreenSnapshot?.cashRub,
+                    screen.tradeScreenSnapshot?.depositRub,
+                ),
+                initialTakeProfitPct = BrokerAccountPrefs.lastTakeProfitPct(context),
+                onAccept = { takeProfitPct ->
                     scope.launch {
                         val mode = currentExecutionMode(context)
                         val st = TinkoffSandboxStorage.resolveExecUiState(context, mode)
@@ -131,6 +137,10 @@ internal fun MoexScreenVirtualTradeCard(
                                             else -> ZStrategyPosition.Flat
                                         }
                                         saveStrategyPosition(context, position)
+                                        BrokerAccountPrefs.saveTakeProfitForOpen(
+                                            context,
+                                            takeProfitPct,
+                                        )
                                         Pair(Triple(skipDup, legsInner, openedInner), sizingInner)
                                     }
                                     val (skipDupJournal, legs, opened) = acceptBundle.first

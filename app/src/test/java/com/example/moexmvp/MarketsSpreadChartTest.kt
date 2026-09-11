@@ -45,6 +45,15 @@ class MarketsSpreadChartTest {
     }
 
     @Test
+    fun buildMarketsSpreadChartReferenceLines_customTakeProfitPctLabel() {
+        val lines = buildMarketsSpreadChartReferenceLines(
+            openSide = ZStrategyPosition.Long,
+            takeProfitPct = 3.5,
+        )
+        assertEquals("ТП 3.5%", lines.last().label)
+    }
+
+    @Test
     fun buildMarketsSpreadChartReferenceLines_tpDisabledWhenPctZero() {
         val lines = buildMarketsSpreadChartReferenceLines(
             openSide = ZStrategyPosition.Long,

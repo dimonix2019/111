@@ -219,4 +219,55 @@ class MoexTradeScreenTest {
         assertEquals(35.0, overnightFeePerDayRub(40_000.0), 0.01)
         assertEquals(175.0, overnightFeePerDayRub(200_000.0), 0.01)
     }
+
+    @Test
+    fun takeProfitRubAndPercent_roundTripFromTwoPercent() {
+        val deposit = 9_526.0
+        val rub = takeProfitRubFromPercent(DEFAULT_TAKE_PROFIT_PCT, deposit)
+        assertEquals(190.52, rub, 0.01)
+        assertEquals(2.0, takeProfitPercentFromRub(rub, deposit), 1e-9)
+    }
+
+    @Test
+    fun coerceTakeProfitPct_defaultsAndClamps() {
+        assertEquals(DEFAULT_TAKE_PROFIT_PCT, coerceTakeProfitPct(0.0), 0.0)
+        assertEquals(DEFAULT_TAKE_PROFIT_PCT, coerceTakeProfitPct(Double.NaN), 0.0)
+        assertEquals(TAKE_PROFIT_PCT_MIN, coerceTakeProfitPct(0.01), 1e-9)
+        assertEquals(TAKE_PROFIT_PCT_MAX, coerceTakeProfitPct(99.0), 1e-9)
+        assertEquals(3.5, coerceTakeProfitPct(3.5), 1e-9)
+    }
+
+    @Test
+    fun resolveTakeProfitPctFromInputs_defaultWhenEmpty() {
+        assertEquals(DEFAULT_TAKE_PROFIT_PCT, resolveTakeProfitPctFromInputs("", "", 9_526.0)!!, 0.0)
+        assertEquals(3.0, resolveTakeProfitPctFromInputs("3", "", 9_526.0)!!, 0.0)
+        val fromRub = resolveTakeProfitPctFromInputs("", "191", 9_526.0)!!
+        assertTrue(fromRub in 2.0..2.1)
+        assertNull(resolveTakeProfitPctFromInputs("0", "", 9_526.0))
+    }
+
+    @Test
+    fun parseAndFilterTakeProfitInput_acceptsComma() {
+        assertEquals(2.5, parseTakeProfitNumber("2,5")!!, 1e-9)
+        assertEquals("2,5", filterTakeProfitInput("2,5abc"))
+        assertEquals("2", formatTakeProfitPctInput(2.0))
+        assertEquals("191", formatTakeProfitRubInput(190.52))
+    }
+
+    @Test
+    fun shouldFireTakeProfit_usesYieldVsDepositPercent() {
+        assertFalse(shouldFireTakeProfit(expectedYieldRub = 190.0, depositRub = 9_526.0, takeProfitPct = 2.0))
+        assertTrue(shouldFireTakeProfit(expectedYieldRub = 191.0, depositRub = 9_526.0, takeProfitPct = 2.0))
+        assertFalse(shouldFireTakeProfit(expectedYieldRub = 500.0, depositRub = 9_526.0, takeProfitPct = 0.0))
+        assertFalse(shouldFireTakeProfit(expectedYieldRub = null, depositRub = 9_526.0, takeProfitPct = 2.0))
+        assertFalse(shouldFireTakeProfit(expectedYieldRub = -10.0, depositRub = 9_526.0, takeProfitPct = 2.0))
+    }
+
+    @Test
+    fun takeProfitDepositRub_prefersPortfolioThenCash() {
+        assertEquals(9_526.0, takeProfitDepositRub(9_526.0, 1_000.0, 8_000.0), 0.0)
+        assertEquals(1_000.0, takeProfitDepositRub(null, 1_000.0, 8_000.0), 0.0)
+        assertEquals(8_000.0, takeProfitDepositRub(null, null, 8_000.0), 0.0)
+        assertEquals(0.0, takeProfitDepositRub(null, null, null), 0.0)
+    }
 }

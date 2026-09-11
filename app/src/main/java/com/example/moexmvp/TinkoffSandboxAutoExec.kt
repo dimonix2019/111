@@ -130,6 +130,7 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
                 portfolioCashRub = lastLeg?.portfolioCashRub,
             )
         }
+        BrokerAccountPrefs.saveTakeProfitForOpen(app, BrokerAccountPrefs.lastTakeProfitPct(app))
         true
     } catch (e: Exception) {
         notifySandboxAutoEntrySkipped(

@@ -39,6 +39,7 @@ private data class MarketsPhoneChartState(
     val openEntrySpread: Double?,
     val openDepositRub: Double?,
     val openNotionalRub: Double?,
+    val takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
 )
 
 /**
@@ -184,6 +185,7 @@ internal fun MoexScreenTabMarketsPhone(
                 openDepositRub = openExec?.entryPortfolioTotalRub?.takeIf { it > 0 }
                     ?: openExec?.entryPortfolioCashRub?.takeIf { it > 0 },
                 openNotionalRub = openExec?.executionNotionalRub?.takeIf { it > 0 },
+                takeProfitPct = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(screen.context),
             )
         }
     }
@@ -206,12 +208,14 @@ internal fun MoexScreenTabMarketsPhone(
         chartState.openEntrySpread,
         chartState.openDepositRub,
         chartState.openNotionalRub,
+        chartState.takeProfitPct,
     ) {
         buildMarketsSpreadChartReferenceLines(
             openSide = chartState.openSide,
             openEntrySpread = chartState.openEntrySpread,
             depositRub = chartState.openDepositRub,
             notionalRub = chartState.openNotionalRub,
+            takeProfitPct = chartState.takeProfitPct,
         )
     }
     Column(

@@ -144,10 +144,11 @@ internal suspend fun runEmergencyFlattenFromTradeTab(
         val broker = detectBrokerSpreadPosition(portfolio, extraTatn, extraTatnp)
         val plan = flattenLegsForBrokerSnap(broker)
         if (plan.isEmpty()) {
-            TinkoffSandboxSpreadExecLog.clearOpenExecutions(app)
-            saveStrategyPosition(app, ZStrategyPosition.Flat)
-            suppressUserCancelledEntry(app)
-            return@runCatching "На брокере нет позиции TATN/TATNP."
+        TinkoffSandboxSpreadExecLog.clearOpenExecutions(app)
+        saveStrategyPosition(app, ZStrategyPosition.Flat)
+        BrokerAccountPrefs.clearTakeProfitAtOpen(app)
+        suppressUserCancelledEntry(app)
+        return@runCatching "На брокере нет позиции TATN/TATNP."
         }
 
         val posted = mutableListOf<String>()
@@ -185,6 +186,7 @@ internal suspend fun runEmergencyFlattenFromTradeTab(
         }
         TinkoffSandboxSpreadExecLog.clearOpenExecutions(app)
         saveStrategyPosition(app, ZStrategyPosition.Flat)
+        BrokerAccountPrefs.clearTakeProfitAtOpen(app)
         suppressUserCancelledEntry(app)
         "Закрыто на ${executionAccountShortRu(mode)}: ${posted.joinToString(", ")}"
     }
@@ -193,6 +195,7 @@ internal suspend fun runEmergencyFlattenFromTradeTab(
 internal suspend fun runManualSpreadEntryFromTradeTab(
     context: Context,
     signalType: StrategySignalType,
+    takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
 ): Result<String> = withContext(Dispatchers.IO) {
     runCatching {
         require(
@@ -222,6 +225,7 @@ internal suspend fun runManualSpreadEntryFromTradeTab(
         val legs = entry.legs
         val sizing = entry.sizing
         val executedAt = System.currentTimeMillis()
+        BrokerAccountPrefs.saveTakeProfitForOpen(app, takeProfitPct)
 
         recordStrategySignalEvent(
             context = app,

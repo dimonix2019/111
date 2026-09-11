@@ -43,6 +43,9 @@ internal suspend fun pollBrokerAccountAndNotify(context: Context) {
             equityAtOpen = if (snap.side != ZStrategyPosition.Flat) equity else null,
             clearProfitFlags = false,
         )
+        if (snap.side != ZStrategyPosition.Flat && BrokerAccountPrefs.takeProfitPctAtOpen(app) == null) {
+            BrokerAccountPrefs.saveTakeProfitForOpen(app, BrokerAccountPrefs.lastTakeProfitPct(app))
+        }
         MoexDiagnostics.log(app, "broker_poll", "seeded side=${snap.side} fp=${snap.fingerprint}")
         return
     }
@@ -98,6 +101,9 @@ internal suspend fun pollBrokerAccountAndNotify(context: Context) {
                 equityAtOpen = equity,
                 clearProfitFlags = true,
             )
+            if (BrokerAccountPrefs.takeProfitPctAtOpen(app) == null) {
+                BrokerAccountPrefs.saveTakeProfitForOpen(app, BrokerAccountPrefs.lastTakeProfitPct(app))
+            }
         }
         closed -> {
             val yield = snap.expectedYieldRub ?: prevYield.takeIf { it != 0.0 }
@@ -151,6 +157,7 @@ internal suspend fun pollBrokerAccountAndNotify(context: Context) {
 
     if (snap.side != ZStrategyPosition.Flat) {
         notifyBrokerProfitThresholds(app, snap)
+        maybeFlattenOnTakeProfit(app, snap)
     }
 }
 
@@ -197,4 +204,45 @@ private fun notifyBrokerProfitThresholds(app: Context, snap: BrokerSpreadPositio
 
     maybeAlert(BROKER_PROFIT_ALERT_PCT_2, markPct = 2, nid = 3)
     maybeAlert(BROKER_PROFIT_ALERT_PCT_3, markPct = 3, nid = 4)
+}
+
+private suspend fun maybeFlattenOnTakeProfit(app: Context, snap: BrokerSpreadPositionSnap) {
+    val tp = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(app)
+    val deposit = BrokerAccountPrefs.equityAtOpenRub(app).takeIf { it > 0 }
+        ?: snap.portfolioTotalRub?.takeIf { it > 0 }
+        ?: return
+    if (!shouldFireTakeProfit(snap.expectedYieldRub, deposit, tp)) return
+    val fp = "${snap.fingerprint}|tp=$tp"
+    val already = BrokerAccountPrefs.takeProfitFiredFingerprint(app) == fp
+    if (!already) {
+        BrokerAccountPrefs.markTakeProfitFired(app, fp)
+        val yield = snap.expectedYieldRub ?: 0.0
+        val pct = if (deposit > 0) (yield / deposit) * 100.0 else 0.0
+        val sideRu = when (snap.side) {
+            ZStrategyPosition.Long -> "Long"
+            ZStrategyPosition.Short -> "Short"
+            else -> "?"
+        }
+        showPushNotification(
+            app,
+            title = "Take profit ${formatTakeProfitPctInput(tp)}% — закрываем пару",
+            body = String.format(
+                Locale.US,
+                "%s · %+.0f ₽ (%+.1f%% от вложения %.0f ₽)",
+                sideRu,
+                yield,
+                pct,
+                deposit,
+            ),
+            notificationId = BROKER_PUSH_BASE_ID + 5,
+            skipDuplicateCheck = true,
+            correlationTag = "broker_tp_$fp",
+        )
+    }
+    val result = runEmergencyFlattenFromTradeTab(app)
+    result.onSuccess { msg ->
+        MoexDiagnostics.log(app, "broker_poll", "take_profit flatten ok tp=$tp $msg")
+    }.onFailure { e ->
+        MoexDiagnostics.logError(app, "broker_poll", e, "take_profit flatten tp=$tp")
+    }
 }

@@ -17,19 +17,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
@@ -63,6 +71,7 @@ internal data class TradeScreenSnapshot(
     val entryTimeMsk: String? = null,
     val entryTimeSource: SpreadEntryTimeSource? = null,
     val takeProfitForecast: TakeProfitForecast? = null,
+    val takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
     val execSourceLabel: String? = null,
     val quantityLots: Int = 0,
 ) {
@@ -141,6 +150,7 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
         }
         val holdFromEntry = entryTimeMsk?.let { parsePortfolioExecutionTableMsk(it) }
             ?.let { now - it }?.takeIf { it >= 0 }
+        val takeProfitPct = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(context)
         val tpForecast = computeTakeProfitForecast(
             side = broker.side,
             entrySpreadPercent = entrySpread,
@@ -150,6 +160,7 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             fillTatnRub = avg.tatnAvgPriceRub,
             fillTatnpRub = avg.tatnpAvgPriceRub,
             entryTimeMsk = entryTimeMsk,
+            takeProfitPct = takeProfitPct,
         )
         TradeScreenSnapshot(
             loadedAtMillis = now,
@@ -172,6 +183,7 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             entryTimeMsk = entryTimeMsk,
             entryTimeSource = entrySource,
             takeProfitForecast = tpForecast,
+            takeProfitPct = takeProfitPct,
             execSourceLabel = exec?.let { portfolioExecSourceLabel(it.source) },
             quantityLots = lots,
         )
@@ -316,6 +328,7 @@ internal fun MoexScreenTabTrade(
                 screen,
                 scope,
                 enabled = !screen.tradeManualEntryBusy && !screen.emergencyFlattenBusy,
+                depositRub = takeProfitDepositRub(snap.portfolioTotalRub, snap.cashRub, snap.depositRub),
             )
             snap.margin?.let { TradeMarginCard(it) }
             TradeClosedTradesCard(screen.tradeTabClosedTrades, screen.tradeTabTradesSource)
@@ -349,6 +362,15 @@ internal fun MoexScreenTabTrade(
             }
             snap.notionalRub?.let { TradeMetricRow("Номинал", formatRubPlain(it)) }
             snap.depositRub?.let { TradeMetricRow("Вложения (оценка)", formatRubPlain(it)) }
+            run {
+                val dep = snap.depositRub ?: snap.portfolioTotalRub ?: 0.0
+                val tpRub = takeProfitRubFromPercent(snap.takeProfitPct, dep)
+                val rubPart = if (dep > 0) " ≈ ${formatRubPlain(tpRub)}" else ""
+                TradeMetricRow(
+                    "Take profit",
+                    "${formatTakeProfitPctInput(snap.takeProfitPct)}%$rubPart",
+                )
+            }
             snap.portfolioTotalRub?.let { TradeMetricRow("Средства (портфель)", formatRubPlain(it)) }
             snap.cashRub?.let { TradeMetricRow("Деньги (₽)", formatRubPlain(it)) }
             snap.expectedYieldRub?.let { pnl ->
@@ -395,7 +417,7 @@ internal fun MoexScreenTabTrade(
             Text(
                 "Позиции, PnL и цены — GetPortfolio T‑Invest. Маржа — GetMarginAttributes. " +
                     "Время входа — журнал исполнений, лог ног, prefs или GetOperations. " +
-                    "Прогноз ТП — локально (parity web close_forecast, ТП ${DEFAULT_TAKE_PROFIT_PCT.toInt()}%). " +
+                    "Прогноз ТП — локально (parity web close_forecast, ТП ${formatTakeProfitPctInput(snap.takeProfitPct)}%). " +
                     "Овернайт-строка, риск и AUTO — только на web-столе.",
                 color = Color(0xFF9E9E9E),
                 fontSize = 10.sp,
@@ -529,6 +551,7 @@ private fun TradeManualOpenButtons(
     screen: MoexScreenState,
     scope: CoroutineScope,
     enabled: Boolean,
+    depositRub: Double,
 ) {
     val busy = screen.tradeManualEntryBusy
     Row(
@@ -569,21 +592,76 @@ private fun TradeManualOpenButtons(
 
     screen.tradeManualEntryConfirm?.let { signal ->
         val dir = if (signal == StrategySignalType.EnterShort) "Short" else "Long"
+        val initialPct = remember(signal) {
+            BrokerAccountPrefs.lastTakeProfitPct(screen.context)
+        }
+        var pctText by remember(signal, initialPct) {
+            mutableStateOf(formatTakeProfitPctInput(initialPct))
+        }
+        var rubText by remember(signal, initialPct, depositRub) {
+            mutableStateOf(
+                formatTakeProfitRubInput(takeProfitRubFromPercent(initialPct, depositRub)),
+            )
+        }
+        val resolvedPct = resolveTakeProfitPctFromInputs(pctText, rubText, depositRub)
         AlertDialog(
             onDismissRequest = { if (!busy) screen.tradeManualEntryConfirm = null },
             title = { Text("Открыть $dir?", color = Color.White) },
             text = {
-                Text(
-                    "Боевой счёт T‑Invest: две рыночные заявки (пара TATN/TATNP), " +
-                        "лоты — по расчёту как у AUTO. Web-стол подхватит сделку сверкой.",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 13.sp,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Боевой счёт T‑Invest: две рыночные заявки (пара TATN/TATNP), " +
+                            "лоты — по расчёту как у AUTO. Web-стол подхватит сделку сверкой.",
+                        color = Color(0xFFE0E0E0),
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        "Take profit" +
+                            if (depositRub > 0) {
+                                " · вложение ${formatRubPlain(depositRub)}"
+                            } else {
+                                ""
+                            },
+                        color = Color(0xFFB3E5FC),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    TakeProfitInputFields(
+                        pctText = pctText,
+                        rubText = rubText,
+                        depositRub = depositRub,
+                        enabled = !busy,
+                        onPctText = { next ->
+                            pctText = next
+                            val pct = parseTakeProfitNumber(next)
+                            if (pct != null && pct > 0.0 && depositRub > 0.0) {
+                                rubText = formatTakeProfitRubInput(
+                                    takeProfitRubFromPercent(pct, depositRub),
+                                )
+                            }
+                        },
+                        onRubText = { next ->
+                            rubText = next
+                            val rub = parseTakeProfitNumber(next)
+                            if (rub != null && rub > 0.0 && depositRub > 0.0) {
+                                pctText = formatTakeProfitPctInput(
+                                    takeProfitPercentFromRub(rub, depositRub),
+                                )
+                            }
+                        },
+                    )
+                    Text(
+                        "По умолчанию 2% от вложения. Поля связаны: % ↔ ₽.",
+                        color = Color(0xFF90A4AE),
+                        fontSize = 11.sp,
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
-                    enabled = !busy,
+                    enabled = !busy && resolvedPct != null,
                     onClick = {
+                        val tp = resolvedPct ?: DEFAULT_TAKE_PROFIT_PCT
                         screen.tradeManualEntryBusy = true
                         scope.launch {
                             try {
@@ -591,6 +669,7 @@ private fun TradeManualOpenButtons(
                                     runManualSpreadEntryFromTradeTab(
                                         screen.context.applicationContext,
                                         signal,
+                                        takeProfitPct = tp,
                                     ).getOrThrow()
                                 }
                                 Toast.makeText(screen.context, msg, Toast.LENGTH_LONG).show()
@@ -622,6 +701,73 @@ private fun TradeManualOpenButtons(
             containerColor = Color(0xFF263238),
         )
     }
+}
+
+@Composable
+internal fun TakeProfitInputFields(
+    pctText: String,
+    rubText: String,
+    depositRub: Double,
+    enabled: Boolean,
+    onPctText: (String) -> Unit,
+    onRubText: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        TakeProfitOutlinedField(
+            value = pctText,
+            onValueChange = { onPctText(filterTakeProfitInput(it)) },
+            suffix = "%",
+            enabled = enabled,
+            modifier = Modifier.weight(1f),
+            label = "Процент",
+        )
+        TakeProfitOutlinedField(
+            value = rubText,
+            onValueChange = { onRubText(filterTakeProfitInput(it, maxLen = 10)) },
+            suffix = "₽",
+            enabled = enabled && depositRub > 0.0,
+            modifier = Modifier.weight(1f),
+            label = "Рубли",
+        )
+    }
+}
+
+@Composable
+private fun TakeProfitOutlinedField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    suffix: String,
+    enabled: Boolean,
+    modifier: Modifier,
+    label: String,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        enabled = enabled,
+        singleLine = true,
+        label = { Text(label, color = Color(0xFF90A4AE), fontSize = 11.sp) },
+        suffix = { Text(suffix, color = Color(0xFFBDBDBD), fontSize = 12.sp) },
+        textStyle = androidx.compose.ui.text.TextStyle(
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+        ),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Color(0xFF81D4FA),
+            unfocusedBorderColor = Color(0xFF546E7A),
+            disabledBorderColor = Color(0xFF37474F),
+            cursorColor = Color(0xFF81D4FA),
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            disabledTextColor = Color(0xFF757575),
+        ),
+    )
 }
 
 @Composable

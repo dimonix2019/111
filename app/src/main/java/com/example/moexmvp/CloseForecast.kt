@@ -5,6 +5,8 @@ import kotlin.math.max
 
 /** Цель Take Profit в % от вложения (как на web-столе). */
 internal const val DEFAULT_TAKE_PROFIT_PCT = 2.0
+internal const val TAKE_PROFIT_PCT_MIN = 0.1
+internal const val TAKE_PROFIT_PCT_MAX = 50.0
 
 /** Комиссия за сторону, % от номинала (parity closed_metrics.py). */
 internal const val PROD_COMMISSION_PCT_PER_SIDE = 0.04
@@ -141,6 +143,98 @@ internal fun computeTakeProfitForecast(
         depositRub = deposit,
         takeProfitPct = takeProfitPct,
     )
+}
+
+internal fun coerceTakeProfitPct(pct: Double): Double {
+    if (!pct.isFinite() || pct <= 0.0) return DEFAULT_TAKE_PROFIT_PCT
+    return pct.coerceIn(TAKE_PROFIT_PCT_MIN, TAKE_PROFIT_PCT_MAX)
+}
+
+internal fun takeProfitRubFromPercent(pct: Double, depositRub: Double): Double {
+    if (!pct.isFinite() || !depositRub.isFinite() || depositRub <= 0.0) return 0.0
+    return depositRub * (pct / 100.0)
+}
+
+internal fun takeProfitPercentFromRub(rub: Double, depositRub: Double): Double {
+    if (!rub.isFinite() || !depositRub.isFinite() || depositRub <= 1e-6) {
+        return DEFAULT_TAKE_PROFIT_PCT
+    }
+    return (rub / depositRub) * 100.0
+}
+
+internal fun parseTakeProfitNumber(raw: String): Double? {
+    val t = raw.trim().replace(' ', "").replace(',', '.')
+    if (t.isEmpty() || t == "." || t == "-") return null
+    return t.toDoubleOrNull()?.takeIf { it.isFinite() }
+}
+
+internal fun filterTakeProfitInput(raw: String, maxLen: Int = 8): String {
+    val sb = StringBuilder()
+    var sep = false
+    for (ch in raw) {
+        when {
+            ch.isDigit() -> sb.append(ch)
+            (ch == '.' || ch == ',') && !sep -> {
+                sb.append(ch)
+                sep = true
+            }
+        }
+        if (sb.length >= maxLen) break
+    }
+    return sb.toString()
+}
+
+internal fun formatTakeProfitPctInput(pct: Double): String {
+    val v = if (pct.isFinite()) pct else DEFAULT_TAKE_PROFIT_PCT
+    val asInt = kotlin.math.round(v)
+    return if (kotlin.math.abs(v - asInt) < 1e-6) {
+        asInt.toInt().toString()
+    } else {
+        String.format(Locale.US, "%.2f", v).trimEnd('0').trimEnd('.').replace('.', ',')
+    }
+}
+
+internal fun formatTakeProfitRubInput(rub: Double): String {
+    if (!rub.isFinite() || rub < 0.0) return ""
+    return kotlin.math.round(rub).toLong().toString()
+}
+
+/** Пустые поля → 2%. Невалидный ввод → null (кнопка «Открыть» неактивна). */
+internal fun resolveTakeProfitPctFromInputs(
+    pctText: String,
+    rubText: String,
+    depositRub: Double,
+): Double? {
+    val pct = parseTakeProfitNumber(pctText)
+    if (pct != null && pct > 0.0) return coerceTakeProfitPct(pct)
+    val rub = parseTakeProfitNumber(rubText)
+    if (rub != null && rub > 0.0 && depositRub > 0.0) {
+        return coerceTakeProfitPct(takeProfitPercentFromRub(rub, depositRub))
+    }
+    if (pctText.isBlank() && rubText.isBlank()) return DEFAULT_TAKE_PROFIT_PCT
+    return null
+}
+
+internal fun takeProfitDepositRub(
+    portfolioTotalRub: Double?,
+    cashRub: Double?,
+    depositRub: Double?,
+): Double =
+    portfolioTotalRub?.takeIf { it > 0.0 }
+        ?: cashRub?.takeIf { it > 0.0 }
+        ?: depositRub?.takeIf { it > 0.0 }
+        ?: 0.0
+
+internal fun shouldFireTakeProfit(
+    expectedYieldRub: Double?,
+    depositRub: Double,
+    takeProfitPct: Double,
+): Boolean {
+    val y = expectedYieldRub ?: return false
+    if (!y.isFinite() || y <= 0.0) return false
+    if (!depositRub.isFinite() || depositRub <= 1e-6) return false
+    if (!takeProfitPct.isFinite() || takeProfitPct <= 0.0) return false
+    return y + 1e-6 >= depositRub * (takeProfitPct / 100.0)
 }
 
 internal fun formatTakeProfitForecastLine(forecast: TakeProfitForecast): String {
