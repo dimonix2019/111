@@ -9,6 +9,68 @@ import org.junit.Test
 
 class MoexTradeScreenTest {
     @Test
+    fun detectBrokerSpreadPosition_figiOnlyWithoutTicker() {
+        val portfolio = JSONObject(
+            """
+            {
+              "totalAmountPortfolio": {"units": "100078", "nano": 0, "currency": "rub"},
+              "positions": [
+                {
+                  "figi": "BBG004RVFFC0",
+                  "instrumentUid": "TATN_TQBR",
+                  "quantity": {"units": "246", "nano": 0},
+                  "currentPrice": {"units": "577", "nano": 100000000, "currency": "rub"},
+                  "expectedYield": {"units": "-120", "nano": 0, "currency": "rub"}
+                },
+                {
+                  "figi": "BBG004S68829",
+                  "instrument_uid": "TATNP_TQBR",
+                  "quantity": {"units": "-246", "nano": 0},
+                  "currentPrice": {"units": "558", "nano": 400000000, "currency": "rub"},
+                  "expectedYield": {"units": "-101", "nano": 0, "currency": "rub"}
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+        val snap = detectBrokerSpreadPosition(portfolio)
+        assertEquals(ZStrategyPosition.Long, snap.side)
+        assertEquals(246, snap.tatnLots)
+        assertEquals(-246, snap.tatnpLots)
+        assertTrue(snap.hasBrokerLegs)
+    }
+
+    @Test
+    fun detectBrokerSpreadPosition_oneSidedLeftoverIsNotFlatForClose() {
+        val portfolio = JSONObject(
+            """
+            {
+              "positions": [
+                {
+                  "ticker": "TATN",
+                  "quantity": {"units": "40", "nano": 0},
+                  "currentPrice": {"units": "577", "nano": 0, "currency": "rub"}
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+        val snap = detectBrokerSpreadPosition(portfolio)
+        assertEquals(ZStrategyPosition.Flat, snap.side)
+        assertTrue(snap.hasBrokerLegs)
+        assertEquals(40, snap.tatnLots)
+        assertEquals(0, snap.tatnpLots)
+    }
+
+    @Test
+    fun resolveTatnTatnpTicker_prefersTatnpBeforeTatnSubstring() {
+        val tatnp = JSONObject("""{"figi":"BBG004S68829","instrumentUid":"TATNP_TQBR"}""")
+        val tatn = JSONObject("""{"FIGI":"BBG004RVFFC0"}""")
+        assertEquals("TATNP", resolveTatnTatnpTicker(tatnp))
+        assertEquals("TATN", resolveTatnTatnpTicker(tatn))
+    }
+
+    @Test
     fun detectBrokerSpreadPosition_longPair() {
         val portfolio = JSONObject(
             """

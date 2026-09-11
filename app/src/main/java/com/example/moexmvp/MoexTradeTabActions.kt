@@ -83,10 +83,113 @@ internal suspend fun loadTradeTabClosedTrades(
 }
 
 /**
- * Кнопки «Открыть Long/Short» на вкладке «Сделка»: две рыночные заявки на боевой счёт
- * с расчётом лотов как у AUTO, запись в журналы приложения (источник MANUAL).
- * Web-монитор подхватит позицию с брокера своей сверкой.
+ * Кнопки «Открыть Long/Short» и экстренное закрытие на вкладке «Сделка».
  */
+internal data class SpreadFlattenLeg(
+    val ticker: String,
+    val buy: Boolean,
+    val lots: Int,
+) {
+    val dirRu: String get() = if (buy) "покупка" else "продажа"
+}
+
+/** Обратные заявки по фактическим лотам TATN/TATNP, включая одну «хвостовую» ногу. */
+internal fun flattenLegsForBrokerSnap(snap: BrokerSpreadPositionSnap): List<SpreadFlattenLeg> {
+    val out = mutableListOf<SpreadFlattenLeg>()
+    if (snap.tatnLots != 0) {
+        out += SpreadFlattenLeg(
+            ticker = "TATN",
+            buy = snap.tatnLots < 0,
+            lots = kotlin.math.abs(snap.tatnLots),
+        )
+    }
+    if (snap.tatnpLots != 0) {
+        out += SpreadFlattenLeg(
+            ticker = "TATNP",
+            buy = snap.tatnpLots < 0,
+            lots = kotlin.math.abs(snap.tatnpLots),
+        )
+    }
+    return out
+}
+
+internal fun tradeTabManualEntryBlockReason(broker: BrokerSpreadPositionSnap): String? =
+    if (broker.hasBrokerLegs) {
+        "На брокере уже есть TATN ${broker.tatnLots} / TATNP ${broker.tatnpLots} — сначала экстренное закрытие."
+    } else {
+        null
+    }
+
+/**
+ * Экстренное закрытие пары: рыночные заявки по лотам GetPortfolio, без флага
+ * «исполнять сигналы на песочнице» и без зависимости от локального журнала входов.
+ */
+internal suspend fun runEmergencyFlattenFromTradeTab(
+    context: Context,
+    mode: TinkoffExecutionMode = TinkoffExecutionMode.Prod,
+): Result<String> = withContext(Dispatchers.IO) {
+    runCatching {
+        val app = context.applicationContext
+        val token = TinkoffSandboxStorage.getActiveToken(app, mode)
+            ?: throw IOException("Нет токена (${executionModeLabelRu(mode)}).")
+        val accountId = TinkoffSandboxStorage.getActiveAccountId(app, mode)
+            ?: throw IOException("Нет счёта (${executionModeLabelRu(mode)}).")
+        val extraTatn = runCatching {
+            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATN").uppercase(Locale.US))
+        }.getOrDefault(emptySet())
+        val extraTatnp = runCatching {
+            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATNP").uppercase(Locale.US))
+        }.getOrDefault(emptySet())
+        val portfolio = tinkoffGetPortfolio(mode, token, accountId)
+        val broker = detectBrokerSpreadPosition(portfolio, extraTatn, extraTatnp)
+        val plan = flattenLegsForBrokerSnap(broker)
+        if (plan.isEmpty()) {
+            TinkoffSandboxSpreadExecLog.clearOpenExecutions(app)
+            saveStrategyPosition(app, ZStrategyPosition.Flat)
+            return@runCatching "На брокере нет позиции TATN/TATNP."
+        }
+
+        val posted = mutableListOf<String>()
+        for (leg in plan) {
+            val instId = runCatching { tinkoffResolveShareInstrumentId(mode, token, leg.ticker) }
+                .getOrDefault(
+                    if (leg.ticker == "TATNP") TINKOFF_MOEX_TATNP_INSTRUMENT_ID
+                    else TINKOFF_MOEX_TATN_INSTRUMENT_ID,
+                )
+            val dir = if (leg.buy) "ORDER_DIRECTION_BUY" else "ORDER_DIRECTION_SELL"
+            tinkoffPostMarketOrder(mode, token, accountId, instId, dir, leg.lots)
+            posted += "${leg.dirRu} ${leg.ticker} ×${leg.lots}"
+            MoexDiagnostics.log(
+                app,
+                "trade_flatten",
+                "posted ${leg.dirRu} ${leg.ticker} lots=${leg.lots} mode=$mode",
+            )
+        }
+
+        val opens = TinkoffSandboxSpreadExecLog.loadRecent(app)
+            .filter {
+                it.signalType == StrategySignalType.EnterLong ||
+                    it.signalType == StrategySignalType.EnterShort
+            }
+        for (open in opens) {
+            runCatching {
+                finalizePortfolioOpenTradeClose(
+                    context = app,
+                    execution = open,
+                    recordExitInJournal = true,
+                ).getOrThrow()
+            }.onFailure { e ->
+                MoexDiagnostics.logError(app, "trade_flatten", e, "local close ${open.tradeId}")
+            }
+        }
+        TinkoffSandboxSpreadExecLog.clearOpenExecutions(app)
+        saveStrategyPosition(app, ZStrategyPosition.Flat)
+        clearSandboxAutoSpreadDedup(app)
+        clearConsumed15mStrategySignalEdge(app)
+        "Закрыто на ${executionAccountShortRu(mode)}: ${posted.joinToString(", ")}"
+    }
+}
+
 internal suspend fun runManualSpreadEntryFromTradeTab(
     context: Context,
     signalType: StrategySignalType,
@@ -96,26 +199,26 @@ internal suspend fun runManualSpreadEntryFromTradeTab(
             signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort
         ) { "Только EnterLong / EnterShort" }
         val app = context.applicationContext
-        val mode = currentExecutionMode(app)
-        require(mode == TinkoffExecutionMode.Prod) {
-            "Вкладка «Сделка» работает с боевым счётом. Сейчас: ${executionModeLabelRu(mode)}."
-        }
+        val mode = TinkoffExecutionMode.Prod
         val token = TinkoffSandboxStorage.getActiveToken(app, mode)
-            ?: throw IOException("Нет токена (${executionModeLabelRu(mode)}).")
+            ?: throw IOException("Нет токена (боевой счёт). Настройте Prod на вкладке «Песочница».")
         val accountId = TinkoffSandboxStorage.getActiveAccountId(app, mode)
-            ?: throw IOException("Нет счёта (${executionModeLabelRu(mode)}).")
+            ?: throw IOException("Нет счёта (боевой счёт). Настройте Prod на вкладке «Песочница».")
 
-        // Не переворачиваем существующую позицию: вход только из FLAT.
+        val extraTatn = runCatching {
+            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATN").uppercase(Locale.US))
+        }.getOrDefault(emptySet())
+        val extraTatnp = runCatching {
+            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATNP").uppercase(Locale.US))
+        }.getOrDefault(emptySet())
         val portfolio = tinkoffGetPortfolio(mode, token, accountId)
-        val broker = detectBrokerSpreadPosition(portfolio)
-        require(broker.side == ZStrategyPosition.Flat) {
-            "На брокере уже есть позиция (${broker.side}) — сначала закройте её."
-        }
+        val broker = detectBrokerSpreadPosition(portfolio, extraTatn, extraTatnp)
+        tradeTabManualEntryBlockReason(broker)?.let { throw IOException(it) }
 
         val market = loadCurrentPortfolioMarketSnapshot(app, forTestEntry = true)
         val dir = if (signalType == StrategySignalType.EnterShort) "SHORT" else "LONG"
 
-        val entry = executeSpreadEntryDetailedForConfiguredMode(app, signalType)
+        val entry = executeSpreadEntryDetailedForConfiguredMode(app, signalType, mode)
         val legs = entry.legs
         val sizing = entry.sizing
         val executedAt = System.currentTimeMillis()
@@ -347,10 +450,10 @@ internal suspend fun fetchSpreadTradesFromTInvest(
     // поэтому сначала узнаём id инструментов и матчим по ним.
     val tatnIds = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
         .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
-        .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATN_INSTRUMENT_ID, "BBG004RVFFC0") }
+        .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATN_INSTRUMENT_ID, TINKOFF_MOEX_TATN_FIGI) }
     val tatnpIds = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
         .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
-        .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATNP_INSTRUMENT_ID, "BBG004S68829") }
+        .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATNP_INSTRUMENT_ID, TINKOFF_MOEX_TATNP_FIGI) }
 
     fun tickerOf(op: org.json.JSONObject): String? {
         for (k in listOf("instrumentUid", "instrument_uid", "uid", "figi", "FIGI")) {

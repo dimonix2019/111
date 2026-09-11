@@ -132,6 +132,64 @@ internal fun MoexScreenDialogs(
         )
     }
 
+    if (showEmergencyFlattenDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!emergencyFlattenBusy) showEmergencyFlattenDialog = false },
+            title = { Text("Экстренное закрытие пары", color = Color.White) },
+            text = {
+                Text(
+                    "Закрыть TATN/TATNP на боевом счёте рыночными заявками по фактическим лотам GetPortfolio. " +
+                        "Не зависит от журнала AUTO и переключателя «исполнять сигналы». " +
+                        "История закрытых сделок сохранится.",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 13.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !emergencyFlattenBusy,
+                    onClick = {
+                        emergencyFlattenBusy = true
+                        scope.launch {
+                            try {
+                                val msg = withContext(Dispatchers.IO) {
+                                    runEmergencyFlattenFromTradeTab(context).getOrThrow()
+                                }
+                                zStrategyPosition = ZStrategyPosition.Flat
+                                sandboxSpreadExecReload++
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                refreshTradeScreenFromBroker()
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    context,
+                                    e.message?.take(300) ?: e.javaClass.simpleName,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } finally {
+                                emergencyFlattenBusy = false
+                                showEmergencyFlattenDialog = false
+                            }
+                        }
+                    },
+                ) {
+                    Text(
+                        if (emergencyFlattenBusy) "Закрытие…" else "Закрыть сейчас",
+                        color = Color(0xFFFFAB91),
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !emergencyFlattenBusy,
+                    onClick = { showEmergencyFlattenDialog = false },
+                ) {
+                    Text("Отмена")
+                }
+            },
+            containerColor = Color(0xFF263238),
+        )
+    }
+
     if (showCloseAllPortfolioDialog) {
         AlertDialog(
             onDismissRequest = { if (!closeAllPortfolioBusy) showCloseAllPortfolioDialog = false },
@@ -153,6 +211,19 @@ internal fun MoexScreenDialogs(
                         scope.launch {
                             try {
                                 withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        runEmergencyFlattenFromTradeTab(
+                                            context,
+                                            currentExecutionMode(context),
+                                        ).getOrThrow()
+                                    }.onFailure { e ->
+                                        MoexDiagnostics.logError(
+                                            context,
+                                            "portfolio",
+                                            e,
+                                            "close_all broker flatten",
+                                        )
+                                    }
                                     val opens = TinkoffSandboxSpreadExecLog.loadRecent(context)
                                         .filter {
                                             it.signalType == StrategySignalType.EnterLong ||

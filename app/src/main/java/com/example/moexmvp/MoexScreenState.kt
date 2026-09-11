@@ -109,6 +109,9 @@ internal class MoexScreenState(val context: Context) {
     var portfolioTestBusy by mutableStateOf(false)
     var showCloseAllPortfolioDialog by mutableStateOf(false)
     var closeAllPortfolioBusy by mutableStateOf(false)
+    /** Экстренное закрытие TATN/TATNP по лотам брокера (вкладка «Сделка» / «Стол web»). */
+    var showEmergencyFlattenDialog by mutableStateOf(false)
+    var emergencyFlattenBusy by mutableStateOf(false)
     var partialCloseAlert by mutableStateOf<PartialCloseSummary?>(null)
     var partialCloseAlertTradeId by mutableStateOf<String?>(null)
     var bgMonitorToggleEpoch by mutableStateOf(0)

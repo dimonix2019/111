@@ -1184,11 +1184,15 @@ internal data class SpreadLegAveragePrices(
 )
 
 /** Средние цены входа по ногам TATN/TATNP из GetPortfolio. */
-internal fun parseSpreadLegAveragePrices(portfolioJson: JSONObject): SpreadLegAveragePrices {
+internal fun parseSpreadLegAveragePrices(
+    portfolioJson: JSONObject,
+    extraTatnIds: Set<String> = emptySet(),
+    extraTatnpIds: Set<String> = emptySet(),
+): SpreadLegAveragePrices {
     var tatnAvg: Double? = null
     var tatnpAvg: Double? = null
     for (pos in collectPortfolioPositions(portfolioJson)) {
-        val ticker = pos.positionTicker() ?: continue
+        val ticker = pos.positionTicker(extraTatnIds, extraTatnpIds) ?: continue
         val avg = parsePositionAveragePriceRub(pos) ?: continue
         when (ticker) {
             "TATN" -> tatnAvg = avg
@@ -1206,8 +1210,10 @@ private fun parsePositionQuantityUnits(position: JSONObject): Int {
     return quotationUnitsToDouble(q)?.toInt() ?: 0
 }
 
-private fun JSONObject.positionTicker(): String? =
-    firstNonBlankString("ticker", "Ticker")?.uppercase(Locale.US)
+private fun JSONObject.positionTicker(
+    extraTatnIds: Set<String> = emptySet(),
+    extraTatnpIds: Set<String> = emptySet(),
+): String? = resolveTatnTatnpTicker(this, extraTatnIds, extraTatnpIds)
 
 private fun parsePositionExpectedYieldRub(position: JSONObject): Double? {
     val yieldObj = position.optJSONObject("expectedYield")
@@ -1247,6 +1253,9 @@ internal data class BrokerSpreadPositionSnap(
 ) {
     val lotsAbs: Int get() = maxOf(kotlin.math.abs(tatnLots), kotlin.math.abs(tatnpLots))
 
+    /** Любые ненулевые TATN/TATNP — в том числе одна нога после частичного fill. */
+    val hasBrokerLegs: Boolean get() = tatnLots != 0 || tatnpLots != 0
+
     val spreadPercent: Double?
         get() {
             val a = tatnPriceRub ?: return null
@@ -1267,10 +1276,14 @@ internal data class BrokerSpreadPositionSnap(
  * Определяет FLAT / Long / Short по знакам количеств TATN и TATNP.
  * Long: TATN>0 и TATNP<0; Short: TATN<0 и TATNP>0.
  */
-internal fun detectBrokerSpreadPosition(portfolioJson: JSONObject): BrokerSpreadPositionSnap {
+internal fun detectBrokerSpreadPosition(
+    portfolioJson: JSONObject,
+    extraTatnIds: Set<String> = emptySet(),
+    extraTatnpIds: Set<String> = emptySet(),
+): BrokerSpreadPositionSnap {
     val rowsByTicker = linkedMapOf<String, BrokerPositionRow>()
     for (pos in collectPortfolioPositions(portfolioJson)) {
-        val ticker = pos.positionTicker() ?: continue
+        val ticker = pos.positionTicker(extraTatnIds, extraTatnpIds) ?: continue
         if (ticker != "TATN" && ticker != "TATNP") continue
         val yieldRub = parsePositionExpectedYieldRub(pos) ?: 0.0
         val prev = rowsByTicker[ticker]

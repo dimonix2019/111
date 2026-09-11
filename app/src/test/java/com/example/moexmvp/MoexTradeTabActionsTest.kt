@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -116,5 +117,65 @@ class MoexTradeTabActionsTest {
             ),
         )
         assertTrue(matchSpreadTrades(events, emptyList()).isEmpty())
+    }
+
+    private fun brokerSnap(
+        side: ZStrategyPosition,
+        tatnLots: Int,
+        tatnpLots: Int,
+    ) = BrokerSpreadPositionSnap(
+        side = side,
+        tatnLots = tatnLots,
+        tatnpLots = tatnpLots,
+        expectedYieldRub = null,
+        tatnPriceRub = 577.0,
+        tatnpPriceRub = 558.0,
+        portfolioTotalRub = 100_000.0,
+    )
+
+    @Test
+    fun flattenLegsForBrokerSnap_longSellsTatnBuysTatnp() {
+        val legs = flattenLegsForBrokerSnap(brokerSnap(ZStrategyPosition.Long, 246, -246))
+        assertEquals(2, legs.size)
+        assertEquals("TATN", legs[0].ticker)
+        assertFalse(legs[0].buy)
+        assertEquals(246, legs[0].lots)
+        assertEquals("TATNP", legs[1].ticker)
+        assertTrue(legs[1].buy)
+        assertEquals(246, legs[1].lots)
+    }
+
+    @Test
+    fun flattenLegsForBrokerSnap_shortBuysTatnSellsTatnp() {
+        val legs = flattenLegsForBrokerSnap(brokerSnap(ZStrategyPosition.Short, -80, 80))
+        assertEquals("TATN", legs[0].ticker)
+        assertTrue(legs[0].buy)
+        assertEquals(80, legs[0].lots)
+        assertEquals("TATNP", legs[1].ticker)
+        assertFalse(legs[1].buy)
+        assertEquals(80, legs[1].lots)
+    }
+
+    @Test
+    fun flattenLegsForBrokerSnap_oneSidedLeftover() {
+        val legs = flattenLegsForBrokerSnap(brokerSnap(ZStrategyPosition.Flat, 40, 0))
+        assertEquals(1, legs.size)
+        assertEquals("TATN", legs[0].ticker)
+        assertFalse(legs[0].buy)
+        assertEquals(40, legs[0].lots)
+    }
+
+    @Test
+    fun flattenLegsForBrokerSnap_flatEmpty() {
+        assertTrue(flattenLegsForBrokerSnap(brokerSnap(ZStrategyPosition.Flat, 0, 0)).isEmpty())
+    }
+
+    @Test
+    fun tradeTabManualEntryBlockReason_blocksLeftoverLegs() {
+        assertTrue(
+            tradeTabManualEntryBlockReason(brokerSnap(ZStrategyPosition.Flat, 40, 0))
+                ?.contains("экстренное закрытие") == true,
+        )
+        assertEquals(null, tradeTabManualEntryBlockReason(brokerSnap(ZStrategyPosition.Flat, 0, 0)))
     }
 }

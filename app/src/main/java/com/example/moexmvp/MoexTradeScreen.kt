@@ -67,7 +67,7 @@ internal data class TradeScreenSnapshot(
     val quantityLots: Int = 0,
 ) {
     val isOpen: Boolean
-        get() = side == ZStrategyPosition.Long || side == ZStrategyPosition.Short
+        get() = tatnLots != 0 || tatnpLots != 0
 
     val pnlPercentFromDeposit: Double?
         get() {
@@ -86,25 +86,25 @@ internal data class TradeScreenSnapshot(
 
 internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnapshot {
     val now = System.currentTimeMillis()
-    val mode = currentExecutionMode(context)
-    if (mode != TinkoffExecutionMode.Prod) {
-        return TradeScreenSnapshot(
-            loadedAtMillis = now,
-            error = "Вкладка «Сделка» показывает боевой счёт T‑Invest Prod. Сейчас режим: ${executionModeLabelRu(mode)}.",
-        )
-    }
+    val mode = TinkoffExecutionMode.Prod
     val token = TinkoffSandboxStorage.getActiveToken(context, mode)
     val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode)
     if (token.isNullOrBlank() || accountId.isNullOrBlank()) {
         return TradeScreenSnapshot(
             loadedAtMillis = now,
-            error = "Нет токена или счёта — настройте в «Песочница».",
+            error = "Нет токена или счёта боевого контура — настройте Prod на вкладке «Песочница».",
         )
     }
     return runCatching {
+        val extraTatn = runCatching {
+            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATN").uppercase(Locale.US))
+        }.getOrDefault(emptySet())
+        val extraTatnp = runCatching {
+            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATNP").uppercase(Locale.US))
+        }.getOrDefault(emptySet())
         val portfolio = tinkoffGetPortfolio(mode, token, accountId)
-        val broker = detectBrokerSpreadPosition(portfolio)
-        val avg = parseSpreadLegAveragePrices(portfolio)
+        val broker = detectBrokerSpreadPosition(portfolio, extraTatn, extraTatnp)
+        val avg = parseSpreadLegAveragePrices(portfolio, extraTatn, extraTatnp)
         val margin = runCatching { tinkoffGetMarginAttributes(mode, token, accountId) }.getOrNull()
         val cash = parsePortfolioCashRubDouble(portfolio)
         val exec = TinkoffSandboxSpreadExecLog.loadRecent(context)
@@ -268,15 +268,16 @@ internal fun MoexScreenTabTrade(
         }
 
         Button(
-            onClick = { screen.showCloseAllPortfolioDialog = true },
+            onClick = { screen.showEmergencyFlattenDialog = true },
             modifier = Modifier.fillMaxWidth(),
+            enabled = !screen.emergencyFlattenBusy,
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFFC62828),
                 contentColor = Color.White,
             ),
         ) {
             Text(
-                "Экстренное закрытие пары",
+                if (screen.emergencyFlattenBusy) "Закрытие…" else "Экстренное закрытие пары",
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
             )
@@ -311,7 +312,11 @@ internal fun MoexScreenTabTrade(
                     TradeMetricRow("Деньги (₽)", formatRubPlain(it))
                 }
             }
-            TradeManualOpenButtons(screen, scope, enabled = !loading)
+            TradeManualOpenButtons(
+                screen,
+                scope,
+                enabled = !screen.tradeManualEntryBusy && !screen.emergencyFlattenBusy,
+            )
             snap.margin?.let { TradeMarginCard(it) }
             TradeClosedTradesCard(screen.tradeTabClosedTrades, screen.tradeTabTradesSource)
             TradeFooterNote(snap.loadedAtMillis, loading)
@@ -319,8 +324,12 @@ internal fun MoexScreenTabTrade(
         }
 
         val sourceSuffix = snap.execSourceLabel?.let { " · $it" }.orEmpty()
+        val sideLabel = when {
+            snap.side == ZStrategyPosition.Long || snap.side == ZStrategyPosition.Short -> snap.sideTitleRu
+            else -> "Ноги"
+        }
         TradeInfoCard(
-            title = "${snap.sideTitleRu} ${snap.quantityLots}+${snap.quantityLots} лот$sourceSuffix",
+            title = "$sideLabel ${snap.quantityLots}+${snap.quantityLots} лот$sourceSuffix",
             accent = if (snap.side == ZStrategyPosition.Long) Color(0xFF26A69A) else Color(0xFFEF5350),
         ) {
             snap.entryTimeMsk?.let { TradeMetricRow("Вход", it) }
