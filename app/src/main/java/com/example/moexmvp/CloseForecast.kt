@@ -163,7 +163,7 @@ internal fun takeProfitPercentFromRub(rub: Double, depositRub: Double): Double {
 }
 
 internal fun parseTakeProfitNumber(raw: String): Double? {
-    val t = raw.trim().replace(' ', "").replace(',', '.')
+    val t = raw.trim().replace(" ", "").replace(',', '.')
     if (t.isEmpty() || t == "." || t == "-") return null
     return t.toDoubleOrNull()?.takeIf { it.isFinite() }
 }
