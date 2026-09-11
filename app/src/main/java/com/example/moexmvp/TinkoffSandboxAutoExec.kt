@@ -17,6 +17,21 @@ internal fun clearSandboxAutoSpreadDedup(context: Context) {
     }
 }
 
+/** Пометить вход как уже обработанный, чтобы AUTO не открыл пару сразу после «Отклонить» / flatten. */
+internal fun rememberSandboxAutoEntryDedup(
+    context: Context,
+    signalType: StrategySignalType,
+    barTimestampMillis: Long,
+) {
+    if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return
+    synchronized(autoSpreadDedupLock) {
+        context.applicationContext.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_AUTO, "${signalType.name}|$barTimestampMillis")
+            .commit()
+    }
+}
+
 /**
  * В режиме AUTO: после сигнала входа отправить две заявки на песочницу и показать по ноге уведомление.
  * Дедуп по паре (тип входа, timestamp бара из журнала), чтобы UI и фон не исполнили дважды.
@@ -34,6 +49,7 @@ internal suspend fun runSandboxAutoEntryIfNeeded(
     }
     if (WebDeskPrefs.isOrdersOnWebOnly(context)) return false
     if (!TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return false
+    if (isRejectedVirtualEntry(context, signalType, barTimestampMillis)) return false
     val mode = currentExecutionMode(context)
     val dedupKey = "${signalType.name}|$barTimestampMillis"
     synchronized(autoSpreadDedupLock) {

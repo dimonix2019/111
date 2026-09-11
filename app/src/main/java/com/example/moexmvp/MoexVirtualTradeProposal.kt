@@ -39,6 +39,34 @@ internal data class PendingVirtualTradeProposal(
         }
 }
 
+/** Не поднимать ту же карточку / AUTO-вход, которую пользователь только что отклонил. */
+internal fun shouldOfferPendingVirtualTrade(
+    rejectedTimestampMillis: Long,
+    rejectedTypeName: String?,
+    signalType: StrategySignalType,
+    timestampMillis: Long,
+): Boolean {
+    if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) {
+        return false
+    }
+    return rejectedTimestampMillis != timestampMillis || rejectedTypeName != signalType.name
+}
+
+internal fun loadRejectedVirtualEntry(context: Context): Pair<Long, String?> {
+    val prefs = context.getSharedPreferences(VIRTUAL_TRADE_PREFS, Context.MODE_PRIVATE)
+    return prefs.getLong(PREF_REJECTED_VIRTUAL_TS, Long.MIN_VALUE) to
+        prefs.getString(PREF_REJECTED_VIRTUAL_TYPE, null)
+}
+
+internal fun isRejectedVirtualEntry(
+    context: Context,
+    signalType: StrategySignalType,
+    timestampMillis: Long,
+): Boolean {
+    val (rejTs, rejTy) = loadRejectedVirtualEntry(context)
+    return !shouldOfferPendingVirtualTrade(rejTs, rejTy, signalType, timestampMillis)
+}
+
 internal fun savePendingVirtualTradeProposal(
     context: Context,
     signalType: StrategySignalType,
@@ -46,6 +74,7 @@ internal fun savePendingVirtualTradeProposal(
     timestampMillis: Long
 ) {
     if (signalType != StrategySignalType.EnterLong && signalType != StrategySignalType.EnterShort) return
+    if (isRejectedVirtualEntry(context, signalType, timestampMillis)) return
     val th = loadRealTradeZThresholds(
         context,
         loadSavedDynamicThresholds(context)
@@ -66,8 +95,6 @@ internal fun savePendingVirtualTradeProposal(
     context.getSharedPreferences(VIRTUAL_TRADE_PREFS, Context.MODE_PRIVATE)
         .edit()
         .putString(PREF_PENDING_JSON, json.toString())
-        .remove(PREF_REJECTED_VIRTUAL_TS)
-        .remove(PREF_REJECTED_VIRTUAL_TYPE)
         .commit()
 }
 
@@ -146,16 +173,46 @@ internal fun entryVirtualTradeTapIfManualAccept(
     return VirtualTradeTapIntent(signalType, zScore, timestampMillis)
 }
 
+/**
+ * После экстренного закрытия / «Отклонить»: убрать карточку, не дать AUTO открыть ту же пару
+ * и не сбрасывать last-processed 15м бар (иначе монитор заново видит пересечение на последней паре).
+ */
+internal fun suppressUserCancelledEntry(
+    context: Context,
+    proposal: PendingVirtualTradeProposal? = loadPendingVirtualTradeProposal(context),
+) {
+    val app = context.applicationContext
+    if (proposal != null) {
+        clearPendingVirtualTradeProposal(app, proposal)
+        val zSig = when (proposal.signalType) {
+            StrategySignalType.EnterLong -> ZStrategySignal.EnterLong
+            StrategySignalType.EnterShort -> ZStrategySignal.EnterShort
+            else -> null
+        }
+        if (zSig != null) {
+            mark15mStrategySignalEdgeConsumed(app, proposal.timestampMillis, zSig)
+        }
+        rememberSandboxAutoEntryDedup(app, proposal.signalType, proposal.timestampMillis)
+    }
+    val lastBar = loadLastProcessed15mBarTimestamp(app)
+        ?: runCatching {
+            loadZStrategySignalSeries(app, PortfolioM15LoadMode.CACHE_ONLY)
+                .lastOrNull()
+                ?.timestampMillis
+        }.getOrNull()
+    if (lastBar != null && lastBar > 0L) {
+        saveLastProcessed15mBarTimestamp(app, lastBar)
+    }
+}
+
 internal fun restorePendingVirtualTradeFromJournalIfNeeded(context: Context) {
     if (TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return
     if (loadPendingVirtualTradeProposal(context) != null) return
     val events = loadStrategySignalEvents(context)
     val last = events.lastOrNull() ?: return
     if (last.signalType != StrategySignalType.EnterLong && last.signalType != StrategySignalType.EnterShort) return
-    val prefs = context.getSharedPreferences(VIRTUAL_TRADE_PREFS, Context.MODE_PRIVATE)
-    val rejTs = prefs.getLong(PREF_REJECTED_VIRTUAL_TS, Long.MIN_VALUE)
-    val rejTy = prefs.getString(PREF_REJECTED_VIRTUAL_TYPE, null)
-    if (last.timestampMillis == rejTs && last.signalType.name == rejTy) return
+    val (rejTs, rejTy) = loadRejectedVirtualEntry(context)
+    if (!shouldOfferPendingVirtualTrade(rejTs, rejTy, last.signalType, last.timestampMillis)) return
     val pos = loadSavedStrategyPosition(context)
     val matches = when (last.signalType) {
         StrategySignalType.EnterLong -> pos == ZStrategyPosition.Long

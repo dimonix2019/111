@@ -178,4 +178,33 @@ class MoexTradeTabActionsTest {
         )
         assertEquals(null, tradeTabManualEntryBlockReason(brokerSnap(ZStrategyPosition.Flat, 0, 0)))
     }
+
+    @Test
+    fun shouldOfferPendingVirtualTrade_rejectsSameBarAfterCancel() {
+        val ts = 1_700_000_000_000L
+        assertFalse(
+            shouldOfferPendingVirtualTrade(
+                rejectedTimestampMillis = ts,
+                rejectedTypeName = StrategySignalType.EnterLong.name,
+                signalType = StrategySignalType.EnterLong,
+                timestampMillis = ts,
+            ),
+        )
+        assertTrue(
+            shouldOfferPendingVirtualTrade(
+                rejectedTimestampMillis = ts,
+                rejectedTypeName = StrategySignalType.EnterLong.name,
+                signalType = StrategySignalType.EnterShort,
+                timestampMillis = ts,
+            ),
+        )
+        assertTrue(
+            shouldOfferPendingVirtualTrade(
+                rejectedTimestampMillis = ts,
+                rejectedTypeName = StrategySignalType.EnterLong.name,
+                signalType = StrategySignalType.EnterLong,
+                timestampMillis = ts + 900_000L,
+            ),
+        )
+    }
 }

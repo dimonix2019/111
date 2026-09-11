@@ -156,6 +156,7 @@ internal fun MoexScreenDialogs(
                                     runEmergencyFlattenFromTradeTab(context).getOrThrow()
                                 }
                                 zStrategyPosition = ZStrategyPosition.Flat
+                                pendingVirtualTrade = null
                                 sandboxSpreadExecReload++
                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                 refreshTradeScreenFromBroker()

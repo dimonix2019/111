@@ -146,6 +146,7 @@ internal suspend fun runEmergencyFlattenFromTradeTab(
         if (plan.isEmpty()) {
             TinkoffSandboxSpreadExecLog.clearOpenExecutions(app)
             saveStrategyPosition(app, ZStrategyPosition.Flat)
+            suppressUserCancelledEntry(app)
             return@runCatching "На брокере нет позиции TATN/TATNP."
         }
 
@@ -184,8 +185,7 @@ internal suspend fun runEmergencyFlattenFromTradeTab(
         }
         TinkoffSandboxSpreadExecLog.clearOpenExecutions(app)
         saveStrategyPosition(app, ZStrategyPosition.Flat)
-        clearSandboxAutoSpreadDedup(app)
-        clearConsumed15mStrategySignalEdge(app)
+        suppressUserCancelledEntry(app)
         "Закрыто на ${executionAccountShortRu(mode)}: ${posted.joinToString(", ")}"
     }
 }

@@ -183,8 +183,10 @@ internal fun MoexScreenVirtualTradeCard(
                     }
                 },
                 onReject = {
-                    clearPendingVirtualTradeProposal(context, proposal)
+                    suppressUserCancelledEntry(context, proposal)
                     pendingVirtualTrade = null
+                    zStrategyPosition = ZStrategyPosition.Flat
+                    saveStrategyPosition(context, ZStrategyPosition.Flat)
                     Toast.makeText(context, "Отклонено.", Toast.LENGTH_SHORT).show()
                 },
                 modifier = modifier.padding(top = 6.dp)
