@@ -441,17 +441,23 @@ internal fun matchSpreadTrades(
     return trades
 }
 
+/**
+ * GetPortfolio — источник истины: если портфель загрузился и ног нет, не рисуем
+ * «открытую» пару из GetOperations (непарный вход после закрытия даёт призрак).
+ */
 internal fun overlaySnapshotFromOpenOperations(
     snap: TradeScreenSnapshot,
     open: SpreadPairEvent? = lastUnmatchedOpenSpread,
 ): TradeScreenSnapshot {
-    if (snap.isOpen || open == null) return snap
+    if (snap.error.isNullOrBlank()) return snap
+    if (open == null) return snap
     val sideName = open.side ?: return snap
     val lots = minOf(kotlin.math.abs(open.tatnQty), kotlin.math.abs(open.tatnpQty))
         .toInt()
     if (lots <= 0) return snap
     val long = sideName == "LONG"
     return snap.copy(
+        error = null,
         side = if (long) ZStrategyPosition.Long else ZStrategyPosition.Short,
         tatnLots = if (long) lots else -lots,
         tatnpLots = if (long) -lots else lots,
@@ -577,11 +583,10 @@ internal suspend fun fetchSpreadTradesFromTInvest(
 
     val events = pairSpreadLegs(ops)
     val trades = matchSpreadTrades(events, feePayments)
-    val openEv = unmatchedOpenSpread(events)
-    lastUnmatchedOpenSpread = openEv
-    if (trades.isEmpty() && openEv == null) return@withContext null
+    lastUnmatchedOpenSpread = unmatchedOpenSpread(events)
+    if (trades.isEmpty()) return@withContext null
 
-    val closedRows = trades.mapIndexed { idx, t ->
+    trades.mapIndexed { idx, t ->
         TradeTabClosedTrade(
             id = "Т${idx + 1}",
             directionLabel = t.direction,
@@ -594,21 +599,4 @@ internal suspend fun fetchSpreadTradesFromTInvest(
             sourceLabel = "",
         )
     }.sortedByDescending { it.exitTimeMsk }
-    val openRow = openEv?.let { ev ->
-        val lots = minOf(kotlin.math.abs(ev.tatnQty), kotlin.math.abs(ev.tatnpQty))
-            .toInt().coerceAtLeast(1)
-        TradeTabClosedTrade(
-            id = "сейчас",
-            directionLabel = if (ev.side == "SHORT") "Short" else "Long",
-            entryTimeMsk = formatPortfolioExecutionTableMsk(ev.startMs),
-            exitTimeMsk = "открыта",
-            quantityLots = lots,
-            entrySpreadPercent = spreadPctFromPrices(ev.priceTatn, ev.priceTatnp),
-            exitSpreadPercent = null,
-            pnlRub = null,
-            sourceLabel = "открыта",
-            isOpen = true,
-        )
-    }
-    listOfNotNull(openRow) + closedRows
 }

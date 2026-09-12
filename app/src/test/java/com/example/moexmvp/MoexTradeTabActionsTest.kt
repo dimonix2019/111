@@ -124,25 +124,35 @@ class MoexTradeTabActionsTest {
     }
 
     @Test
-    fun overlaySnapshotFromOpenOperations_fillsFlatFromUnmatchedLong() {
+    fun overlaySnapshotFromOpenOperations_doesNotInventPositionWhenPortfolioIsFlat() {
         val t0 = 1_700_000_000_000L
         val open = unmatchedOpenSpread(
             pairSpreadLegs(
                 listOf(
-                    op(t0, "TATN", 57.0, 593.6),
-                    op(t0 + 2_000, "TATNP", -57.0, 592.4),
+                    op(t0, "TATN", -57.0, 618.0),
+                    op(t0 + 2_000, "TATNP", 57.0, 593.4),
                 ),
             ),
         )!!
-        val snap = overlaySnapshotFromOpenOperations(
-            TradeScreenSnapshot(loadedAtMillis = t0),
+        val loaded = overlaySnapshotFromOpenOperations(
+            TradeScreenSnapshot(
+                loadedAtMillis = t0,
+                portfolioTotalRub = 9_895.0,
+                cashRub = 9_895.0,
+            ),
             open,
         )
-        assertTrue(snap.isOpen)
-        assertEquals(ZStrategyPosition.Long, snap.side)
-        assertEquals(57, snap.tatnLots)
-        assertEquals(-57, snap.tatnpLots)
-        assertEquals("счёт Т-Инвест", snap.execSourceLabel)
+        assertFalse(loaded.isOpen)
+        assertEquals(0, loaded.tatnLots)
+        assertEquals(0, loaded.tatnpLots)
+        val failed = overlaySnapshotFromOpenOperations(
+            TradeScreenSnapshot(loadedAtMillis = t0, error = "timeout"),
+            open,
+        )
+        assertTrue(failed.isOpen)
+        assertEquals(ZStrategyPosition.Short, failed.side)
+        assertEquals(-57, failed.tatnLots)
+        assertEquals(57, failed.tatnpLots)
     }
 
     @Test

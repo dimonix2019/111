@@ -262,14 +262,18 @@ internal suspend fun MoexScreenState.refreshTradeScreenFromBroker(
     tradeScreenRefreshInFlight = true
     if (showLoading) tradeScreenLoading = true
     try {
-        var snap = withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context) }
+        val snap = withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context) }
         if (includeClosedTrades) {
             val (trades, source) = withContext(Dispatchers.IO) { loadTradeTabClosedTrades(context) }
-            tradeTabClosedTrades = trades
+            // Не показываем «открыта» из операций, если на брокере ног уже нет.
+            tradeTabClosedTrades = if (snap.isOpen) trades else trades.filter { !it.isOpen }
             tradeTabTradesSource = source
         }
-        snap = overlaySnapshotFromOpenOperations(snap)
-        tradeScreenSnapshot = snap
+        tradeScreenSnapshot = if (snap.error.isNullOrBlank()) {
+            snap
+        } else {
+            overlaySnapshotFromOpenOperations(snap)
+        }
         if (snap.isOpen && pendingVirtualTrade != null) {
             pendingVirtualTrade = null
             withContext(Dispatchers.IO) { clearPendingVirtualTradeProposal(context) }
