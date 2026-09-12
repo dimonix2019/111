@@ -142,29 +142,87 @@ class MoexTradeScreenTest {
     }
 
     @Test
-    fun computeMarginCallHeadroom_zonesByPct() {
+    fun computeMarginCallHeadroom_usesLiquidMinusMinimal() {
         val margin = MarginAttributesSnapshot(
-            liquidPortfolioRub = 140_000.0,
+            liquidPortfolioRub = 9_249.0,
+            correctedMarginRub = 4_681.0,
+            startingMarginRub = 4_681.0,
+            amountOfMissingFundsRub = null,
+            minimalMarginRub = 2_340.0,
+        )
+        val head = computeMarginCallHeadroom(margin)!!
+        assertEquals(6_909.0, head.freeRub, 0.5)
+        assertEquals(MarginCallHeadroomZone.Green, head.zone)
+        assertTrue(head.freeRub > 4_630.0)
+    }
+
+    @Test
+    fun computeMarginCallHeadroom_zonesByPctOfLiquid() {
+        val margin = MarginAttributesSnapshot(
+            liquidPortfolioRub = 200_000.0,
             correctedMarginRub = 100_000.0,
             startingMarginRub = 100_000.0,
             amountOfMissingFundsRub = null,
+            minimalMarginRub = 100_000.0,
         )
         val green = computeMarginCallHeadroom(margin)!!
         assertEquals(MarginCallHeadroomZone.Green, green.zone)
-        assertEquals(40_000.0, green.freeRub, 0.01)
-        assertEquals(40.0, green.pct, 0.01)
+        assertEquals(100_000.0, green.freeRub, 0.01)
+        assertEquals(50.0, green.pct, 0.01)
 
         val yellow = computeMarginCallHeadroom(
-            margin.copy(liquidPortfolioRub = 120_000.0),
+            margin.copy(liquidPortfolioRub = 115_000.0),
         )!!
         assertEquals(MarginCallHeadroomZone.Yellow, yellow.zone)
-        assertEquals(20.0, yellow.pct, 0.01)
+        assertTrue(yellow.pct in 10.0..20.0)
 
         val red = computeMarginCallHeadroom(
             margin.copy(liquidPortfolioRub = 105_000.0),
         )!!
         assertEquals(MarginCallHeadroomZone.Red, red.zone)
-        assertEquals(5.0, red.pct, 0.01)
+        assertTrue(red.pct < 10.0)
+    }
+
+    @Test
+    fun computeMarginCallHeadroom_fallsBackToHalfStarting() {
+        val head = computeMarginCallHeadroom(
+            MarginAttributesSnapshot(
+                liquidPortfolioRub = 10_000.0,
+                correctedMarginRub = 4_000.0,
+                startingMarginRub = 4_000.0,
+                amountOfMissingFundsRub = null,
+            ),
+        )!!
+        assertEquals(2_000.0, head.minimalMarginRub, 0.01)
+        assertEquals(8_000.0, head.freeRub, 0.01)
+    }
+
+    @Test
+    fun tradeOpenLegsTitle_oneSidedDoesNotFakePair() {
+        assertEquals("Ноги TATN 53 / TATNP 0", tradeOpenLegsTitle("Ноги", 53, 0))
+        assertEquals("Long 53+53 лот", tradeOpenLegsTitle("Long", 53, -53))
+    }
+
+    @Test
+    fun spreadEntryLegPlan_sellsShortLegFirst() {
+        val longLegs = spreadEntryLegPlan(StrategySignalType.EnterLong)
+        assertEquals("TATNP", longLegs[0].ticker)
+        assertFalse(longLegs[0].buy)
+        assertEquals("TATN", longLegs[1].ticker)
+        assertTrue(longLegs[1].buy)
+
+        val shortLegs = spreadEntryLegPlan(StrategySignalType.EnterShort)
+        assertEquals("TATN", shortLegs[0].ticker)
+        assertFalse(shortLegs[0].buy)
+        assertEquals("TATNP", shortLegs[1].ticker)
+        assertTrue(shortLegs[1].buy)
+    }
+
+    @Test
+    fun canonicalMoexShareInstrumentId_replacesTickerTqbrWithFigi() {
+        assertEquals(TINKOFF_MOEX_TATNP_FIGI, canonicalMoexShareInstrumentId("TATNP", "TATNP_TQBR"))
+        assertEquals(TINKOFF_MOEX_TATN_FIGI, canonicalMoexShareInstrumentId("TATN", null))
+        assertEquals("BBG004RVFFC0", canonicalMoexShareInstrumentId("TATN", "BBG004RVFFC0"))
     }
 
     @Test

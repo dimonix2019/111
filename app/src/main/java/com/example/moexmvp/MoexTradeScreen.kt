@@ -342,7 +342,7 @@ internal fun MoexScreenTabTrade(
             else -> "Ноги"
         }
         TradeInfoCard(
-            title = "$sideLabel ${snap.quantityLots}+${snap.quantityLots} лот$sourceSuffix",
+            title = tradeOpenLegsTitle(sideLabel, snap.tatnLots, snap.tatnpLots) + sourceSuffix,
             accent = if (snap.side == ZStrategyPosition.Long) Color(0xFF26A69A) else Color(0xFFEF5350),
         ) {
             snap.entryTimeMsk?.let { TradeMetricRow("Вход", it) }
@@ -472,6 +472,24 @@ private fun TradeMarginCard(margin: MarginAttributesSnapshot) {
                 modifier = Modifier.align(Alignment.Center),
             )
         }
+        Text(
+            text = "ликвид ${formatRubPlain(headroom.liquidRub)} · мин.маржа ${formatRubPlain(headroom.minimalMarginRub)}" +
+                if (headroom.startingMarginRub > 0) {
+                    " · нач. ${formatRubPlain(headroom.startingMarginRub)}"
+                } else {
+                    ""
+                },
+            color = Color(0xFF90A4AE),
+            fontSize = 10.sp,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Text(
+            text = "Как в Т‑Инвест: маржин-колл, когда ликвид < минимальной маржи (не скорректированной).",
+            color = Color(0xFF616161),
+            fontSize = 9.sp,
+            lineHeight = 12.sp,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
@@ -518,6 +536,16 @@ private fun TradeMetricRow(
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(start = 8.dp),
         )
+    }
+}
+
+internal fun tradeOpenLegsTitle(sideLabel: String, tatnLots: Int, tatnpLots: Int): String {
+    val a = kotlin.math.abs(tatnLots)
+    val b = kotlin.math.abs(tatnpLots)
+    return if (a > 0 && b > 0 && a == b) {
+        "$sideLabel $a+$b лот"
+    } else {
+        "$sideLabel TATN $tatnLots / TATNP $tatnpLots"
     }
 }
 

@@ -93,12 +93,14 @@ class TinkoffSpreadLotSizingTest {
             {
               "liquidPortfolio": {"units": "10000", "nano": 0, "currency": "rub"},
               "correctedMargin": {"units": "1500", "nano": 0, "currency": "rub"},
-              "startingMargin": {"units": "1200", "nano": 0, "currency": "rub"}
+              "startingMargin": {"units": "1200", "nano": 0, "currency": "rub"},
+              "minimalMargin": {"units": "600", "nano": 0, "currency": "rub"}
             }
             """.trimIndent()
         )
         val attrs = parseMarginAttributesJson(json)!!
         assertEquals(10_000.0, attrs.liquidPortfolioRub, 0.01)
         assertEquals(1_500.0, attrs.correctedMarginRub, 0.01)
+        assertEquals(600.0, attrs.minimalMarginRub!!, 0.01)
     }
 }

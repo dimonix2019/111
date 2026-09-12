@@ -153,11 +153,10 @@ internal suspend fun runEmergencyFlattenFromTradeTab(
 
         val posted = mutableListOf<String>()
         for (leg in plan) {
-            val instId = runCatching { tinkoffResolveShareInstrumentId(mode, token, leg.ticker) }
-                .getOrDefault(
-                    if (leg.ticker == "TATNP") TINKOFF_MOEX_TATNP_INSTRUMENT_ID
-                    else TINKOFF_MOEX_TATN_INSTRUMENT_ID,
-                )
+            val instId = canonicalMoexShareInstrumentId(
+                leg.ticker,
+                runCatching { tinkoffResolveShareInstrumentId(mode, token, leg.ticker) }.getOrNull(),
+            )
             val dir = if (leg.buy) "ORDER_DIRECTION_BUY" else "ORDER_DIRECTION_SELL"
             tinkoffPostMarketOrder(mode, token, accountId, instId, dir, leg.lots)
             posted += "${leg.dirRu} ${leg.ticker} ×${leg.lots}"

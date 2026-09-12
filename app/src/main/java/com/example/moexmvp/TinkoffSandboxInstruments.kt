@@ -12,6 +12,51 @@ internal const val TINKOFF_MOEX_TATNP_INSTRUMENT_ID = "TATNP_TQBR"
 internal const val TINKOFF_MOEX_TATN_FIGI = "BBG004RVFFC0"
 internal const val TINKOFF_MOEX_TATNP_FIGI = "BBG004S68829"
 
+/** FIGI для PostOrder, если FindInstrument вернул ticker_TQBR или пусто. */
+internal fun fallbackMoexShareFigi(ticker: String): String =
+    if (ticker.trim().equals("TATNP", ignoreCase = true)) {
+        TINKOFF_MOEX_TATNP_FIGI
+    } else {
+        TINKOFF_MOEX_TATN_FIGI
+    }
+
+/** PostOrder ждёт FIGI/UID, не `TATN_TQBR`. */
+internal fun canonicalMoexShareInstrumentId(ticker: String, resolved: String?): String {
+    val id = resolved?.trim().orEmpty()
+    if (id.isEmpty() ||
+        id.equals(TINKOFF_MOEX_TATN_INSTRUMENT_ID, ignoreCase = true) ||
+        id.equals(TINKOFF_MOEX_TATNP_INSTRUMENT_ID, ignoreCase = true)
+    ) {
+        return fallbackMoexShareFigi(ticker)
+    }
+    return id
+}
+
+internal data class SpreadEntryLegSpec(
+    val ticker: String,
+    val buy: Boolean,
+) {
+    val orderDirection: String
+        get() = if (buy) "ORDER_DIRECTION_BUY" else "ORDER_DIRECTION_SELL"
+}
+
+/**
+ * Сначала шорт (продажа) — на счёт приходят деньги, затем покупка.
+ * Иначе Long сначала покупает TATN и вторая нога (шорт префа) часто не проходит по марже.
+ */
+internal fun spreadEntryLegPlan(signalType: StrategySignalType): List<SpreadEntryLegSpec> =
+    when (signalType) {
+        StrategySignalType.EnterLong -> listOf(
+            SpreadEntryLegSpec("TATNP", buy = false),
+            SpreadEntryLegSpec("TATN", buy = true),
+        )
+        StrategySignalType.EnterShort -> listOf(
+            SpreadEntryLegSpec("TATN", buy = false),
+            SpreadEntryLegSpec("TATNP", buy = true),
+        )
+        else -> throw IllegalArgumentException("Только EnterLong / EnterShort")
+    }
+
 internal fun knownTatnInstrumentIds(extra: Set<String> = emptySet()): Set<String> =
     buildSet {
         add(TINKOFF_MOEX_TATN_INSTRUMENT_ID)

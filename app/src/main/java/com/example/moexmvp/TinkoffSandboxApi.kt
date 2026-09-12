@@ -735,7 +735,7 @@ internal suspend fun tinkoffSandboxPostTestSingleLegOrder(
     val inst = try {
         tinkoffResolveShareInstrumentId(token, "TATN")
     } catch (_: Exception) {
-        TINKOFF_MOEX_TATN_INSTRUMENT_ID
+        TINKOFF_MOEX_TATN_FIGI
     }
     val dir = if (buy) "ORDER_DIRECTION_BUY" else "ORDER_DIRECTION_SELL"
     return tinkoffPostSandboxMarketOrder(token, accountId, inst, dir, quantityLots)
@@ -812,34 +812,64 @@ internal suspend fun tinkoffExecuteSpreadEntryDetailed(
     quantityLots: Int = 1,
 ): List<SandboxLegOrderResult> {
     val qty = quantityLots.coerceAtLeast(1)
-    val tatnId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
-        .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
-    val tatnpId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
-        .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
-    val buy = "ORDER_DIRECTION_BUY"
-    val sell = "ORDER_DIRECTION_SELL"
-    suspend fun postLeg(ticker: String, instId: String, dir: String, buyLeg: Boolean): SandboxLegOrderResult {
-        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, dir, qty)
-        val pf = runCatching { tinkoffGetPortfolio(mode, token, accountId) }.getOrNull()
+    val plan = try {
+        spreadEntryLegPlan(signalType)
+    } catch (e: IllegalArgumentException) {
+        throw IOException(e.message ?: "Только EnterLong / EnterShort")
+    }
+    val instIds = mapOf(
+        "TATN" to canonicalMoexShareInstrumentId(
+            "TATN",
+            runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }.getOrNull(),
+        ),
+        "TATNP" to canonicalMoexShareInstrumentId(
+            "TATNP",
+            runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }.getOrNull(),
+        ),
+    )
+    val posted = mutableListOf<Pair<SpreadEntryLegSpec, SandboxLegOrderResult>>()
+    suspend fun postSpec(spec: SpreadEntryLegSpec): SandboxLegOrderResult {
+        val instId = instIds.getValue(spec.ticker)
+        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, spec.orderDirection, qty)
         return SandboxLegOrderResult(
-            ticker = ticker,
-            sideRu = spreadLegSideRu(buyLeg, qty),
+            ticker = spec.ticker,
+            sideRu = spreadLegSideRu(spec.buy, qty),
             orderJson = order,
-            portfolioTotalRub = pf?.let { formatSandboxPortfolioTotalRub(it) },
-            portfolioCashRub = pf?.let { formatSandboxCashRub(it) },
-            completedAtMillis = System.currentTimeMillis()
+            portfolioTotalRub = null,
+            portfolioCashRub = null,
+            completedAtMillis = System.currentTimeMillis(),
         )
     }
-    return when (signalType) {
-        StrategySignalType.EnterLong -> listOf(
-            postLeg("TATN", tatnId, buy, buyLeg = true),
-            postLeg("TATNP", tatnpId, sell, buyLeg = false)
+    try {
+        for (spec in plan) {
+            posted += spec to postSpec(spec)
+        }
+    } catch (e: Exception) {
+        val rollbackErrors = mutableListOf<String>()
+        for ((spec, _) in posted.asReversed()) {
+            val undo = spec.copy(buy = !spec.buy)
+            runCatching { postSpec(undo) }.onFailure { rollback ->
+                rollbackErrors += "${undo.ticker} ${undo.orderDirection}: ${rollback.message}"
+            }
+        }
+        val opened = posted.joinToString(", ") { (spec, _) ->
+            "${spec.ticker} ${if (spec.buy) "покупка" else "продажа"} ×$qty"
+        }
+        val rollbackPart = if (rollbackErrors.isEmpty()) {
+            if (posted.isEmpty()) "" else " Первая нога снята."
+        } else {
+            " Откат не удался (${rollbackErrors.joinToString("; ")}). Закройте хвост вручную."
+        }
+        throw IOException(
+            "Пара не открыта целиком (${e.message}). Успели: ${opened.ifBlank { "нет" }}.$rollbackPart"
         )
-        StrategySignalType.EnterShort -> listOf(
-            postLeg("TATNP", tatnpId, buy, buyLeg = true),
-            postLeg("TATN", tatnId, sell, buyLeg = false)
+    }
+    val pf = runCatching { tinkoffGetPortfolio(mode, token, accountId) }.getOrNull()
+    return posted.map { (_, result) ->
+        result.copy(
+            portfolioTotalRub = pf?.let { formatSandboxPortfolioTotalRub(it) },
+            portfolioCashRub = pf?.let { formatSandboxCashRub(it) },
         )
-        else -> throw IOException("Только EnterLong / EnterShort")
     }
 }
 
@@ -877,10 +907,14 @@ internal suspend fun tinkoffExecuteSpreadExitDetailed(
     quantityLots: Int = 1,
 ): List<SandboxLegOrderResult> {
     val qty = quantityLots.coerceAtLeast(1)
-    val tatnId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
-        .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
-    val tatnpId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
-        .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
+    val tatnId = canonicalMoexShareInstrumentId(
+        "TATN",
+        runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }.getOrNull(),
+    )
+    val tatnpId = canonicalMoexShareInstrumentId(
+        "TATNP",
+        runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }.getOrNull(),
+    )
     val buy = "ORDER_DIRECTION_BUY"
     val sell = "ORDER_DIRECTION_SELL"
     suspend fun postLeg(ticker: String, instId: String, dir: String, buyLeg: Boolean): SandboxLegOrderResult {
@@ -1064,6 +1098,8 @@ internal data class MarginAttributesSnapshot(
     val correctedMarginRub: Double,
     val startingMarginRub: Double,
     val amountOfMissingFundsRub: Double?,
+    val minimalMarginRub: Double? = null,
+    val fundsSufficiencyLevel: Double? = null,
 )
 
 private fun findMarginMoneyField(portfolioJson: JSONObject, fieldKeys: List<String>): Double? {
@@ -1108,11 +1144,21 @@ internal fun parseMarginAttributesJson(root: JSONObject): MarginAttributesSnapsh
         envelope,
         listOf("amountOfMissingFunds", "amount_of_missing_funds"),
     )
+    val minimal = findMarginMoneyField(
+        envelope,
+        listOf("minimalMargin", "minimal_margin"),
+    )
+    val sufficiency = findMarginMoneyField(
+        envelope,
+        listOf("fundsSufficiencyLevel", "funds_sufficiency_level"),
+    )
     return MarginAttributesSnapshot(
         liquidPortfolioRub = liquid,
         correctedMarginRub = corrected ?: starting,
         startingMarginRub = starting,
         amountOfMissingFundsRub = missing,
+        minimalMarginRub = minimal,
+        fundsSufficiencyLevel = sufficiency,
     )
 }
 
