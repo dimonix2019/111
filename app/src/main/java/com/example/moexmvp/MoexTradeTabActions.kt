@@ -18,6 +18,7 @@ internal data class TradeTabClosedTrade(
     val exitSpreadPercent: Double?,
     val pnlRub: Double?,
     val sourceLabel: String,
+    val isOpen: Boolean = false,
 )
 
 internal const val TRADE_TAB_HISTORY_DAYS = 14L
@@ -327,6 +328,10 @@ internal data class SpreadMatchedTrade(
 
 internal const val LEG_PAIR_WINDOW_MS = 60_000L
 
+/** Последняя непарная (ещё открытая) сделка с GetOperations — для вкладки «Сделка». */
+@Volatile
+internal var lastUnmatchedOpenSpread: SpreadPairEvent? = null
+
 /**
  * Склейка ног в парные события: каждая операция ищет противоположную по знаку
  * операцию другого тикера в пределах [LEG_PAIR_WINDOW_MS] (ноги одной пары идут
@@ -360,6 +365,23 @@ internal fun pairSpreadLegs(ops: List<TInvestSpreadOp>): List<SpreadPairEvent> {
         )
     }
     return events
+}
+
+/** Незакрытая пара после матчинга вход→выход (как остаток [matchSpreadTrades]). */
+internal fun unmatchedOpenSpread(events: List<SpreadPairEvent>): SpreadPairEvent? {
+    var open: SpreadPairEvent? = null
+    var openSide: String? = null
+    for (ev in events) {
+        val side = ev.side ?: continue
+        if (open == null || side == openSide) {
+            open = ev
+            openSide = side
+        } else {
+            open = null
+            openSide = null
+        }
+    }
+    return open
 }
 
 /**
@@ -419,6 +441,30 @@ internal fun matchSpreadTrades(
     return trades
 }
 
+internal fun overlaySnapshotFromOpenOperations(
+    snap: TradeScreenSnapshot,
+    open: SpreadPairEvent? = lastUnmatchedOpenSpread,
+): TradeScreenSnapshot {
+    if (snap.isOpen || open == null) return snap
+    val sideName = open.side ?: return snap
+    val lots = minOf(kotlin.math.abs(open.tatnQty), kotlin.math.abs(open.tatnpQty))
+        .toInt()
+    if (lots <= 0) return snap
+    val long = sideName == "LONG"
+    return snap.copy(
+        side = if (long) ZStrategyPosition.Long else ZStrategyPosition.Short,
+        tatnLots = if (long) lots else -lots,
+        tatnpLots = if (long) -lots else lots,
+        quantityLots = lots,
+        tatnAvgPriceRub = open.priceTatn ?: snap.tatnAvgPriceRub,
+        tatnpAvgPriceRub = open.priceTatnp ?: snap.tatnpAvgPriceRub,
+        spreadPercentEntry = spreadPctFromPrices(open.priceTatn, open.priceTatnp)
+            ?: snap.spreadPercentEntry,
+        entryTimeMsk = formatPortfolioExecutionTableMsk(open.startMs),
+        execSourceLabel = "счёт Т-Инвест",
+    )
+}
+
 private fun spreadPctFromPrices(tatn: Double?, tatnp: Double?): Double? {
     if (tatn == null || tatnp == null || tatnp <= 0.0) return null
     return (tatn / tatnp - 1.0) * 100.0
@@ -460,11 +506,15 @@ internal suspend fun fetchSpreadTradesFromTInvest(
         .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATNP_INSTRUMENT_ID, TINKOFF_MOEX_TATNP_FIGI) }
 
     fun tickerOf(op: org.json.JSONObject): String? {
-        for (k in listOf("instrumentUid", "instrument_uid", "uid", "figi", "FIGI")) {
+        resolveTatnTatnpTicker(op, tatnIds, tatnpIds)?.let { return it }
+        for (k in listOf(
+            "instrumentUid", "instrument_uid", "instrument_id", "instrumentId",
+            "uid", "figi", "FIGI",
+        )) {
             val v = op.optString(k, "").trim().uppercase(Locale.US)
             if (v.isEmpty()) continue
-            if (v in tatnIds) return "TATN"
-            if (v in tatnpIds) return "TATNP"
+            if (v in tatnpIds || v == TINKOFF_MOEX_TATNP_FIGI) return "TATNP"
+            if (v in tatnIds || v == TINKOFF_MOEX_TATN_FIGI) return "TATN"
         }
         return resolveOperationTicker(op)
     }
@@ -518,15 +568,20 @@ internal suspend fun fetchSpreadTradesFromTInvest(
         "trade_history",
         "GetOperations 14д: операций TATN/TATNP=${ops.size}, без тикера=$skippedNoTicker, прочие типы=$skippedType, комиссий=${feePayments.size}",
     )
-    if (ops.isEmpty()) return@withContext null
+    if (ops.isEmpty()) {
+        lastUnmatchedOpenSpread = null
+        return@withContext null
+    }
     ops.sortBy { it.millis }
     feePayments.sortBy { it.first }
 
     val events = pairSpreadLegs(ops)
     val trades = matchSpreadTrades(events, feePayments)
-    if (trades.isEmpty()) return@withContext null
+    val openEv = unmatchedOpenSpread(events)
+    lastUnmatchedOpenSpread = openEv
+    if (trades.isEmpty() && openEv == null) return@withContext null
 
-    trades.mapIndexed { idx, t ->
+    val closedRows = trades.mapIndexed { idx, t ->
         TradeTabClosedTrade(
             id = "Т${idx + 1}",
             directionLabel = t.direction,
@@ -539,4 +594,21 @@ internal suspend fun fetchSpreadTradesFromTInvest(
             sourceLabel = "",
         )
     }.sortedByDescending { it.exitTimeMsk }
+    val openRow = openEv?.let { ev ->
+        val lots = minOf(kotlin.math.abs(ev.tatnQty), kotlin.math.abs(ev.tatnpQty))
+            .toInt().coerceAtLeast(1)
+        TradeTabClosedTrade(
+            id = "сейчас",
+            directionLabel = if (ev.side == "SHORT") "Short" else "Long",
+            entryTimeMsk = formatPortfolioExecutionTableMsk(ev.startMs),
+            exitTimeMsk = "открыта",
+            quantityLots = lots,
+            entrySpreadPercent = spreadPctFromPrices(ev.priceTatn, ev.priceTatnp),
+            exitSpreadPercent = null,
+            pnlRub = null,
+            sourceLabel = "открыта",
+            isOpen = true,
+        )
+    }
+    listOfNotNull(openRow) + closedRows
 }

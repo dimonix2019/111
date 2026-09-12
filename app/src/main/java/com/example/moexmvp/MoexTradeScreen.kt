@@ -262,16 +262,17 @@ internal suspend fun MoexScreenState.refreshTradeScreenFromBroker(
     tradeScreenRefreshInFlight = true
     if (showLoading) tradeScreenLoading = true
     try {
-        val snap = withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context) }
-        tradeScreenSnapshot = snap
-        if (snap.isOpen && pendingVirtualTrade != null) {
-            pendingVirtualTrade = null
-            withContext(Dispatchers.IO) { clearPendingVirtualTradeProposal(context) }
-        }
+        var snap = withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context) }
         if (includeClosedTrades) {
             val (trades, source) = withContext(Dispatchers.IO) { loadTradeTabClosedTrades(context) }
             tradeTabClosedTrades = trades
             tradeTabTradesSource = source
+        }
+        snap = overlaySnapshotFromOpenOperations(snap)
+        tradeScreenSnapshot = snap
+        if (snap.isOpen && pendingVirtualTrade != null) {
+            pendingVirtualTrade = null
+            withContext(Dispatchers.IO) { clearPendingVirtualTradeProposal(context) }
         }
     } finally {
         tradeScreenLoading = false
@@ -922,7 +923,7 @@ private fun TradeClosedTradesCard(
     TradeInfoCard(title = "Сделки · 2 недели") {
         if (rows.isEmpty()) {
             Text(
-                "Нет закрытых сделок за период" + (source?.let { " ($it)" }.orEmpty()),
+                "Нет сделок за период" + (source?.let { " ($it)" }.orEmpty()),
                 color = Color(0xFF757575),
                 fontSize = 11.sp,
             )
@@ -952,7 +953,11 @@ private fun TradeClosedTradesCard(
                 }
                 Column(modifier = Modifier.weight(1.9f)) {
                     Text(row.entryTimeMsk.ifBlank { "—" }, color = Color(0xFFB0BEC5), fontSize = 9.sp)
-                    Text(row.exitTimeMsk.ifBlank { "—" }, color = Color(0xFFB0BEC5), fontSize = 9.sp)
+                    Text(
+                        if (row.isOpen) "открыта" else row.exitTimeMsk.ifBlank { "—" },
+                        color = if (row.isOpen) Color(0xFFFFD54F) else Color(0xFFB0BEC5),
+                        fontSize = 9.sp,
+                    )
                 }
                 Text(
                     formatSpreadPair(row.entrySpreadPercent, row.exitSpreadPercent),

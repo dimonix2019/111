@@ -117,6 +117,50 @@ class MoexTradeTabActionsTest {
             ),
         )
         assertTrue(matchSpreadTrades(events, emptyList()).isEmpty())
+        val open = unmatchedOpenSpread(events)!!
+        assertEquals("LONG", open.side)
+        assertEquals(60.0, open.tatnQty, 0.01)
+        assertEquals(-60.0, open.tatnpQty, 0.01)
+    }
+
+    @Test
+    fun overlaySnapshotFromOpenOperations_fillsFlatFromUnmatchedLong() {
+        val t0 = 1_700_000_000_000L
+        val open = unmatchedOpenSpread(
+            pairSpreadLegs(
+                listOf(
+                    op(t0, "TATN", 57.0, 593.6),
+                    op(t0 + 2_000, "TATNP", -57.0, 592.4),
+                ),
+            ),
+        )!!
+        val snap = overlaySnapshotFromOpenOperations(
+            TradeScreenSnapshot(loadedAtMillis = t0),
+            open,
+        )
+        assertTrue(snap.isOpen)
+        assertEquals(ZStrategyPosition.Long, snap.side)
+        assertEquals(57, snap.tatnLots)
+        assertEquals(-57, snap.tatnpLots)
+        assertEquals("счёт Т-Инвест", snap.execSourceLabel)
+    }
+
+    @Test
+    fun resolveOperationTicker_readsFigiAndPrefName() {
+        assertEquals(
+            "TATN",
+            resolveOperationTicker(org.json.JSONObject("""{"figi":"BBG004RVFFC0"}""")),
+        )
+        assertEquals(
+            "TATNP",
+            resolveOperationTicker(org.json.JSONObject("""{"figi":"BBG004S68829"}""")),
+        )
+        assertEquals(
+            "TATNP",
+            resolveOperationTicker(
+                org.json.JSONObject("""{"description":"Продажа 57 акций Татнефть-п"}"""),
+            ),
+        )
     }
 
     private fun brokerSnap(
