@@ -526,8 +526,8 @@ class MoexTradeScreenTest {
             fillTatnRub = 618.5,
             fillTatnpRub = 592.8,
             quotes = stuck,
-            fallbackTatnLast = 618.1,
-            fallbackTatnpLast = 593.6,
+            fallbackTatnLast = 617.7,
+            fallbackTatnpLast = 593.8,
             depositRub = 9_981.0,
             cashRub = 8_505.0,
             entryTimeMsk = "2026-09-12 16:24",
@@ -539,9 +539,9 @@ class MoexTradeScreenTest {
         assertEquals("book", frozen.quotesMode)
         assertEquals(617.7, frozen.closeTatnRub!!, 1e-9)
         assertEquals(594.4, frozen.closeTatnpRub!!, 1e-9)
-        assertEquals(618.1, moved.closeTatnRub!!, 1e-9)
-        assertEquals(594.8, moved.closeTatnpRub!!, 1e-9)
-        assertTrue(kotlin.math.abs(moved.netRub - frozen.netRub) > 5.0)
+        assertEquals(617.7, moved.closeTatnRub!!, 1e-9)
+        assertEquals(595.0, moved.closeTatnpRub!!, 1e-9)
+        assertTrue(moved.netRub < frozen.netRub - 20.0)
     }
 
     @Test
