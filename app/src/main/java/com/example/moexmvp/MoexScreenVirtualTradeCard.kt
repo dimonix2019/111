@@ -64,7 +64,7 @@ internal fun MoexScreenVirtualTradeCard(
         ) {
             return
         }
-            PendingVirtualTradeProposalCard(
+        PendingVirtualTradeProposalCard(
                 proposal = proposal,
                 sandboxState = sandboxExecState,
                 executionMode = executionMode,
