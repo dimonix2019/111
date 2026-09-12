@@ -3,6 +3,8 @@ package com.example.moexmvp
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 /** Полутик, если ISS не отдал BID/OFFER (как web close_forecast). */
 internal const val CLOSE_NOW_HALF_TICK_RUB = 0.05
@@ -282,11 +284,11 @@ internal fun fetchIssShareQuote(secId: String): ShareQuote? {
     }.getOrNull()
 }
 
-internal suspend fun fetchIssPairQuotes(): PairQuotes = kotlinx.coroutines.coroutineScope {
-    val tn = kotlinx.coroutines.async {
+internal suspend fun fetchIssPairQuotes(): PairQuotes = coroutineScope {
+    val tn = async {
         runCatching { fetchIssShareQuote("TATN") }.getOrNull() ?: ShareQuote()
     }
-    val tp = kotlinx.coroutines.async {
+    val tp = async {
         runCatching { fetchIssShareQuote("TATNP") }.getOrNull() ?: ShareQuote()
     }
     PairQuotes(tatn = tn.await(), tatnp = tp.await(), source = "iss")
