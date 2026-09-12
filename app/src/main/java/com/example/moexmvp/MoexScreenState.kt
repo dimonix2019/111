@@ -147,6 +147,8 @@ internal class MoexScreenState(val context: Context) {
     /** Снимок открытой сделки TATN/TATNP (вкладка «Сделка»). */
     var tradeScreenSnapshot by mutableStateOf<TradeScreenSnapshot?>(null)
     var tradeScreenLoading by mutableStateOf(false)
+    @Volatile
+    internal var tradeScreenRefreshInFlight: Boolean = false
     /** Таблица закрытых сделок (2 недели) на вкладке «Сделка» + источник данных. */
     var tradeTabClosedTrades by mutableStateOf<List<TradeTabClosedTrade>>(emptyList())
     var tradeTabTradesSource by mutableStateOf<String?>(null)

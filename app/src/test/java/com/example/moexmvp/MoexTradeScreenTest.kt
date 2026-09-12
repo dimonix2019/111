@@ -525,6 +525,13 @@ class MoexTradeScreenTest {
     }
 
     @Test
+    fun tradeScreenPoll_isFiveSecondsAndDoesNotChangeBackgroundPoll() {
+        assertEquals(5_000L, TRADE_SCREEN_POLL_MS)
+        assertEquals(15_000L, BROKER_ACCOUNT_POLL_MS)
+        assertTrue(TRADE_SCREEN_POLL_MS < BROKER_ACCOUNT_POLL_MS)
+    }
+
+    @Test
     fun formatCloseNowHeroRub_usesSignedSpaces() {
         assertTrue(formatCloseNowHeroRub(1234.4).contains("1 234"))
         assertTrue(formatCloseNowHeroRub(1234.4).startsWith("+"))

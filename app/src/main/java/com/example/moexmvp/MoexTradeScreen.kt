@@ -254,18 +254,29 @@ internal fun computeSpreadNotionalRub(
     return abs(tatnLots) * a + abs(tatnpLots) * b
 }
 
-internal suspend fun MoexScreenState.refreshTradeScreenFromBroker() {
-    tradeScreenLoading = true
-    val snap = withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context) }
-    tradeScreenSnapshot = snap
-    if (snap.isOpen && pendingVirtualTrade != null) {
-        pendingVirtualTrade = null
-        withContext(Dispatchers.IO) { clearPendingVirtualTradeProposal(context) }
+internal suspend fun MoexScreenState.refreshTradeScreenFromBroker(
+    includeClosedTrades: Boolean = true,
+    showLoading: Boolean = true,
+) {
+    if (tradeScreenRefreshInFlight) return
+    tradeScreenRefreshInFlight = true
+    if (showLoading) tradeScreenLoading = true
+    try {
+        val snap = withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context) }
+        tradeScreenSnapshot = snap
+        if (snap.isOpen && pendingVirtualTrade != null) {
+            pendingVirtualTrade = null
+            withContext(Dispatchers.IO) { clearPendingVirtualTradeProposal(context) }
+        }
+        if (includeClosedTrades) {
+            val (trades, source) = withContext(Dispatchers.IO) { loadTradeTabClosedTrades(context) }
+            tradeTabClosedTrades = trades
+            tradeTabTradesSource = source
+        }
+    } finally {
+        tradeScreenLoading = false
+        tradeScreenRefreshInFlight = false
     }
-    val (trades, source) = withContext(Dispatchers.IO) { loadTradeTabClosedTrades(context) }
-    tradeTabClosedTrades = trades
-    tradeTabTradesSource = source
-    tradeScreenLoading = false
 }
 
 @Composable
@@ -279,11 +290,11 @@ internal fun MoexScreenTabTrade(
 
     LaunchedEffect(screen.selectedTab, screen.activityResumed) {
         if (screen.selectedTab != MainTab.Trade || !screen.activityResumed) return@LaunchedEffect
-        screen.refreshTradeScreenFromBroker()
+        screen.refreshTradeScreenFromBroker(includeClosedTrades = true, showLoading = true)
         while (screen.activityResumed && screen.selectedTab == MainTab.Trade) {
-            delay(BROKER_ACCOUNT_POLL_MS)
+            delay(TRADE_SCREEN_POLL_MS)
             if (!screen.activityResumed || screen.selectedTab != MainTab.Trade) break
-            screen.refreshTradeScreenFromBroker()
+            screen.refreshTradeScreenFromBroker(includeClosedTrades = false, showLoading = false)
         }
     }
 
@@ -538,7 +549,7 @@ internal fun closeNowPnlAccent(netRub: Double): Color = when {
 private fun TradeFooterNote(loadedAtMillis: Long, loading: Boolean) {
     val label = formatPortfolioExecutionTableMsk(loadedAtMillis)
     Text(
-        text = if (loading) "Обновление… · было $label" else "Обновлено $label · опрос раз в мин",
+        text = if (loading) "Обновление… · было $label" else "Обновлено $label · опрос раз в 5 с",
         color = Color(0xFF616161),
         fontSize = 9.sp,
         modifier = Modifier.padding(top = 4.dp),
