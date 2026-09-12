@@ -44,6 +44,86 @@ internal data class SpreadEntryLegSpec(
  * Сначала шорт (продажа) — на счёт приходят деньги, затем покупка.
  * Иначе Long сначала покупает TATN и вторая нога (шорт префа) часто не проходит по марже.
  */
+internal data class TinkoffMaxLots(
+    val buyOwn: Int = 0,
+    val buyMargin: Int = 0,
+    val sellOwn: Int = 0,
+    val sellMargin: Int = 0,
+) {
+    val maxBuy: Int get() = maxOf(buyOwn, buyMargin)
+    val maxSell: Int get() = maxOf(sellOwn, sellMargin)
+}
+
+internal fun jsonLotsField(o: org.json.JSONObject?, vararg keys: String): Int {
+    if (o == null) return 0
+    for (k in keys) {
+        when (val v = o.opt(k)) {
+            is Number -> return v.toInt().coerceAtLeast(0)
+            is String -> v.trim().toIntOrNull()?.let { return it.coerceAtLeast(0) }
+            is org.json.JSONObject -> quotationUnitsToDouble(v)?.toInt()?.let { return it.coerceAtLeast(0) }
+        }
+    }
+    return 0
+}
+
+internal fun parseTinkoffMaxLots(root: org.json.JSONObject): TinkoffMaxLots {
+    val buy = root.optJSONObject("buyLimits") ?: root.optJSONObject("buy_limits")
+    val buyM = root.optJSONObject("buyMarginLimits") ?: root.optJSONObject("buy_margin_limits")
+    val sell = root.optJSONObject("sellLimits") ?: root.optJSONObject("sell_limits")
+    val sellM = root.optJSONObject("sellMarginLimits") ?: root.optJSONObject("sell_margin_limits")
+    return TinkoffMaxLots(
+        buyOwn = jsonLotsField(buy, "buyMaxLots", "buy_max_lots", "maxLots", "max_lots"),
+        buyMargin = jsonLotsField(buyM, "buyMaxLots", "buy_max_lots", "maxLots", "max_lots"),
+        sellOwn = jsonLotsField(sell, "sellMaxLots", "sell_max_lots", "maxLots", "max_lots"),
+        sellMargin = jsonLotsField(sellM, "sellMaxLots", "sell_max_lots", "maxLots", "max_lots"),
+    )
+}
+
+internal fun maxLotsForLeg(spec: SpreadEntryLegSpec, tatn: TinkoffMaxLots, tatnp: TinkoffMaxLots): Int {
+    val book = if (spec.ticker.equals("TATNP", ignoreCase = true)) tatnp else tatn
+    return if (spec.buy) book.maxBuy else book.maxSell
+}
+
+internal fun clampSpreadLotsToBrokerMax(
+    wantLots: Int,
+    signalType: StrategySignalType,
+    tatn: TinkoffMaxLots,
+    tatnp: TinkoffMaxLots,
+): Int {
+    var cap = wantLots.coerceAtLeast(0)
+    for (spec in spreadEntryLegPlan(signalType)) {
+        cap = minOf(cap, maxLotsForLeg(spec, tatn, tatnp))
+    }
+    return cap.coerceAtLeast(0)
+}
+
+internal fun explainSpreadMaxLotsBlock(
+    signalType: StrategySignalType,
+    wantLots: Int,
+    tatn: TinkoffMaxLots,
+    tatnp: TinkoffMaxLots,
+): String? {
+    val plan = spreadEntryLegPlan(signalType)
+    val dirRu = if (signalType == StrategySignalType.EnterShort) "Short" else "Long"
+    for (spec in plan) {
+        val max = maxLotsForLeg(spec, tatn, tatnp)
+        if (!spec.buy && max < 1) {
+            val other = if (spec.ticker == "TATN") "TATNP" else "TATN"
+            return "$dirRu не открыть: T‑Invest даёт продать ${spec.ticker} 0 лот " +
+                "(нет бумаги в займ или пустой дилерский стакан на выходных). " +
+                "Шорт $other при этом может проходить — поэтому Long сегодня открывался, а Short нет."
+        }
+        if (spec.buy && max < 1) {
+            return "$dirRu не открыть: T‑Invest даёт купить ${spec.ticker} 0 лот."
+        }
+    }
+    val cap = clampSpreadLotsToBrokerMax(wantLots, signalType, tatn, tatnp)
+    if (cap < 1) {
+        return "$dirRu не открыть: брокер даёт 0 лот по ногам пары (нужно $wantLots)."
+    }
+    return null
+}
+
 internal fun spreadEntryLegPlan(signalType: StrategySignalType): List<SpreadEntryLegSpec> =
     when (signalType) {
         StrategySignalType.EnterLong -> listOf(

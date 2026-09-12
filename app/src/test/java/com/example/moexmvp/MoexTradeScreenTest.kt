@@ -219,6 +219,54 @@ class MoexTradeScreenTest {
     }
 
     @Test
+    fun explainSpreadMaxLotsBlock_weekendZeroTatnShort() {
+        val tatn = TinkoffMaxLots(buyOwn = 80, buyMargin = 80, sellOwn = 0, sellMargin = 0)
+        val tatnp = TinkoffMaxLots(buyOwn = 80, buyMargin = 80, sellOwn = 0, sellMargin = 70)
+        val shortMsg = explainSpreadMaxLotsBlock(
+            StrategySignalType.EnterShort,
+            57,
+            tatn,
+            tatnp,
+        )
+        assertTrue(shortMsg!!.contains("TATN"))
+        assertTrue(shortMsg.contains("0 лот"))
+        assertTrue(shortMsg.contains("Long"))
+        assertNull(
+            explainSpreadMaxLotsBlock(
+                StrategySignalType.EnterLong,
+                57,
+                tatn,
+                tatnp,
+            ),
+        )
+        assertEquals(
+            0,
+            clampSpreadLotsToBrokerMax(57, StrategySignalType.EnterShort, tatn, tatnp),
+        )
+        assertEquals(
+            57,
+            clampSpreadLotsToBrokerMax(57, StrategySignalType.EnterLong, tatn, tatnp),
+        )
+    }
+
+    @Test
+    fun parseTinkoffMaxLots_readsMarginSell() {
+        val root = org.json.JSONObject(
+            """
+            {
+              "buyLimits": {"buyMaxLots": 10},
+              "buyMarginLimits": {"buy_max_lots": 80},
+              "sellLimits": {"sellMaxLots": 0},
+              "sell_margin_limits": {"sell_max_lots": "0"}
+            }
+            """.trimIndent(),
+        )
+        val lots = parseTinkoffMaxLots(root)
+        assertEquals(80, lots.maxBuy)
+        assertEquals(0, lots.maxSell)
+    }
+
+    @Test
     fun canonicalMoexShareInstrumentId_replacesTickerTqbrWithFigi() {
         assertEquals(TINKOFF_MOEX_TATNP_FIGI, canonicalMoexShareInstrumentId("TATNP", "TATNP_TQBR"))
         assertEquals(TINKOFF_MOEX_TATN_FIGI, canonicalMoexShareInstrumentId("TATN", null))

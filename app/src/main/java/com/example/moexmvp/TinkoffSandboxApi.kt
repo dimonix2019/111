@@ -600,6 +600,23 @@ internal suspend fun tinkoffPostProdMarketOrder(
     throw last ?: IOException("PostOrder: неизвестная ошибка")
 }
 
+internal suspend fun tinkoffGetMaxLots(
+    token: String,
+    accountId: String,
+    instrumentId: String,
+): TinkoffMaxLots {
+    val root = tinkoffProdOrdersPostAsync(
+        token,
+        "GetMaxLots",
+        JSONObject()
+            .put("accountId", accountId)
+            .put("account_id", accountId)
+            .put("instrumentId", instrumentId)
+            .put("instrument_id", instrumentId),
+    )
+    return parseTinkoffMaxLots(root)
+}
+
 internal suspend fun tinkoffPostMarketOrder(
     mode: TinkoffExecutionMode,
     token: String,
@@ -819,7 +836,6 @@ internal suspend fun tinkoffExecuteSpreadEntryDetailed(
     signalType: StrategySignalType,
     quantityLots: Int = 1,
 ): List<SandboxLegOrderResult> {
-    val qty = quantityLots.coerceAtLeast(1)
     val plan = try {
         spreadEntryLegPlan(signalType)
     } catch (e: IllegalArgumentException) {
@@ -836,6 +852,19 @@ internal suspend fun tinkoffExecuteSpreadEntryDetailed(
         ),
     )
     val posted = mutableListOf<Pair<SpreadEntryLegSpec, SandboxLegOrderResult>>()
+    var qty = quantityLots.coerceAtLeast(1)
+    if (mode == TinkoffExecutionMode.Prod) {
+        val tatnMax = runCatching { tinkoffGetMaxLots(token, accountId, instIds.getValue("TATN")) }.getOrNull()
+        val tatnpMax = runCatching { tinkoffGetMaxLots(token, accountId, instIds.getValue("TATNP")) }.getOrNull()
+        if (tatnMax != null && tatnpMax != null) {
+            explainSpreadMaxLotsBlock(signalType, qty, tatnMax, tatnpMax)?.let { throw IOException(it) }
+            val capped = clampSpreadLotsToBrokerMax(qty, signalType, tatnMax, tatnpMax)
+            if (capped < 1) {
+                throw IOException("Пара не открыта: брокер даёт 0 лот по ногам.")
+            }
+            qty = capped
+        }
+    }
     suspend fun postSpec(spec: SpreadEntryLegSpec): SandboxLegOrderResult {
         val instId = instIds.getValue(spec.ticker)
         val order = tinkoffPostMarketOrder(mode, token, accountId, instId, spec.orderDirection, qty)
