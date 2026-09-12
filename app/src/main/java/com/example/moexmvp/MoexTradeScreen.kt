@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +46,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.util.Locale
 import kotlin.math.abs
 
@@ -72,6 +74,7 @@ internal data class TradeScreenSnapshot(
     val entryTimeSource: SpreadEntryTimeSource? = null,
     val takeProfitForecast: TakeProfitForecast? = null,
     val takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
+    val closeNowPnl: CloseNowPnl? = null,
     val execSourceLabel: String? = null,
     val quantityLots: Int = 0,
 ) {
@@ -162,6 +165,22 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             entryTimeMsk = entryTimeMsk,
             takeProfitPct = takeProfitPct,
         )
+        val quotes = runCatching {
+            withTimeout(4_000) { fetchIssPairQuotes() }
+        }.getOrNull()
+        val closeNowPnl = computeCloseNowPnl(
+            tatnLots = broker.tatnLots,
+            tatnpLots = broker.tatnpLots,
+            fillTatnRub = avg.tatnAvgPriceRub,
+            fillTatnpRub = avg.tatnpAvgPriceRub,
+            quotes = quotes,
+            fallbackTatnLast = broker.tatnPriceRub,
+            fallbackTatnpLast = broker.tatnpPriceRub,
+            depositRub = deposit,
+            cashRub = cash,
+            entryTimeMsk = entryTimeMsk,
+            nowMillis = now,
+        )
         TradeScreenSnapshot(
             loadedAtMillis = now,
             side = broker.side,
@@ -184,6 +203,7 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             entryTimeSource = entrySource,
             takeProfitForecast = tpForecast,
             takeProfitPct = takeProfitPct,
+            closeNowPnl = closeNowPnl,
             execSourceLabel = exec?.let { portfolioExecSourceLabel(it.source) },
             quantityLots = lots,
         )
@@ -259,6 +279,16 @@ internal fun MoexScreenTabTrade(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        snap?.closeNowPnl?.let { TradeCloseNowHero(it) }
+        if (snap?.isOpen == true && snap.closeNowPnl == null && !loading) {
+            Text(
+                text = "PnL при закрытии недоступен — нет средней входа или котировок.",
+                color = Color(0xFFFFCC80),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -415,10 +445,11 @@ internal fun MoexScreenTabTrade(
 
         TradeInfoCard(title = "Источник данных") {
             Text(
-                "Позиции, PnL и цены — GetPortfolio T‑Invest. Маржа — GetMarginAttributes. " +
-                    "Время входа — журнал исполнений, лог ног, prefs или GetOperations. " +
-                    "Прогноз ТП — локально (parity web close_forecast, ТП ${formatTakeProfitPctInput(snap.takeProfitPct)}%). " +
-                    "Овернайт-строка, риск и AUTO — только на web-столе.",
+                "Крупный PnL сверху — если закрыть сейчас: BID/OFFER ISS (иначе LAST ±0,05 ₽), " +
+                    "комиссия Премиум 0,04% номинала на вход и на выход, перенос короткой ноги (ступени Премиум) " +
+                    "и плата 0,033%/день за отрицательный кэш. " +
+                    "Позиции и цены портфеля — GetPortfolio. Маржа — GetMarginAttributes. " +
+                    "Прогноз ТП — локально (parity web close_forecast, ТП ${formatTakeProfitPctInput(snap.takeProfitPct)}%).",
                 color = Color(0xFF9E9E9E),
                 fontSize = 10.sp,
                 lineHeight = 14.sp,
@@ -427,6 +458,66 @@ internal fun MoexScreenTabTrade(
 
         TradeFooterNote(snap.loadedAtMillis, loading)
     }
+}
+
+@Composable
+private fun TradeCloseNowHero(pnl: CloseNowPnl) {
+    val color = closeNowPnlAccent(pnl.netRub)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF0D1B12), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = formatCloseNowHeroRub(pnl.netRub),
+            color = color,
+            fontSize = 46.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            lineHeight = 48.sp,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = buildString {
+                append("если закрыть сейчас")
+                pnl.pctFromDeposit?.let { append(" · ${formatPercentSigned(it)} от вложения") }
+            },
+            color = Color(0xFFCFD8DC),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp),
+        )
+        Text(
+            text = formatCloseNowBreakdown(pnl),
+            color = Color(0xFF90A4AE),
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+            lineHeight = 14.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+        )
+        Text(
+            text = pnl.note,
+            color = Color(0xFF78909C),
+            fontSize = 10.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp),
+        )
+    }
+}
+
+internal fun closeNowPnlAccent(netRub: Double): Color = when {
+    netRub > 0 -> Color(0xFF69F0AE)
+    netRub < 0 -> Color(0xFFFF8A80)
+    else -> Color(0xFFECEFF1)
 }
 
 @Composable

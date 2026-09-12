@@ -70,7 +70,8 @@ internal fun MoexScreen() {
         Column(Modifier.fillMaxSize()) {
             MainTabSelector(
                 selected = screen.selectedTab,
-                onSelect = { screen.selectedTab = it }
+                onSelect = { screen.selectedTab = it },
+                tradeCloseNowPnl = screen.tradeScreenSnapshot?.closeNowPnl,
             )
             if (!screen.sandboxSpreadAutoExecute) {
                 MoexScreenVirtualTradeCard(screen, scope, Modifier.padding(top = 6.dp))

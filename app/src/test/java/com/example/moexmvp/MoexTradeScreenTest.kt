@@ -328,4 +328,147 @@ class MoexTradeScreenTest {
         assertEquals(8_000.0, takeProfitDepositRub(null, null, 8_000.0), 0.0)
         assertEquals(0.0, takeProfitDepositRub(null, null, null), 0.0)
     }
+
+    @Test
+    fun closeNowPnl_longUsesBidForTatnAndAskForTatnp() {
+        val quotes = PairQuotes(
+            tatn = ShareQuote(last = 619.0, bid = 618.0, ask = 620.0),
+            tatnp = ShareQuote(last = 599.0, bid = 598.0, ask = 600.0),
+        )
+        val pnl = computeCloseNowPnl(
+            tatnLots = 53,
+            tatnpLots = -53,
+            fillTatnRub = 617.5,
+            fillTatnpRub = 598.0,
+            quotes = quotes,
+            fallbackTatnLast = 619.0,
+            fallbackTatnpLast = 599.0,
+            depositRub = 50_000.0,
+            cashRub = 0.0,
+            entryTimeMsk = "2026-09-12 10:00",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 12, 0)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        assertEquals(618.0, pnl.closeTatnRub!!, 1e-9)
+        assertEquals(600.0, pnl.closeTatnpRub!!, 1e-9)
+        assertEquals("book", pnl.quotesMode)
+        val gross = 53 * (618.0 - 617.5) + (-53) * (600.0 - 598.0)
+        assertEquals(gross, pnl.grossRub, 0.01)
+        assertEquals(0.0, pnl.overnightShortRub, 0.01)
+        assertEquals(0.0, pnl.overnightMarginLoanRub, 0.01)
+    }
+
+    @Test
+    fun closeNowPnl_premiumCommissionsAndOvernightTiers() {
+        val quotes = PairQuotes(
+            tatn = ShareQuote(last = 620.0, bid = 620.0, ask = 620.1),
+            tatnp = ShareQuote(last = 600.0, bid = 599.9, ask = 600.0),
+        )
+        val pnl = computeCloseNowPnl(
+            tatnLots = 53,
+            tatnpLots = -53,
+            fillTatnRub = 617.5,
+            fillTatnpRub = 598.0,
+            quotes = quotes,
+            fallbackTatnLast = 620.0,
+            fallbackTatnpLast = 600.0,
+            depositRub = 50_000.0,
+            cashRub = -23_479.0,
+            entryTimeMsk = "2026-09-10 18:00",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 12, 0)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        val entryNotional = 53 * 617.5 + 53 * 598.0
+        val exitNotional = 53 * 620.0 + 53 * 600.0
+        assertEquals(entryNotional * 0.0004, pnl.entryCommissionRub, 0.02)
+        assertEquals(exitNotional * 0.0004, pnl.exitCommissionRub, 0.02)
+        assertEquals(2L, pnl.overnightDays)
+        assertEquals(35.0 * 2, pnl.overnightShortRub, 0.01)
+        assertEquals(23_479.0 * 0.00033 * 2, pnl.overnightMarginLoanRub, 0.05)
+        val expectedNet = pnl.grossRub - pnl.entryCommissionRub - pnl.exitCommissionRub -
+            pnl.overnightShortRub - pnl.overnightMarginLoanRub
+        assertEquals(expectedNet, pnl.netRub, 0.01)
+        assertTrue(pnl.netRub < pnl.grossRub)
+        assertTrue(formatCloseNowBreakdown(pnl).contains("комиссия"))
+        assertTrue(formatCloseNowBreakdown(pnl).contains("перенос"))
+        assertTrue(formatCloseNowBreakdown(pnl).contains("маржа"))
+    }
+
+    @Test
+    fun closeNowPnl_oneSidedLeftoverTatnOnly() {
+        val quotes = PairQuotes(
+            tatn = ShareQuote(last = 620.0, bid = 619.5, ask = 620.5),
+            tatnp = ShareQuote(),
+        )
+        val pnl = computeCloseNowPnl(
+            tatnLots = 53,
+            tatnpLots = 0,
+            fillTatnRub = 617.5,
+            fillTatnpRub = null,
+            quotes = quotes,
+            fallbackTatnLast = 620.0,
+            fallbackTatnpLast = null,
+            depositRub = 32_000.0,
+            cashRub = 1_000.0,
+            entryTimeMsk = "2026-09-12 10:00",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 12, 0)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        assertEquals(53 * (619.5 - 617.5), pnl.grossRub, 0.01)
+        assertEquals(0.0, pnl.overnightShortRub, 0.01)
+        assertEquals(53 * 617.5 * 0.0004, pnl.entryCommissionRub, 0.02)
+        assertEquals(53 * 619.5 * 0.0004, pnl.exitCommissionRub, 0.02)
+        assertEquals("book", pnl.quotesMode)
+    }
+
+    @Test
+    fun closeNowPnl_lastFallbackHalfTickWhenNoBook() {
+        val pnl = computeCloseNowPnl(
+            tatnLots = 10,
+            tatnpLots = -10,
+            fillTatnRub = 600.0,
+            fillTatnpRub = 580.0,
+            quotes = PairQuotes(
+                tatn = ShareQuote(last = 601.0),
+                tatnp = ShareQuote(last = 581.0),
+            ),
+            fallbackTatnLast = 601.0,
+            fallbackTatnpLast = 581.0,
+            depositRub = 20_000.0,
+            cashRub = 0.0,
+            entryTimeMsk = null,
+        )!!
+        assertEquals(601.0 - CLOSE_NOW_HALF_TICK_RUB, pnl.closeTatnRub!!, 1e-9)
+        assertEquals(581.0 + CLOSE_NOW_HALF_TICK_RUB, pnl.closeTatnpRub!!, 1e-9)
+        assertEquals("last_fallback", pnl.quotesMode)
+    }
+
+    @Test
+    fun parseIssMarketdataQuote_readsBidOfferLast() {
+        val json = """
+            {
+              "marketdata": {
+                "columns": ["SECID", "LAST", "BID", "OFFER"],
+                "data": [["TATN", 617.5, 617.4, 617.6]]
+              }
+            }
+        """.trimIndent()
+        val q = parseIssMarketdataQuote(json)!!
+        assertEquals(617.5, q.last!!, 1e-9)
+        assertEquals(617.4, q.bid!!, 1e-9)
+        assertEquals(617.6, q.ask!!, 1e-9)
+    }
+
+    @Test
+    fun formatCloseNowHeroRub_usesSignedSpaces() {
+        assertTrue(formatCloseNowHeroRub(1234.4).contains("1 234"))
+        assertTrue(formatCloseNowHeroRub(1234.4).startsWith("+"))
+        assertTrue(formatCloseNowHeroRub(-50.2).startsWith("-"))
+    }
 }

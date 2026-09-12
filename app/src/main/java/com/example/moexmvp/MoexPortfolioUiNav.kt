@@ -32,7 +32,8 @@ import androidx.compose.ui.unit.sp
 internal fun MainTabSelector(
     selected: MainTab,
     onSelect: (MainTab) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    tradeCloseNowPnl: CloseNowPnl? = null,
 ) {
     Row(
         modifier = modifier
@@ -62,15 +63,20 @@ internal fun MainTabSelector(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
+                    val tradePnl = if (tab == MainTab.Trade) tradeCloseNowPnl else null
                     Text(
-                        text = if (tab == MainTab.About) {
-                            "${tab.label}\n${BuildConfig.VERSION_NAME}"
-                        } else {
-                            tab.label
+                        text = when {
+                            tab == MainTab.About -> "${tab.label}\n${BuildConfig.VERSION_NAME}"
+                            tradePnl != null -> "${tab.label}\n${formatCloseNowHeroRub(tradePnl.netRub)}"
+                            else -> tab.label
                         },
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                        fontSize = 11.sp,
-                        maxLines = if (tab == MainTab.About) 2 else 1
+                        fontWeight = if (isSel || tradePnl != null) FontWeight.Bold else FontWeight.Normal,
+                        fontSize = if (tradePnl != null) 13.sp else 11.sp,
+                        color = when {
+                            tradePnl == null -> Color.White
+                            else -> closeNowPnlAccent(tradePnl.netRub)
+                        },
+                        maxLines = if (tab == MainTab.About || tradePnl != null) 2 else 1
                     )
                 }
             }
