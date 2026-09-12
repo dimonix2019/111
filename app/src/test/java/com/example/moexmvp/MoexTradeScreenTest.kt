@@ -448,8 +448,8 @@ class MoexTradeScreenTest {
                 .toInstant()
                 .toEpochMilli(),
         )!!
-        assertEquals(617.8 - CLOSE_NOW_HALF_TICK_RUB, pnl.closeTatnRub!!, 1e-9)
-        assertEquals(593.8 + CLOSE_NOW_HALF_TICK_RUB, pnl.closeTatnpRub!!, 1e-9)
+        assertEquals(617.8 - marketOrderHalfSpreadRub(617.8), pnl.closeTatnRub!!, 1e-9)
+        assertEquals(593.8 + marketOrderHalfSpreadRub(593.8), pnl.closeTatnpRub!!, 1e-9)
         assertTrue(pnl.note.contains("портфеля"))
         assertEquals("last_fallback", pnl.quotesMode)
         val stale = computeCloseNowPnl(
@@ -487,7 +487,7 @@ class MoexTradeScreenTest {
     }
 
     @Test
-    fun closeNowPnl_lastFallbackHalfTickWhenNoBook() {
+    fun closeNowPnl_lastFallbackUsesMarketSlipWhenNoBook() {
         val pnl = computeCloseNowPnl(
             tatnLots = 10,
             tatnpLots = -10,
@@ -503,9 +503,130 @@ class MoexTradeScreenTest {
             cashRub = 0.0,
             entryTimeMsk = null,
         )!!
-        assertEquals(601.0 - CLOSE_NOW_HALF_TICK_RUB, pnl.closeTatnRub!!, 1e-9)
-        assertEquals(581.0 + CLOSE_NOW_HALF_TICK_RUB, pnl.closeTatnpRub!!, 1e-9)
+        assertEquals(601.0 - marketOrderHalfSpreadRub(601.0), pnl.closeTatnRub!!, 1e-9)
+        assertEquals(581.0 + marketOrderHalfSpreadRub(581.0), pnl.closeTatnpRub!!, 1e-9)
         assertEquals("last_fallback", pnl.quotesMode)
+        assertTrue(marketOrderHalfSpreadRub(601.0) > CLOSE_NOW_HALF_TICK_RUB)
+    }
+
+    @Test
+    fun closeNowPnl_sept12Long57_forecastMatchesCashLeftNotHalfTick() {
+        val pnl = computeCloseNowPnl(
+            tatnLots = 57,
+            tatnpLots = -57,
+            fillTatnRub = 618.5,
+            fillTatnpRub = 592.8,
+            quotes = null,
+            fallbackTatnLast = 618.4,
+            fallbackTatnpLast = 593.1,
+            depositRub = 10_000.0,
+            cashRub = 8_504.99,
+            entryTimeMsk = "2026-09-12 14:56",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 15, 21)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        val oldHalfTickNet = run {
+            val closeTn = 618.4 - CLOSE_NOW_HALF_TICK_RUB
+            val closeTp = 593.1 + CLOSE_NOW_HALF_TICK_RUB
+            val gross = 57 * (closeTn - 618.5) + (-57) * (closeTp - 592.8)
+            val entry = (57 * 618.5 + 57 * 592.8) * 0.0004
+            val exit = (57 * closeTn + 57 * closeTp) * 0.0004
+            gross - entry - exit
+        }
+        assertEquals(618.4 - marketOrderHalfSpreadRub(618.4), pnl.closeTatnRub!!, 1e-9)
+        assertEquals(593.1 + marketOrderHalfSpreadRub(593.1), pnl.closeTatnpRub!!, 1e-9)
+        assertTrue(oldHalfTickNet > -90.0 && oldHalfTickNet < -70.0)
+        assertTrue(pnl.netRub < -150.0)
+        assertTrue(kotlin.math.abs(pnl.netRub - oldHalfTickNet) > 70.0)
+        val cashAfter = pnl.cashAfterCloseRub!!
+        assertEquals(9_827.37, cashAfter, 8.0)
+        assertEquals(10_000.0 - 9_827.37, 10_000.0 - cashAfter, 8.0)
+        assertTrue(formatCloseNowBreakdown(pnl).contains("на счёте"))
+    }
+
+    @Test
+    fun vwapWalk_sept12ChildFills() {
+        val tatnBid = vwapWalk(
+            listOf(BookLevel(617.6, 23.0), BookLevel(617.5, 34.0)),
+            57.0,
+        )!!
+        val tatnpAsk = vwapWalk(
+            listOf(BookLevel(593.8, 25.0), BookLevel(593.9, 32.0)),
+            57.0,
+        )!!
+        assertEquals(617.5403551, tatnBid, 1e-4)
+        assertEquals(593.85614, tatnpAsk, 1e-4)
+        val pnl = computeCloseNowPnl(
+            tatnLots = 57,
+            tatnpLots = -57,
+            fillTatnRub = 618.5,
+            fillTatnpRub = 592.8,
+            quotes = PairQuotes(
+                tatn = ShareQuote(last = 618.4, bid = tatnBid, ask = 618.5),
+                tatnp = ShareQuote(last = 593.1, bid = 593.0, ask = tatnpAsk),
+                source = "tinkoff",
+            ),
+            fallbackTatnLast = 618.4,
+            fallbackTatnpLast = 593.1,
+            depositRub = 10_000.0,
+            cashRub = 8_504.99,
+            entryTimeMsk = "2026-09-12 14:56",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 15, 21)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        assertEquals("book", pnl.quotesMode)
+        assertTrue(pnl.note.contains("T‑Invest"))
+        assertEquals(9_827.37, pnl.cashAfterCloseRub!!, 1.0)
+    }
+
+    @Test
+    fun parseTinkoffOrderBookQuote_vwapOnLots() {
+        val json = JSONObject(
+            """
+            {
+              "lastPrice": {"units": "618", "nano": 400000000},
+              "bids": [
+                {"price": {"units": "617", "nano": 600000000}, "quantity": "23"},
+                {"price": {"units": "617", "nano": 500000000}, "quantity": "34"}
+              ],
+              "asks": [
+                {"price": {"units": "618", "nano": 500000000}, "quantity": "10"}
+              ]
+            }
+            """.trimIndent(),
+        )
+        val q = parseTinkoffOrderBookQuote(json, 57.0)!!
+        assertEquals(617.5403551, q.bid!!, 1e-4)
+        assertEquals(618.5, q.ask!!, 1e-9)
+        assertEquals(618.4, q.last!!, 1e-9)
+    }
+
+    @Test
+    fun mergeCloseNowQuotes_prefersTinkoffBook() {
+        val tinkoff = PairQuotes(
+            tatn = ShareQuote(last = 618.4, bid = 617.54, ask = 618.5),
+            tatnp = ShareQuote(),
+            source = "tinkoff",
+        )
+        val iss = PairQuotes(
+            tatn = ShareQuote(last = 619.0, bid = 618.9, ask = 619.1),
+            tatnp = ShareQuote(last = 593.2, bid = 593.1, ask = 593.3),
+            source = "iss",
+        )
+        val merged = mergeCloseNowQuotes(tinkoff, iss)!!
+        assertEquals(617.54, merged.tatn.bid!!, 1e-9)
+        assertEquals(593.3, merged.tatnp.ask!!, 1e-9)
+        assertEquals("tinkoff+iss", merged.source)
+    }
+
+    @Test
+    fun marketOrderHalfSpreadRub_matchesSept12Walk() {
+        assertEquals(618.4 * 0.0014, marketOrderHalfSpreadRub(618.4), 1e-9)
+        assertEquals(0.40, marketOrderHalfSpreadRub(100.0), 1e-9)
     }
 
     @Test

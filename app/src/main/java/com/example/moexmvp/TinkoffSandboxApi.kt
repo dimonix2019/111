@@ -163,6 +163,9 @@ private suspend fun tinkoffProdOperationsPostRaw(token: String, method: String, 
 private suspend fun tinkoffProdUsersPostRaw(token: String, method: String, bodyJson: String): String =
     tinkoffSbxPostRaw(TINVEST_PROD_USERS_PREFIXES, token, method, bodyJson)
 
+private suspend fun tinkoffProdMarketDataPostRaw(token: String, method: String, bodyJson: String): String =
+    tinkoffSbxPostRaw(TINVEST_PROD_MARKETDATA_PREFIXES, token, method, bodyJson)
+
 internal suspend fun tinkoffInstrumentsPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffInstrumentsPostRaw(token, method, body.toString())
     return parseJsonObjectOrEmpty(raw)
@@ -190,6 +193,11 @@ internal suspend fun tinkoffProdOperationsPostAsync(token: String, method: Strin
 
 internal suspend fun tinkoffProdUsersPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffProdUsersPostRaw(token, method, body.toString())
+    return parseJsonObjectOrEmpty(raw)
+}
+
+internal suspend fun tinkoffProdMarketDataPostAsync(token: String, method: String, body: JSONObject): JSONObject {
+    val raw = tinkoffProdMarketDataPostRaw(token, method, body.toString())
     return parseJsonObjectOrEmpty(raw)
 }
 

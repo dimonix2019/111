@@ -165,19 +165,41 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             entryTimeMsk = entryTimeMsk,
             takeProfitPct = takeProfitPct,
         )
-        val quotes = withTimeoutOrNull(1_500) { fetchIssPairQuotes() }?.let { q ->
-            val keepTatn = shareQuoteHasBook(q.tatn)
-            val keepTatnp = shareQuoteHasBook(q.tatnp)
-            if (!keepTatn && !keepTatnp) {
-                null
-            } else {
-                PairQuotes(
-                    tatn = if (keepTatn) q.tatn else ShareQuote(),
-                    tatnp = if (keepTatnp) q.tatnp else ShareQuote(),
-                    source = q.source,
+        val closeLotsAbs = maxOf(abs(broker.tatnLots), abs(broker.tatnpLots)).toDouble()
+            .coerceAtLeast(1.0)
+        val tinkoffQuotes = if (broker.tatnLots != 0 || broker.tatnpLots != 0) {
+            withTimeoutOrNull(2_000) {
+                fetchTinkoffPairQuotesForClose(
+                    token = token,
+                    tatnInstrumentId = extraTatn.firstOrNull() ?: TINKOFF_MOEX_TATN_FIGI,
+                    tatnpInstrumentId = extraTatnp.firstOrNull() ?: TINKOFF_MOEX_TATNP_FIGI,
+                    lotsAbs = closeLotsAbs,
                 )
             }
+        } else {
+            null
         }
+        val tinkoffBooksOk = tinkoffQuotes != null &&
+            (broker.tatnLots == 0 || shareQuoteHasBook(tinkoffQuotes.tatn)) &&
+            (broker.tatnpLots == 0 || shareQuoteHasBook(tinkoffQuotes.tatnp))
+        val issQuotes = if (!tinkoffBooksOk) {
+            withTimeoutOrNull(1_500) { fetchIssPairQuotes() }?.let { q ->
+                val keepTatn = shareQuoteHasBook(q.tatn)
+                val keepTatnp = shareQuoteHasBook(q.tatnp)
+                if (!keepTatn && !keepTatnp) {
+                    null
+                } else {
+                    PairQuotes(
+                        tatn = if (keepTatn) q.tatn else ShareQuote(),
+                        tatnp = if (keepTatnp) q.tatnp else ShareQuote(),
+                        source = q.source,
+                    )
+                }
+            }
+        } else {
+            null
+        }
+        val quotes = mergeCloseNowQuotes(tinkoffQuotes, issQuotes)
         val closeNowPnl = computeCloseNowPnl(
             tatnLots = broker.tatnLots,
             tatnpLots = broker.tatnpLots,
@@ -223,6 +245,19 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             error = err.message ?: "Ошибка загрузки портфеля",
         )
     }
+}
+
+internal fun mergeCloseNowQuotes(tinkoff: PairQuotes?, iss: PairQuotes?): PairQuotes? {
+    if (tinkoff == null) return iss
+    if (iss == null) return tinkoff
+    val tn = if (shareQuoteHasBook(tinkoff.tatn)) tinkoff.tatn else iss.tatn
+    val tp = if (shareQuoteHasBook(tinkoff.tatnp)) tinkoff.tatnp else iss.tatnp
+    val src = when {
+        shareQuoteHasBook(tinkoff.tatn) && shareQuoteHasBook(tinkoff.tatnp) -> "tinkoff"
+        shareQuoteHasBook(tinkoff.tatn) || shareQuoteHasBook(tinkoff.tatnp) -> "tinkoff+iss"
+        else -> iss.source
+    }
+    return PairQuotes(tatn = tn, tatnp = tp, source = src)
 }
 
 private fun openExecMatchesBrokerSide(exec: SandboxSpreadExecUi, side: ZStrategyPosition): Boolean =
@@ -475,9 +510,12 @@ internal fun MoexScreenTabTrade(
 
         TradeInfoCard(title = "Источник данных") {
             Text(
-                "Крупный PnL сверху — если закрыть сейчас: BID/OFFER ISS (иначе LAST ±0,05 ₽), " +
-                    "комиссия Премиум 0,04% номинала на вход и на выход, перенос короткой ноги (ступени Премиум) " +
+                "Крупный PnL сверху — если закрыть сейчас: стакан T‑Invest (VWAP на ваши лоты), " +
+                    "иначе ISS BID/OFFER, иначе рыночный слип ${formatCloseNowSlipPct()} от last " +
+                    "(не ±0,05 ₽ — рыночная заявка уходит глубже стакана). " +
+                    "Комиссия Премиум 0,04% номинала на вход и на выход, перенос короткой ноги (ступени Премиум) " +
                     "и плата 0,033%/день за отрицательный кэш. " +
+                    "«На счёте останется» = кэш + продажа/откуп ног − комиссия выхода. " +
                     "Позиции и цены портфеля — GetPortfolio. Маржа — GetMarginAttributes. " +
                     "Прогноз ТП — локально (parity web close_forecast, ТП ${formatTakeProfitPctInput(snap.takeProfitPct)}%).",
                 color = Color(0xFF9E9E9E),
@@ -541,6 +579,18 @@ private fun TradeCloseNowHero(pnl: CloseNowPnl) {
                 .fillMaxWidth()
                 .padding(top = 2.dp),
         )
+        pnl.cashAfterCloseRub?.let { cashAfter ->
+            Text(
+                text = "на счёте останется ≈ ${formatCloseNowCashAfterRub(cashAfter)}",
+                color = Color(0xFFB0BEC5),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            )
+        }
     }
 }
 

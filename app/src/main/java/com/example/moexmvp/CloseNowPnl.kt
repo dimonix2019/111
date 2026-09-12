@@ -6,13 +6,25 @@ import kotlin.math.max
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
-/** Полутик, если ISS не отдал BID/OFFER (как web close_forecast). */
+/** Полутик ISS — только если есть живой односторонний BID/OFFER. */
 internal const val CLOSE_NOW_HALF_TICK_RUB = 0.05
+/**
+ * Рыночный ордер без стакана: 12.09.2026 TATN 618,4→617,54 и TATNP 593,1→593,86 (~0,14 %).
+ * Не меньше ~4 тиков — книга часто уходит на 2 уровня.
+ */
+internal const val CLOSE_NOW_MARKET_SLIP_PCT = 0.14
+internal const val CLOSE_NOW_MARKET_SLIP_MIN_RUB = 0.40
+internal const val CLOSE_NOW_BOOK_DEPTH = 20
 
 internal data class ShareQuote(
     val last: Double? = null,
     val bid: Double? = null,
     val ask: Double? = null,
+)
+
+internal data class BookLevel(
+    val price: Double,
+    val lots: Double,
 )
 
 internal data class PairQuotes(
@@ -33,6 +45,7 @@ internal data class CloseNowPnl(
     val overnightDays: Long,
     val closeTatnRub: Double?,
     val closeTatnpRub: Double?,
+    val cashAfterCloseRub: Double?,
     val quotesMode: String,
     val note: String,
 ) {
@@ -51,6 +64,95 @@ internal fun lastForCloseSynth(iss: ShareQuote, brokerLast: Double?): Double? {
     return brokerLast?.takeIf { it > 0 } ?: iss.last?.takeIf { it > 0 }
 }
 
+internal fun marketOrderHalfSpreadRub(last: Double): Double {
+    if (last <= 0) return CLOSE_NOW_MARKET_SLIP_MIN_RUB
+    return max(CLOSE_NOW_MARKET_SLIP_MIN_RUB, last * CLOSE_NOW_MARKET_SLIP_PCT / 100.0)
+}
+
+/** Продажа N лотов в bids / покупка N лотов из asks. Остаток — по последнему уровню. */
+internal fun vwapWalk(levels: List<BookLevel>, lotsNeeded: Double): Double? {
+    if (lotsNeeded <= 1e-9 || levels.isEmpty()) return null
+    var left = lotsNeeded
+    var notional = 0.0
+    var lastPx = 0.0
+    for (lvl in levels) {
+        if (lvl.price <= 0 || lvl.lots <= 0) continue
+        val take = kotlin.math.min(left, lvl.lots)
+        notional += take * lvl.price
+        lastPx = lvl.price
+        left -= take
+        if (left <= 1e-9) break
+    }
+    if (lastPx <= 0) return null
+    if (left > 1e-9) notional += left * lastPx
+    return notional / lotsNeeded
+}
+
+internal fun parseTinkoffOrderBookLevels(root: org.json.JSONObject, key: String): List<BookLevel> {
+    val arr = root.optJSONArray(key) ?: return emptyList()
+    val out = ArrayList<BookLevel>(arr.length())
+    for (i in 0 until arr.length()) {
+        val row = arr.optJSONObject(i) ?: continue
+        val price = tinkoffBookNumber(row.opt("price")) ?: continue
+        val qty = tinkoffBookNumber(row.opt("quantity")) ?: continue
+        if (price > 0 && qty > 0) out.add(BookLevel(price, qty))
+    }
+    return out
+}
+
+internal fun tinkoffBookNumber(raw: Any?): Double? = when (raw) {
+    is org.json.JSONObject -> quotationUnitsToDouble(raw)
+    is Number -> raw.toDouble()
+    is String -> raw.trim().toDoubleOrNull()
+    else -> null
+}?.takeIf { it > 0 && it.isFinite() }
+
+internal fun parseTinkoffOrderBookQuote(root: org.json.JSONObject, lotsAbs: Double): ShareQuote? {
+    val bids = parseTinkoffOrderBookLevels(root, "bids")
+    val asks = parseTinkoffOrderBookLevels(root, "asks")
+    val last = root.optJSONObject("lastPrice")?.let { quotationUnitsToDouble(it) }
+        ?: root.optJSONObject("closePrice")?.let { quotationUnitsToDouble(it) }
+        ?: tinkoffBookNumber(root.opt("lastPrice"))
+    val need = lotsAbs.takeIf { it > 0 } ?: 1.0
+    val bid = vwapWalk(bids, need) ?: bids.firstOrNull()?.price
+    val ask = vwapWalk(asks, need) ?: asks.firstOrNull()?.price
+    if ((bid == null || bid <= 0) && (ask == null || ask <= 0) && (last == null || last <= 0)) {
+        return null
+    }
+    return ShareQuote(last = last?.takeIf { it > 0 }, bid = bid, ask = ask)
+}
+
+internal suspend fun fetchTinkoffOrderBookQuote(
+    token: String,
+    instrumentId: String,
+    lotsAbs: Double,
+): ShareQuote? {
+    if (token.isBlank() || instrumentId.isBlank()) return null
+    return runCatching {
+        val body = org.json.JSONObject()
+            .put("instrumentId", instrumentId)
+            .put("depth", CLOSE_NOW_BOOK_DEPTH)
+        parseTinkoffOrderBookQuote(
+            tinkoffProdMarketDataPostAsync(token, "GetOrderBook", body),
+            lotsAbs,
+        )
+    }.getOrNull()
+}
+
+internal suspend fun fetchTinkoffPairQuotesForClose(
+    token: String,
+    tatnInstrumentId: String,
+    tatnpInstrumentId: String,
+    lotsAbs: Double,
+): PairQuotes? = coroutineScope {
+    val tn = async { fetchTinkoffOrderBookQuote(token, tatnInstrumentId, lotsAbs) }
+    val tp = async { fetchTinkoffOrderBookQuote(token, tatnpInstrumentId, lotsAbs) }
+    val a = tn.await()
+    val b = tp.await()
+    if (a == null && b == null) return@coroutineScope null
+    PairQuotes(tatn = a ?: ShareQuote(), tatnp = b ?: ShareQuote(), source = "tinkoff")
+}
+
 internal fun synthBidAsk(
     last: Double?,
     bid: Double?,
@@ -61,17 +163,43 @@ internal fun synthBidAsk(
     if (bIn != null && aIn != null) return Triple(bIn, aIn, "book")
     val mid = last?.takeIf { it > 0 }
     if (mid == null) {
-        if (bIn != null) return Triple(bIn, bIn + CLOSE_NOW_HALF_TICK_RUB * 2, "partial")
-        if (aIn != null) return Triple(max(0.01, aIn - CLOSE_NOW_HALF_TICK_RUB * 2), aIn, "partial")
+        if (bIn != null) {
+            return Triple(bIn, bIn + marketOrderHalfSpreadRub(bIn) * 2, "partial")
+        }
+        if (aIn != null) {
+            return Triple(max(0.01, aIn - marketOrderHalfSpreadRub(aIn) * 2), aIn, "partial")
+        }
         return Triple(null, null, "none")
     }
-    val b = bIn ?: (mid - CLOSE_NOW_HALF_TICK_RUB)
-    val a = aIn ?: (mid + CLOSE_NOW_HALF_TICK_RUB)
+    val slip = marketOrderHalfSpreadRub(mid)
+    val b = bIn ?: (mid - slip)
+    val a = aIn ?: (mid + slip)
     val bidOut = if (b > 0) b else mid * 0.9999
     var askOut = if (a > 0) a else mid * 1.0001
     if (askOut < bidOut) askOut = bidOut
     val mode = if (bIn != null && aIn != null) "book" else "last_fallback"
     return Triple(bidOut, askOut, mode)
+}
+
+internal fun cashAfterCloseRub(
+    cashRub: Double?,
+    tatnLots: Int,
+    tatnpLots: Int,
+    closeTatn: Double?,
+    closeTatnp: Double?,
+    exitCommissionRub: Double,
+): Double? {
+    val cash = cashRub ?: return null
+    var out = cash - exitCommissionRub
+    if (tatnLots != 0) {
+        val px = closeTatn?.takeIf { it > 0 } ?: return null
+        out += tatnLots * px
+    }
+    if (tatnpLots != 0) {
+        val px = closeTatnp?.takeIf { it > 0 } ?: return null
+        out += tatnpLots * px
+    }
+    return out
 }
 
 /** Цена закрытия ноги: лонг продаём по bid, шорт откупаем по ask. */
@@ -212,10 +340,23 @@ internal fun computeCloseNowPnl(
     val usedPortfolioLast =
         (!tnNeeded || (!tnBook && fallbackTatnLast != null)) &&
             (!tpNeeded || (!tpBook && fallbackTatnpLast != null))
+    val cashAfter = cashAfterCloseRub(
+        cashRub = cashRub,
+        tatnLots = tatnLots,
+        tatnpLots = tatnpLots,
+        closeTatn = closeTatn,
+        closeTatnp = closeTatnp,
+        exitCommissionRub = exitComm,
+    )
+    val src = quotes?.source.orEmpty()
     val note = when {
+        quotesMode == "book" && src.contains("tinkoff") ->
+            "по стакану T‑Invest (VWAP на лоты) · Премиум"
         quotesMode == "book" -> "по BID/OFFER ISS · тариф Премиум"
-        usedPortfolioLast -> "по цене портфеля ±0,05 ₽ · Премиум"
-        quotesMode == "last_fallback" -> "BID/OFFER нет — LAST ±0,05 ₽ · Премиум"
+        usedPortfolioLast ->
+            "рыночный ордер: last портфеля ±${formatCloseNowSlipPct()} · Премиум"
+        quotesMode == "last_fallback" ->
+            "рыночный ордер: LAST ±${formatCloseNowSlipPct()} · Премиум"
         else -> "тариф Премиум"
     }
     return CloseNowPnl(
@@ -229,13 +370,20 @@ internal fun computeCloseNowPnl(
         overnightDays = ovnDays,
         closeTatnRub = closeTatn,
         closeTatnpRub = closeTatnp,
+        cashAfterCloseRub = cashAfter,
         quotesMode = quotesMode,
         note = note,
     )
 }
 
+internal fun formatCloseNowSlipPct(): String =
+    String.format(Locale.US, "%.2f%%", CLOSE_NOW_MARKET_SLIP_PCT)
+
 internal fun formatCloseNowHeroRub(v: Double): String =
     String.format(Locale.US, "%+,.0f ₽", kotlin.math.round(v)).replace(',', ' ')
+
+internal fun formatCloseNowCashAfterRub(v: Double): String =
+    String.format(Locale.US, "%,.0f ₽", kotlin.math.round(v)).replace(',', ' ')
 
 internal fun formatCloseNowBreakdown(pnl: CloseNowPnl): String {
     val parts = mutableListOf<String>()
@@ -246,6 +394,9 @@ internal fun formatCloseNowBreakdown(pnl: CloseNowPnl): String {
             parts += "маржа ${formatRubExpense(pnl.overnightMarginLoanRub)}"
         }
         if (pnl.overnightDays > 0) parts += "${pnl.overnightDays} д"
+    }
+    pnl.cashAfterCloseRub?.let {
+        parts += "на счёте ≈ ${formatCloseNowCashAfterRub(it)}"
     }
     val px = buildString {
         pnl.closeTatnRub?.let { append("TATN ${String.format(Locale.US, "%.1f", it)}") }
