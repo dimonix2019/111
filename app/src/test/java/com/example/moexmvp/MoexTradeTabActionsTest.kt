@@ -207,4 +207,29 @@ class MoexTradeTabActionsTest {
             ),
         )
     }
+
+    @Test
+    fun pendingVirtualTradeCard_hiddenWhenTradeAlreadyOpen() {
+        val pending = PendingVirtualTradeProposal(
+            signalType = StrategySignalType.EnterLong,
+            zScore = 1.44,
+            timestampMillis = 1_700_000_000_000L,
+            entryThreshold = 1.3,
+            exitThreshold = 1.2,
+            receivedAtMillis = 1_700_000_000_000L,
+        )
+        assertTrue(shouldShowPendingVirtualTradeCard(pending, tradeOpen = false))
+        assertFalse(shouldShowPendingVirtualTradeCard(pending, tradeOpen = true))
+        assertFalse(
+            shouldShowPendingVirtualTradeCard(
+                pending,
+                tradeOpen = false,
+                savedPosition = ZStrategyPosition.Long,
+            ),
+        )
+        assertFalse(shouldShowPendingVirtualTradeCard(null, tradeOpen = false))
+        assertFalse(shouldRestorePendingVirtualFromJournal(ZStrategyPosition.Long))
+        assertFalse(shouldRestorePendingVirtualFromJournal(ZStrategyPosition.Short))
+        assertTrue(shouldRestorePendingVirtualFromJournal(ZStrategyPosition.Flat))
+    }
 }

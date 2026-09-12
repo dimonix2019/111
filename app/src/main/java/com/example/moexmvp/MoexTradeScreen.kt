@@ -248,6 +248,10 @@ internal suspend fun MoexScreenState.refreshTradeScreenFromBroker() {
     tradeScreenLoading = true
     val snap = withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context) }
     tradeScreenSnapshot = snap
+    if (snap.isOpen && pendingVirtualTrade != null) {
+        pendingVirtualTrade = null
+        withContext(Dispatchers.IO) { clearPendingVirtualTradeProposal(context) }
+    }
     val (trades, source) = withContext(Dispatchers.IO) { loadTradeTabClosedTrades(context) }
     tradeTabClosedTrades = trades
     tradeTabTradesSource = source

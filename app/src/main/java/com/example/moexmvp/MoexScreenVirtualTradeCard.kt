@@ -55,7 +55,15 @@ internal fun MoexScreenVirtualTradeCard(
     modifier: Modifier = Modifier,
 ) {
     with(screen) {
-        pendingVirtualTrade?.let { proposal ->
+        val proposal = pendingVirtualTrade ?: return
+        if (!shouldShowPendingVirtualTradeCard(
+                pending = proposal,
+                tradeOpen = tradeScreenSnapshot?.isOpen == true,
+                savedPosition = zStrategyPosition,
+            )
+        ) {
+            return
+        }
             PendingVirtualTradeProposalCard(
                 proposal = proposal,
                 sandboxState = sandboxExecState,
@@ -201,6 +209,5 @@ internal fun MoexScreenVirtualTradeCard(
                 },
                 modifier = modifier.padding(top = 6.dp)
             )
-        }
     }
 }

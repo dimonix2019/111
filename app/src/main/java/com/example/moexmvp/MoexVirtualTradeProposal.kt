@@ -158,9 +158,25 @@ internal fun markVirtualTradeConsumedForJournalEntry(
         .commit()
 }
 
+/** Карточка «Принять» только пока нет открытой сделки. */
+internal fun shouldShowPendingVirtualTradeCard(
+    pending: PendingVirtualTradeProposal?,
+    tradeOpen: Boolean,
+    savedPosition: ZStrategyPosition = ZStrategyPosition.Flat,
+): Boolean {
+    if (pending == null) return false
+    if (tradeOpen) return false
+    if (savedPosition == ZStrategyPosition.Long || savedPosition == ZStrategyPosition.Short) return false
+    return true
+}
+
 /**
- * Если карточки нет, а в журнале последняя запись — вход и позиция совпадает — восстановить pending (после сбоя prefs / гонки apply()).
+ * Восстанавливать карточку «Принять» только если сделки ещё нет.
+ * Раньше: журнал вход + позиция Long/Short → карточка снова всплывала сразу после открытия.
  */
+internal fun shouldRestorePendingVirtualFromJournal(position: ZStrategyPosition): Boolean =
+    position == ZStrategyPosition.Flat
+
 /** PendingIntent в push: только если вход подтверждается карточкой «Принять» (не авто-режим). */
 internal fun entryVirtualTradeTapIfManualAccept(
     context: Context,
@@ -203,23 +219,8 @@ internal fun suppressUserCancelledEntry(
 
 internal fun restorePendingVirtualTradeFromJournalIfNeeded(context: Context) {
     if (TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context)) return
-    if (loadPendingVirtualTradeProposal(context) != null) return
-    val events = loadStrategySignalEvents(context)
-    val last = events.lastOrNull() ?: return
-    if (last.signalType != StrategySignalType.EnterLong && last.signalType != StrategySignalType.EnterShort) return
-    val (rejTs, rejTy) = loadRejectedVirtualEntry(context)
-    if (!shouldOfferPendingVirtualTrade(rejTs, rejTy, last.signalType, last.timestampMillis)) return
     val pos = loadSavedStrategyPosition(context)
-    val matches = when (last.signalType) {
-        StrategySignalType.EnterLong -> pos == ZStrategyPosition.Long
-        StrategySignalType.EnterShort -> pos == ZStrategyPosition.Short
-        else -> false
+    if (!shouldRestorePendingVirtualFromJournal(pos)) {
+        clearPendingVirtualTradeProposal(context)
     }
-    if (!matches) return
-    savePendingVirtualTradeProposal(
-        context = context,
-        signalType = last.signalType,
-        zScore = last.zScore,
-        timestampMillis = last.timestampMillis
-    )
 }

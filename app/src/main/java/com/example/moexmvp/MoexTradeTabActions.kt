@@ -238,6 +238,7 @@ internal suspend fun runManualSpreadEntryFromTradeTab(
             app,
             if (signalType == StrategySignalType.EnterShort) ZStrategyPosition.Short else ZStrategyPosition.Long,
         )
+        clearPendingVirtualTradeProposal(app)
         appendPortfolioExecutionLedger(
             app,
             barTimestampMillis = market.timestampMillis,
