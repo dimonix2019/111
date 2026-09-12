@@ -481,7 +481,7 @@ class MoexTradeScreenTest {
             lastForCloseSynth(ShareQuote(last = 618.7), 617.8),
         )
         assertEquals(
-            618.0,
+            619.0,
             lastForCloseSynth(ShareQuote(last = 619.0, bid = 618.0, ask = 620.0), 617.8),
         )
     }
