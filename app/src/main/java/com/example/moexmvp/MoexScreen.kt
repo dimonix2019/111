@@ -78,6 +78,7 @@ internal fun MoexScreen() {
             }
             when (screen.selectedTab) {
                 MainTab.About -> MoexScreenTabAbout(screen, scope, Modifier.weight(1f).fillMaxSize())
+                MainTab.Settings -> MoexScreenTabSettings(Modifier.weight(1f).fillMaxSize())
                 MainTab.Sandbox -> MoexScreenTabSandbox(screen, scope, Modifier.weight(1f).fillMaxSize())
                 MainTab.WebDesk -> MoexScreenTabWebDesk(screen, scope, Modifier.weight(1f).fillMaxSize())
                 MainTab.Markets -> MoexScreenTabMarketsPhone(screen, scope, Modifier.weight(1f).fillMaxSize())

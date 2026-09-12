@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
@@ -48,6 +49,7 @@ internal fun MainTabSelector(
                 MainTab.Trade -> Icons.Filled.SwapHoriz
                 MainTab.Sandbox -> Icons.Filled.AccountBalance
                 MainTab.WebDesk -> Icons.Filled.Language
+                MainTab.Settings -> Icons.Filled.Settings
                 MainTab.About -> Icons.Filled.Info
                 else -> Icons.Filled.Info
             }

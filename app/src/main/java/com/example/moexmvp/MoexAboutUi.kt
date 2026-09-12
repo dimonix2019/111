@@ -1,14 +1,8 @@
 package com.example.moexmvp
 
-import android.os.Build
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,19 +13,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -41,8 +29,6 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-private const val ABOUT_EVENT_LOG_TAIL = 15
 
 @Composable
 internal fun AboutTabContent(
@@ -174,16 +160,12 @@ internal fun AboutTabContent(
                     .padding(10.dp)
             )
         }
-        SpreadLevelAlertsSettingsCard(
-            modifier = Modifier.padding(top = 16.dp),
-        )
         Text(
             text = "История версий",
             color = Color.White,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(top = 16.dp)
         )
-        EventLogSection(modifier = Modifier.padding(top = 16.dp))
         Column(
             modifier = Modifier
                 .padding(top = 8.dp)
@@ -208,239 +190,6 @@ internal fun AboutTabContent(
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun EventLogSection(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var preview by remember { mutableStateOf("Загрузка журнала…") }
-    var lineCount by remember { mutableIntStateOf(0) }
-    var writingEnabled by remember {
-        mutableStateOf(MoexDiagnostics.isEventLogWritingEnabled(context))
-    }
-    val saveAsLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/plain"),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val ok = withContext(Dispatchers.IO) { MoexDiagnostics.writeExportToUri(context, uri) }
-            Toast.makeText(
-                context,
-                if (ok) "Журнал сохранён в выбранный файл" else "Не удалось записать файл",
-                Toast.LENGTH_LONG,
-            ).show()
-        }
-    }
-    LaunchedEffect(Unit) {
-        val (text, count) = withContext(Dispatchers.IO) {
-            MoexDiagnostics.formatForDisplay(context, tail = ABOUT_EVENT_LOG_TAIL) to
-                MoexDiagnostics.lineCount(context)
-        }
-        preview = text
-        lineCount = count
-        writingEnabled = MoexDiagnostics.isEventLogWritingEnabled(context)
-    }
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-            .padding(10.dp)
-    ) {
-        Text(
-            text = "Журнал событий (отладка вылетов)",
-            color = Color.White,
-            fontWeight = FontWeight.Medium,
-            fontSize = 14.sp
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(
-                    text = "Запись в журнал",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 12.sp,
-                )
-                Text(
-                    text = if (writingEnabled) {
-                        "Вкл — новые события пишутся в файл. Ответы биржи (PostOrder / GetMaxLots) пишутся всегда."
-                    } else {
-                        "Выкл — обычные события не копятся. Ответы биржи (PostOrder / GetMaxLots) пишутся всегда."
-                    },
-                    color = Color(0xFF9E9E9E),
-                    fontSize = 10.sp,
-                    lineHeight = 13.sp,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            Switch(
-                checked = writingEnabled,
-                onCheckedChange = { enabled ->
-                    MoexDiagnostics.setEventLogWritingEnabled(context, enabled)
-                    writingEnabled = enabled
-                    Toast.makeText(
-                        context,
-                        if (enabled) "Запись в журнал включена" else "Запись в журнал выключена",
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFF2E7D32),
-                ),
-            )
-        }
-        Text(
-            text = "Записей: $lineCount · показаны последние $ABOUT_EVENT_LOG_TAIL",
-            color = Color(0xFF9E9E9E),
-            fontSize = 11.sp,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-        Text(
-            text = preview,
-            color = Color(0xFFB0BEC5),
-            fontSize = 10.sp,
-            lineHeight = 13.sp,
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .fillMaxWidth()
-                .background(Color(0xFF121212), RoundedCornerShape(6.dp))
-                .padding(8.dp)
-        )
-        Row(
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Button(
-                onClick = {
-                    scope.launch {
-                        val path = withContext(Dispatchers.IO) {
-                            MoexDiagnostics.saveExportToDownloads(context)
-                        }
-                        when {
-                            path != null -> Toast.makeText(
-                                context,
-                                "Сохранено: $path",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
-                                Toast.makeText(context, "Не удалось сохранить в Загрузки", Toast.LENGTH_SHORT).show()
-                            else -> saveAsLauncher.launch(MoexDiagnostics.eventLogExportFileName())
-                        }
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
-            ) {
-                Text("Скачать", fontSize = 11.sp)
-            }
-            OutlinedButton(
-                onClick = {
-                    saveAsLauncher.launch(MoexDiagnostics.eventLogExportFileName())
-                },
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA))
-            ) {
-                Text("Сохранить", fontSize = 11.sp)
-            }
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        val ok = withContext(Dispatchers.IO) { MoexDiagnostics.shareExportFile(context) }
-                        if (!ok) {
-                            Toast.makeText(context, "Журнал пуст", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFCE93D8))
-            ) {
-                Text("Файл", fontSize = 11.sp)
-            }
-        }
-        Row(
-            modifier = Modifier
-                .padding(top = 6.dp)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        val ok = withContext(Dispatchers.IO) { MoexDiagnostics.copyToClipboard(context) }
-                        Toast.makeText(
-                            context,
-                            if (ok) "Скопировано в буфер" else "Журнал пуст",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81D4FA))
-            ) {
-                Text("Копировать", fontSize = 12.sp)
-            }
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        withContext(Dispatchers.IO) { MoexDiagnostics.shareExport(context) }
-                        Toast.makeText(context, "Отправьте текст (Telegram, почта…)", Toast.LENGTH_LONG).show()
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB0BEC5))
-            ) {
-                Text("Текст", fontSize = 12.sp)
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            TextButton(
-                onClick = {
-                    scope.launch {
-                        val (text, count) = withContext(Dispatchers.IO) {
-                            MoexDiagnostics.formatForDisplay(context, tail = ABOUT_EVENT_LOG_TAIL) to
-                                MoexDiagnostics.lineCount(context)
-                        }
-                        preview = text
-                        lineCount = count
-                    }
-                }
-            ) {
-                Text("Обновить", color = Color(0xFF90CAF9), fontSize = 11.sp)
-            }
-            TextButton(
-                onClick = {
-                    scope.launch {
-                        withContext(Dispatchers.IO) { MoexDiagnostics.clear(context) }
-                        val (text, count) = withContext(Dispatchers.IO) {
-                            MoexDiagnostics.formatForDisplay(context, tail = ABOUT_EVENT_LOG_TAIL) to
-                                MoexDiagnostics.lineCount(context)
-                        }
-                        preview = text
-                        lineCount = count
-                        Toast.makeText(context, "Журнал событий очищен", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            ) {
-                Text("Очистить", color = Color(0xFFFFAB91), fontSize = 11.sp)
             }
         }
     }

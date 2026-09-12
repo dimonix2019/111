@@ -136,9 +136,20 @@ class MoexTradeScreenTest {
     fun mainTabNavTabs_marketsFirstWebDeskLast() {
         val tabs = MainTab.navTabs
         assertEquals(MainTab.Markets, tabs.first())
-        assertEquals(MainTab.WebDesk, tabs[tabs.size - 2])
+        assertEquals(
+            listOf(
+                MainTab.Markets,
+                MainTab.Trade,
+                MainTab.Sandbox,
+                MainTab.WebDesk,
+                MainTab.Settings,
+                MainTab.About,
+            ),
+            tabs,
+        )
         assertEquals(MainTab.About, tabs.last())
         assertTrue(MainTab.Trade in tabs)
+        assertTrue(MainTab.Settings in tabs)
     }
 
     @Test

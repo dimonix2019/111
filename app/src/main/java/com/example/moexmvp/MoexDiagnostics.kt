@@ -49,7 +49,7 @@ internal object MoexDiagnostics {
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(EVENT_LOG_PREFS, Context.MODE_PRIVATE)
 
-    /** Пользовательский тумблер «О приложении» → журнал событий. */
+    /** Пользовательский тумблер «Настройки → Лог приложения». */
     fun isEventLogWritingEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_EVENT_LOG_WRITING, EVENT_LOG_WRITING_DEFAULT)
 
@@ -112,11 +112,6 @@ internal object MoexDiagnostics {
         Log.i(TAG, line)
         if (!alwaysWriteFile && !mayWriteToFile(context)) return
         appendLine(context.applicationContext, line)
-    }
-
-    /** PostOrder / GetMaxLots: в файл журнала всегда, даже если тумблер выключен. */
-    fun logExchangeReply(context: Context, message: String) {
-        log(context, "tinvest_order", message, maxChars = 1600, alwaysWriteFile = true)
     }
 
     fun logMemory(context: Context, label: String = "heap") {

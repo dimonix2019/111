@@ -474,7 +474,7 @@ internal fun SpreadLevelAlertDisableButton(
         }
     } else {
         Text(
-            text = "Алерт ${formatRuSignedNumber(level)}% отключён (см. «О приложении»)",
+            text = "Алерт ${formatRuSignedNumber(level)}% отключён (см. «Настройки»)",
             color = Color(0xFF757575),
             fontSize = 10.sp,
             modifier = modifier.padding(top = 4.dp),

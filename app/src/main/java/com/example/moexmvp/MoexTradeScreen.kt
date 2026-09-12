@@ -414,13 +414,6 @@ internal fun MoexScreenTabTrade(
             )
         }
 
-        TradeBrokerRepliesCard(
-            context = screen.context,
-            loadedAtMillis = snap?.loadedAtMillis,
-            entryBusy = screen.tradeManualEntryBusy,
-            flattenBusy = screen.emergencyFlattenBusy,
-        )
-
         if (loading && snap == null) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.CenterHorizontally).padding(24.dp),
@@ -630,46 +623,6 @@ internal fun closeNowPnlAccent(netRub: Double): Color = when {
     netRub > 0 -> Color(0xFF69F0AE)
     netRub < 0 -> Color(0xFFFF8A80)
     else -> Color(0xFFECEFF1)
-}
-
-@Composable
-private fun TradeBrokerRepliesCard(
-    context: Context,
-    loadedAtMillis: Long?,
-    entryBusy: Boolean,
-    flattenBusy: Boolean,
-) {
-    var tick by remember { mutableStateOf(0) }
-    LaunchedEffect(entryBusy, flattenBusy, loadedAtMillis) {
-        tick++
-        while (entryBusy || flattenBusy) {
-            delay(800)
-            tick++
-        }
-    }
-    val replies = remember(loadedAtMillis, tick) {
-        BrokerExchangeReplyLog.loadRecent(context, 16).asReversed()
-    }
-    if (replies.isEmpty()) return
-    TradeInfoCard(title = "Ответы биржи", accent = Color(0xFFFFB74D)) {
-        Text(
-            "PostOrder / GetMaxLots с T‑Invest. Пишутся всегда — сюда и в журнал на «О приложении».",
-            color = Color(0xFF90A4AE),
-            fontSize = 10.sp,
-            lineHeight = 13.sp,
-            modifier = Modifier.padding(bottom = 6.dp),
-        )
-        replies.forEach { reply ->
-            val fail = !reply.ok
-            Text(
-                text = formatBrokerExchangeReplyLine(reply),
-                color = if (fail) Color(0xFFFFAB91) else Color(0xFFB0BEC5),
-                fontSize = 10.sp,
-                lineHeight = 13.sp,
-                modifier = Modifier.padding(vertical = 2.dp),
-            )
-        }
-    }
 }
 
 @Composable

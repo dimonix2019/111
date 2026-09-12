@@ -1,8 +1,19 @@
 package com.example.moexmvp
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.util.Log
+import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -10,6 +21,9 @@ import java.util.Collections
 import java.util.Locale
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
+
+/** По умолчанию лог биржи включён (ответы PostOrder нужны после сбоя Short). */
+internal const val EXCHANGE_LOG_WRITING_DEFAULT = true
 
 /** Пометка цели заявки (вход / откат / flatten), видна в логе ответов биржи. */
 internal class TinkoffOrderPurpose(
@@ -54,14 +68,29 @@ internal object MoexAppHolder {
 }
 
 /**
- * Ответы биржи/брокера (PostOrder, GetMaxLots): кольцо в prefs + журнал событий.
- * Пишется всегда — не зависит от тумблера «Запись в журнал».
+ * Ответы биржи/брокера (PostOrder, GetMaxLots): кольцо в prefs.
+ * Тумблер «Настройки → Лог биржи»; в UI только последние [SETTINGS_LOG_UI_TAIL].
  */
 internal object BrokerExchangeReplyLog {
     private const val PREFS = "broker_exchange_reply_log"
     private const val KEY_JSON = "replies_json_v1"
-    private const val MAX_RECORDS = 80
+    private const val KEY_WRITING = "writing_enabled"
+    private const val MAX_RECORDS = 500
+    private const val TAG = "MoexExchangeLog"
     private val memory = Collections.synchronizedList(mutableListOf<BrokerExchangeReply>())
+    private val zone = ZoneId.of("Europe/Moscow")
+    private val stampFmt = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+    private val exportTimeFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+
+    private fun prefs(context: Context) =
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    fun isWritingEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_WRITING, EXCHANGE_LOG_WRITING_DEFAULT)
+
+    fun setWritingEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_WRITING, enabled).apply()
+    }
 
     fun recordHttp(
         method: String,
@@ -87,17 +116,124 @@ internal object BrokerExchangeReplyLog {
     }
 
     fun record(reply: BrokerExchangeReply, context: Context? = MoexAppHolder.app) {
+        val line = formatBrokerExchangeReplyLine(reply)
+        Log.i(TAG, line)
+        val app = context?.applicationContext
+        if (app != null && !isWritingEnabled(app)) return
         synchronized(memory) {
             memory += reply
             while (memory.size > MAX_RECORDS) {
                 memory.removeAt(0)
             }
         }
-        val app = context?.applicationContext
-        if (app != null) {
-            persist(app, reply)
-            MoexDiagnostics.logExchangeReply(app, formatBrokerExchangeReplyLine(reply))
+        if (app != null) persist(app, reply)
+    }
+
+    fun lineCount(context: Context): Int = loadRecent(context, MAX_RECORDS).size
+
+    fun formatForDisplay(context: Context, tail: Int = SETTINGS_LOG_UI_TAIL): String {
+        val lines = loadRecent(context, if (tail <= 0) MAX_RECORDS else tail)
+            .map { formatBrokerExchangeReplyLine(it) }
+        if (lines.isEmpty()) {
+            return "Журнал биржи пуст. Откройте или закройте пару — сюда попадут PostOrder и GetMaxLots."
         }
+        return lines.joinToString("\n")
+    }
+
+    fun exportText(context: Context): String {
+        val replies = loadRecent(context, MAX_RECORDS)
+        return buildString {
+            append("MOEX MVP exchange log\n")
+            append("version=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n")
+            append("device=${Build.MANUFACTURER} ${Build.MODEL}\n")
+            append("android=${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
+            append("exported=${Instant.now().atZone(zone).format(exportTimeFmt)}\n")
+            append("records=${replies.size}\n")
+            append("\n--- exchange (${replies.size}) ---\n")
+            replies.forEach { append(formatBrokerExchangeReplyLine(it)).append('\n') }
+        }
+    }
+
+    fun exportFileName(): String {
+        val stamp = Instant.now().atZone(zone).format(stampFmt)
+        return "moex-exchange-log-v${BuildConfig.VERSION_NAME}-$stamp.txt"
+    }
+
+    fun copyToClipboard(context: Context): Boolean {
+        val text = exportText(context)
+        if (text.isBlank()) return false
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
+        cm.setPrimaryClip(ClipData.newPlainText("MOEX MVP exchange log", text))
+        return true
+    }
+
+    fun shareExport(context: Context) {
+        val text = exportText(context)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+            putExtra(Intent.EXTRA_SUBJECT, exportFileName())
+        }
+        context.startActivity(Intent.createChooser(send, "Экспорт лога биржи"))
+    }
+
+    fun saveExportToDownloads(context: Context): String? {
+        val app = context.applicationContext
+        val fileName = exportFileName()
+        val content = exportText(context)
+        if (content.isBlank()) return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return runCatching {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val resolver = app.contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+            resolver.openOutputStream(uri)?.use { os ->
+                os.write(content.toByteArray(Charsets.UTF_8))
+            } ?: return null
+            values.clear()
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            "Загрузки/$fileName"
+        }.getOrNull()
+    }
+
+    fun writeExportToUri(context: Context, uri: Uri): Boolean = runCatching {
+        val content = exportText(context)
+        if (content.isBlank()) return false
+        context.contentResolver.openOutputStream(uri)?.use { os ->
+            os.write(content.toByteArray(Charsets.UTF_8))
+        } ?: return false
+        true
+    }.getOrElse { false }
+
+    fun shareExportFile(context: Context): Boolean {
+        val app = context.applicationContext
+        val prepared = runCatching {
+            val out = File(app.cacheDir, exportFileName())
+            out.writeText(exportText(app))
+            out
+        }.getOrNull() ?: return false
+        val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", prepared)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, exportFileName())
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = ClipData.newUri(app.contentResolver, "exchange log", uri)
+        }
+        context.startActivity(Intent.createChooser(send, "Отправить файл лога биржи"))
+        return true
+    }
+
+    fun clear(context: Context) {
+        val app = context.applicationContext
+        synchronized(memory) { memory.clear() }
+        prefs(app).edit().remove(KEY_JSON).apply()
     }
 
     fun loadRecent(context: Context?, limit: Int = MAX_RECORDS): List<BrokerExchangeReply> {

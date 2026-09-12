@@ -376,7 +376,7 @@ internal fun MoexScreenTabMarkets(
                         if (tatn1m.isNotEmpty() || tatnp1m.isNotEmpty()) {
                             item {
                                 Text(
-                                    text = "1м · сегодня (МСК) · обновление ~1 мин · журнал [quotes] на «О приложении»",
+                                    text = "1м · сегодня (МСК) · обновление ~1 мин · журнал [quotes] в «Настройки» → Лог приложения",
                                     color = Color(0xFF90CAF9),
                                     fontSize = 11.sp,
                                 )
