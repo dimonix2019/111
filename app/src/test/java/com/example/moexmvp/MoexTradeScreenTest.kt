@@ -428,6 +428,65 @@ class MoexTradeScreenTest {
     }
 
     @Test
+    fun closeNowPnl_staleIssLastWithoutBook_usesBrokerMark() {
+        val pnl = computeCloseNowPnl(
+            tatnLots = 57,
+            tatnpLots = -57,
+            fillTatnRub = 618.7,
+            fillTatnpRub = 593.0,
+            quotes = PairQuotes(
+                tatn = ShareQuote(last = 618.7),
+                tatnp = ShareQuote(last = 599.4),
+            ),
+            fallbackTatnLast = 617.8,
+            fallbackTatnpLast = 593.8,
+            depositRub = 9_973.0,
+            cashRub = 8_508.0,
+            entryTimeMsk = "2026-09-12 11:35",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 11, 38)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        assertEquals(617.8 - CLOSE_NOW_HALF_TICK_RUB, pnl.closeTatnRub!!, 1e-9)
+        assertEquals(593.8 + CLOSE_NOW_HALF_TICK_RUB, pnl.closeTatnpRub!!, 1e-9)
+        assertTrue(pnl.note.contains("портфеля"))
+        assertEquals("last_fallback", pnl.quotesMode)
+        val stale = computeCloseNowPnl(
+            tatnLots = 57,
+            tatnpLots = -57,
+            fillTatnRub = 618.7,
+            fillTatnpRub = 593.0,
+            quotes = PairQuotes(
+                tatn = ShareQuote(last = 618.7),
+                tatnp = ShareQuote(last = 599.4),
+            ),
+            fallbackTatnLast = 618.7,
+            fallbackTatnpLast = 599.4,
+            depositRub = 9_973.0,
+            cashRub = 8_508.0,
+            entryTimeMsk = "2026-09-12 11:35",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 11, 38)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        assertTrue(kotlin.math.abs(pnl.netRub - stale.netRub) > 1.0)
+    }
+
+    @Test
+    fun lastForCloseSynth_prefersBrokerWhenIssHasNoBook() {
+        assertEquals(
+            617.8,
+            lastForCloseSynth(ShareQuote(last = 618.7), 617.8),
+        )
+        assertEquals(
+            618.0,
+            lastForCloseSynth(ShareQuote(last = 619.0, bid = 618.0, ask = 620.0), 617.8),
+        )
+    }
+
+    @Test
     fun closeNowPnl_lastFallbackHalfTickWhenNoBook() {
         val pnl = computeCloseNowPnl(
             tatnLots = 10,

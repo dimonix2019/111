@@ -46,7 +46,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import kotlin.math.abs
 
@@ -165,9 +165,19 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             entryTimeMsk = entryTimeMsk,
             takeProfitPct = takeProfitPct,
         )
-        val quotes = runCatching {
-            withTimeout(4_000) { fetchIssPairQuotes() }
-        }.getOrNull()
+        val quotes = withTimeoutOrNull(1_500) { fetchIssPairQuotes() }?.let { q ->
+            val keepTatn = shareQuoteHasBook(q.tatn)
+            val keepTatnp = shareQuoteHasBook(q.tatnp)
+            if (!keepTatn && !keepTatnp) {
+                null
+            } else {
+                PairQuotes(
+                    tatn = if (keepTatn) q.tatn else ShareQuote(),
+                    tatnp = if (keepTatnp) q.tatnp else ShareQuote(),
+                    source = q.source,
+                )
+            }
+        }
         val closeNowPnl = computeCloseNowPnl(
             tatnLots = broker.tatnLots,
             tatnpLots = broker.tatnpLots,

@@ -39,6 +39,18 @@ internal data class CloseNowPnl(
     val overnightTotalRub: Double get() = overnightShortRub + overnightMarginLoanRub
 }
 
+internal fun shareQuoteHasBook(q: ShareQuote): Boolean =
+    q.bid != null && q.bid > 0 && q.ask != null && q.ask > 0
+
+/**
+ * LAST с ISS без стакана часто «мёртвый» (выходные / клиринг).
+ * Тогда берём текущую цену GetPortfolio — она обновляется вместе с карточкой сделки.
+ */
+internal fun lastForCloseSynth(iss: ShareQuote, brokerLast: Double?): Double? {
+    if (shareQuoteHasBook(iss)) return iss.last?.takeIf { it > 0 } ?: brokerLast
+    return brokerLast?.takeIf { it > 0 } ?: iss.last?.takeIf { it > 0 }
+}
+
 internal fun synthBidAsk(
     last: Double?,
     bid: Double?,
@@ -145,15 +157,19 @@ internal fun computeCloseNowPnl(
     if (tatnLots == 0 && tatnpLots == 0) return null
     val tn = quotes?.tatn ?: ShareQuote()
     val tp = quotes?.tatnp ?: ShareQuote()
+    val tnLast = lastForCloseSynth(tn, fallbackTatnLast)
+    val tpLast = lastForCloseSynth(tp, fallbackTatnpLast)
+    val tnBook = shareQuoteHasBook(tn)
+    val tpBook = shareQuoteHasBook(tp)
     val (tnBid, tnAsk, tnMode) = synthBidAsk(
-        tn.last ?: fallbackTatnLast,
-        tn.bid,
-        tn.ask,
+        tnLast,
+        if (tnBook) tn.bid else null,
+        if (tnBook) tn.ask else null,
     )
     val (tpBid, tpAsk, tpMode) = synthBidAsk(
-        tp.last ?: fallbackTatnpLast,
-        tp.bid,
-        tp.ask,
+        tpLast,
+        if (tpBook) tp.bid else null,
+        if (tpBook) tp.ask else null,
     )
     val closeTatn = closePriceForSignedLots(tatnLots, tnBid, tnAsk)
     val closeTatnp = closePriceForSignedLots(tatnpLots, tpBid, tpAsk)
@@ -193,9 +209,13 @@ internal fun computeCloseNowPnl(
         (!tnNeeded || tnMode != "none") && (!tpNeeded || tpMode != "none") -> "last_fallback"
         else -> "none"
     }
-    val note = when (quotesMode) {
-        "book" -> "по BID/OFFER ISS · тариф Премиум"
-        "last_fallback" -> "BID/OFFER нет — LAST ±0,05 ₽ · Премиум"
+    val usedPortfolioLast =
+        (!tnNeeded || (!tnBook && fallbackTatnLast != null)) &&
+            (!tpNeeded || (!tpBook && fallbackTatnpLast != null))
+    val note = when {
+        quotesMode == "book" -> "по BID/OFFER ISS · тариф Премиум"
+        usedPortfolioLast -> "по цене портфеля ±0,05 ₽ · Премиум"
+        quotesMode == "last_fallback" -> "BID/OFFER нет — LAST ±0,05 ₽ · Премиум"
         else -> "тариф Премиум"
     }
     return CloseNowPnl(
