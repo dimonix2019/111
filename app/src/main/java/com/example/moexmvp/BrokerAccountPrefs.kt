@@ -11,6 +11,9 @@ private const val KEY_ENTRY_TIME_MSK = "entry_time_msk"
 private const val KEY_PROFIT_2_FP = "profit_alert_2_fp"
 private const val KEY_PROFIT_3_FP = "profit_alert_3_fp"
 private const val KEY_LAST_YIELD = "last_yield_rub"
+private const val KEY_LAST_TP_PCT = "last_take_profit_pct"
+private const val KEY_OPEN_TP_PCT = "open_take_profit_pct"
+private const val KEY_TP_FIRED_FP = "take_profit_fired_fp"
 
 /** Состояние опроса T‑Invest (~15 с) для push open/close/2%/3%. */
 internal object BrokerAccountPrefs {
@@ -52,6 +55,43 @@ internal object BrokerAccountPrefs {
     fun profit3Fingerprint(context: Context): String =
         prefs(context).getString(KEY_PROFIT_3_FP, "").orEmpty()
 
+    fun lastTakeProfitPct(context: Context): Double {
+        if (!prefs(context).contains(KEY_LAST_TP_PCT)) return DEFAULT_TAKE_PROFIT_PCT
+        return coerceTakeProfitPct(prefs(context).getFloat(KEY_LAST_TP_PCT, DEFAULT_TAKE_PROFIT_PCT.toFloat()).toDouble())
+    }
+
+    fun takeProfitPctAtOpen(context: Context): Double? {
+        if (!prefs(context).contains(KEY_OPEN_TP_PCT)) return null
+        val v = prefs(context).getFloat(KEY_OPEN_TP_PCT, 0f).toDouble()
+        return if (v > 0.0 && v.isFinite()) coerceTakeProfitPct(v) else null
+    }
+
+    fun takeProfitPctForOpenOrDefault(context: Context): Double =
+        takeProfitPctAtOpen(context) ?: lastTakeProfitPct(context)
+
+    fun takeProfitFiredFingerprint(context: Context): String =
+        prefs(context).getString(KEY_TP_FIRED_FP, "").orEmpty()
+
+    fun saveTakeProfitForOpen(context: Context, takeProfitPct: Double) {
+        val tp = coerceTakeProfitPct(takeProfitPct)
+        prefs(context).edit()
+            .putFloat(KEY_LAST_TP_PCT, tp.toFloat())
+            .putFloat(KEY_OPEN_TP_PCT, tp.toFloat())
+            .putString(KEY_TP_FIRED_FP, "")
+            .apply()
+    }
+
+    fun markTakeProfitFired(context: Context, fingerprint: String) {
+        prefs(context).edit().putString(KEY_TP_FIRED_FP, fingerprint).apply()
+    }
+
+    fun clearTakeProfitAtOpen(context: Context) {
+        prefs(context).edit()
+            .putFloat(KEY_OPEN_TP_PCT, 0f)
+            .putString(KEY_TP_FIRED_FP, "")
+            .apply()
+    }
+
     fun saveSnap(
         context: Context,
         side: ZStrategyPosition,
@@ -79,6 +119,8 @@ internal object BrokerAccountPrefs {
             ed.putString(KEY_ENTRY_TIME_MSK, "")
             ed.putString(KEY_PROFIT_2_FP, "")
             ed.putString(KEY_PROFIT_3_FP, "")
+            ed.putFloat(KEY_OPEN_TP_PCT, 0f)
+            ed.putString(KEY_TP_FIRED_FP, "")
         }
         ed.apply()
     }

@@ -165,6 +165,7 @@ internal suspend fun executeTestSandboxSpreadPair(
             else -> ZStrategyPosition.Flat
         }
         saveStrategyPosition(app, position)
+        BrokerAccountPrefs.saveTakeProfitForOpen(app, BrokerAccountPrefs.lastTakeProfitPct(app))
         val execution = TinkoffSandboxSpreadExecLog.recordFromLegs(
             app,
             signalType,

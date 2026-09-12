@@ -18,6 +18,7 @@ internal data class TradeTabClosedTrade(
     val exitSpreadPercent: Double?,
     val pnlRub: Double?,
     val sourceLabel: String,
+    val isOpen: Boolean = false,
 )
 
 internal const val TRADE_TAB_HISTORY_DAYS = 14L
@@ -83,42 +84,150 @@ internal suspend fun loadTradeTabClosedTrades(
 }
 
 /**
- * Кнопки «Открыть Long/Short» на вкладке «Сделка»: две рыночные заявки на боевой счёт
- * с расчётом лотов как у AUTO, запись в журналы приложения (источник MANUAL).
- * Web-монитор подхватит позицию с брокера своей сверкой.
+ * Кнопки «Открыть Long/Short» и экстренное закрытие на вкладке «Сделка».
  */
+internal data class SpreadFlattenLeg(
+    val ticker: String,
+    val buy: Boolean,
+    val lots: Int,
+) {
+    val dirRu: String get() = if (buy) "покупка" else "продажа"
+}
+
+/** Обратные заявки по фактическим лотам TATN/TATNP, включая одну «хвостовую» ногу. */
+internal fun flattenLegsForBrokerSnap(snap: BrokerSpreadPositionSnap): List<SpreadFlattenLeg> {
+    val out = mutableListOf<SpreadFlattenLeg>()
+    if (snap.tatnLots != 0) {
+        out += SpreadFlattenLeg(
+            ticker = "TATN",
+            buy = snap.tatnLots < 0,
+            lots = kotlin.math.abs(snap.tatnLots),
+        )
+    }
+    if (snap.tatnpLots != 0) {
+        out += SpreadFlattenLeg(
+            ticker = "TATNP",
+            buy = snap.tatnpLots < 0,
+            lots = kotlin.math.abs(snap.tatnpLots),
+        )
+    }
+    return out
+}
+
+internal fun tradeTabManualEntryBlockReason(broker: BrokerSpreadPositionSnap): String? =
+    if (broker.hasBrokerLegs) {
+        "На брокере уже есть TATN ${broker.tatnLots} / TATNP ${broker.tatnpLots} — сначала экстренное закрытие."
+    } else {
+        null
+    }
+
+/**
+ * Экстренное закрытие пары: рыночные заявки по лотам GetPortfolio, без флага
+ * «исполнять сигналы на песочнице» и без зависимости от локального журнала входов.
+ */
+internal suspend fun runEmergencyFlattenFromTradeTab(
+    context: Context,
+    mode: TinkoffExecutionMode = TinkoffExecutionMode.Prod,
+): Result<String> = withContext(Dispatchers.IO) {
+    runCatching {
+        val app = context.applicationContext
+        val token = TinkoffSandboxStorage.getActiveToken(app, mode)
+            ?: throw IOException("Нет токена (${executionModeLabelRu(mode)}).")
+        val accountId = TinkoffSandboxStorage.getActiveAccountId(app, mode)
+            ?: throw IOException("Нет счёта (${executionModeLabelRu(mode)}).")
+        val extraTatn = runCatching {
+            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATN").uppercase(Locale.US))
+        }.getOrDefault(emptySet())
+        val extraTatnp = runCatching {
+            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATNP").uppercase(Locale.US))
+        }.getOrDefault(emptySet())
+        val portfolio = tinkoffGetPortfolio(mode, token, accountId)
+        val broker = detectBrokerSpreadPosition(portfolio, extraTatn, extraTatnp)
+        val plan = flattenLegsForBrokerSnap(broker)
+        if (plan.isEmpty()) {
+        TinkoffSandboxSpreadExecLog.clearOpenExecutions(app)
+        saveStrategyPosition(app, ZStrategyPosition.Flat)
+        BrokerAccountPrefs.clearTakeProfitAtOpen(app)
+        suppressUserCancelledEntry(app)
+        return@runCatching "На брокере нет позиции TATN/TATNP."
+        }
+
+        val posted = mutableListOf<String>()
+        for (leg in plan) {
+            val instId = canonicalMoexShareInstrumentId(
+                leg.ticker,
+                runCatching { tinkoffResolveShareInstrumentId(mode, token, leg.ticker) }.getOrNull(),
+            )
+            val dir = if (leg.buy) "ORDER_DIRECTION_BUY" else "ORDER_DIRECTION_SELL"
+            withContext(TinkoffOrderPurpose("flatten")) {
+                tinkoffPostMarketOrder(mode, token, accountId, instId, dir, leg.lots)
+            }
+            posted += "${leg.dirRu} ${leg.ticker} ×${leg.lots}"
+            MoexDiagnostics.log(
+                app,
+                "trade_flatten",
+                "posted ${leg.dirRu} ${leg.ticker} lots=${leg.lots} mode=$mode",
+            )
+        }
+
+        val opens = TinkoffSandboxSpreadExecLog.loadRecent(app)
+            .filter {
+                it.signalType == StrategySignalType.EnterLong ||
+                    it.signalType == StrategySignalType.EnterShort
+            }
+        for (open in opens) {
+            runCatching {
+                finalizePortfolioOpenTradeClose(
+                    context = app,
+                    execution = open,
+                    recordExitInJournal = true,
+                ).getOrThrow()
+            }.onFailure { e ->
+                MoexDiagnostics.logError(app, "trade_flatten", e, "local close ${open.tradeId}")
+            }
+        }
+        TinkoffSandboxSpreadExecLog.clearOpenExecutions(app)
+        saveStrategyPosition(app, ZStrategyPosition.Flat)
+        BrokerAccountPrefs.clearTakeProfitAtOpen(app)
+        suppressUserCancelledEntry(app)
+        "Закрыто на ${executionAccountShortRu(mode)}: ${posted.joinToString(", ")}"
+    }
+}
+
 internal suspend fun runManualSpreadEntryFromTradeTab(
     context: Context,
     signalType: StrategySignalType,
+    takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
 ): Result<String> = withContext(Dispatchers.IO) {
     runCatching {
         require(
             signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort
         ) { "Только EnterLong / EnterShort" }
         val app = context.applicationContext
-        val mode = currentExecutionMode(app)
-        require(mode == TinkoffExecutionMode.Prod) {
-            "Вкладка «Сделка» работает с боевым счётом. Сейчас: ${executionModeLabelRu(mode)}."
-        }
+        val mode = TinkoffExecutionMode.Prod
         val token = TinkoffSandboxStorage.getActiveToken(app, mode)
-            ?: throw IOException("Нет токена (${executionModeLabelRu(mode)}).")
+            ?: throw IOException("Нет токена (боевой счёт). Настройте Prod на вкладке «Песочница».")
         val accountId = TinkoffSandboxStorage.getActiveAccountId(app, mode)
-            ?: throw IOException("Нет счёта (${executionModeLabelRu(mode)}).")
+            ?: throw IOException("Нет счёта (боевой счёт). Настройте Prod на вкладке «Песочница».")
 
-        // Не переворачиваем существующую позицию: вход только из FLAT.
+        val extraTatn = runCatching {
+            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATN").uppercase(Locale.US))
+        }.getOrDefault(emptySet())
+        val extraTatnp = runCatching {
+            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATNP").uppercase(Locale.US))
+        }.getOrDefault(emptySet())
         val portfolio = tinkoffGetPortfolio(mode, token, accountId)
-        val broker = detectBrokerSpreadPosition(portfolio)
-        require(broker.side == ZStrategyPosition.Flat) {
-            "На брокере уже есть позиция (${broker.side}) — сначала закройте её."
-        }
+        val broker = detectBrokerSpreadPosition(portfolio, extraTatn, extraTatnp)
+        tradeTabManualEntryBlockReason(broker)?.let { throw IOException(it) }
 
         val market = loadCurrentPortfolioMarketSnapshot(app, forTestEntry = true)
         val dir = if (signalType == StrategySignalType.EnterShort) "SHORT" else "LONG"
 
-        val entry = executeSpreadEntryDetailedForConfiguredMode(app, signalType)
+        val entry = executeSpreadEntryDetailedForConfiguredMode(app, signalType, mode)
         val legs = entry.legs
         val sizing = entry.sizing
         val executedAt = System.currentTimeMillis()
+        BrokerAccountPrefs.saveTakeProfitForOpen(app, takeProfitPct)
 
         recordStrategySignalEvent(
             context = app,
@@ -132,6 +241,7 @@ internal suspend fun runManualSpreadEntryFromTradeTab(
             app,
             if (signalType == StrategySignalType.EnterShort) ZStrategyPosition.Short else ZStrategyPosition.Long,
         )
+        clearPendingVirtualTradeProposal(app)
         appendPortfolioExecutionLedger(
             app,
             barTimestampMillis = market.timestampMillis,
@@ -220,6 +330,10 @@ internal data class SpreadMatchedTrade(
 
 internal const val LEG_PAIR_WINDOW_MS = 60_000L
 
+/** Последняя непарная (ещё открытая) сделка с GetOperations — для вкладки «Сделка». */
+@Volatile
+internal var lastUnmatchedOpenSpread: SpreadPairEvent? = null
+
 /**
  * Склейка ног в парные события: каждая операция ищет противоположную по знаку
  * операцию другого тикера в пределах [LEG_PAIR_WINDOW_MS] (ноги одной пары идут
@@ -253,6 +367,23 @@ internal fun pairSpreadLegs(ops: List<TInvestSpreadOp>): List<SpreadPairEvent> {
         )
     }
     return events
+}
+
+/** Незакрытая пара после матчинга вход→выход (как остаток [matchSpreadTrades]). */
+internal fun unmatchedOpenSpread(events: List<SpreadPairEvent>): SpreadPairEvent? {
+    var open: SpreadPairEvent? = null
+    var openSide: String? = null
+    for (ev in events) {
+        val side = ev.side ?: continue
+        if (open == null || side == openSide) {
+            open = ev
+            openSide = side
+        } else {
+            open = null
+            openSide = null
+        }
+    }
+    return open
 }
 
 /**
@@ -312,6 +443,36 @@ internal fun matchSpreadTrades(
     return trades
 }
 
+/**
+ * GetPortfolio — источник истины: если портфель загрузился и ног нет, не рисуем
+ * «открытую» пару из GetOperations (непарный вход после закрытия даёт призрак).
+ */
+internal fun overlaySnapshotFromOpenOperations(
+    snap: TradeScreenSnapshot,
+    open: SpreadPairEvent? = lastUnmatchedOpenSpread,
+): TradeScreenSnapshot {
+    if (snap.error.isNullOrBlank()) return snap
+    if (open == null) return snap
+    val sideName = open.side ?: return snap
+    val lots = minOf(kotlin.math.abs(open.tatnQty), kotlin.math.abs(open.tatnpQty))
+        .toInt()
+    if (lots <= 0) return snap
+    val long = sideName == "LONG"
+    return snap.copy(
+        error = null,
+        side = if (long) ZStrategyPosition.Long else ZStrategyPosition.Short,
+        tatnLots = if (long) lots else -lots,
+        tatnpLots = if (long) -lots else lots,
+        quantityLots = lots,
+        tatnAvgPriceRub = open.priceTatn ?: snap.tatnAvgPriceRub,
+        tatnpAvgPriceRub = open.priceTatnp ?: snap.tatnpAvgPriceRub,
+        spreadPercentEntry = spreadPctFromPrices(open.priceTatn, open.priceTatnp)
+            ?: snap.spreadPercentEntry,
+        entryTimeMsk = formatPortfolioExecutionTableMsk(open.startMs),
+        execSourceLabel = "счёт Т-Инвест",
+    )
+}
+
 private fun spreadPctFromPrices(tatn: Double?, tatnp: Double?): Double? {
     if (tatn == null || tatnp == null || tatnp <= 0.0) return null
     return (tatn / tatnp - 1.0) * 100.0
@@ -347,17 +508,21 @@ internal suspend fun fetchSpreadTradesFromTInvest(
     // поэтому сначала узнаём id инструментов и матчим по ним.
     val tatnIds = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
         .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
-        .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATN_INSTRUMENT_ID, "BBG004RVFFC0") }
+        .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATN_INSTRUMENT_ID, TINKOFF_MOEX_TATN_FIGI) }
     val tatnpIds = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
         .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
-        .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATNP_INSTRUMENT_ID, "BBG004S68829") }
+        .let { setOf(it.uppercase(Locale.US), TINKOFF_MOEX_TATNP_INSTRUMENT_ID, TINKOFF_MOEX_TATNP_FIGI) }
 
     fun tickerOf(op: org.json.JSONObject): String? {
-        for (k in listOf("instrumentUid", "instrument_uid", "uid", "figi", "FIGI")) {
+        resolveTatnTatnpTicker(op, tatnIds, tatnpIds)?.let { return it }
+        for (k in listOf(
+            "instrumentUid", "instrument_uid", "instrument_id", "instrumentId",
+            "uid", "figi", "FIGI",
+        )) {
             val v = op.optString(k, "").trim().uppercase(Locale.US)
             if (v.isEmpty()) continue
-            if (v in tatnIds) return "TATN"
-            if (v in tatnpIds) return "TATNP"
+            if (v in tatnpIds || v == TINKOFF_MOEX_TATNP_FIGI) return "TATNP"
+            if (v in tatnIds || v == TINKOFF_MOEX_TATN_FIGI) return "TATN"
         }
         return resolveOperationTicker(op)
     }
@@ -411,12 +576,16 @@ internal suspend fun fetchSpreadTradesFromTInvest(
         "trade_history",
         "GetOperations 14д: операций TATN/TATNP=${ops.size}, без тикера=$skippedNoTicker, прочие типы=$skippedType, комиссий=${feePayments.size}",
     )
-    if (ops.isEmpty()) return@withContext null
+    if (ops.isEmpty()) {
+        lastUnmatchedOpenSpread = null
+        return@withContext null
+    }
     ops.sortBy { it.millis }
     feePayments.sortBy { it.first }
 
     val events = pairSpreadLegs(ops)
     val trades = matchSpreadTrades(events, feePayments)
+    lastUnmatchedOpenSpread = unmatchedOpenSpread(events)
     if (trades.isEmpty()) return@withContext null
 
     trades.mapIndexed { idx, t ->

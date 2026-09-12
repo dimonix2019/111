@@ -55,12 +55,26 @@ internal fun MoexScreenVirtualTradeCard(
     modifier: Modifier = Modifier,
 ) {
     with(screen) {
-        pendingVirtualTrade?.let { proposal ->
-            PendingVirtualTradeProposalCard(
+        val proposal = pendingVirtualTrade ?: return
+        if (!shouldShowPendingVirtualTradeCard(
+                pending = proposal,
+                tradeOpen = tradeScreenSnapshot?.isOpen == true,
+                savedPosition = zStrategyPosition,
+            )
+        ) {
+            return
+        }
+        PendingVirtualTradeProposalCard(
                 proposal = proposal,
                 sandboxState = sandboxExecState,
                 executionMode = executionMode,
-                onAccept = {
+                depositRub = takeProfitDepositRub(
+                    screen.tradeScreenSnapshot?.portfolioTotalRub,
+                    screen.tradeScreenSnapshot?.cashRub,
+                    screen.tradeScreenSnapshot?.depositRub,
+                ),
+                initialTakeProfitPct = BrokerAccountPrefs.lastTakeProfitPct(context),
+                onAccept = { takeProfitPct ->
                     scope.launch {
                         val mode = currentExecutionMode(context)
                         val st = TinkoffSandboxStorage.resolveExecUiState(context, mode)
@@ -131,6 +145,10 @@ internal fun MoexScreenVirtualTradeCard(
                                             else -> ZStrategyPosition.Flat
                                         }
                                         saveStrategyPosition(context, position)
+                                        BrokerAccountPrefs.saveTakeProfitForOpen(
+                                            context,
+                                            takeProfitPct,
+                                        )
                                         Pair(Triple(skipDup, legsInner, openedInner), sizingInner)
                                     }
                                     val (skipDupJournal, legs, opened) = acceptBundle.first
@@ -183,12 +201,13 @@ internal fun MoexScreenVirtualTradeCard(
                     }
                 },
                 onReject = {
-                    clearPendingVirtualTradeProposal(context, proposal)
+                    suppressUserCancelledEntry(context, proposal)
                     pendingVirtualTrade = null
+                    zStrategyPosition = ZStrategyPosition.Flat
+                    saveStrategyPosition(context, ZStrategyPosition.Flat)
                     Toast.makeText(context, "Отклонено.", Toast.LENGTH_SHORT).show()
                 },
                 modifier = modifier.padding(top = 6.dp)
             )
-        }
     }
 }

@@ -120,6 +120,8 @@ class MoexTradingViewChartTest {
         assertTrue(html.contains("lastPriceLineColor"))
         assertTrue(html.contains("autoscaleInfoProvider"))
         assertTrue(html.contains("applyLockedPriceRange"))
+        assertTrue(html.contains("setVisibleRange"))
+        assertTrue(html.contains("function zoomPriceRange"))
     }
 
     @Test

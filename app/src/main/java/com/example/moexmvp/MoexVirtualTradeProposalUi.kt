@@ -18,6 +18,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,10 +34,18 @@ internal fun PendingVirtualTradeProposalCard(
     proposal: PendingVirtualTradeProposal,
     sandboxState: SandboxExecUiState,
     executionMode: TinkoffExecutionMode,
-    onAccept: () -> Unit,
+    onAccept: (takeProfitPct: Double) -> Unit,
     onReject: () -> Unit,
+    depositRub: Double = 0.0,
+    initialTakeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
     modifier: Modifier = Modifier
 ) {
+    val initialPct = remember(initialTakeProfitPct) { coerceTakeProfitPct(initialTakeProfitPct) }
+    var pctText by remember(initialPct) { mutableStateOf(formatTakeProfitPctInput(initialPct)) }
+    var rubText by remember(initialPct, depositRub) {
+        mutableStateOf(formatTakeProfitRubInput(takeProfitRubFromPercent(initialPct, depositRub)))
+    }
+    val resolvedPct = resolveTakeProfitPctFromInputs(pctText, rubText, depositRub)
     Column(
         modifier
             .fillMaxWidth()
@@ -69,12 +81,39 @@ internal fun PendingVirtualTradeProposalCard(
             color = Color(0xFFCFD8DC),
             fontSize = 11.sp
         )
+        TakeProfitInputFields(
+            pctText = pctText,
+            rubText = rubText,
+            depositRub = depositRub,
+            enabled = true,
+            onPctText = { next ->
+                pctText = next
+                val pct = parseTakeProfitNumber(next)
+                if (pct != null && pct > 0.0 && depositRub > 0.0) {
+                    rubText = formatTakeProfitRubInput(takeProfitRubFromPercent(pct, depositRub))
+                }
+            },
+            onRubText = { next ->
+                rubText = next
+                val rub = parseTakeProfitNumber(next)
+                if (rub != null && rub > 0.0 && depositRub > 0.0) {
+                    pctText = formatTakeProfitPctInput(takeProfitPercentFromRub(rub, depositRub))
+                }
+            },
+        )
+        Text(
+            text = "Take profit по умолчанию 2%" +
+                if (depositRub > 0) " от вложения" else "",
+            color = Color(0xFF90A4AE),
+            fontSize = 10.sp,
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Button(
-                onClick = onAccept,
+                onClick = { onAccept(resolvedPct ?: DEFAULT_TAKE_PROFIT_PCT) },
+                enabled = resolvedPct != null,
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
