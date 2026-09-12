@@ -168,11 +168,11 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
         val closeLotsAbs = maxOf(abs(broker.tatnLots), abs(broker.tatnpLots)).toDouble()
             .coerceAtLeast(1.0)
         val tinkoffQuotes = if (broker.tatnLots != 0 || broker.tatnpLots != 0) {
-            withTimeoutOrNull(2_000) {
+            withTimeoutOrNull(CLOSE_NOW_BOOK_FETCH_MS) {
                 fetchTinkoffPairQuotesForClose(
                     token = token,
-                    tatnInstrumentId = extraTatn.firstOrNull() ?: TINKOFF_MOEX_TATN_FIGI,
-                    tatnpInstrumentId = extraTatnp.firstOrNull() ?: TINKOFF_MOEX_TATNP_FIGI,
+                    tatnInstrumentId = TINKOFF_MOEX_TATN_FIGI,
+                    tatnpInstrumentId = TINKOFF_MOEX_TATNP_FIGI,
                     lotsAbs = closeLotsAbs,
                 )
             }
@@ -180,12 +180,12 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             null
         }
         val tinkoffBooksOk = tinkoffQuotes != null &&
-            (broker.tatnLots == 0 || shareQuoteHasBook(tinkoffQuotes.tatn)) &&
-            (broker.tatnpLots == 0 || shareQuoteHasBook(tinkoffQuotes.tatnp))
+            shareQuoteHasCloseSide(tinkoffQuotes.tatn, broker.tatnLots) &&
+            shareQuoteHasCloseSide(tinkoffQuotes.tatnp, broker.tatnpLots)
         val issQuotes = if (!tinkoffBooksOk) {
-            withTimeoutOrNull(1_500) { fetchIssPairQuotes() }?.let { q ->
-                val keepTatn = shareQuoteHasBook(q.tatn)
-                val keepTatnp = shareQuoteHasBook(q.tatnp)
+            withTimeoutOrNull(1_800) { fetchIssPairQuotes(closeLotsAbs) }?.let { q ->
+                val keepTatn = shareQuoteHasAnyBook(q.tatn)
+                val keepTatnp = shareQuoteHasAnyBook(q.tatnp)
                 if (!keepTatn && !keepTatnp) {
                     null
                 } else {
@@ -250,11 +250,11 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
 internal fun mergeCloseNowQuotes(tinkoff: PairQuotes?, iss: PairQuotes?): PairQuotes? {
     if (tinkoff == null) return iss
     if (iss == null) return tinkoff
-    val tn = if (shareQuoteHasBook(tinkoff.tatn)) tinkoff.tatn else iss.tatn
-    val tp = if (shareQuoteHasBook(tinkoff.tatnp)) tinkoff.tatnp else iss.tatnp
+    val tn = if (shareQuoteHasAnyBook(tinkoff.tatn)) tinkoff.tatn else iss.tatn
+    val tp = if (shareQuoteHasAnyBook(tinkoff.tatnp)) tinkoff.tatnp else iss.tatnp
     val src = when {
-        shareQuoteHasBook(tinkoff.tatn) && shareQuoteHasBook(tinkoff.tatnp) -> "tinkoff"
-        shareQuoteHasBook(tinkoff.tatn) || shareQuoteHasBook(tinkoff.tatnp) -> "tinkoff+iss"
+        shareQuoteHasAnyBook(tinkoff.tatn) && shareQuoteHasAnyBook(tinkoff.tatnp) -> "tinkoff"
+        shareQuoteHasAnyBook(tinkoff.tatn) || shareQuoteHasAnyBook(tinkoff.tatnp) -> "tinkoff+iss"
         else -> iss.source
     }
     return PairQuotes(tatn = tn, tatnp = tp, source = src)
@@ -510,9 +510,9 @@ internal fun MoexScreenTabTrade(
 
         TradeInfoCard(title = "Источник данных") {
             Text(
-                "Крупный PnL сверху — если закрыть сейчас: стакан T‑Invest (VWAP на ваши лоты), " +
-                    "иначе ISS BID/OFFER, иначе рыночный слип ${formatCloseNowSlipPct()} от last " +
-                    "(не ±0,05 ₽ — рыночная заявка уходит глубже стакана). " +
+                "Крупный PnL сверху — если закрыть сейчас: стакан T‑Invest дилер " +
+                    "(ORDERBOOK_TYPE_DEALER, VWAP на ваши лоты; выходные без биржевого стакана), " +
+                    "иначе стакан ISS, иначе рыночный слип ${formatCloseNowSlipPct()} от last. " +
                     "Комиссия Премиум 0,04% номинала на вход и на выход, перенос короткой ноги (ступени Премиум) " +
                     "и плата 0,033%/день за отрицательный кэш. " +
                     "«На счёте останется» = кэш + продажа/откуп ног − комиссия выхода. " +

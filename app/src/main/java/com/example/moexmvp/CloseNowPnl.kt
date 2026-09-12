@@ -15,6 +15,8 @@ internal const val CLOSE_NOW_HALF_TICK_RUB = 0.05
 internal const val CLOSE_NOW_MARKET_SLIP_PCT = 0.14
 internal const val CLOSE_NOW_MARKET_SLIP_MIN_RUB = 0.40
 internal const val CLOSE_NOW_BOOK_DEPTH = 20
+internal const val CLOSE_NOW_ORDERBOOK_TYPE_DEALER = "ORDERBOOK_TYPE_DEALER"
+internal const val CLOSE_NOW_BOOK_FETCH_MS = 3_500L
 
 internal data class ShareQuote(
     val last: Double? = null,
@@ -55,6 +57,16 @@ internal data class CloseNowPnl(
 internal fun shareQuoteHasBook(q: ShareQuote): Boolean =
     q.bid != null && q.bid > 0 && q.ask != null && q.ask > 0
 
+internal fun shareQuoteHasAnyBook(q: ShareQuote): Boolean =
+    (q.bid != null && q.bid > 0) || (q.ask != null && q.ask > 0)
+
+/** Для лонга нужна bid (продажа), для шорта — ask (откуп). */
+internal fun shareQuoteHasCloseSide(q: ShareQuote, lots: Int): Boolean = when {
+    lots > 0 -> q.bid != null && q.bid > 0
+    lots < 0 -> q.ask != null && q.ask > 0
+    else -> true
+}
+
 /**
  * LAST с ISS без стакана часто «мёртвый» (выходные / клиринг).
  * Тогда берём текущую цену GetPortfolio — она обновляется вместе с карточкой сделки.
@@ -88,13 +100,30 @@ internal fun vwapWalk(levels: List<BookLevel>, lotsNeeded: Double): Double? {
     return notional / lotsNeeded
 }
 
+internal fun unwrapTinkoffOrderBook(root: org.json.JSONObject): org.json.JSONObject {
+    for (key in listOf(
+        "getOrderBookResponse",
+        "get_order_book_response",
+        "orderBook",
+        "order_book",
+    )) {
+        root.optJSONObject(key)?.let { return it }
+    }
+    return root
+}
+
 internal fun parseTinkoffOrderBookLevels(root: org.json.JSONObject, key: String): List<BookLevel> {
-    val arr = root.optJSONArray(key) ?: return emptyList()
+    val env = unwrapTinkoffOrderBook(root)
+    val arr = env.optJSONArray(key)
+        ?: env.optJSONArray(key.replaceFirstChar { it.titlecase(Locale.US) })
+        ?: return emptyList()
     val out = ArrayList<BookLevel>(arr.length())
     for (i in 0 until arr.length()) {
         val row = arr.optJSONObject(i) ?: continue
-        val price = tinkoffBookNumber(row.opt("price")) ?: continue
-        val qty = tinkoffBookNumber(row.opt("quantity")) ?: continue
+        val price = tinkoffBookNumber(row.opt("price") ?: row.opt("Price")) ?: continue
+        val qty = tinkoffBookNumber(
+            row.opt("quantity") ?: row.opt("Quantity") ?: row.opt("lots"),
+        ) ?: continue
         if (price > 0 && qty > 0) out.add(BookLevel(price, qty))
     }
     return out
@@ -108,11 +137,13 @@ internal fun tinkoffBookNumber(raw: Any?): Double? = when (raw) {
 }?.takeIf { it > 0 && it.isFinite() }
 
 internal fun parseTinkoffOrderBookQuote(root: org.json.JSONObject, lotsAbs: Double): ShareQuote? {
-    val bids = parseTinkoffOrderBookLevels(root, "bids")
-    val asks = parseTinkoffOrderBookLevels(root, "asks")
-    val last = root.optJSONObject("lastPrice")?.let { quotationUnitsToDouble(it) }
-        ?: root.optJSONObject("closePrice")?.let { quotationUnitsToDouble(it) }
-        ?: tinkoffBookNumber(root.opt("lastPrice"))
+    val env = unwrapTinkoffOrderBook(root)
+    val bids = parseTinkoffOrderBookLevels(env, "bids").sortedByDescending { it.price }
+    val asks = parseTinkoffOrderBookLevels(env, "asks").sortedBy { it.price }
+    val lastObj = env.optJSONObject("lastPrice") ?: env.optJSONObject("last_price")
+        ?: env.optJSONObject("closePrice") ?: env.optJSONObject("close_price")
+    val last = lastObj?.let { quotationUnitsToDouble(it) }
+        ?: tinkoffBookNumber(env.opt("lastPrice") ?: env.opt("last_price"))
     val need = lotsAbs.takeIf { it > 0 } ?: 1.0
     val bid = vwapWalk(bids, need) ?: bids.firstOrNull()?.price
     val ask = vwapWalk(asks, need) ?: asks.firstOrNull()?.price
@@ -122,21 +153,38 @@ internal fun parseTinkoffOrderBookQuote(root: org.json.JSONObject, lotsAbs: Doub
     return ShareQuote(last = last?.takeIf { it > 0 }, bid = bid, ask = ask)
 }
 
+internal fun canonicalCloseNowFigi(instrumentId: String, tatnp: Boolean): String {
+    val id = instrumentId.trim()
+    if (id.startsWith("BBG", ignoreCase = true)) return id
+    return if (tatnp) TINKOFF_MOEX_TATNP_FIGI else TINKOFF_MOEX_TATN_FIGI
+}
+
 internal suspend fun fetchTinkoffOrderBookQuote(
     token: String,
     instrumentId: String,
     lotsAbs: Double,
 ): ShareQuote? {
     if (token.isBlank() || instrumentId.isBlank()) return null
-    return runCatching {
-        val body = org.json.JSONObject()
-            .put("instrumentId", instrumentId)
+    val figi = canonicalCloseNowFigi(instrumentId, instrumentId.contains("TATNP", ignoreCase = true))
+    val attempts = listOf(
+        org.json.JSONObject()
+            .put("instrumentId", figi)
             .put("depth", CLOSE_NOW_BOOK_DEPTH)
-        parseTinkoffOrderBookQuote(
-            tinkoffProdMarketDataPostAsync(token, "GetOrderBook", body),
-            lotsAbs,
-        )
-    }.getOrNull()
+            .put("orderBookType", CLOSE_NOW_ORDERBOOK_TYPE_DEALER),
+        org.json.JSONObject()
+            .put("instrumentId", figi)
+            .put("depth", CLOSE_NOW_BOOK_DEPTH),
+    )
+    for (body in attempts) {
+        val quote = runCatching {
+            parseTinkoffOrderBookQuote(
+                tinkoffProdMarketDataPostAsync(token, "GetOrderBook", body),
+                lotsAbs,
+            )
+        }.getOrNull()
+        if (quote != null && shareQuoteHasAnyBook(quote)) return quote
+    }
+    return null
 }
 
 internal suspend fun fetchTinkoffPairQuotesForClose(
@@ -177,7 +225,11 @@ internal fun synthBidAsk(
     val bidOut = if (b > 0) b else mid * 0.9999
     var askOut = if (a > 0) a else mid * 1.0001
     if (askOut < bidOut) askOut = bidOut
-    val mode = if (bIn != null && aIn != null) "book" else "last_fallback"
+    val mode = when {
+        bIn != null && aIn != null -> "book"
+        bIn != null || aIn != null -> "partial"
+        else -> "last_fallback"
+    }
     return Triple(bidOut, askOut, mode)
 }
 
@@ -287,18 +339,8 @@ internal fun computeCloseNowPnl(
     val tp = quotes?.tatnp ?: ShareQuote()
     val tnLast = lastForCloseSynth(tn, fallbackTatnLast)
     val tpLast = lastForCloseSynth(tp, fallbackTatnpLast)
-    val tnBook = shareQuoteHasBook(tn)
-    val tpBook = shareQuoteHasBook(tp)
-    val (tnBid, tnAsk, tnMode) = synthBidAsk(
-        tnLast,
-        if (tnBook) tn.bid else null,
-        if (tnBook) tn.ask else null,
-    )
-    val (tpBid, tpAsk, tpMode) = synthBidAsk(
-        tpLast,
-        if (tpBook) tp.bid else null,
-        if (tpBook) tp.ask else null,
-    )
+    val (tnBid, tnAsk, tnMode) = synthBidAsk(tnLast, tn.bid, tn.ask)
+    val (tpBid, tpAsk, tpMode) = synthBidAsk(tpLast, tp.bid, tp.ask)
     val closeTatn = closePriceForSignedLots(tatnLots, tnBid, tnAsk)
     val closeTatnp = closePriceForSignedLots(tatnpLots, tpBid, tpAsk)
     val gross = signedLegsUnrealizedRub(
@@ -331,15 +373,17 @@ internal fun computeCloseNowPnl(
     val dep = depositRub?.takeIf { it > 0 }
     val tnNeeded = tatnLots != 0
     val tpNeeded = tatnpLots != 0
-    val bookOk = (!tnNeeded || tnMode == "book") && (!tpNeeded || tpMode == "book")
+    val tnFromBook = !tnNeeded || shareQuoteHasCloseSide(tn, tatnLots)
+    val tpFromBook = !tpNeeded || shareQuoteHasCloseSide(tp, tatnpLots)
+    val bookOk = tnFromBook && tpFromBook
     val quotesMode = when {
         bookOk && (tnNeeded || tpNeeded) -> "book"
         (!tnNeeded || tnMode != "none") && (!tpNeeded || tpMode != "none") -> "last_fallback"
         else -> "none"
     }
     val usedPortfolioLast =
-        (!tnNeeded || (!tnBook && fallbackTatnLast != null)) &&
-            (!tpNeeded || (!tpBook && fallbackTatnpLast != null))
+        (!tnNeeded || (!tnFromBook && fallbackTatnLast != null)) &&
+            (!tpNeeded || (!tpFromBook && fallbackTatnpLast != null))
     val cashAfter = cashAfterCloseRub(
         cashRub = cashRub,
         tatnLots = tatnLots,
@@ -351,8 +395,8 @@ internal fun computeCloseNowPnl(
     val src = quotes?.source.orEmpty()
     val note = when {
         quotesMode == "book" && src.contains("tinkoff") ->
-            "по стакану T‑Invest (VWAP на лоты) · Премиум"
-        quotesMode == "book" -> "по BID/OFFER ISS · тариф Премиум"
+            "по стакану T‑Invest дилер (VWAP на лоты) · Премиум"
+        quotesMode == "book" -> "по стакану ISS (VWAP на лоты) · Премиум"
         usedPortfolioLast ->
             "рыночный ордер: last портфеля ±${formatCloseNowSlipPct()} · Премиум"
         quotesMode == "last_fallback" ->
@@ -455,12 +499,82 @@ internal fun fetchIssShareQuote(secId: String): ShareQuote? {
     }.getOrNull()
 }
 
-internal suspend fun fetchIssPairQuotes(): PairQuotes = coroutineScope {
+internal fun parseIssOrderbookLevels(json: String): Pair<List<BookLevel>, List<BookLevel>> {
+    val root = runCatching { org.json.JSONObject(json) }.getOrNull() ?: return emptyList<BookLevel>() to emptyList()
+    val ob = root.optJSONObject("orderbook") ?: return emptyList<BookLevel>() to emptyList()
+    val cols = ob.optJSONArray("columns") ?: return emptyList<BookLevel>() to emptyList()
+    val data = ob.optJSONArray("data") ?: return emptyList<BookLevel>() to emptyList()
+    val index = linkedMapOf<String, Int>()
+    for (i in 0 until cols.length()) {
+        index[cols.optString(i).uppercase(Locale.US)] = i
+    }
+    val sideIdx = index["BUYSELL"] ?: return emptyList<BookLevel>() to emptyList()
+    val pxIdx = index["PRICE"] ?: return emptyList<BookLevel>() to emptyList()
+    val qtyIdx = index["QUANTITY"] ?: index["QTY"] ?: return emptyList<BookLevel>() to emptyList()
+    fun cell(row: org.json.JSONArray, i: Int): Double? {
+        val raw = row.opt(i) ?: return null
+        val v = when (raw) {
+            is Number -> raw.toDouble()
+            is String -> raw.trim().toDoubleOrNull()
+            else -> null
+        }
+        return v?.takeIf { it > 0 && it.isFinite() }
+    }
+    val bids = ArrayList<BookLevel>()
+    val asks = ArrayList<BookLevel>()
+    for (r in 0 until data.length()) {
+        val row = data.optJSONArray(r) ?: continue
+        val px = cell(row, pxIdx) ?: continue
+        val qty = cell(row, qtyIdx) ?: continue
+        val side = row.optString(sideIdx, "").trim().uppercase(Locale.US)
+        when (side) {
+            "B", "BUY", "BID" -> bids.add(BookLevel(px, qty))
+            "S", "SELL", "OFFER", "ASK" -> asks.add(BookLevel(px, qty))
+        }
+    }
+    return bids.sortedByDescending { it.price } to asks.sortedBy { it.price }
+}
+
+internal fun parseIssOrderbookQuote(json: String, lotsAbs: Double): ShareQuote? {
+    val (bids, asks) = parseIssOrderbookLevels(json)
+    val need = lotsAbs.takeIf { it > 0 } ?: 1.0
+    val bid = vwapWalk(bids, need) ?: bids.firstOrNull()?.price
+    val ask = vwapWalk(asks, need) ?: asks.firstOrNull()?.price
+    if ((bid == null || bid <= 0) && (ask == null || ask <= 0)) return null
+    return ShareQuote(bid = bid, ask = ask)
+}
+
+internal fun fetchIssOrderbookQuote(secId: String, lotsAbs: Double): ShareQuote? {
+    val url = "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/" +
+        "$secId/orderbook.json?iss.meta=off"
+    val request = okhttp3.Request.Builder()
+        .url(url)
+        .header("Cache-Control", "no-cache")
+        .build()
+    return runCatching {
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            parseIssOrderbookQuote(response.body?.string().orEmpty(), lotsAbs)
+        }
+    }.getOrNull()
+}
+
+internal fun fetchIssShareQuoteForClose(secId: String, lotsAbs: Double): ShareQuote {
+    val md = runCatching { fetchIssShareQuote(secId) }.getOrNull()
+    val book = runCatching { fetchIssOrderbookQuote(secId, lotsAbs) }.getOrNull()
+    return ShareQuote(
+        last = md?.last,
+        bid = book?.bid ?: md?.bid,
+        ask = book?.ask ?: md?.ask,
+    )
+}
+
+internal suspend fun fetchIssPairQuotes(lotsAbs: Double = 1.0): PairQuotes = coroutineScope {
     val tn = async {
-        runCatching { fetchIssShareQuote("TATN") }.getOrNull() ?: ShareQuote()
+        runCatching { fetchIssShareQuoteForClose("TATN", lotsAbs) }.getOrNull() ?: ShareQuote()
     }
     val tp = async {
-        runCatching { fetchIssShareQuote("TATNP") }.getOrNull() ?: ShareQuote()
+        runCatching { fetchIssShareQuoteForClose("TATNP", lotsAbs) }.getOrNull() ?: ShareQuote()
     }
     PairQuotes(tatn = tn.await(), tatnp = tp.await(), source = "iss")
 }

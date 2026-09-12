@@ -624,6 +624,139 @@ class MoexTradeScreenTest {
     }
 
     @Test
+    fun closeNowPnl_sept12_1607_dealerVwapMatchesActualCash() {
+        val tatnBid = vwapWalk(
+            listOf(BookLevel(617.6, 40.0), BookLevel(617.5, 17.0)),
+            57.0,
+        )!!
+        val tatnpAsk = vwapWalk(
+            listOf(BookLevel(593.9, 14.0), BookLevel(594.0, 43.0)),
+            57.0,
+        )!!
+        assertEquals(617.570175, tatnBid, 1e-4)
+        assertEquals(593.975439, tatnpAsk, 1e-4)
+        val slip = computeCloseNowPnl(
+            tatnLots = 57,
+            tatnpLots = -57,
+            fillTatnRub = 618.363158,
+            fillTatnpRub = 592.975439,
+            quotes = null,
+            fallbackTatnLast = 617.6,
+            fallbackTatnpLast = 593.0,
+            depositRub = 9_990.0,
+            cashRub = 8_525.0,
+            entryTimeMsk = "2026-09-12 15:55",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 16, 7)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        val book = computeCloseNowPnl(
+            tatnLots = 57,
+            tatnpLots = -57,
+            fillTatnRub = 618.363158,
+            fillTatnpRub = 592.975439,
+            quotes = PairQuotes(
+                tatn = ShareQuote(last = 617.6, bid = tatnBid, ask = 617.7),
+                tatnp = ShareQuote(last = 593.0, bid = 592.9, ask = tatnpAsk),
+                source = "tinkoff",
+            ),
+            fallbackTatnLast = 617.6,
+            fallbackTatnpLast = 593.0,
+            depositRub = 9_990.0,
+            cashRub = 8_525.0,
+            entryTimeMsk = "2026-09-12 15:55",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 16, 7)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        assertEquals("book", book.quotesMode)
+        assertEquals(-157.45, book.netRub, 1.0)
+        assertEquals(9_842.28, book.cashAfterCloseRub!!, 1.5)
+        assertTrue(slip.netRub < book.netRub - 30.0)
+        assertEquals(616.7, kotlin.math.round(slip.closeTatnRub!! * 10) / 10.0, 0.05)
+    }
+
+    @Test
+    fun closeNowPnl_partialDealerSidesCountAsBook() {
+        val pnl = computeCloseNowPnl(
+            tatnLots = 57,
+            tatnpLots = -57,
+            fillTatnRub = 618.363158,
+            fillTatnpRub = 592.975439,
+            quotes = PairQuotes(
+                tatn = ShareQuote(last = 617.6, bid = 617.570175),
+                tatnp = ShareQuote(last = 593.0, ask = 593.975439),
+                source = "tinkoff",
+            ),
+            fallbackTatnLast = 617.6,
+            fallbackTatnpLast = 593.0,
+            depositRub = 9_990.0,
+            cashRub = 8_525.0,
+            entryTimeMsk = "2026-09-12 15:55",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 16, 7)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        assertEquals("book", pnl.quotesMode)
+        assertEquals(617.570175, pnl.closeTatnRub!!, 1e-6)
+        assertEquals(593.975439, pnl.closeTatnpRub!!, 1e-6)
+        assertEquals(-157.45, pnl.netRub, 1.0)
+    }
+
+    @Test
+    fun parseTinkoffOrderBookQuote_unwrapsDealerEnvelope() {
+        val json = JSONObject(
+            """
+            {
+              "getOrderBookResponse": {
+                "last_price": {"units": "617", "nano": 600000000},
+                "Bids": [
+                  {"Price": {"units": "617", "nano": 600000000}, "Quantity": 40},
+                  {"price": {"units": "617", "nano": 500000000}, "quantity": "17"}
+                ],
+                "Asks": [
+                  {"price": {"units": "617", "nano": 700000000}, "quantity": 8}
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+        val q = parseTinkoffOrderBookQuote(json, 57.0)!!
+        assertEquals(617.570175, q.bid!!, 1e-4)
+        assertEquals(617.7, q.ask!!, 1e-9)
+        assertEquals(617.6, q.last!!, 1e-9)
+    }
+
+    @Test
+    fun parseIssOrderbookQuote_vwapOnLots() {
+        val json = """
+            {
+              "orderbook": {
+                "columns": ["SECID", "BUYSELL", "PRICE", "QUANTITY"],
+                "data": [
+                  ["TATN", "B", 617.6, 40],
+                  ["TATN", "B", 617.5, 17],
+                  ["TATN", "S", 617.7, 8]
+                ]
+              }
+            }
+        """.trimIndent()
+        val q = parseIssOrderbookQuote(json, 57.0)!!
+        assertEquals(617.570175, q.bid!!, 1e-4)
+        assertEquals(617.7, q.ask!!, 1e-9)
+    }
+
+    @Test
+    fun canonicalCloseNowFigi_replacesTickerTqbr() {
+        assertEquals(TINKOFF_MOEX_TATN_FIGI, canonicalCloseNowFigi("TATN_TQBR", tatnp = false))
+        assertEquals(TINKOFF_MOEX_TATNP_FIGI, canonicalCloseNowFigi("TATNP_TQBR", tatnp = true))
+        assertEquals(TINKOFF_MOEX_TATN_FIGI, canonicalCloseNowFigi(TINKOFF_MOEX_TATN_FIGI, tatnp = false))
+    }
+
+    @Test
     fun marketOrderHalfSpreadRub_matchesSept12Walk() {
         assertEquals(618.4 * 0.0014, marketOrderHalfSpreadRub(618.4), 1e-9)
         assertEquals(0.40, marketOrderHalfSpreadRub(100.0), 1e-9)
