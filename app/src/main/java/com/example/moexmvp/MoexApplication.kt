@@ -5,6 +5,7 @@ import android.app.Application
 class MoexApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        MoexAppHolder.attach(applicationContext)
         installMoexDiagnosticsCrashHandler(applicationContext)
         MoexDiagnostics.log(applicationContext, "lifecycle", "application_onCreate")
         scheduleAppUpdateChecks(applicationContext)

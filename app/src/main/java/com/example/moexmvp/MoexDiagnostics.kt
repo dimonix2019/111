@@ -100,12 +100,23 @@ internal object MoexDiagnostics {
         log(context, category, head)
     }
 
-    fun log(context: Context, category: String, message: String) {
-        val clipped = if (message.length > 400) message.take(400) + "…" else message
+    fun log(
+        context: Context,
+        category: String,
+        message: String,
+        maxChars: Int = 400,
+        alwaysWriteFile: Boolean = false,
+    ) {
+        val clipped = if (message.length > maxChars) message.take(maxChars) + "…" else message
         val line = "${timestamp()} [$category] $clipped"
         Log.i(TAG, line)
-        if (!mayWriteToFile(context)) return
+        if (!alwaysWriteFile && !mayWriteToFile(context)) return
         appendLine(context.applicationContext, line)
+    }
+
+    /** PostOrder / GetMaxLots: в файл журнала всегда, даже если тумблер выключен. */
+    fun logExchangeReply(context: Context, message: String) {
+        log(context, "tinvest_order", message, maxChars = 1600, alwaysWriteFile = true)
     }
 
     fun logMemory(context: Context, label: String = "heap") {

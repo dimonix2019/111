@@ -159,7 +159,9 @@ internal suspend fun runEmergencyFlattenFromTradeTab(
                 runCatching { tinkoffResolveShareInstrumentId(mode, token, leg.ticker) }.getOrNull(),
             )
             val dir = if (leg.buy) "ORDER_DIRECTION_BUY" else "ORDER_DIRECTION_SELL"
-            tinkoffPostMarketOrder(mode, token, accountId, instId, dir, leg.lots)
+            withContext(TinkoffOrderPurpose("flatten")) {
+                tinkoffPostMarketOrder(mode, token, accountId, instId, dir, leg.lots)
+            }
             posted += "${leg.dirRu} ${leg.ticker} ×${leg.lots}"
             MoexDiagnostics.log(
                 app,

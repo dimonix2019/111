@@ -271,9 +271,9 @@ private fun EventLogSection(modifier: Modifier = Modifier) {
                 )
                 Text(
                     text = if (writingEnabled) {
-                        "Вкл — новые события пишутся в файл"
+                        "Вкл — новые события пишутся в файл. Ответы биржи (PostOrder / GetMaxLots) пишутся всегда."
                     } else {
-                        "Выкл — новые события не копятся (по умолчанию)"
+                        "Выкл — обычные события не копятся. Ответы биржи (PostOrder / GetMaxLots) пишутся всегда."
                     },
                     color = Color(0xFF9E9E9E),
                     fontSize = 10.sp,

@@ -3,6 +3,7 @@ package com.example.moexmvp
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -104,6 +105,7 @@ private suspend fun tinkoffSbxPostRaw(
     bodyJson: String
 ): String =
     withContext(Dispatchers.IO) {
+        val orderLogPurpose = coroutineContext[TinkoffOrderPurpose]?.value.orEmpty()
         val norm = normalizeInvestToken(token)
         if (norm.isEmpty()) {
             throw IOException(
@@ -131,6 +133,18 @@ private suspend fun tinkoffSbxPostRaw(
             try {
                 httpClient.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
+                    if (method in TINVEST_ORDER_LOG_METHODS) {
+                        runCatching {
+                            BrokerExchangeReplyLog.recordHttp(
+                                method = method,
+                                requestJson = bodyJson,
+                                httpCode = resp.code,
+                                responseText = text,
+                                ok = resp.isSuccessful,
+                                purpose = orderLogPurpose,
+                            )
+                        }
+                    }
                     if (!resp.isSuccessful) {
                         lastFailure =
                             IOException("${extractApiErrorMessage(resp.code, text)} · $url")
@@ -854,8 +868,16 @@ internal suspend fun tinkoffExecuteSpreadEntryDetailed(
     val posted = mutableListOf<Pair<SpreadEntryLegSpec, SandboxLegOrderResult>>()
     var qty = quantityLots.coerceAtLeast(1)
     if (mode == TinkoffExecutionMode.Prod) {
-        val tatnMax = runCatching { tinkoffGetMaxLots(token, accountId, instIds.getValue("TATN")) }.getOrNull()
-        val tatnpMax = runCatching { tinkoffGetMaxLots(token, accountId, instIds.getValue("TATNP")) }.getOrNull()
+        val tatnMax = runCatching {
+            withContext(TinkoffOrderPurpose("max_lots")) {
+                tinkoffGetMaxLots(token, accountId, instIds.getValue("TATN"))
+            }
+        }.getOrNull()
+        val tatnpMax = runCatching {
+            withContext(TinkoffOrderPurpose("max_lots")) {
+                tinkoffGetMaxLots(token, accountId, instIds.getValue("TATNP"))
+            }
+        }.getOrNull()
         if (tatnMax != null && tatnpMax != null) {
             explainSpreadMaxLotsBlock(signalType, qty, tatnMax, tatnpMax)?.let { throw IOException(it) }
             val capped = clampSpreadLotsToBrokerMax(qty, signalType, tatnMax, tatnpMax)
@@ -865,9 +887,11 @@ internal suspend fun tinkoffExecuteSpreadEntryDetailed(
             qty = capped
         }
     }
-    suspend fun postSpec(spec: SpreadEntryLegSpec): SandboxLegOrderResult {
+    suspend fun postSpec(spec: SpreadEntryLegSpec, purpose: String): SandboxLegOrderResult {
         val instId = instIds.getValue(spec.ticker)
-        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, spec.orderDirection, qty)
+        val order = withContext(TinkoffOrderPurpose(purpose)) {
+            tinkoffPostMarketOrder(mode, token, accountId, instId, spec.orderDirection, qty)
+        }
         return SandboxLegOrderResult(
             ticker = spec.ticker,
             sideRu = spreadLegSideRu(spec.buy, qty),
@@ -879,13 +903,13 @@ internal suspend fun tinkoffExecuteSpreadEntryDetailed(
     }
     try {
         for (spec in plan) {
-            posted += spec to postSpec(spec)
+            posted += spec to postSpec(spec, "spread_entry")
         }
     } catch (e: Exception) {
         val rollbackErrors = mutableListOf<String>()
         for ((spec, _) in posted.asReversed()) {
             val undo = spec.copy(buy = !spec.buy)
-            runCatching { postSpec(undo) }.onFailure { rollback ->
+            runCatching { postSpec(undo, "rollback") }.onFailure { rollback ->
                 rollbackErrors += "${undo.ticker} ${undo.orderDirection}: ${rollback.message}"
             }
         }
@@ -955,7 +979,9 @@ internal suspend fun tinkoffExecuteSpreadExitDetailed(
     val buy = "ORDER_DIRECTION_BUY"
     val sell = "ORDER_DIRECTION_SELL"
     suspend fun postLeg(ticker: String, instId: String, dir: String, buyLeg: Boolean): SandboxLegOrderResult {
-        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, dir, qty)
+        val order = withContext(TinkoffOrderPurpose("spread_exit")) {
+            tinkoffPostMarketOrder(mode, token, accountId, instId, dir, qty)
+        }
         val pf = runCatching { tinkoffGetPortfolio(mode, token, accountId) }.getOrNull()
         return SandboxLegOrderResult(
             ticker = ticker,
