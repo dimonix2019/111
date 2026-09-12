@@ -72,8 +72,23 @@ internal fun shareQuoteHasCloseSide(q: ShareQuote, lots: Int): Boolean = when {
  * Тогда берём текущую цену GetPortfolio — она обновляется вместе с карточкой сделки.
  */
 internal fun lastForCloseSynth(iss: ShareQuote, brokerLast: Double?): Double? {
-    if (shareQuoteHasBook(iss)) return iss.last?.takeIf { it > 0 } ?: brokerLast
     return brokerLast?.takeIf { it > 0 } ?: iss.last?.takeIf { it > 0 }
+}
+
+/**
+ * Дилерский стакан на выходных часто «залипает», а currentPrice GetPortfolio идёт дальше.
+ * Сдвигаем bid/ask на дельту last портфеля − last стакана, чтобы герой не стоял на одном числе.
+ */
+internal fun alignBookToLast(quote: ShareQuote, brokerLast: Double?): ShareQuote {
+    val last = brokerLast?.takeIf { it > 0 } ?: return quote
+    val bookLast = quote.last?.takeIf { it > 0 } ?: return quote.copy(last = last)
+    val delta = last - bookLast
+    if (kotlin.math.abs(delta) < 0.005) return quote.copy(last = last)
+    return ShareQuote(
+        last = last,
+        bid = quote.bid?.let { it + delta },
+        ask = quote.ask?.let { it + delta },
+    )
 }
 
 internal fun marketOrderHalfSpreadRub(last: Double): Double {
@@ -335,8 +350,8 @@ internal fun computeCloseNowPnl(
     nowMillis: Long = System.currentTimeMillis(),
 ): CloseNowPnl? {
     if (tatnLots == 0 && tatnpLots == 0) return null
-    val tn = quotes?.tatn ?: ShareQuote()
-    val tp = quotes?.tatnp ?: ShareQuote()
+    val tn = alignBookToLast(quotes?.tatn ?: ShareQuote(), fallbackTatnLast)
+    val tp = alignBookToLast(quotes?.tatnp ?: ShareQuote(), fallbackTatnpLast)
     val tnLast = lastForCloseSynth(tn, fallbackTatnLast)
     val tpLast = lastForCloseSynth(tp, fallbackTatnpLast)
     val (tnBid, tnAsk, tnMode) = synthBidAsk(tnLast, tn.bid, tn.ask)

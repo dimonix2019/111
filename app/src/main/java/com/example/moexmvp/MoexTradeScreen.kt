@@ -45,6 +45,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
@@ -96,7 +97,10 @@ internal data class TradeScreenSnapshot(
         }
 }
 
-internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnapshot {
+internal suspend fun loadTradeScreenSnapshot(
+    context: Context,
+    quick: Boolean = false,
+): TradeScreenSnapshot {
     val now = System.currentTimeMillis()
     val mode = TinkoffExecutionMode.Prod
     val token = TinkoffSandboxStorage.getActiveToken(context, mode)
@@ -107,13 +111,21 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             error = "Нет токена или счёта боевого контура — настройте Prod на вкладке «Песочница».",
         )
     }
-    return runCatching {
-        val extraTatn = runCatching {
-            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATN").uppercase(Locale.US))
-        }.getOrDefault(emptySet())
-        val extraTatnp = runCatching {
-            setOf(tinkoffResolveShareInstrumentId(mode, token, "TATNP").uppercase(Locale.US))
-        }.getOrDefault(emptySet())
+    return try {
+        val extraTatn = if (quick) {
+            emptySet()
+        } else {
+            runCatching {
+                setOf(tinkoffResolveShareInstrumentId(mode, token, "TATN").uppercase(Locale.US))
+            }.getOrDefault(emptySet())
+        }
+        val extraTatnp = if (quick) {
+            emptySet()
+        } else {
+            runCatching {
+                setOf(tinkoffResolveShareInstrumentId(mode, token, "TATNP").uppercase(Locale.US))
+            }.getOrDefault(emptySet())
+        }
         val portfolio = tinkoffGetPortfolio(mode, token, accountId)
         val broker = detectBrokerSpreadPosition(portfolio, extraTatn, extraTatnp)
         val avg = parseSpreadLegAveragePrices(portfolio, extraTatn, extraTatnp)
@@ -239,7 +251,9 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             execSourceLabel = exec?.let { portfolioExecSourceLabel(it.source) },
             quantityLots = lots,
         )
-    }.getOrElse { err ->
+    } catch (err: CancellationException) {
+        throw err
+    } catch (err: Exception) {
         TradeScreenSnapshot(
             loadedAtMillis = now,
             error = err.message ?: "Ошибка загрузки портфеля",
@@ -293,30 +307,40 @@ internal suspend fun MoexScreenState.refreshTradeScreenFromBroker(
     includeClosedTrades: Boolean = true,
     showLoading: Boolean = true,
 ) {
-    if (tradeScreenRefreshInFlight) return
-    tradeScreenRefreshInFlight = true
-    if (showLoading) tradeScreenLoading = true
-    try {
-        val snap = withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context) }
-        if (includeClosedTrades) {
-            val (trades, source) = withContext(Dispatchers.IO) { loadTradeTabClosedTrades(context) }
-            // Не показываем «открыта» из операций, если на брокере ног уже нет.
-            tradeTabClosedTrades = if (snap.isOpen) trades else trades.filter { !it.isOpen }
-            tradeTabTradesSource = source
-        }
-        tradeScreenSnapshot = if (snap.error.isNullOrBlank()) {
-            snap
-        } else {
-            overlaySnapshotFromOpenOperations(snap)
-        }
-        if (snap.isOpen && pendingVirtualTrade != null) {
-            pendingVirtualTrade = null
-            withContext(Dispatchers.IO) { clearPendingVirtualTradeProposal(context) }
-        }
-    } finally {
-        tradeScreenLoading = false
-        tradeScreenRefreshInFlight = false
+    if (tradeScreenRefreshInFlight) {
+        tradeScreenRefreshQueued = true
+        return
     }
+    do {
+        tradeScreenRefreshInFlight = true
+        tradeScreenRefreshQueued = false
+        if (showLoading) tradeScreenLoading = true
+        try {
+            val quick = !includeClosedTrades && !showLoading
+            val snap = withTimeoutOrNull(TRADE_SCREEN_LOAD_TIMEOUT_MS) {
+                withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context, quick = quick) }
+            }
+            if (snap != null) {
+                if (includeClosedTrades) {
+                    val (trades, source) = withContext(Dispatchers.IO) { loadTradeTabClosedTrades(context) }
+                    tradeTabClosedTrades = if (snap.isOpen) trades else trades.filter { !it.isOpen }
+                    tradeTabTradesSource = source
+                }
+                tradeScreenSnapshot = if (snap.error.isNullOrBlank()) {
+                    snap
+                } else {
+                    overlaySnapshotFromOpenOperations(snap)
+                }
+                if (snap.isOpen && pendingVirtualTrade != null) {
+                    pendingVirtualTrade = null
+                    withContext(Dispatchers.IO) { clearPendingVirtualTradeProposal(context) }
+                }
+            }
+        } finally {
+            tradeScreenLoading = false
+            tradeScreenRefreshInFlight = false
+        }
+    } while (tradeScreenRefreshQueued)
 }
 
 @Composable
@@ -512,6 +536,7 @@ internal fun MoexScreenTabTrade(
             Text(
                 "Крупный PnL сверху — если закрыть сейчас: стакан T‑Invest дилер " +
                     "(ORDERBOOK_TYPE_DEALER, VWAP на ваши лоты; выходные без биржевого стакана), " +
+                    "сдвиг на текущий last портфеля если стакан застыл, " +
                     "иначе стакан ISS, иначе рыночный слип ${formatCloseNowSlipPct()} от last. " +
                     "Комиссия Премиум 0,04% номинала на вход и на выход, перенос короткой ноги (ступени Премиум) " +
                     "и плата 0,033%/день за отрицательный кэш. " +

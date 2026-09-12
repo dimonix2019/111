@@ -149,6 +149,8 @@ internal class MoexScreenState(val context: Context) {
     var tradeScreenLoading by mutableStateOf(false)
     @Volatile
     internal var tradeScreenRefreshInFlight: Boolean = false
+    @Volatile
+    internal var tradeScreenRefreshQueued: Boolean = false
     /** Таблица закрытых сделок (2 недели) на вкладке «Сделка» + источник данных. */
     var tradeTabClosedTrades by mutableStateOf<List<TradeTabClosedTrade>>(emptyList())
     var tradeTabTradesSource by mutableStateOf<String?>(null)

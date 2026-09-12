@@ -6,6 +6,8 @@ import java.util.Locale
 internal const val BROKER_ACCOUNT_POLL_MS = 15_000L
 /** Опрос вкладки «Сделка» (PnL / портфель), только когда вкладка открыта. */
 internal const val TRADE_SCREEN_POLL_MS = 5_000L
+/** Потолок одной загрузки вкладки «Сделка», чтобы опрос не залипал на GetOrderBook. */
+internal const val TRADE_SCREEN_LOAD_TIMEOUT_MS = 8_000L
 private const val BROKER_PUSH_BASE_ID = 43_100
 internal const val BROKER_PROFIT_ALERT_PCT_2 = 2.0
 internal const val BROKER_PROFIT_ALERT_PCT_3 = 3.0

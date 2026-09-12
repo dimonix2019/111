@@ -475,15 +475,73 @@ class MoexTradeScreenTest {
     }
 
     @Test
-    fun lastForCloseSynth_prefersBrokerWhenIssHasNoBook() {
+    fun lastForCloseSynth_prefersBrokerMarkEvenWithBook() {
         assertEquals(
             617.8,
             lastForCloseSynth(ShareQuote(last = 618.7), 617.8),
         )
         assertEquals(
-            619.0,
+            617.8,
             lastForCloseSynth(ShareQuote(last = 619.0, bid = 618.0, ask = 620.0), 617.8),
         )
+    }
+
+    @Test
+    fun alignBookToLast_shiftsStaleDealerBook() {
+        val q = alignBookToLast(
+            ShareQuote(last = 593.2, bid = 593.0, ask = 594.4),
+            593.5,
+        )
+        assertEquals(593.5, q.last!!, 1e-9)
+        assertEquals(593.3, q.bid!!, 1e-9)
+        assertEquals(594.7, q.ask!!, 1e-9)
+    }
+
+    @Test
+    fun closeNowPnl_tracksPortfolioLastWhenDealerBookStuck() {
+        val stuck = PairQuotes(
+            tatn = ShareQuote(last = 617.7, bid = 617.7, ask = 617.8),
+            tatnp = ShareQuote(last = 593.2, bid = 593.0, ask = 594.4),
+            source = "tinkoff",
+        )
+        val frozen = computeCloseNowPnl(
+            tatnLots = 57,
+            tatnpLots = -57,
+            fillTatnRub = 618.5,
+            fillTatnpRub = 592.8,
+            quotes = stuck,
+            fallbackTatnLast = 617.7,
+            fallbackTatnpLast = 593.2,
+            depositRub = 9_981.0,
+            cashRub = 8_505.0,
+            entryTimeMsk = "2026-09-12 16:24",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 18, 36)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        val moved = computeCloseNowPnl(
+            tatnLots = 57,
+            tatnpLots = -57,
+            fillTatnRub = 618.5,
+            fillTatnpRub = 592.8,
+            quotes = stuck,
+            fallbackTatnLast = 618.1,
+            fallbackTatnpLast = 593.6,
+            depositRub = 9_981.0,
+            cashRub = 8_505.0,
+            entryTimeMsk = "2026-09-12 16:24",
+            nowMillis = java.time.LocalDateTime.of(2026, 9, 12, 18, 40)
+                .atZone(java.time.ZoneId.of("Europe/Moscow"))
+                .toInstant()
+                .toEpochMilli(),
+        )!!
+        assertEquals("book", frozen.quotesMode)
+        assertEquals(617.7, frozen.closeTatnRub!!, 1e-9)
+        assertEquals(594.4, frozen.closeTatnpRub!!, 1e-9)
+        assertEquals(618.1, moved.closeTatnRub!!, 1e-9)
+        assertEquals(594.8, moved.closeTatnpRub!!, 1e-9)
+        assertTrue(kotlin.math.abs(moved.netRub - frozen.netRub) > 5.0)
     }
 
     @Test
@@ -782,6 +840,7 @@ class MoexTradeScreenTest {
     fun tradeScreenPoll_isFiveSecondsAndDoesNotChangeBackgroundPoll() {
         assertEquals(5_000L, TRADE_SCREEN_POLL_MS)
         assertEquals(15_000L, BROKER_ACCOUNT_POLL_MS)
+        assertEquals(8_000L, TRADE_SCREEN_LOAD_TIMEOUT_MS)
         assertTrue(TRADE_SCREEN_POLL_MS < BROKER_ACCOUNT_POLL_MS)
     }
 
