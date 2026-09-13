@@ -261,7 +261,10 @@ internal fun MoexScreenTabMarketsPhone(
     ) {
         Text(
             text = "S% (последний): $spreadText · позиция: $sideLabel" +
-                (lastBarLabel?.let { " · бар $it" } ?: ""),
+                (lastBarLabel?.let { " · бар $it" } ?: "") +
+                marketsPhoneSpreadStatusSuffix(
+                    lastBarLabel?.let { parsePortfolioExecutionTableMsk(it) } ?: 0L,
+                ),
             color = Color(0xFFE0E0E0),
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,

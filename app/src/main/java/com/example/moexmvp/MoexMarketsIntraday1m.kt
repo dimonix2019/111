@@ -8,14 +8,22 @@ import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 /** Если нет новой 1м свечи дольше — пишем в журнал отладки (только в торговую сессию). */
 internal const val MARKETS_QUOTES_STALE_WARN_MS = 3L * 60L * 1000L
+
+/** 10м бар годится как «формирующаяся минута» только пока он из текущего окна. */
+internal const val FORMING_10M_MAX_AGE_MINUTES = 15L
+
+/** Возраст последнего бара, после которого в шапке пишем «без сделок N мин». */
+internal const val MARKETS_PHONE_STALE_PRINT_MINUTES = 15L
 
 /** Не спамить предупреждением чаще раза в 5 минут. */
 private const val QUOTES_STALE_WARN_THROTTLE_MS = 5L * 60L * 1000L
@@ -203,7 +211,7 @@ internal suspend fun fetchMarketsSpreadRange(
         val candles = buildSpreadPercentCandlesFromLegs(tatnBars, tatnpBars)
         MarketsSpreadWeekSnapshot(
             spreadCandles = candles,
-            lastBarMillis = maxOf(lastCandleBarMillis(tatnBars), lastCandleBarMillis(tatnpBars)),
+            lastBarMillis = lastSpreadCandleMillis(candles),
             lastSpreadPercent = candles.lastOrNull()?.close,
         )
     }
@@ -235,12 +243,37 @@ internal fun mergeSpreadWeekSnapshots(
     val candles = map.values.sortedBy { it.label }
     return MarketsSpreadWeekSnapshot(
         spreadCandles = candles,
-        lastBarMillis = maxOf(cached.lastBarMillis, tail.lastBarMillis),
+        lastBarMillis = lastSpreadCandleMillis(candles).takeIf { it > 0L }
+            ?: maxOf(cached.lastBarMillis, tail.lastBarMillis),
         lastSpreadPercent = candles.lastOrNull()?.close
             ?: tail.lastSpreadPercent
             ?: cached.lastSpreadPercent,
         fetchedAtMillis = tail.fetchedAtMillis,
     )
+}
+
+internal fun lastSpreadCandleMillis(candles: List<CandlePoint>): Long =
+    candles.lastOrNull()?.let { parsePortfolioExecutionTableMsk(it.label) } ?: 0L
+
+/** Подпись в шапке «Рынок»: не маскируем простой выходных тикающей «текущей минутой». */
+internal fun marketsPhoneSpreadStatusSuffix(
+    lastBarMillis: Long,
+    now: ZonedDateTime = ZonedDateTime.now(moexZoneId),
+): String {
+    if (lastBarMillis <= 0L) return ""
+    if (!isMoexQuotesSessionLikelyOpen(now)) return " · биржа закрыта"
+    val age = intraday1mLastBarAgeMinutes(lastBarMillis, now.toInstant().toEpochMilli()) ?: return ""
+    return if (age >= MARKETS_PHONE_STALE_PRINT_MINUTES) " · без сделок $age мин" else ""
+}
+
+internal fun isForming10mBarFresh(
+    barTime: LocalDateTime,
+    now: ZonedDateTime,
+    maxAgeMinutes: Long = FORMING_10M_MAX_AGE_MINUTES,
+): Boolean {
+    val nowLdt = now.toLocalDateTime()
+    if (barTime.isAfter(nowLdt)) return false
+    return ChronoUnit.MINUTES.between(barTime, nowLdt) <= maxAgeMinutes
 }
 
 internal fun lastCandleBarMillis(bars: List<CandleBar>, zone: ZoneId = moexZoneId): Long =
@@ -267,9 +300,11 @@ internal fun appendFormingIntraday1mFrom10m(
     now: ZonedDateTime = ZonedDateTime.now(moexZoneId),
 ): List<CandleBar> {
     if (bars10m.isEmpty()) return bars1m
+    if (!isMoexQuotesSessionLikelyOpen(now)) return bars1m
     val nowLdt = now.toLocalDateTime()
     val latest10 = bars10m.filter { !it.timestamp.isAfter(nowLdt) }.maxByOrNull { it.timestamp }
         ?: return bars1m
+    if (!isForming10mBarFresh(latest10.timestamp, now)) return bars1m
     val price = latest10.close
     val minuteBucket = now.withSecond(0).withNano(0).toLocalDateTime()
     val result = bars1m.toMutableList()
