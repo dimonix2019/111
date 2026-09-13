@@ -192,7 +192,6 @@ class MoexMarketsIntraday1mTest {
     }
 
     @Test
-    @Test
     fun mergeSpreadWeekSnapshots_overwritesTailAndKeepsOlderDays() {
         val mon = CandlePoint("2026-09-07 10:00", 3.4, 3.4, 3.4, 3.4)
         val tueOld = CandlePoint("2026-09-08 12:00", 3.5, 3.5, 3.5, 3.5)
