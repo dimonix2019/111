@@ -187,15 +187,15 @@ internal data class MarketsSpreadWeekSnapshot(
     val fetchedAtMillis: Long = System.currentTimeMillis(),
 )
 
-/** 1м TATN/TATNP с понедельника недели до завтра (МСК) → свечи спреда %. */
-internal suspend fun fetchMarketsIntraday1mWeek(): MarketsSpreadWeekSnapshot = withContext(Dispatchers.IO) {
-    val today = LocalDate.now(moexZoneId)
-    val weekFrom = currentWeekMondayMsk(today)
-    val till = today.plusDays(1)
-    val tenFrom = weekFrom.minusDays(1)
+/** 1м TATN/TATNP за [from]…[till) (МСК) → свечи спреда %. */
+internal suspend fun fetchMarketsSpreadRange(
+    from: LocalDate,
+    till: LocalDate,
+): MarketsSpreadWeekSnapshot = withContext(Dispatchers.IO) {
+    val tenFrom = from.minusDays(1)
     coroutineScope {
-        val tatn1 = async { loadCandleBars("TATN", weekFrom, till, interval = 1) }
-        val tatnp1 = async { loadCandleBars("TATNP", weekFrom, till, interval = 1) }
+        val tatn1 = async { loadCandleBars("TATN", from, till, interval = 1) }
+        val tatnp1 = async { loadCandleBars("TATNP", from, till, interval = 1) }
         val tatn10 = async { loadCandleBars("TATN", tenFrom, till, interval = 10) }
         val tatnp10 = async { loadCandleBars("TATNP", tenFrom, till, interval = 10) }
         val tatnBars = appendFormingIntraday1mFrom10m(tatn1.await(), tatn10.await())
@@ -207,6 +207,40 @@ internal suspend fun fetchMarketsIntraday1mWeek(): MarketsSpreadWeekSnapshot = w
             lastSpreadPercent = candles.lastOrNull()?.close,
         )
     }
+}
+
+/** 1м TATN/TATNP с понедельника недели до завтра (МСК) → свечи спреда %. */
+internal suspend fun fetchMarketsIntraday1mWeek(): MarketsSpreadWeekSnapshot {
+    val today = LocalDate.now(moexZoneId)
+    return fetchMarketsSpreadRange(currentWeekMondayMsk(today), today.plusDays(1))
+}
+
+/** Хвост за сегодня (+10м со вчера) — для опроса без повторной загрузки всей недели. */
+internal suspend fun fetchMarketsIntraday1mWeekTail(): MarketsSpreadWeekSnapshot {
+    val today = LocalDate.now(moexZoneId)
+    return fetchMarketsSpreadRange(today, today.plusDays(1))
+}
+
+/** Подмешать свежий хвост в недельный снимок (новые/обновлённые метки перезаписывают старые). */
+internal fun mergeSpreadWeekSnapshots(
+    cached: MarketsSpreadWeekSnapshot,
+    tail: MarketsSpreadWeekSnapshot,
+): MarketsSpreadWeekSnapshot {
+    if (tail.spreadCandles.isEmpty()) {
+        return cached.copy(fetchedAtMillis = tail.fetchedAtMillis)
+    }
+    val map = LinkedHashMap<String, CandlePoint>(cached.spreadCandles.size + tail.spreadCandles.size)
+    for (c in cached.spreadCandles) map[c.label] = c
+    for (c in tail.spreadCandles) map[c.label] = c
+    val candles = map.values.sortedBy { it.label }
+    return MarketsSpreadWeekSnapshot(
+        spreadCandles = candles,
+        lastBarMillis = maxOf(cached.lastBarMillis, tail.lastBarMillis),
+        lastSpreadPercent = candles.lastOrNull()?.close
+            ?: tail.lastSpreadPercent
+            ?: cached.lastSpreadPercent,
+        fetchedAtMillis = tail.fetchedAtMillis,
+    )
 }
 
 internal fun lastCandleBarMillis(bars: List<CandleBar>, zone: ZoneId = moexZoneId): Long =

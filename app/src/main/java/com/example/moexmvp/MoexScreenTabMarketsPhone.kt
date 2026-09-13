@@ -27,10 +27,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDateTime
 import java.util.Locale
 
-private const val MARKETS_PHONE_SPREAD_POLL_MS = 30_000L
+internal const val MARKETS_PHONE_SPREAD_POLL_MS = 30_000L
+internal const val MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS = 20_000L
+internal const val MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS = 8_000L
 private const val MARKETS_PHONE_CHART_HEIGHT_DP = 280
 
 private data class MarketsPhoneChartState(
@@ -91,24 +94,54 @@ internal fun MoexScreenTabMarketsPhone(
 
     LaunchedEffect(screen.selectedTab, screen.activityResumed) {
         if (screen.selectedTab != MainTab.Markets || !screen.activityResumed) return@LaunchedEffect
+        var cachedWeek: MarketsSpreadWeekSnapshot? = null
         while (true) {
-            runCatching {
-                val snap = withContext(Dispatchers.IO) { fetchMarketsIntraday1mWeek() }
-                candles = snap.spreadCandles
-                lastSpread = snap.lastSpreadPercent
-                maybeNotifySpreadLevelAlerts(screen.context, snap.lastSpreadPercent)
-                lastBarLabel = formatIntraday1mLastBarLabel(snap.lastBarMillis)
-                    ?: snap.spreadCandles.lastOrNull()?.label
-                loadError = null
-                loading = false
-            }.onFailure { e ->
+            val haveWeek = cachedWeek != null
+            val timeoutMs = if (haveWeek) {
+                MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS
+            } else {
+                MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS
+            }
+            try {
+                val snap = withTimeoutOrNull(timeoutMs) {
+                    withContext(Dispatchers.IO) {
+                        if (cachedWeek == null) {
+                            fetchMarketsIntraday1mWeek()
+                        } else {
+                            mergeSpreadWeekSnapshots(cachedWeek!!, fetchMarketsIntraday1mWeekTail())
+                        }
+                    }
+                }
+                if (snap == null) {
+                    loading = false
+                    if (cachedWeek == null) {
+                        loadError = "Обновление спреда: таймаут ISS"
+                    }
+                    MoexDiagnostics.log(
+                        screen.context,
+                        "markets_phone",
+                        "spread fetch timeout ${timeoutMs}ms haveWeek=$haveWeek",
+                    )
+                } else {
+                    cachedWeek = snap
+                    candles = snap.spreadCandles
+                    lastSpread = snap.lastSpreadPercent
+                    maybeNotifySpreadLevelAlerts(screen.context, snap.lastSpreadPercent)
+                    lastBarLabel = formatIntraday1mLastBarLabel(snap.lastBarMillis)
+                        ?: snap.spreadCandles.lastOrNull()?.label
+                    loadError = null
+                    loading = false
+                }
+            } catch (e: Exception) {
                 loadError = e.message?.take(120) ?: e.javaClass.simpleName
                 loading = false
                 MoexDiagnostics.logError(screen.context, "markets_phone", e, "week spread fetch")
             }
             runCatching {
-                withContext(Dispatchers.IO) {
-                    pollBrokerAccountAndNotify(screen.context)
+                withTimeoutOrNull(8_000L) {
+                    withContext(Dispatchers.IO) {
+                        pollBrokerAccountAndNotify(screen.context)
+                    }
                 }
                 brokerSide = BrokerAccountPrefs.lastSide(screen.context)
             }
@@ -265,7 +298,7 @@ internal fun MoexScreenTabMarketsPhone(
 
         Text(
             text = "Pinch — масштаб, drag — панорамирование, шкала справа — масштаб цены. " +
-                "Маркеры — входы/выходы сделок за неделю. График обновляется ~30 с.",
+                "Маркеры — входы/выходы сделок за неделю. График обновляется ~30 с (хвост дня, не вся неделя).",
             color = Color(0xFF757575),
             fontSize = 11.sp,
         )

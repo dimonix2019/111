@@ -192,6 +192,39 @@ class MoexMarketsIntraday1mTest {
     }
 
     @Test
+    @Test
+    fun mergeSpreadWeekSnapshots_overwritesTailAndKeepsOlderDays() {
+        val mon = CandlePoint("2026-09-07 10:00", 3.4, 3.4, 3.4, 3.4)
+        val tueOld = CandlePoint("2026-09-08 12:00", 3.5, 3.5, 3.5, 3.5)
+        val tueNew = CandlePoint("2026-09-08 12:00", 3.6, 3.6, 3.6, 3.6)
+        val wed = CandlePoint("2026-09-09 11:00", 3.7, 3.7, 3.7, 3.7)
+        val cached = MarketsSpreadWeekSnapshot(
+            spreadCandles = listOf(mon, tueOld),
+            lastBarMillis = 100L,
+            lastSpreadPercent = 3.5,
+            fetchedAtMillis = 1L,
+        )
+        val tail = MarketsSpreadWeekSnapshot(
+            spreadCandles = listOf(tueNew, wed),
+            lastBarMillis = 200L,
+            lastSpreadPercent = 3.7,
+            fetchedAtMillis = 2L,
+        )
+        val merged = mergeSpreadWeekSnapshots(cached, tail)
+        assertEquals(listOf(mon.label, tueNew.label, wed.label), merged.spreadCandles.map { it.label })
+        assertEquals(3.6, merged.spreadCandles[1].close, 1e-9)
+        assertEquals(3.7, merged.lastSpreadPercent!!, 1e-9)
+        assertEquals(200L, merged.lastBarMillis)
+        assertEquals(2L, merged.fetchedAtMillis)
+    }
+
+    @Test
+    fun marketsPhoneSpreadTimeouts_tailFasterThanFullWeek() {
+        assertTrue(MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS < MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS)
+        assertTrue(MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS <= 8_000L)
+    }
+
+    @Test
     fun sanitizeSpreadPercentCandles_dropsIsolatedJump() {
         val base = (0..6).map { i ->
             CandlePoint("t$i", open = 3.5, high = 3.5, low = 3.5, close = 3.5)

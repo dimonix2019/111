@@ -92,6 +92,8 @@
     let userInteracting = false;
     let followLive = true;
     let interactEndTimer = 0;
+    let interactIdleTimer = 0;
+    const INTERACT_IDLE_MS = 2500;
     let savedLogicalRange = null;
     let lastAppliedRightOffset = null;
     let lastChartSize = { w: 0, h: 0 };
@@ -382,6 +384,14 @@
       return range.to >= lastIndex - FOLLOW_LIVE_TOLERANCE_BARS;
     }
 
+    function bumpInteractIdleWatchdog() {
+      if (interactIdleTimer) clearTimeout(interactIdleTimer);
+      interactIdleTimer = setTimeout(() => {
+        interactIdleTimer = 0;
+        if (userInteracting) onInteractEnd();
+      }, INTERACT_IDLE_MS);
+    }
+
     function setUserInteracting(on) {
       userInteracting = on;
       if (on) {
@@ -390,12 +400,20 @@
           clearTimeout(interactEndTimer);
           interactEndTimer = 0;
         }
+        bumpInteractIdleWatchdog();
         captureLogicalRange();
+      } else if (interactIdleTimer) {
+        clearTimeout(interactIdleTimer);
+        interactIdleTimer = 0;
       }
     }
 
     function onInteractEnd() {
       interactEndTimer = 0;
+      if (interactIdleTimer) {
+        clearTimeout(interactIdleTimer);
+        interactIdleTimer = 0;
+      }
       userInteracting = false;
       if (chart) {
         try {
@@ -413,7 +431,10 @@
     function bindGestureGuards(el) {
       if (!el || gestureBound) return;
       gestureBound = true;
-      const start = () => setUserInteracting(true);
+      const start = () => {
+        setUserInteracting(true);
+        bumpInteractIdleWatchdog();
+      };
       const end = () => {
         if (interactEndTimer) clearTimeout(interactEndTimer);
         interactEndTimer = setTimeout(onInteractEnd, 180);
@@ -548,9 +569,11 @@
           ? { minValue: priceAxisLockedRange.minValue, maxValue: priceAxisLockedRange.maxValue }
           : readVisiblePriceRange(container);
         setUserInteracting(true);
+        bumpInteractIdleWatchdog();
       };
       const move = (y) => {
         if (!startMargins) return;
+        bumpInteractIdleWatchdog();
         const dy = y - dragY;
         if (Math.abs(dy) > 4) moved = true;
         const factor = Math.exp(dy / 60); // вниз = растянуть (zoom out), вверх = сжать (zoom in), ×3 чувствительность

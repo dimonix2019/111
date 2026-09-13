@@ -93,5 +93,7 @@ class MoexChartInteractionTest {
         assertTrue(html.contains("userInteracting && fitted"))
         assertTrue(html.contains("bindGestureGuards"))
         assertTrue(html.contains("touch-action: none"))
+        assertTrue(html.contains("INTERACT_IDLE_MS"))
+        assertTrue(html.contains("bumpInteractIdleWatchdog"))
     }
 }
