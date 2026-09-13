@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -34,6 +35,8 @@ import java.util.Locale
 internal const val MARKETS_PHONE_SPREAD_POLL_MS = 30_000L
 internal const val MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS = 20_000L
 internal const val MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS = 8_000L
+/** После первой загрузки на выходных не дёргаем ISS каждые 30 с. */
+internal const val MARKETS_PHONE_CLOSED_IDLE_MS = 5L * 60_000L
 private const val MARKETS_PHONE_CHART_HEIGHT_DP = 280
 
 private data class MarketsPhoneChartState(
@@ -92,11 +95,19 @@ internal fun MoexScreenTabMarketsPhone(
     var loading by remember { mutableStateOf(true) }
     var brokerSide by remember { mutableStateOf(BrokerAccountPrefs.lastSide(screen.context)) }
 
-    LaunchedEffect(screen.selectedTab, screen.activityResumed) {
-        if (screen.selectedTab != MainTab.Markets || !screen.activityResumed) return@LaunchedEffect
+    LaunchedEffect(screen.selectedTab) {
+        if (screen.selectedTab != MainTab.Markets) return@LaunchedEffect
         var cachedWeek: MarketsSpreadWeekSnapshot? = null
         while (true) {
+            if (!screen.activityResumed) {
+                delay(1_000L)
+                continue
+            }
             val haveWeek = cachedWeek != null
+            if (haveWeek && !isMoexQuotesSessionLikelyOpen()) {
+                delay(MARKETS_PHONE_CLOSED_IDLE_MS)
+                continue
+            }
             val timeoutMs = if (haveWeek) {
                 MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS
             } else {
@@ -132,21 +143,33 @@ internal fun MoexScreenTabMarketsPhone(
                     loadError = null
                     loading = false
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 loadError = e.message?.take(120) ?: e.javaClass.simpleName
                 loading = false
                 MoexDiagnostics.logError(screen.context, "markets_phone", e, "week spread fetch")
             }
-            runCatching {
-                withTimeoutOrNull(8_000L) {
-                    withContext(Dispatchers.IO) {
-                        pollBrokerAccountAndNotify(screen.context)
+            if (screen.activityResumed) {
+                try {
+                    withTimeoutOrNull(8_000L) {
+                        withContext(Dispatchers.IO) {
+                            pollBrokerAccountAndNotify(screen.context)
+                        }
                     }
+                    brokerSide = BrokerAccountPrefs.lastSide(screen.context)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
                 }
-                brokerSide = BrokerAccountPrefs.lastSide(screen.context)
             }
-            delay(MARKETS_PHONE_SPREAD_POLL_MS)
-            if (screen.selectedTab != MainTab.Markets || !screen.activityResumed) break
+            delay(
+                if (isMoexQuotesSessionLikelyOpen()) {
+                    MARKETS_PHONE_SPREAD_POLL_MS
+                } else {
+                    MARKETS_PHONE_CLOSED_IDLE_MS
+                },
+            )
         }
     }
 

@@ -7,6 +7,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.util.concurrent.TimeUnit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -19,6 +20,14 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.sqrt
+
+/** ISS: свой клиент с callTimeout — иначе зависание страницы блокирует UI-опрос. */
+internal val issHttpClient: OkHttpClient = httpClient.newBuilder()
+    .connectTimeout(8, TimeUnit.SECONDS)
+    .readTimeout(12, TimeUnit.SECONDS)
+    .writeTimeout(8, TimeUnit.SECONDS)
+    .callTimeout(15, TimeUnit.SECONDS)
+    .build()
 
 internal fun loadCloseSeries(
     secId: String,
@@ -40,7 +49,7 @@ internal fun loadCloseSeries(
             append("&start=").append(start)
         }
         val request = Request.Builder().url(url).build()
-        val page = httpClient.newCall(request).execute().use { response ->
+        val page = issHttpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code} while loading $secId")
             }
@@ -164,7 +173,7 @@ internal fun loadCandleBars(
         var page: List<CandleBar> = emptyList()
         for (attempt in 0 until 3) {
             try {
-                page = httpClient.newCall(request).execute().use { response ->
+                page = issHttpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         throw IOException("HTTP ${response.code} while loading candles for $secId")
                     }

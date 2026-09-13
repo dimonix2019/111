@@ -11,6 +11,7 @@ import android.provider.MediaStore
 import android.util.Log
 import android.content.ContentValues
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -122,6 +123,7 @@ internal object MoexDiagnostics {
     }
 
     fun logError(context: Context, category: String, throwable: Throwable, message: String = "") {
+        if (throwable is CancellationException) return
         val head = if (message.isNotBlank()) {
             "$message — ${throwable.javaClass.simpleName}: ${throwable.message?.take(200)}"
         } else {
@@ -374,4 +376,10 @@ internal object MoexDiagnostics {
         val keep = lines.takeLast(lines.size / 2).joinToString("\n") + "\n"
         file.writeText(keep)
     }
+}
+
+/** Compose `LeftCompositionCancellationException` тоже CancellationException — не глотать. */
+internal fun Throwable.rethrowIfCancelled(): Throwable {
+    if (this is CancellationException) throw this
+    return this
 }

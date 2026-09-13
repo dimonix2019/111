@@ -540,9 +540,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             }
             delay(MARKETS_REALTIME_DAILY_REFRESH_MS)
             if (!mayRefreshMarkets(MarketsRefreshPolicy.AutoPoll)) continue
-            runCatching {
+            try {
                 refreshMarketsDailyOnly(selectedPeriod.coerceToMarketsUiPeriod())
-            }.onFailure { t ->
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
                 MoexDiagnostics.logError(context, "ui", t, "realtime_daily_refresh")
             }
         }
@@ -555,9 +557,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             if (!activityResumed) continue
             if (selectedTab != MainTab.Markets) continue
             if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) continue
-            runCatching {
+            if (!isMoexQuotesSessionLikelyOpen()) continue
+            try {
                 refreshMarketsIntraday1mQuotes(reason = "auto_poll_1m", scope = scope)
-            }.onFailure { t ->
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
                 MoexDiagnostics.logError(context, "quotes", t, "auto_poll_1m loop")
             }
         }
@@ -570,9 +575,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             if (!activityResumed) continue
             if (selectedTab != MainTab.Markets) continue
             if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) continue
-            runCatching {
+            try {
                 refreshMarketsM15ZForceIncremental(scope = scope, reason = "auto_force_5m")
-            }.onFailure { t ->
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
                 MoexDiagnostics.logError(context, "m15_z", t, "auto_force_5m loop")
             }
         }
@@ -590,9 +597,11 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             ) {
                 continue
             }
-            runCatching {
+            try {
                 refreshM15TailIfIntradayStale(reason = "auto_poll_${selectedTab.name}", scope = scope)
-            }.onFailure { t ->
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
                 MoexDiagnostics.logError(context, "m15_tail", t, "auto_poll loop tab=${selectedTab.name}")
             }
             if (selectedTab == MainTab.Portfolio && portfolioTabUiBuiltKey != 0L) {
@@ -611,21 +620,27 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         if (!activityResumed) return@LaunchedEffect
         while (activityResumed) {
             if (!SignalForegroundService.isBackgroundMonitorEnabled(context)) {
-                runCatching {
+                try {
                     withContext(Dispatchers.IO) {
                         pollBrokerAccountAndNotify(context.applicationContext)
-                        if (isMoexNetworkAvailable(context)) {
-                            runCatching {
+                        if (isMoexQuotesSessionLikelyOpen() && isMoexNetworkAvailable(context)) {
+                            try {
                                 withTimeout(SIGNAL_MONITOR_1M_FETCH_TIMEOUT_MS) {
                                     fetchMarketsIntraday1mLive()
                                 }
-                            }.getOrNull()
+                            } catch (t: kotlinx.coroutines.CancellationException) {
+                                throw t
+                            } catch (_: Throwable) {
+                                null
+                            }
                                 ?.let { liveSpreadPercentFromIntraday1m(it) }
                                 ?.let { maybeNotifySpreadLevelAlerts(context.applicationContext, it) }
                         }
                     }
                     refreshTradeScreenFromBroker()
-                }.onFailure { t ->
+                } catch (t: kotlinx.coroutines.CancellationException) {
+                    throw t
+                } catch (t: Throwable) {
                     MoexDiagnostics.logError(context, "broker_poll", t, "foreground poll")
                 }
             }

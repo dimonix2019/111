@@ -1,8 +1,11 @@
 package com.example.moexmvp
 
+import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalTime
@@ -257,6 +260,25 @@ class MoexMarketsIntraday1mTest {
     fun marketsPhoneSpreadTimeouts_tailFasterThanFullWeek() {
         assertTrue(MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS < MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS)
         assertTrue(MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS <= 8_000L)
+        assertTrue(MARKETS_PHONE_CLOSED_IDLE_MS > MARKETS_PHONE_SPREAD_POLL_MS)
+    }
+
+    @Test
+    fun rethrowIfCancelled_rethrowsCancellationAndPassesOther() {
+        val cancel = CancellationException("The coroutine scope left the composition")
+        try {
+            cancel.rethrowIfCancelled()
+            fail("expected CancellationException")
+        } catch (e: CancellationException) {
+            assertSame(cancel, e)
+        }
+        val other = IllegalStateException("iss")
+        assertSame(other, other.rethrowIfCancelled())
+    }
+
+    @Test
+    fun issHttpClient_hasCallTimeoutSoIssCannotHangForever() {
+        assertEquals(15_000, issHttpClient.callTimeoutMillis)
     }
 
     @Test
