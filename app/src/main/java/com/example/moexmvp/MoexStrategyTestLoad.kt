@@ -163,7 +163,6 @@ internal suspend fun MoexScreenState.runStrategyTestSimulation(
                     exitThreshold = exit,
                     compoundReturns = strategyTestCompoundReturns,
                     maxLossDdPercent = strategyTestMaxLossDdPercent,
-                    usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                     useLiveZSignals = strategyTestUseLiveZSignals,
                     thresholdSource = simThresholds.source.name,
                 )

@@ -80,7 +80,7 @@ internal fun DailyReconciliationSection(rec: DailyPortfolioReconciliation) {
         title = "Сверка за день ($dayStr, МСК)",
         subtitle = "откр. ${dirRuShort(rec.journalPositionAtDayOpen)}/${dirRuShort(rec.simPositionAtDayOpen)} · " +
             "журнал ${rec.journalEnters} вх./${rec.journalExits} вых. · подтв. ${rec.confirmedClosedOnDay} · тест ${rec.simClosedOnDay}",
-        defaultExpanded = true
+        defaultExpanded = false
     ) {
         Text(
             text = rec.simThresholdsNote,

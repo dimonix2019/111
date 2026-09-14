@@ -9,8 +9,8 @@ internal data class ZStrategyProdLikeSizing(
     val accountSizeRub: Double,
     val capitalUsagePercent: Double,
     val leverageForLots: Double,
-    /** В симуляции лимит только % капитала и плечо — без cap брокера. */
-    val maxLots: Int = STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED,
+    /** В симуляции лимит только % капитала и плечо (как Prod auto-exec). */
+    val maxLots: Int = SPREAD_LOT_MAX_LOTS,
 )
 
 internal data class StrategyTestEntrySizingPreview(
@@ -27,7 +27,7 @@ internal fun previewStrategyTestEntrySizing(
     leverageForLots: Double,
 ): StrategyTestEntrySizingPreview? {
     if (bar.tatnClose <= 0.0 || bar.tatnpClose <= 0.0) return null
-    val maxLots = STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED
+    val maxLots = SPREAD_LOT_MAX_LOTS
     val reserveFraction = (1.0 - capitalUsagePercent / 100.0).coerceIn(0.0, 0.95)
     val cash = accountSizeRub.coerceAtLeast(1.0)
     val sizing = computeSpreadQuantityLots(
@@ -57,7 +57,7 @@ internal fun strategyTestPairNotionalRub(
     accountSizeRub: Double,
     capitalUsagePercent: Double,
     leverageForLots: Double,
-    maxLots: Int = STRATEGY_TEST_SIM_MAX_LOTS_UNCAPPED,
+    maxLots: Int = SPREAD_LOT_MAX_LOTS,
 ): Double {
     if (bar.tatnClose <= 0.0 || bar.tatnpClose <= 0.0) return accountSizeRub.coerceAtLeast(1.0)
     val reserveFraction = (1.0 - capitalUsagePercent / 100.0).coerceIn(0.0, 0.95)

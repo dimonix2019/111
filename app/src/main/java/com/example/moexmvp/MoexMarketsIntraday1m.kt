@@ -28,6 +28,17 @@ internal data class MarketsIntraday1mSnapshot(
     val fetchedAtMillis: Long = System.currentTimeMillis(),
 )
 
+internal fun MoexScreenState.cachedMarketsIntraday1mSnapshot(): MarketsIntraday1mSnapshot? {
+    if (marketsIntraday1mTatn.isEmpty() || marketsIntraday1mTatnp.isEmpty()) return null
+    return MarketsIntraday1mSnapshot(
+        tatn = marketsIntraday1mTatn,
+        tatnp = marketsIntraday1mTatnp,
+        tatnLastBarMillis = marketsIntraday1mLastBarMillis,
+        tatnpLastBarMillis = marketsIntraday1mLastBarMillis,
+        fetchedAtMillis = marketsIntraday1mFetchedAtMillis,
+    )
+}
+
 private val quotesLogTimeFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
 internal fun isMoexMainSessionLikelyOpen(
@@ -99,6 +110,7 @@ internal fun appendFormingIntraday1mFrom10m(
     bars10m: List<CandleBar>,
     now: ZonedDateTime = ZonedDateTime.now(moexZoneId),
 ): List<CandleBar> {
+    if (!isMoexQuotesSessionLikelyOpen(now)) return bars1m
     if (bars10m.isEmpty()) return bars1m
     val nowLdt = now.toLocalDateTime()
     val latest10 = bars10m.filter { !it.timestamp.isAfter(nowLdt) }.maxByOrNull { it.timestamp }

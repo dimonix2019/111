@@ -93,6 +93,31 @@ internal fun buildZScoreReferenceLines(
     )
 }
 
+/** Горизонтали спреда %: вход в сделку и текущее значение (live 1м). */
+internal fun buildSpreadChartReferenceLines(
+    currentSpreadPercent: Double?,
+    entrySpreadPercent: Double?,
+): List<ChartReferenceLine> {
+    val lines = mutableListOf<ChartReferenceLine>()
+    entrySpreadPercent?.takeIf { !it.isNaN() }?.let { entry ->
+        lines += ChartReferenceLine(
+            value = entry,
+            color = Color(0xFFFFB74D),
+            label = String.format(Locale.US, "вход %.2f", entry),
+            dashOnPx = 6f,
+            dashOffPx = 6f,
+        )
+    }
+    currentSpreadPercent?.takeIf { !it.isNaN() }?.let { cur ->
+        lines += ChartReferenceLine(
+            value = cur,
+            color = Color(0xFF60A5FA),
+            label = String.format(Locale.US, "сейчас %.2f", cur),
+        )
+    }
+    return lines
+}
+
 internal fun buildZScoreSignalMarkersFromEvents(
     points: List<DataPoint>,
     events: List<StrategySignalEvent>
