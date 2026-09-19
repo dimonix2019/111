@@ -50,7 +50,6 @@ class MainActivity : ComponentActivity() {
             runCatching { checkRemoteAppUpdateAndNotify(this@MainActivity) }
         }
         if (SignalForegroundService.isBackgroundMonitorEnabled(this)) {
-            SignalForegroundService.start(this)
             MoexWatchdog.performMonitorWatchdogCheck(this, "activity_onCreate")
         }
         setContent {

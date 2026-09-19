@@ -62,4 +62,11 @@ class MoexPortfolioM15TailTest {
         )
         assertFalse(portfolio15mSeriesIntradayStale(listOf(fresh)))
     }
+
+    @Test
+    fun tailMerge_neverRunsForCacheOnlyOrFullRefresh() {
+        assertFalse(portfolioM15ModeAllowsTailMerge(PortfolioM15LoadMode.CACHE_ONLY))
+        assertFalse(portfolioM15ModeAllowsTailMerge(PortfolioM15LoadMode.FULL_REFRESH))
+        assertTrue(portfolioM15ModeAllowsTailMerge(PortfolioM15LoadMode.INCREMENTAL))
+    }
 }

@@ -188,6 +188,8 @@ internal suspend fun loadPortfolio15mSeriesEnsuringRecentTail(
     var points = loadPortfolio15mDataPoints(
         context, from, till, preferredMode, onProgress, wipeAllOnFullRefresh, retentionDays,
     )
+    // CACHE_ONLY is a strict no-network contract. Callers that need a fresh tail must request it.
+    if (preferredMode == PortfolioM15LoadMode.CACHE_ONLY) return points
     if (!portfolio15mSeriesTailStale(points)) return points
 
     val lastDay = points.lastOrNull()?.timestampMillis?.let { portfolioM15LastBarDayFromTs(it) }
@@ -345,7 +347,7 @@ internal suspend fun loadPortfolio15mDataPoints(
         val tailAgeMs = System.currentTimeMillis() - lastTsAfterLoad
         val tailStillStale = tailAgeMs > PORTFOLIO_M15_TAIL_MAX_AGE_MS ||
             tailAgeMs > PORTFOLIO_M15_INTRADAY_STALE_MS
-        if (!skipMoexTailMerge && mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
+        if (!skipMoexTailMerge && portfolioM15ModeAllowsTailMerge(mode) && tailStillStale) {
             mergePortfolio15mRecentTailFromMoex(dao, onProgress)
         }
 
@@ -390,6 +392,9 @@ internal suspend fun loadPortfolio15mDataPoints(
         points
     }
 }
+
+internal fun portfolioM15ModeAllowsTailMerge(mode: PortfolioM15LoadMode): Boolean =
+    mode == PortfolioM15LoadMode.INCREMENTAL
 
 /**
  * Лёгкая догрузка MOEX (2 дня) + пересчёт Z на формирующемся 15м баре.

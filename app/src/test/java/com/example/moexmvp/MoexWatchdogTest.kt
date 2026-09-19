@@ -58,6 +58,14 @@ class MoexWatchdogTest {
     }
 
     @Test
+    fun restartCooldown_suppressesOnlyRecentDuplicateRequests() {
+        val now = 100_000L
+        assertTrue(watchdogRestartRecentlyRequested(now - 1_000L, now))
+        assertFalse(watchdogRestartRecentlyRequested(now - WATCHDOG_RESTART_COOLDOWN_MS, now))
+        assertFalse(watchdogRestartRecentlyRequested(0L, now))
+    }
+
+    @Test
     fun formatSignalMonitorForegroundText_showsSpreadWithoutTickNumber() {
         val text = formatSignalMonitorForegroundText(
             monitorEnabled = true,

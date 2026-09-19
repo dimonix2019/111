@@ -12,7 +12,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -24,14 +24,11 @@ import java.util.Locale
 
 internal const val SIGNAL_MONITOR_CHANNEL_ID = "moex_signal_monitor_channel"
 internal const val SIGNAL_MONITOR_NOTIFICATION_ID = 11001
-/** Полный цикл сигналов (MOEX 15м + rolling Z + journal). */
-internal const val SIGNAL_MONITOR_INTERVAL_MS = 15_000L
 /** Быстрое обновление шторки (спред %, возраст тика) — не ждёт тяжёлый signal-work. */
 internal const val SIGNAL_MONITOR_PULSE_MS = 10_000L
 /** Тяжёлая обработка сигналов реже pulse, чтобы шторка не «замирала». */
 internal const val SIGNAL_MONITOR_SIGNAL_WORK_MS = 45_000L
 internal const val SIGNAL_MONITOR_1M_FETCH_TIMEOUT_MS = 8_000L
-internal const val SIGNAL_MONITOR_OPEN_TRADE_REFRESH_MS = 30_000L
 
 private val bgSignalFallbackThresholds = DynamicThresholds(
     entry = DEFAULT_DYNAMIC_Z_ENTRY,
@@ -40,18 +37,17 @@ private val bgSignalFallbackThresholds = DynamicThresholds(
 )
 
 class SignalForegroundService : Service() {
-    private val scope = CoroutineScope(Dispatchers.Default + Job())
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var pulseJob: kotlinx.coroutines.Job? = null
     private var signalWorkJob: kotlinx.coroutines.Job? = null
     private var webDeskPollJob: kotlinx.coroutines.Job? = null
     private var brokerPollJob: kotlinx.coroutines.Job? = null
+    private var foregroundStarted = false
     private var ticksSinceAppUpdateCheck = 0
     private var signalWorkTickCount = 0
     private var lastForegroundSpreadPercent: Double? = null
     private var lastForegroundDeskShade: WebDeskShadeSnapshot? = null
     private var lastForegroundOpenTrade: SignalMonitorOpenTradeSnapshot? = null
-    private var cachedSignalPoints: List<DataPoint>? = null
-    private var lastOpenTradeRefreshMs = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -68,61 +64,75 @@ class SignalForegroundService : Service() {
             return START_NOT_STICKY
         }
         saveSignalMonitorEnabled(this, true)
-        MoexDiagnostics.log(applicationContext, "monitor", "service_start foreground")
-        startForeground(SIGNAL_MONITOR_NOTIFICATION_ID, buildForegroundNotification())
+        if (!foregroundStarted) {
+            MoexDiagnostics.log(applicationContext, "monitor", "service_start foreground")
+            startForeground(SIGNAL_MONITOR_NOTIFICATION_ID, buildForegroundNotification())
+            foregroundStarted = true
+        }
         scheduleMonitorWatchdog(applicationContext)
         ensureMonitorWorkerRunning()
         return START_STICKY
     }
 
     private fun ensureMonitorWorkerRunning() {
-        if (pulseJob?.isActive == true &&
-            signalWorkJob?.isActive == true &&
-            webDeskPollJob?.isActive == true &&
-            brokerPollJob?.isActive == true
-        ) {
-            return
-        }
-        pulseJob?.cancel()
-        signalWorkJob?.cancel()
-        webDeskPollJob?.cancel()
-        brokerPollJob?.cancel()
-        pulseJob = scope.launch {
-            while (isActive) {
-                runCatching { performNotificationPulse() }
-                    .onFailure { e ->
-                        MoexDiagnostics.logError(applicationContext, "monitor", e, "pulse failed")
-                    }
-                delay(SIGNAL_MONITOR_PULSE_MS)
-            }
-        }
-        signalWorkJob = scope.launch {
-            while (isActive) {
-                runCatching { performSignalWork() }
-                    .onFailure { e ->
-                        MoexDiagnostics.logError(applicationContext, "monitor", e, "signal_work failed")
-                    }
-                delay(SIGNAL_MONITOR_SIGNAL_WORK_MS)
-            }
-        }
-        webDeskPollJob = scope.launch {
-            while (isActive) {
-                runCatching {
-                    pollWebDeskAndNotify(applicationContext)
-                    refreshDeskShadeForNotification()
-                }.onFailure { e ->
-                    MoexDiagnostics.logError(applicationContext, "web_desk", e, "poll failed")
+        if (pulseJob?.isActive != true) {
+            pulseJob = scope.launch {
+                while (isActive) {
+                    runCatching { performNotificationPulse() }
+                        .onFailure { e ->
+                            MoexDiagnostics.logError(applicationContext, "monitor", e, "pulse failed")
+                        }
+                    delay(SIGNAL_MONITOR_PULSE_MS)
                 }
-                delay(WEB_DESK_POLL_MS)
             }
         }
-        brokerPollJob = scope.launch {
-            while (isActive) {
-                runCatching { pollBrokerAccountAndNotify(applicationContext) }
-                    .onFailure { e ->
-                        MoexDiagnostics.logError(applicationContext, "broker_poll", e, "poll failed")
+        if (signalWorkJob?.isActive != true) {
+            signalWorkJob = scope.launch {
+                while (isActive) {
+                    runCatching { performSignalWork() }
+                        .onFailure { e ->
+                            MoexDiagnostics.logError(applicationContext, "monitor", e, "signal_work failed")
+                        }
+                    delay(SIGNAL_MONITOR_SIGNAL_WORK_MS)
+                }
+            }
+        }
+        if (webDeskPollJob?.isActive != true) {
+            webDeskPollJob = scope.launch {
+                var consecutiveFailures = 0
+                while (isActive) {
+                    val configured = WebDeskPrefs.isMonitorEnabled(applicationContext) &&
+                        WebDeskPrefs.normalizedBaseUrl(applicationContext) != null
+                    val succeeded = if (configured) {
+                        runCatching { pollWebDeskAndNotify(applicationContext) }
+                            .onFailure { e ->
+                                MoexDiagnostics.logError(applicationContext, "web_desk", e, "poll failed")
+                            }
+                            .getOrDefault(false)
+                    } else {
+                        true
                     }
-                delay(BROKER_ACCOUNT_POLL_MS)
+                    if (configured && succeeded) {
+                        refreshDeskShadeForNotification()
+                    }
+                    consecutiveFailures = if (configured && !succeeded) {
+                        consecutiveFailures + 1
+                    } else {
+                        0
+                    }
+                    delay(webDeskPollDelayMs(consecutiveFailures))
+                }
+            }
+        }
+        if (brokerPollJob?.isActive != true) {
+            brokerPollJob = scope.launch {
+                while (isActive) {
+                    runCatching { pollBrokerAccountAndNotify(applicationContext) }
+                        .onFailure { e ->
+                            MoexDiagnostics.logError(applicationContext, "broker_poll", e, "poll failed")
+                        }
+                    delay(BROKER_ACCOUNT_POLL_MS)
+                }
             }
         }
     }
@@ -131,7 +141,6 @@ class SignalForegroundService : Service() {
         MoexDiagnostics.log(applicationContext, "monitor", "onTaskRemoved")
         if (isBackgroundMonitorEnabled(applicationContext)) {
             scheduleMonitorWatchdog(applicationContext)
-            start(applicationContext)
         }
         super.onTaskRemoved(rootIntent)
     }
@@ -187,38 +196,9 @@ class SignalForegroundService : Service() {
             .build()
     }
 
-    /** Лёгкий тик: шторка и heartbeat не зависят от тяжёлого rolling-Z по 255д. */
+    /** Лёгкий тик: только heartbeat/шторка, без SQLite, MOEX и rolling-Z по 255д. */
     private suspend fun performNotificationPulse() = withContext(Dispatchers.IO) {
         MoexWatchdog.recordServiceTick(applicationContext)
-        val points = runCatching {
-            loadZStrategySignalSeries(
-                applicationContext,
-                mode = PortfolioM15LoadMode.CACHE_ONLY,
-            )
-        }.getOrNull()
-        if (points != null && points.size >= 2) {
-            val liveSnap = if (isMoexNetworkAvailable(applicationContext)) {
-                runCatching {
-                    withTimeout(SIGNAL_MONITOR_1M_FETCH_TIMEOUT_MS) {
-                        fetchMarketsIntraday1mLive()
-                    }
-                }.getOrNull()
-            } else {
-                null
-            }
-            lastForegroundSpreadPercent = liveSnap?.let { liveSpreadPercentFromIntraday1m(it) }
-                ?: lastForegroundDeskShade?.spreadPercent
-                ?: cachedSignalPoints?.lastOrNull()?.spreadPercent
-                ?: points.last().spreadPercent
-            maybeNotifySpreadLevelAlerts(applicationContext, lastForegroundSpreadPercent)
-
-            val now = System.currentTimeMillis()
-            if (now - lastOpenTradeRefreshMs >= SIGNAL_MONITOR_OPEN_TRADE_REFRESH_MS) {
-                val prep = cachedSignalPoints?.takeIf { it.size >= 2 } ?: points
-                lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, prep)
-                lastOpenTradeRefreshMs = now
-            }
-        }
         withContext(Dispatchers.Main) {
             refreshForegroundNotification()
         }
@@ -290,10 +270,9 @@ class SignalForegroundService : Service() {
         } ?: points
 
         val signalPoints = prepareM15PointsForZStrategySignalDetection(monitorPoints)
-        cachedSignalPoints = signalPoints
         lastForegroundSpreadPercent = signalPoints.last().spreadPercent
+        maybeNotifySpreadLevelAlerts(applicationContext, lastForegroundSpreadPercent)
         lastForegroundOpenTrade = resolveSignalMonitorOpenTrade(applicationContext, signalPoints)
-        lastOpenTradeRefreshMs = System.currentTimeMillis()
         withContext(Dispatchers.Main) {
             refreshForegroundNotification()
         }

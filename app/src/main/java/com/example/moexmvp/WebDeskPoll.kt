@@ -4,9 +4,17 @@ import android.content.Context
 import java.util.Locale
 
 internal const val WEB_DESK_POLL_MS = 35_000L
+internal const val WEB_DESK_POLL_MAX_BACKOFF_MS = 15 * 60_000L
 private const val WEB_DESK_PUSH_BASE_ID = 42_100
 /** Same threshold as web Trade desk: MTM ≥ 3% of entry deposit (вложение). */
 internal const val WEB_DESK_PROFIT_ALERT_PCT = 3.0
+
+/** Exponential retry delay for an unreachable desk; normal cadence resumes after one success. */
+internal fun webDeskPollDelayMs(consecutiveFailures: Int): Long {
+    if (consecutiveFailures <= 1) return WEB_DESK_POLL_MS
+    val shift = (consecutiveFailures - 1).coerceAtMost(10)
+    return (WEB_DESK_POLL_MS * (1L shl shift)).coerceAtMost(WEB_DESK_POLL_MAX_BACKOFF_MS)
+}
 
 /** Whether a live_events row should produce a phone push. */
 internal fun webDeskEventShouldNotify(event: WebDeskEvent): Boolean {
@@ -32,14 +40,14 @@ internal fun webDeskEventShouldNotify(event: WebDeskEvent): Boolean {
  * Poll strategy-web /api/live/status; push on new signal/AUTO events and open-trade changes.
  * Seeds last event id on first run to avoid flooding.
  */
-internal suspend fun pollWebDeskAndNotify(context: Context) {
+internal suspend fun pollWebDeskAndNotify(context: Context): Boolean {
     val app = context.applicationContext
-    if (!WebDeskPrefs.isMonitorEnabled(app)) return
-    if (WebDeskPrefs.normalizedBaseUrl(app) == null) return
+    if (!WebDeskPrefs.isMonitorEnabled(app)) return true
+    if (WebDeskPrefs.normalizedBaseUrl(app) == null) return true
 
     val snap = WebDeskApi.fetchStatus(app).getOrElse {
         MoexDiagnostics.log(app, "web_desk", "poll fail: ${it.message}")
-        return
+        return false
     }
 
     val lastId = WebDeskPrefs.lastEventId(app)
@@ -48,7 +56,7 @@ internal suspend fun pollWebDeskAndNotify(context: Context) {
         // First poll after enable: seed cursor, no spam.
         if (newestId > 0L) WebDeskPrefs.setLastEventId(app, newestId)
         syncOpenTradeStateSilent(app, snap)
-        return
+        return true
     }
 
     val fresh = snap.events
@@ -83,6 +91,7 @@ internal suspend fun pollWebDeskAndNotify(context: Context) {
 
     notifyOpenTradeChange(app, snap)
     notifyOpenProfitAlert(app, snap)
+    return true
 }
 
 private fun syncOpenTradeStateSilent(app: Context, snap: WebDeskStatusSnapshot) {
