@@ -203,6 +203,7 @@ internal suspend fun runSandboxAutoExitIfNeeded(
             app.getSharedPreferences(AUTO_SPREAD_PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_LAST_AUTO_EXIT, dedupKey).commit()
         }
+        val exitExecutedAt = System.currentTimeMillis()
         finalizePortfolioOpenTradeClose(
             context = app,
             execution = openTrade,
@@ -218,6 +219,7 @@ internal suspend fun runSandboxAutoExitIfNeeded(
                 exitTimestampMillis = barTimestampMillis,
                 exitZScore = zScore,
                 mtmBeforeClose = brokerBeforeClose,
+                exitExecutedAtMillis = exitExecutedAt,
             )
         } else {
             null
@@ -233,6 +235,7 @@ internal suspend fun runSandboxAutoExitIfNeeded(
             leverage = leverage,
             closedRecord = closedRecord,
             brokerPnlBeforeClose = brokerBeforeClose,
+            exitExecutedAtMillis = exitExecutedAt,
         )
         true
     } catch (e: Exception) {

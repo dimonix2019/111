@@ -64,7 +64,8 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
     val sandboxRaw = withContext(Dispatchers.IO) {
         TinkoffSandboxSpreadExecLog.loadRecent(context)
     }
-    val (closedFromOpens, opensAfterJournalClose) = withContext(Dispatchers.Default) {
+    val execMode = currentExecutionMode(context)
+    val closedFromOpens = withContext(Dispatchers.Default) {
         buildClosedRowsFromSandboxOpensAndJournalExits(
             openExecutions = sandboxRaw,
             allJournalEvents = eventsAll,
@@ -75,10 +76,11 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
             leverage = portfolioLeverage,
             commissionPercentPerSide = portfolioCommissionPercent,
             portfolioLedgerIncludeAuto = ledgerIncludeAuto,
-            pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage),
-        )
+            pnlLeverage = portfolioPnlLeverageMultiplier(execMode, portfolioLeverage),
+            executionMode = execMode,
+        ).first
     }
-    val prodBrokerClosed = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
+    val prodBrokerClosed = if (execMode == TinkoffExecutionMode.Prod) {
         withContext(Dispatchers.IO) {
             buildClosedRowsFromProdBrokerLog(
                 records = TinkoffClosedSpreadExecLog.loadRecent(context),
@@ -90,27 +92,53 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
     } else {
         emptyList()
     }
+    val windowStart = portfolioTradesWindowStartMillis(portfolioLookbackDays)
+    val windowEnd = System.currentTimeMillis()
+    val prodOpsClosed = if (execMode == TinkoffExecutionMode.Prod) {
+        withContext(Dispatchers.IO) {
+            val ops = fetchProdSpreadOperationsInWindow(context, windowStart, windowEnd)
+            if (ops.isNullOrEmpty()) {
+                portfolioBrokerWindowPnlSummary = null
+                emptyList()
+            } else {
+                val summary = summarizeProdSpreadOperations(
+                    operations = ops,
+                    fromMillis = windowStart,
+                    toMillis = windowEnd,
+                )
+                portfolioBrokerWindowPnlSummary = summary
+                buildClosedRowsFromProdOperationsWindow(
+                    operations = ops,
+                    fromMillis = windowStart,
+                    toMillis = windowEnd,
+                    accountSummary = summary,
+                )
+            }
+        }
+    } else {
+        portfolioBrokerWindowPnlSummary = null
+        emptyList()
+    }
+    val modeFilteredOpens = filterSandboxExecutionsByPortfolioMode(
+        sandboxRaw,
+        ledgerIncludeAuto,
+    )
     val mergedClosed = mergePortfolioClosedTableRowsForMode(
-        mode = currentExecutionMode(context),
+        mode = execMode,
         fromReplay = executed.tableRows,
         fromOpens = closedFromOpens,
         fromProdBroker = prodBrokerClosed,
+        fromProdOperations = prodOpsClosed,
     )
+    val mergedClosedWithoutStillOpen = filterClosedSynthWhenStillOpen(mergedClosed, modeFilteredOpens)
     confirmedPortfolioTableRows = filterConfirmedTableRowsByPortfolioMode(
-        mergedClosed,
+        mergedClosedWithoutStillOpen,
         ledgerIncludeAuto,
-        executionMode = currentExecutionMode(context),
+        executionMode = execMode,
     )
-    val modeFiltered = filterSandboxExecutionsByPortfolioMode(
-        opensAfterJournalClose,
-        ledgerIncludeAuto,
-    )
-    val brokerLegPnl = if (currentExecutionMode(context) == TinkoffExecutionMode.Prod) {
-        modeFiltered.firstOrNull()?.signalType?.let { signal ->
-            withContext(Dispatchers.IO) { loadProdSpreadBrokerSnapshot(context, signal) }
-        }
-    } else {
-        null
+    val modeFiltered = modeFilteredOpens
+    val brokerLegPnl = modeFiltered.firstOrNull()?.signalType?.let { signal ->
+        withContext(Dispatchers.IO) { loadSpreadLegBrokerPnl(context, signal, execMode) }
     }
     val pnlLeverage = portfolioPnlLeverageMultiplier(currentExecutionMode(context), portfolioLeverage)
     sandboxSpreadExecutions = withContext(Dispatchers.IO) {
@@ -130,6 +158,7 @@ internal suspend fun MoexScreenState.rebuildPortfolioUiFromPoints(pointsHint: Li
         points = portfolioM15Points.ifEmpty { points },
         prodBrokerPnlReady = brokerLegPnl != null,
     )
+    syncZStrategyPositionFromOpenExecutions(sandboxSpreadExecutions)
     portfolioTabUiBuiltKey = portfolioTabUiSessionKey()
 }
 
@@ -143,6 +172,7 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     }
     val uiKey = portfolioTabUiSessionKey()
     if (portfolioTabUiBuiltKey == uiKey && portfolioM15Points.size >= 2) {
+        syncSandboxExecutionsEnrichment()
         if (portfolio15mSeriesIntradayStale(portfolioM15Points)) {
             refreshPortfolioM15TailSilent()
         } else {
@@ -160,6 +190,10 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     }
 
     if (memoryOk) {
+        if (!isMoexNetworkAvailable(context)) {
+            rebuildPortfolioUiFromPoints(portfolioM15Points)
+            return
+        }
         refreshPortfolio(PortfolioM15LoadMode.INCREMENTAL, trackProgress = false)
         return
     }
@@ -167,6 +201,7 @@ internal suspend fun MoexScreenState.ensurePortfolioTabLoaded() {
     val mode = PortfolioM15LoadMode.CACHE_ONLY
     refreshPortfolio(mode, trackProgress = false)
 }
+
 
 /**
  * Каждые 15–30 с: 10м→15м с MOEX + пересчёт Z на хвосте ~2 ч (без persisted).
@@ -215,6 +250,7 @@ internal suspend fun MoexScreenState.refreshM15LiveFormingTail(reason: String) {
 internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
     refreshMutex.withLock {
         if (portfolioM15Points.size < 2 || !portfolio15mSeriesIntradayStale(portfolioM15Points)) return@withLock
+        if (!isMoexNetworkAvailable(context)) return@withLock
         portfolioLoading = true
         try {
             val loaded = loadM15SeriesForPortfolio(
@@ -226,6 +262,8 @@ internal suspend fun MoexScreenState.refreshPortfolioM15TailSilent() {
                 if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
                 rebuildPortfolioUiFromPoints(loaded)
             }
+        } catch (t: Throwable) {
+            MoexDiagnostics.logError(context, "m15_tail", t, "portfolio_tail_silent")
         } finally {
             portfolioLoading = false
         }
@@ -269,6 +307,10 @@ internal suspend fun MoexScreenState.refreshAfterConnectivityRestore(
     reason: String,
     launchScope: CoroutineScope,
 ) {
+    if (!isMoexNetworkAvailable(context)) {
+        MoexDiagnostics.log(context, "network", "refresh_skip_offline reason=$reason tab=${selectedTab.label}")
+        return
+    }
     MoexDiagnostics.log(context, "network", "refresh_after_connectivity reason=$reason tab=${selectedTab.label}")
     refreshM15TailIfIntradayStale(reason = reason, scope = launchScope)
     if (selectedTab == MainTab.Markets && activityResumed) {
@@ -313,9 +355,15 @@ internal suspend fun MoexScreenState.refreshPortfolioUnlocked(
                 portfolioTabUiBuiltKey = 0L
                 return@refreshPortfolioUnlocked
             }
-            portfolioM15Points = loaded
-            if (marketsM15Source().isEmpty()) storeMarketsM15(loaded)
-            rebuildPortfolioUiFromPoints(loaded)
+            var points = loaded
+            if (m15Mode != PortfolioM15LoadMode.CACHE_ONLY) {
+                loadPortfolio15mLiveFormingTailLocked(context, portfolioLookbackDays)
+                    ?.takeIf { it.size >= 2 }
+                    ?.let { points = it }
+            }
+            portfolioM15Points = points
+            if (marketsM15Source().isEmpty()) storeMarketsM15(points)
+            rebuildPortfolioUiFromPoints(points)
         } finally {
             portfolioLoading = false
         }
@@ -431,11 +479,15 @@ internal suspend fun MoexScreenState.refreshData(
                     val deferM15Network = preferBackground && m15CachedReady
                     if (deferM15Network) {
                         launchScope.launch {
-                            val loaded = loadM15ForMarkets(wrapInSession = false)
-                            if (loaded.size >= 2) {
-                                loadedM15ForMarkets = loaded
-                                storeMarketsM15(loaded)
-                                portfolioM15Points = loaded
+                            runCatching {
+                                val loaded = loadM15ForMarkets(wrapInSession = false)
+                                if (loaded.size >= 2) {
+                                    loadedM15ForMarkets = loaded
+                                    storeMarketsM15(loaded)
+                                    portfolioM15Points = loaded
+                                }
+                            }.onFailure { t ->
+                                MoexDiagnostics.logError(context, "m15_load", t, "deferM15Network")
                             }
                         }
                     } else if (!fromDiskCache || marketsM15Source().isEmpty()) {
@@ -469,17 +521,26 @@ internal suspend fun MoexScreenState.refreshData(
                             val m15ForSignal = prepareM15PointsForZStrategySignalDetection(m15Raw)
                             val signalThresholds = loadRealTradeZThresholds(context, dynamicThresholds)
                             maybeBackfillMissedLiveZSignalsAfterStaleZFix(context, m15ForSignal, signalThresholds)
+                            val intradaySnap = cachedMarketsIntraday1mSnapshot()
+                                ?: withContext(Dispatchers.IO) {
+                                    if (isMoexNetworkAvailable(context)) {
+                                        runCatching { fetchMarketsIntraday1mLive() }.getOrNull()
+                                    } else {
+                                        null
+                                    }
+                                }
+                            val signalPoints = resolveUnifiedLiveZSnapshot(m15ForSignal, intradaySnap).monitorPoints
                             val signalLastProcessed = resolveLastProcessed15mBarTimestampForReplay(context)
                             val (signalEdges, replayPosition) = collectZStrategy15mSignalEdgesSinceProcessedBar(
-                                points = m15ForSignal,
+                                points = signalPoints,
                                 lastProcessedBarTimestampMillis = signalLastProcessed,
                                 initialPosition = zStrategyPosition,
                                 thresholds = signalThresholds,
                             )
-                            zStrategyReplayBarIndexRange(m15ForSignal, signalLastProcessed)?.let { range ->
+                            zStrategyReplayBarIndexRange(signalPoints, signalLastProcessed)?.let { range ->
                                 persistM15LiveBarSnapshots(
                                     context,
-                                    range.map { m15ForSignal[it] },
+                                    range.map { signalPoints[it] },
                                 )
                             }
                             for (edge in signalEdges) {
@@ -657,17 +718,18 @@ internal suspend fun MoexScreenState.refreshData(
                             ZStrategySignal.None -> Unit
                             }
                             }
-                            if (shouldAdvanceLastProcessed15mBar(m15ForSignal, signalLastProcessed)) {
-                                saveLastProcessed15mBarTimestamp(context, m15ForSignal.last().timestampMillis)
+                            if (shouldAdvanceLastProcessed15mBar(signalPoints, signalLastProcessed)) {
+                                saveLastProcessed15mBarTimestamp(context, signalPoints.last().timestampMillis)
                             }
                             if (replayPosition != zStrategyPosition) {
                                 zStrategyPosition = replayPosition
                                 saveStrategyPosition(context, zStrategyPosition)
                             }
-                            previousZScoreForAlert = m15ForSignal.last().zScore
+                            previousZScoreForAlert = signalPoints.last().zScore
                         }
                     }
                     signalEvents = loadStrategySignalEvents(context)
+                    syncZStrategyPositionFromOpenExecutions()
                     portfolioTabUiBuiltKey = 0L
                     launchScope.launch {
                         refreshPortfolioAfterJournalChange(refreshTailIfStale = true)
