@@ -18,23 +18,30 @@ internal fun positionAfterZStrategySignal(signal: ZStrategySignal): ZStrategyPos
  * Собирает все пересечения порога на новых 15м барах с [lastProcessedBarTimestampMillis].
  * При первом запуске (null/0) — только последняя пара баров, без прогона всей истории.
  */
+internal fun resolveZStrategyReplayStartIndex(
+    points: List<DataPoint>,
+    lastProcessedBarTimestampMillis: Long?,
+): Int? {
+    if (points.size < 2) return null
+    if (lastProcessedBarTimestampMillis == null || lastProcessedBarTimestampMillis <= 0L) {
+        return points.size - 1
+    }
+    val idx = points.indexOfFirst { it.timestampMillis > lastProcessedBarTimestampMillis }
+    return when {
+        idx >= 0 -> maxOf(idx, 1)
+        points.last().timestampMillis == lastProcessedBarTimestampMillis -> points.size - 1
+        else -> null
+    }
+}
+
 internal fun collectZStrategy15mSignalEdgesSinceProcessedBar(
     points: List<DataPoint>,
     lastProcessedBarTimestampMillis: Long?,
     initialPosition: ZStrategyPosition,
     thresholds: DynamicThresholds,
 ): Pair<List<ZStrategy15mSignalEdge>, ZStrategyPosition> {
-    if (points.size < 2) return emptyList<ZStrategy15mSignalEdge>() to initialPosition
-
-    val startIndex = when {
-        lastProcessedBarTimestampMillis == null || lastProcessedBarTimestampMillis <= 0L ->
-            points.size - 1
-        else -> {
-            val idx = points.indexOfFirst { it.timestampMillis > lastProcessedBarTimestampMillis }
-            if (idx < 0) return emptyList<ZStrategy15mSignalEdge>() to initialPosition
-            maxOf(idx, 1)
-        }
-    }
+    val startIndex = resolveZStrategyReplayStartIndex(points, lastProcessedBarTimestampMillis)
+        ?: return emptyList<ZStrategy15mSignalEdge>() to initialPosition
 
     var position = initialPosition
     val edges = mutableListOf<ZStrategy15mSignalEdge>()
@@ -61,16 +68,8 @@ internal fun zStrategyReplayBarIndexRange(
     points: List<DataPoint>,
     lastProcessedBarTimestampMillis: Long?,
 ): IntRange? {
-    if (points.size < 2) return null
-    val startIndex = when {
-        lastProcessedBarTimestampMillis == null || lastProcessedBarTimestampMillis <= 0L ->
-            points.size - 1
-        else -> {
-            val idx = points.indexOfFirst { it.timestampMillis > lastProcessedBarTimestampMillis }
-            if (idx < 0) return null
-            maxOf(idx, 1)
-        }
-    }
+    val startIndex = resolveZStrategyReplayStartIndex(points, lastProcessedBarTimestampMillis)
+        ?: return null
     return startIndex until points.size
 }
 
@@ -106,9 +105,11 @@ internal fun collectZStrategy15mSignalEdgesFull(
 internal fun shouldAdvanceLastProcessed15mBar(
     points: List<DataPoint>,
     lastProcessedBarTimestampMillis: Long?,
+    nowMillis: Long = System.currentTimeMillis(),
 ): Boolean {
     if (points.isEmpty()) return false
     val lastBarTs = points.last().timestampMillis
+    if (isM15BarStillForming(lastBarTs, nowMillis)) return false
     return lastProcessedBarTimestampMillis == null ||
         lastProcessedBarTimestampMillis <= 0L ||
         lastBarTs > lastProcessedBarTimestampMillis

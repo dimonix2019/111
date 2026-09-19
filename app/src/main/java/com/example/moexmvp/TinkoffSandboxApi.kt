@@ -1223,17 +1223,11 @@ internal fun parseSpreadLegBrokerPnl(
     }
 }
 
-internal suspend fun loadProdSpreadBrokerSnapshot(
+internal suspend fun loadSpreadLegBrokerPnl(
     context: Context,
     signalType: StrategySignalType,
-): SpreadLegBrokerPnl? = loadProdSpreadLegBrokerPnl(context, signalType)
-
-internal suspend fun loadProdSpreadLegBrokerPnl(
-    context: Context,
-    signalType: StrategySignalType,
+    mode: TinkoffExecutionMode = currentExecutionMode(context),
 ): SpreadLegBrokerPnl? {
-    if (currentExecutionMode(context) != TinkoffExecutionMode.Prod) return null
-    val mode = TinkoffExecutionMode.Prod
     val token = TinkoffSandboxStorage.getActiveToken(context, mode) ?: return null
     val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode) ?: return null
     return runCatching {
@@ -1241,3 +1235,13 @@ internal suspend fun loadProdSpreadLegBrokerPnl(
         parseSpreadLegBrokerPnl(portfolio, signalType)
     }.getOrNull()
 }
+
+internal suspend fun loadProdSpreadBrokerSnapshot(
+    context: Context,
+    signalType: StrategySignalType,
+): SpreadLegBrokerPnl? = loadSpreadLegBrokerPnl(context, signalType, TinkoffExecutionMode.Prod)
+
+internal suspend fun loadProdSpreadLegBrokerPnl(
+    context: Context,
+    signalType: StrategySignalType,
+): SpreadLegBrokerPnl? = loadSpreadLegBrokerPnl(context, signalType, TinkoffExecutionMode.Prod)
