@@ -33,12 +33,11 @@ internal class MoexScreenState(val context: Context) {
     var portfolioLookbackDays by mutableStateOf(loadPortfolioLookbackDays(context))
     var portfolioLeverage by mutableStateOf(7.0)
     var portfolioCommissionPercent by mutableStateOf(0.04)
+    var portfolioTradeAmountRub by mutableStateOf(DEFAULT_PORTFOLIO_TRADE_AMOUNT_RUB)
     var strategyTestAccountSizeRub by mutableStateOf(DEFAULT_STRATEGY_TEST_ACCOUNT_RUB)
     var strategyTestCapitalUsagePercent by mutableStateOf(DEFAULT_STRATEGY_TEST_CAPITAL_USAGE_PERCENT)
     /** Money-stop: % просадки на сделку от «Размер счёта» (0 = без лимита). */
     var strategyTestMaxLossDdPercent by mutableStateOf(DEFAULT_STRATEGY_TEST_MAX_LOSS_DD_PERCENT)
-    /** Симуляция использует пороги Z с «Портфеля» (боевые), не отдельные prefs теста. */
-    var strategyTestUsePortfolioThresholds by mutableStateOf(true)
     /** Z как live-монитор: без overlay журнала на истории. */
     var strategyTestUseLiveZSignals by mutableStateOf(true)
     var realTradeEntryThreshold by mutableStateOf<Double?>(null)
@@ -48,6 +47,12 @@ internal class MoexScreenState(val context: Context) {
     var selectedPeriod by mutableStateOf(Period.OneDay)
     /** Период 15м Z-графика (портрет/альбом); смена не вызывает refresh MOEX — только фильтр кэша. */
     var marketsZChartPeriod by mutableStateOf(Period.OneDay)
+    /** Полноэкранный Δ спред 15м (кнопка → landscape). */
+    var marketsSpreadDeltaChartFullscreen by mutableStateOf(false)
+    /** Полноэкранный Δ спред 15м на «Тест страт.» (кнопка → landscape). */
+    var strategyTestSpreadDeltaChartFullscreen by mutableStateOf(false)
+    /** Полноэкранный Z-score 15м на «Рынок» (кнопка → landscape). */
+    var marketsZChartFullscreen by mutableStateOf(false)
     var realtimeEnabled by mutableStateOf(true)
     /** ON_RESUME / ON_PAUSE — останавливает авто-опрос «Рынок» в фоне. */
     var activityResumed by mutableStateOf(false)
@@ -80,6 +85,8 @@ internal class MoexScreenState(val context: Context) {
     /** Живой Z с последнего 15м refresh (сводка «Рынок»), не из persisted. */
     var marketsLiveZScore by mutableStateOf<Double?>(null)
     var marketsLiveZBarAt by mutableStateOf<String?>(null)
+    /** Спред % на том же баре, что [marketsLiveZScore] (единый источник со шторкой). */
+    var marketsLiveSpreadPercent by mutableStateOf<Double?>(null)
     /** Инкремент при обновлении 1м котировок на «Рынок». */
     var marketsIntraday1mEpoch by mutableStateOf(0)
     var marketsM15SessionCache: List<DataPoint> = emptyList()
@@ -127,6 +134,10 @@ internal class MoexScreenState(val context: Context) {
     var strategyTestDurationSummary by mutableStateOf<StrategyTestDurationSummary?>(null)
     var strategyTestMonthlyReturnSummary by mutableStateOf<StrategyTestMonthlyReturnSummary?>(null)
     var strategyTestSpreadHourlyVolatility by mutableStateOf<SpreadHourlyVolatilityReport?>(null)
+    /** Прогноз Z-режима (10д) для адаптивных порогов. */
+    var strategyTestZRegimeSnapshot by mutableStateOf<ZRegimeAdaptiveSnapshot?>(null)
+    /** Сравнение закрытия по take-profit +2% / +3% / +5% vs Z-выход. */
+    var strategyTestProfitTakeCompare by mutableStateOf<List<StrategyTestProfitTakeRow>>(emptyList())
     /** Кэш hourly vol по fingerprint 15м ряда (не зависит от порогов sim). */
     var strategyTestHourlyVolCacheKey: Long = 0L
     var strategyTestHourlyVolCache: SpreadHourlyVolatilityReport? = null
@@ -141,7 +152,8 @@ internal class MoexScreenState(val context: Context) {
     var dataLoadProgress by mutableStateOf<DataLoadProgress?>(null)
     /** Счётчик активных загрузок; пока > 0, прогресс-бар не скрывается. */
     var dataLoadSessions by mutableStateOf(0)
-    /** UI портфеля собран для [portfolioTabUiSessionKey]; 0 = нужен rebuild. */
+    /** Сводка PnL закрытых сделок из GetOperations (Prod); null = только таблица приложения. */
+    var portfolioBrokerWindowPnlSummary by mutableStateOf<ProdSpreadWindowPnlSummary?>(null)
     var portfolioTabUiBuiltKey: Long = 0L
     /** Период 15м «Рынок», для которого уже есть in-memory ряд. */
     var marketsM15LoadedPeriod: Period? = null

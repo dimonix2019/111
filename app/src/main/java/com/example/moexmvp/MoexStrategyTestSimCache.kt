@@ -11,6 +11,8 @@ internal data class StrategyTestVisibleSnapshot(
     val durationSummary: StrategyTestDurationSummary?,
     val monthlyReturnSummary: StrategyTestMonthlyReturnSummary?,
     val spreadHourlyVolatility: SpreadHourlyVolatilityReport?,
+    val zRegimeSnapshot: ZRegimeAdaptiveSnapshot? = null,
+    val profitTakeCompare: List<StrategyTestProfitTakeRow> = emptyList(),
 )
 
 /** Fingerprint 15м ряда «Тест страт.» (без порогов sim) — для кэша hourly vol. */
@@ -54,7 +56,6 @@ internal fun MoexScreenState.strategyTestSimulationKey(): Long {
     hash = 31 * hash + strategyTestAccountSizeRub.toBits()
     hash = 31 * hash + strategyTestCapitalUsagePercent.toBits()
     hash = 31 * hash + strategyTestMaxLossDdPercent.toBits()
-    hash = 31 * hash + strategyTestUsePortfolioThresholds.hashCode()
     hash = 31 * hash + strategyTestUseLiveZSignals.hashCode()
     hash = 31 * hash + strategyTestCompoundReturns.hashCode()
     hash = 31 * hash + strategyTestM15SessionCache.size
@@ -89,6 +90,8 @@ internal fun MoexScreenState.detachStrategyTestVisibleState() {
             durationSummary = strategyTestDurationSummary,
             monthlyReturnSummary = strategyTestMonthlyReturnSummary,
             spreadHourlyVolatility = strategyTestSpreadHourlyVolatility,
+            zRegimeSnapshot = strategyTestZRegimeSnapshot,
+            profitTakeCompare = strategyTestProfitTakeCompare,
         )
     }
     strategyTestPortfolioMetrics = null
@@ -99,6 +102,8 @@ internal fun MoexScreenState.detachStrategyTestVisibleState() {
     strategyTestDurationSummary = null
     strategyTestMonthlyReturnSummary = null
     strategyTestSpreadHourlyVolatility = null
+    strategyTestZRegimeSnapshot = null
+    strategyTestProfitTakeCompare = emptyList()
     strategyTestSimComputing = false
     strategyTestM15Loading = false
     strategyTestError = null
@@ -114,6 +119,8 @@ internal fun MoexScreenState.applyStrategyTestVisibleSnapshot(snapshot: Strategy
     strategyTestDurationSummary = snapshot.durationSummary
     strategyTestMonthlyReturnSummary = snapshot.monthlyReturnSummary
     strategyTestSpreadHourlyVolatility = snapshot.spreadHourlyVolatility
+    strategyTestZRegimeSnapshot = snapshot.zRegimeSnapshot
+    strategyTestProfitTakeCompare = snapshot.profitTakeCompare
 }
 
 internal fun buildStrategyTestVisibleAnalytics(
@@ -122,6 +129,8 @@ internal fun buildStrategyTestVisibleAnalytics(
     m15PointsForRisk: List<DataPoint>,
     entryThreshold: Double,
     spreadHourlyVolatility: SpreadHourlyVolatilityReport? = null,
+    zRegimeSnapshot: ZRegimeAdaptiveSnapshot? = null,
+    profitTakeCompare: List<StrategyTestProfitTakeRow> = emptyList(),
 ): StrategyTestVisibleAnalytics {
     val closedTrades = metrics.closedTrades
     val tradeItems = buildStrategyTestTradeListFromSimulation(closedTrades)
@@ -150,6 +159,8 @@ internal fun buildStrategyTestVisibleAnalytics(
         ),
         spreadHourlyVolatility = spreadHourlyVolatility
             ?: buildSpreadHourlyVolatilityReport(chartPoints),
+        zRegimeSnapshot = zRegimeSnapshot,
+        profitTakeCompare = profitTakeCompare,
     )
 }
 
@@ -160,6 +171,8 @@ internal data class StrategyTestVisibleAnalytics(
     val durationSummary: StrategyTestDurationSummary?,
     val monthlyReturnSummary: StrategyTestMonthlyReturnSummary?,
     val spreadHourlyVolatility: SpreadHourlyVolatilityReport?,
+    val zRegimeSnapshot: ZRegimeAdaptiveSnapshot? = null,
+    val profitTakeCompare: List<StrategyTestProfitTakeRow> = emptyList(),
 )
 
 internal fun buildM15BarIndexByLabel(points: List<DataPoint>): Map<String, Int> {

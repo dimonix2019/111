@@ -62,8 +62,6 @@ internal fun StrategyTestTabContent(
     accountSizeRub: Double,
     capitalUsagePercent: Double,
     maxLossDdPercent: Double,
-    usePortfolioThresholds: Boolean = true,
-    onUsePortfolioThresholdsChange: (Boolean) -> Unit = {},
     useLiveZSignals: Boolean = true,
     onUseLiveZSignalsChange: (Boolean) -> Unit = {},
     parityItems: List<StrategyTestProdParityItem> = emptyList(),
@@ -86,6 +84,9 @@ internal fun StrategyTestTabContent(
     onExitThresholdChange: (Double) -> Unit,
     onExportCompareCsv: () -> Unit = {},
     dailyReconciliation: DailyPortfolioReconciliation? = null,
+    onSpreadDeltaFullscreenClick: (() -> Unit)? = null,
+    zRegimeSnapshot: ZRegimeAdaptiveSnapshot? = null,
+    profitTakeCompare: List<StrategyTestProfitTakeRow> = emptyList(),
 ) {
     val (displayTradeItems, displayRiskAssessments) = remember(
         tradeItems,
@@ -117,7 +118,7 @@ internal fun StrategyTestTabContent(
         }
     }
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
-    val (zChartHeightDp, equityChartHeightDp) = remember(screenHeightDp) {
+    val (zChartHeightDp, spreadDeltaChartHeightDp, equityChartHeightDp) = remember(screenHeightDp) {
         strategyTestLiveChartHeightsDp(screenHeightDp)
     }
     val zReferenceLines = remember(entryThreshold, exitThreshold, chartThresholds?.calculatedDate) {
@@ -180,6 +181,16 @@ internal fun StrategyTestTabContent(
                     chartHeightDp = zChartHeightDp,
                     pointMarkers = chartPointMarkers,
                 )
+                StrategyTestSpreadDeltaLineChartCard(
+                    dailyLabels = equityLabels,
+                    m15Points = m15ChartPoints,
+                    openPosition = chartMetrics?.openPosition,
+                    tradeItems = displayTradeItems,
+                    leverage = leverage,
+                    accountSizeRub = accountSizeRub,
+                    chartHeightDp = spreadDeltaChartHeightDp,
+                    onFullscreenClick = onSpreadDeltaFullscreenClick,
+                )
             } else if (!m15Loading && !simulationComputing) {
                 Box(
                     modifier = Modifier
@@ -218,6 +229,26 @@ internal fun StrategyTestTabContent(
                 }
             }
         }
+        zRegimeSnapshot?.let { snapshot ->
+            PortfolioCollapsibleSection(
+                title = "Z-режим · прогноз порогов",
+                subtitle = formatStrategyTestZRegimeSubtitle(snapshot),
+                defaultExpanded = false,
+                compactHeader = true,
+            ) {
+                StrategyTestZRegimePanel(snapshot = snapshot)
+            }
+        }
+        if (profitTakeCompare.isNotEmpty()) {
+            PortfolioCollapsibleSection(
+                title = "Закрытие по прибыли +2% / +3% / +5%",
+                subtitle = formatStrategyTestProfitTakeSubtitle(profitTakeCompare),
+                defaultExpanded = false,
+                compactHeader = true,
+            ) {
+                StrategyTestProfitTakeComparePanel(rows = profitTakeCompare)
+            }
+        }
         PortfolioCollapsibleSection(
             title = "Боевой режим симуляции",
             subtitle = battleModeSubtitle,
@@ -226,8 +257,6 @@ internal fun StrategyTestTabContent(
         ) {
             StrategyTestProdParityPanel(
                 items = parityItems,
-                usePortfolioThresholds = usePortfolioThresholds,
-                onUsePortfolioThresholdsChange = onUsePortfolioThresholdsChange,
                 useLiveZSignals = useLiveZSignals,
                 onUseLiveZSignalsChange = onUseLiveZSignalsChange,
                 onApplyProdAccountCash = onApplyProdAccountCash,
@@ -643,6 +672,20 @@ internal fun StrategyTestExitModeControls(
                 onClick = { onExitModeChange(ZStrategyExitMode.ZPeakTrailing) },
                 modifier = Modifier.weight(1f)
             )
+            StrategyExitModeButton(
+                text = "Прот. Z",
+                selected = exitMode == ZStrategyExitMode.OppositeExtreme,
+                onClick = { onExitModeChange(ZStrategyExitMode.OppositeExtreme) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            StrategyExitModeButton(
+                text = "Лок. Z",
+                selected = exitMode == ZStrategyExitMode.LocalExtrema,
+                onClick = { onExitModeChange(ZStrategyExitMode.LocalExtrema) },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
         Text(
             text = when (exitMode) {
@@ -650,6 +693,10 @@ internal fun StrategyTestExitModeControls(
                     "Закрытие по прежнему порогу выхода |Z|; розовые пороги «Портфеля» не меняются."
                 ZStrategyExitMode.ZPeakTrailing ->
                     "После входа запоминаем лучший Z и закрываемся при откате от пика на выбранный шаг."
+                ZStrategyExitMode.OppositeExtreme ->
+                    "Вход: пересечение −Z. Выход: пересечение +Z на уровне порога выхода (полный разворот)."
+                ZStrategyExitMode.LocalExtrema ->
+                    "Вход на локальном дне Z (3 бара), выход на локальной вершине после отскока ≥ порога выхода."
             },
             color = Color(0xFF757575),
             fontSize = 9.sp,
@@ -873,8 +920,6 @@ internal fun StrategyTestLiveTuningPanel(
 @Composable
 internal fun StrategyTestProdParityPanel(
     items: List<StrategyTestProdParityItem>,
-    usePortfolioThresholds: Boolean,
-    onUsePortfolioThresholdsChange: (Boolean) -> Unit,
     useLiveZSignals: Boolean,
     onUseLiveZSignalsChange: (Boolean) -> Unit,
     onApplyProdAccountCash: (() -> Unit)?,
@@ -894,14 +939,6 @@ internal fun StrategyTestProdParityPanel(
                 fontSize = 9.sp,
                 maxLines = 2,
             )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Пороги = Портфель", color = Color(0xFFE0E0E0), fontSize = 10.sp)
-            Switch(checked = usePortfolioThresholds, onCheckedChange = onUsePortfolioThresholdsChange)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -973,4 +1010,135 @@ internal fun StrategyTestZScoreTradingViewChart(
         landscapeMinimal = landscapeMinimal,
         modifier = modifier,
     )
+}
+
+@Composable
+internal fun StrategyTestZRegimePanel(snapshot: ZRegimeAdaptiveSnapshot) {
+    val cfg = snapshot.config
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "Окно ${cfg.windowTradingDays} торг. дн. · узкие ${cfg.tightFour.entryLong}/${cfg.tightFour.exitLong} · широкие ${cfg.wideFour.entryLong}/${cfg.wideFour.exitLong}",
+            color = Color(0xFF9E9E9E),
+            fontSize = 10.sp,
+        )
+        Text(
+            text = String.format(
+                Locale.US,
+                "Walk-forward: %.0f%% (%d/%d)",
+                snapshot.walkForward.accuracy * 100.0,
+                snapshot.walkForward.folds.count { it.correct },
+                snapshot.walkForward.folds.size,
+            ),
+            color = Color(0xFFBDBDBD),
+            fontSize = 10.sp,
+        )
+        snapshot.currentWindow?.let { cur ->
+            Text(
+                text = String.format(
+                    Locale.US,
+                    "Сейчас %s…%s: %s (meanZ=%+.2f)",
+                    cur.startLabel,
+                    cur.endLabel,
+                    zRegimeLabelRu(cur.regime),
+                    cur.meanZ,
+                ),
+                color = Color(0xFFE0E0E0),
+                fontSize = 10.sp,
+            )
+        }
+        snapshot.nextForecast?.let { fc ->
+            val four = snapshot.liveAppliedFour
+            Text(
+                text = String.format(
+                    Locale.US,
+                    "Прогноз след. окна: %s (%.0f%%) → пороги %.1f/%.1f",
+                    zRegimeLabelRu(fc.predicted),
+                    fc.confidence * 100.0,
+                    four.entryLong,
+                    four.exitLong,
+                ),
+                color = Color(0xFF80CBC4),
+                fontSize = 10.sp,
+            )
+        }
+        snapshot.windowPlans.takeLast(6).forEach { plan ->
+            val pred = plan.predictedRegime?.let { zRegimeLabelRu(it) } ?: "warmup"
+            val mark = when {
+                plan.predictedRegime == null -> "—"
+                plan.predictedRegime == plan.actualRegime -> "✓"
+                else -> "✗"
+            }
+            Text(
+                text = String.format(
+                    Locale.US,
+                    "%s: прогноз %s · факт %s · %.1f/%.1f %s",
+                    plan.windowId,
+                    pred,
+                    zRegimeLabelRu(plan.actualRegime),
+                    plan.appliedFour.entryLong,
+                    plan.appliedFour.exitLong,
+                    mark,
+                ),
+                color = Color(0xFF757575),
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun StrategyTestProfitTakeComparePanel(rows: List<StrategyTestProfitTakeRow>) {
+    val bestPnl = remember(rows) { rows.maxOfOrNull { it.pnlRub } }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            text = String.format(
+                Locale.US,
+                "%-18s %10s %5s %8s %5s",
+                "режим",
+                "PnL ₽",
+                "сд.",
+                "DD ₽",
+                "WR%",
+            ),
+            color = Color(0xFF9E9E9E),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        rows.forEach { row ->
+            val isBest = bestPnl != null && row.pnlRub >= bestPnl - 0.01
+            Text(
+                text = buildString {
+                    append(String.format(Locale.US, "%-18s %10s %5d %8s %5.0f",
+                        row.label,
+                        formatRubSigned(row.pnlRub),
+                        row.trades,
+                        formatRubSigned(-row.maxDrawdownRub),
+                        row.winRate,
+                    ))
+                    if (row.profitTakePercent != null) {
+                        append(" (Δ ")
+                        append(formatRubSigned(row.deltaVsBaselineRub))
+                        append(")")
+                    }
+                    if (isBest) append(" ◀")
+                },
+                color = if (isBest) Color(0xFF80CBC4) else Color(0xFFBDBDBD),
+                fontSize = 9.sp,
+                maxLines = 2,
+            )
+        }
+        Text(
+            text = "Take-profit: закрытие при MTM ≥ порога от номинала сделки (как push +2/+3/+5%).",
+            color = Color(0xFF616161),
+            fontSize = 9.sp,
+        )
+    }
 }

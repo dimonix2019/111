@@ -18,6 +18,9 @@ import kotlin.math.roundToInt
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_noSignalDayStreaks_threshold08_07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_compare_threshold08_07_vs_08_05_notional50k`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_vs_single100k`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual50k_threshold18_13_plus_07_05`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_dual_thresholds_1m_compound`
+ * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_3y_dual_thresholds_1m_compound`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_baseline_vs_pullbackEntry_peakExit`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_only_fixedExit07`
  * - `./gradlew testDebugUnitTest --tests com.example.moexmvp.MoexTodayBacktestTest.moexBacktest_255d_pullbackEntry_peakTrail_grid`
@@ -34,11 +37,19 @@ class MoexTodayBacktestTest {
     private companion object {
         const val SWEEP_STEP = 0.1
         const val SWEEP_MAX = 2.1
-        const val BACKTEST_ACCOUNT_50K_RUB = 50_000.0
-        const val BACKTEST_ACCOUNT_100K_RUB = 100_000.0
+        const val BACKTEST_NOTIONAL_50K_RUB = 50_000.0
+        const val BACKTEST_NOTIONAL_100K_RUB = 100_000.0
+        const val BACKTEST_ACCOUNT_50K_RUB = BACKTEST_NOTIONAL_50K_RUB
+        const val BACKTEST_ACCOUNT_100K_RUB = BACKTEST_NOTIONAL_100K_RUB
+        const val BACKTEST_CAPITAL_1M_RUB = 1_000_000.0
+        const val BACKTEST_LOOKBACK_3Y_DAYS = 1095L
+        const val BACKTEST_LEVERAGE_X1 = 1.0
+        const val BACKTEST_LEVERAGE_X7 = 7.0
         const val BACKTEST_COMMISSION_PCT_PER_SIDE = 0.04
         val THRESH_08_07 = DynamicThresholds(0.8, 0.7, null)
         val THRESH_08_05 = DynamicThresholds(0.8, 0.5, null)
+        val THRESH_18_13 = DynamicThresholds(1.8, 1.3, null)
+        val THRESH_07_05 = DynamicThresholds(0.7, 0.5, null)
     }
 
     @Test
@@ -723,6 +734,255 @@ class MoexTodayBacktestTest {
     }
 
     @Test
+    fun moexBacktest_255d_dual50k_threshold18_13_plus_07_05() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        printDualThresholdPairReport(
+            points = points,
+            outer = THRESH_18_13,
+            inner = THRESH_07_05,
+            outerLabel = "1.8/1.3",
+            innerLabel = "0.7/0.5",
+            leverage = BACKTEST_LEVERAGE_X1,
+        )
+        printDualThresholdPairReport(
+            points = points,
+            outer = THRESH_18_13,
+            inner = THRESH_07_05,
+            outerLabel = "1.8/1.3",
+            innerLabel = "0.7/0.5",
+            leverage = BACKTEST_LEVERAGE_X7,
+        )
+    }
+
+    @Test
+    fun moexBacktest_255d_dual_thresholds_1m_compound() = runBlocking {
+        val (_, points) = loadTatn15mPoints()
+        printDualThresholdPairReport(
+            points = points,
+            outer = THRESH_18_13,
+            inner = THRESH_07_05,
+            outerLabel = "1.8/1.3",
+            innerLabel = "0.7/0.5",
+            leverage = BACKTEST_LEVERAGE_X1,
+            capitalRub = BACKTEST_CAPITAL_1M_RUB,
+            compoundReturns = true,
+        )
+        printDualThresholdPairReport(
+            points = points,
+            outer = THRESH_18_13,
+            inner = THRESH_07_05,
+            outerLabel = "1.8/1.3",
+            innerLabel = "0.7/0.5",
+            leverage = BACKTEST_LEVERAGE_X7,
+            capitalRub = BACKTEST_CAPITAL_1M_RUB,
+            compoundReturns = true,
+        )
+    }
+
+    @Test
+    fun moexBacktest_3y_dual_thresholds_1m_compound() = runBlocking {
+        val (_, points) = loadTatn15mPoints(BACKTEST_LOOKBACK_3Y_DAYS)
+        printDualThresholdPairReport(
+            points = points,
+            outer = THRESH_18_13,
+            inner = THRESH_07_05,
+            outerLabel = "1.8/1.3",
+            innerLabel = "0.7/0.5",
+            leverage = BACKTEST_LEVERAGE_X1,
+            capitalRub = BACKTEST_CAPITAL_1M_RUB,
+            compoundReturns = true,
+            periodLabel = "3г",
+        )
+        printDualThresholdPairReport(
+            points = points,
+            outer = THRESH_18_13,
+            inner = THRESH_07_05,
+            outerLabel = "1.8/1.3",
+            innerLabel = "0.7/0.5",
+            leverage = BACKTEST_LEVERAGE_X7,
+            capitalRub = BACKTEST_CAPITAL_1M_RUB,
+            compoundReturns = true,
+            periodLabel = "3г",
+        )
+    }
+
+    private fun printDualThresholdPairReport(
+        points: List<DataPoint>,
+        outer: DynamicThresholds,
+        inner: DynamicThresholds,
+        outerLabel: String,
+        innerLabel: String,
+        leverage: Double,
+        capitalRub: Double = BACKTEST_NOTIONAL_100K_RUB,
+        compoundReturns: Boolean = false,
+        periodLabel: String = "${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+    ) {
+        val legNotional = capitalRub / 2.0
+        val m50Outer = runBacktest(
+            points, outer, legNotional, leverageForLots = leverage, compoundReturns = compoundReturns,
+        )!!
+        val m50Inner = runBacktest(
+            points, inner, legNotional, leverageForLots = leverage, compoundReturns = compoundReturns,
+        )!!
+        val m100Outer = runBacktest(
+            points, outer, capitalRub, leverageForLots = leverage, compoundReturns = compoundReturns,
+        )!!
+        val m100Inner = runBacktest(
+            points, inner, capitalRub, leverageForLots = leverage, compoundReturns = compoundReturns,
+        )!!
+
+        val dualPnl = m50Outer.totalPnlRubApprox + m50Inner.totalPnlRubApprox
+        val dualReturnOnCapital = dualPnl / capitalRub * 100.0
+        val dualFinalRub = capitalRub + dualPnl
+        val dualMaxDd = maxDrawdownOfSummedDailyEquity(m50Outer, m50Inner)
+        val dualMaxDdPct = dualMaxDd / capitalRub * 100.0
+        val dualTrades = m50Outer.closedTrades.size + m50Inner.closedTrades.size
+        val overlapBars = countBarsWithBothLegsOpen(points, outer, inner)
+        val overlapPct = overlapBars * 100.0 / (points.size - 1).coerceAtLeast(1)
+        val levLabel = if (leverage == leverage.roundToInt().toDouble()) "x${leverage.roundToInt()}" else "x$leverage"
+        val capLabel = if (compoundReturns) "капитализация" else "фикс. номинал"
+        val periodDays = periodCalendarDays(points)
+
+        println(
+            "=== MOEX $periodLabel: 2×½ + 1×полный ($outerLabel + $innerLabel) · $levLabel · $capLabel · ${formatCapitalLabel(capitalRub)} ==="
+        )
+        println("Ряд: ${points.first().tradeDate} … ${points.last().tradeDate} (${points.size} баров, ~${periodDays.roundToInt()} дн.)")
+        println(
+            "Счёт ${formatCapitalLabel(capitalRub)} · нога ${formatCapitalLabel(legNotional)} · комиссия ${BACKTEST_COMMISSION_PCT_PER_SIDE}%/сторона"
+        )
+        println()
+        printDualThresholdReturnsHeader()
+        printDualThresholdReturnsRow(
+            label = "2×½ $outerLabel (внешняя)",
+            m = m50Outer,
+            capitalRub = capitalRub,
+            legCapitalRub = legNotional,
+            periodDays = periodDays,
+        )
+        printDualThresholdReturnsRow(
+            label = "2×½ $innerLabel (внутр.)",
+            m = m50Inner,
+            capitalRub = capitalRub,
+            legCapitalRub = legNotional,
+            periodDays = periodDays,
+        )
+        println(
+            String.format(
+                Locale.US,
+                "%-30s | %5d | %10.0f | %7.2f%% | %7.2f%% | %6.1f%% | %6.1f%% | %s",
+                "ИТОГО 2×½ (сумма)",
+                dualTrades,
+                dualPnl,
+                dualReturnOnCapital,
+                dualReturnOnCapital,
+                dualMaxDdPct,
+                dualMaxDdPct,
+                formatCapitalLabel(dualFinalRub),
+            )
+        )
+        println("  overlap: $overlapBars баров (${fmt(overlapPct)}% ряда с обеими ногами)")
+        println()
+        printDualThresholdReturnsRow(
+            label = "1×полн. $outerLabel",
+            m = m100Outer,
+            capitalRub = capitalRub,
+            legCapitalRub = capitalRub,
+            periodDays = periodDays,
+        )
+        printDualThresholdReturnsRow(
+            label = "1×полн. $innerLabel",
+            m = m100Inner,
+            capitalRub = capitalRub,
+            legCapitalRub = capitalRub,
+            periodDays = periodDays,
+        )
+        val bestSingleReturn = maxOf(
+            returnOnCapitalPercent(m100Outer, capitalRub),
+            returnOnCapitalPercent(m100Inner, capitalRub),
+        )
+        println("---")
+        println(
+            "Δ доходность 2×½ vs лучшая 1×полн.: ${fmtPct(dualReturnOnCapital - bestSingleReturn)} п.п. " +
+                "(${fmtPct(dualReturnOnCapital)}% vs ${fmtPct(bestSingleReturn)}%)"
+        )
+        println(
+            "Δ доходность 2×½ vs 1×полн. $outerLabel: ${fmtPct(dualReturnOnCapital - returnOnCapitalPercent(m100Outer, capitalRub))} п.п."
+        )
+        println(
+            "Δ доходность 2×½ vs 1×полн. $innerLabel: ${fmtPct(dualReturnOnCapital - returnOnCapitalPercent(m100Inner, capitalRub))} п.п."
+        )
+        println(
+            "Итог на счёте (2×½): ${formatCapitalLabel(dualFinalRub)} · годовых ~${fmtPct(annualizedReturnPercent(dualReturnOnCapital, periodDays))}%"
+        )
+        println()
+    }
+
+    private fun formatCapitalLabel(rub: Double): String = when {
+        rub >= 1_000_000 -> String.format(Locale.US, "%.2fM₽", rub / 1_000_000.0)
+        rub >= 1_000 -> String.format(Locale.US, "%.0fk₽", rub / 1_000.0)
+        else -> String.format(Locale.US, "%.0f₽", rub)
+    }
+
+    private fun periodCalendarDays(points: List<DataPoint>): Double {
+        if (points.size < 2) return 0.0
+        val ms = points.last().timestampMillis - points.first().timestampMillis
+        return ms / 86_400_000.0
+    }
+
+    private fun annualizedReturnPercent(totalReturnOnCapitalPct: Double, periodDays: Double): Double {
+        if (periodDays <= 0.0) return 0.0
+        val growth = 1.0 + totalReturnOnCapitalPct / 100.0
+        return (Math.pow(growth, 365.0 / periodDays) - 1.0) * 100.0
+    }
+
+    private fun printDualThresholdReturnsHeader() {
+        println(
+            String.format(
+                Locale.US,
+                "%-30s | %5s | %10s | %8s | %8s | %8s | %8s | %8s",
+                "вариант",
+                "сделок",
+                "PnL ₽",
+                "ret/счёт",
+                "годовых",
+                "DD/счёт",
+                "DD/нога",
+                "итог",
+            )
+        )
+        println("-".repeat(108))
+    }
+
+    private fun printDualThresholdReturnsRow(
+        label: String,
+        m: PortfolioMetrics,
+        capitalRub: Double,
+        legCapitalRub: Double,
+        periodDays: Double,
+    ) {
+        val retCapital = returnOnCapitalPercent(m, legCapitalRub)
+        val retOnAccount = m.totalPnlRubApprox / capitalRub * 100.0
+        val ann = annualizedReturnPercent(if (legCapitalRub == capitalRub) retCapital else retOnAccount, periodDays)
+        val ddCapitalPct = if (capitalRub > 0) m.maxDrawdownRubApprox / capitalRub * 100.0 else 0.0
+        val ddLegPct = if (legCapitalRub > 0) m.maxDrawdownRubApprox / legCapitalRub * 100.0 else 0.0
+        val finalRub = legCapitalRub + m.totalPnlRubApprox
+        println(
+            String.format(
+                Locale.US,
+                "%-30s | %5d | %10.0f | %7.2f%% | %7.2f%% | %6.1f%% | %6.1f%% | %s",
+                label,
+                m.closedTrades.size,
+                m.totalPnlRubApprox,
+                if (legCapitalRub == capitalRub) retCapital else retOnAccount,
+                ann,
+                if (legCapitalRub == capitalRub) ddCapitalPct else m.maxDrawdownRubApprox / capitalRub * 100.0,
+                ddLegPct,
+                formatCapitalLabel(finalRub),
+            )
+        )
+    }
+
+    @Test
     fun moexTodayBacktest_thresholdSweep_today() = runBlocking {
         val (today, points) = loadTatn15mPoints()
         val steps = thresholdSweepSteps()
@@ -903,20 +1163,38 @@ class MoexTodayBacktestTest {
         zPeakTrailZ: Double = DEFAULT_STRATEGY_TEST_Z_PEAK_TRAIL,
         entryPullbackZ: Double = 0.0,
         simOptions: ZStrategySimOptions = defaultProdLikeSimOptions(),
-    ): PortfolioMetrics? = buildProdLikeStrategySimMetrics(
-        points = points,
-        thresholds = thresholds,
-        accountSizeRub = accountSizeRub,
-        capitalUsagePercent = capitalUsagePercent,
-        leverageForLots = leverageForLots,
-        commissionPercentPerSide = commissionPercentPerSide,
-        periodDescription = "MOEX ${PORTFOLIO_M15_LOOKBACK_DAYS}д prod-like",
-        compoundReturns = false,
-        exitMode = exitMode,
-        zPeakTrailZ = zPeakTrailZ,
-        entryPullbackZ = entryPullbackZ,
-        simOptions = simOptions,
-    )
+        compoundReturns: Boolean = false,
+    ): PortfolioMetrics? {
+        if (compoundReturns) {
+            return buildZStrategyPortfolioMetrics(
+                points = points,
+                thresholds = thresholds,
+                notionalRub = accountSizeRub,
+                leverage = leverageForLots,
+                commissionPercentPerSide = commissionPercentPerSide,
+                periodDescription = "MOEX ${PORTFOLIO_M15_LOOKBACK_DAYS}д",
+                compoundReturns = true,
+                exitMode = exitMode,
+                zPeakTrailZ = zPeakTrailZ,
+                entryPullbackZ = entryPullbackZ,
+                simOptions = simOptions,
+            )
+        }
+        return buildProdLikeStrategySimMetrics(
+            points = points,
+            thresholds = thresholds,
+            accountSizeRub = accountSizeRub,
+            capitalUsagePercent = capitalUsagePercent,
+            leverageForLots = leverageForLots,
+            commissionPercentPerSide = commissionPercentPerSide,
+            periodDescription = "MOEX ${PORTFOLIO_M15_LOOKBACK_DAYS}д prod-like",
+            compoundReturns = false,
+            exitMode = exitMode,
+            zPeakTrailZ = zPeakTrailZ,
+            entryPullbackZ = entryPullbackZ,
+            simOptions = simOptions,
+        )
+    }
 
     private fun printBacktestRow(label: String, m: PortfolioMetrics) {
         println(
@@ -1107,9 +1385,11 @@ class MoexTodayBacktestTest {
         return count
     }
 
-    private suspend fun loadTatn15mPoints(): Pair<LocalDate, List<DataPoint>> {
+    private suspend fun loadTatn15mPoints(
+        lookbackDays: Long = PORTFOLIO_M15_LOOKBACK_DAYS,
+    ): Pair<LocalDate, List<DataPoint>> {
         val today = LocalDate.now(zone)
-        val from = today.minusDays(PORTFOLIO_M15_LOOKBACK_DAYS)
+        val from = today.minusDays(lookbackDays)
         val till = portfolioM15MoexFetchTillDate()
         val entities = fetchPortfolio15mSpreadEntitiesChunked(from, till)
         assertTrue("Нет 15м данных с MOEX ($from…$till)", entities.isNotEmpty())
