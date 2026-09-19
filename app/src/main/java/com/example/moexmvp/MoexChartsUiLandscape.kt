@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,7 +21,10 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -37,7 +39,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -85,6 +86,7 @@ internal fun LandscapeZScoreFullscreenPane(
     areaFillColor: String? = null,
     strategyTestTradeItems: List<StrategyTestTradeItem> = emptyList(),
     openPosition: PortfolioOpenPosition? = null,
+    onExitFullscreenClick: (() -> Unit)? = null,
     formingBarHint: MarketsFormingBarHint? = null,
     formingBarHintText: String? = null,
 ) {
@@ -92,11 +94,35 @@ internal fun LandscapeZScoreFullscreenPane(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        if (showPeriodSelector) {
-            MarketsPeriodSelector(
-                selected = selectedPeriod,
-                onSelect = onPeriodSelect,
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (showPeriodSelector) {
+                MarketsPeriodSelector(
+                    selected = selectedPeriod,
+                    onSelect = onPeriodSelect,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Box(modifier = Modifier.weight(1f))
+            }
+            onExitFullscreenClick?.let { onExit ->
+                IconButton(
+                    onClick = onExit,
+                    modifier = Modifier.size(36.dp),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = Color(0xFF90CAF9),
+                    ),
+                ) {
+                    Icon(
+                        Icons.Filled.CloseFullscreen,
+                        contentDescription = "Свернуть",
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
         }
         BoxWithConstraints(
             modifier = Modifier
@@ -132,6 +158,75 @@ internal fun LandscapeZScoreFullscreenPane(
             }
         }
     }
+}
+
+@Composable
+internal fun LandscapeSpreadDeltaFullscreenPane(
+    context: SpreadDelta15mChartContext,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier,
+    initialWindowWidth: Float = 1f,
+    initialWindowStart: Float = 0f,
+) {
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize(),
+    ) {
+        val chartH = maxHeight.value
+            .takeIf { it.isFinite() && it > 0f }
+            ?.roundToInt()
+            ?.coerceIn(120, 720)
+            ?: 320
+        SpreadDelta15mChartCard(
+            context = context,
+            chartHeightDp = chartH,
+            enableZoomPan = true,
+            showZoomHint = true,
+            landscapeMinimal = true,
+            initialWindowWidth = initialWindowWidth,
+            initialWindowStart = initialWindowStart,
+            onExitFullscreenClick = onExit,
+        )
+    }
+}
+
+@Composable
+internal fun SpreadDelta15mChartCard(
+    context: SpreadDelta15mChartContext,
+    chartHeightDp: Int = MARKETS_SPREAD_DELTA_TV_HEIGHT_DP,
+    enableZoomPan: Boolean = false,
+    showZoomHint: Boolean = false,
+    landscapeMinimal: Boolean = false,
+    initialWindowWidth: Float = 1f,
+    initialWindowStart: Float = 0f,
+    onFullscreenClick: (() -> Unit)? = null,
+    onExitFullscreenClick: (() -> Unit)? = null,
+) {
+    if (context.labels.isEmpty() || context.deltasPp.isEmpty()) return
+    val candles = remember(context.labels, context.deltasPp) {
+        buildSpreadDeltaCandles(context.labels, context.deltasPp)
+    }
+    val displayPoints = remember(context.labels, context.deltasPp) {
+        buildSpreadDeltaDisplayPoints(context.labels, context.deltasPp)
+    }
+    val referenceLines = remember(context) { buildSpreadDeltaTvReferenceLines(context) }
+    val subtitle = remember(context) { spreadDeltaTvSubtitle(context) }
+    TradingViewZScoreChartCard(
+        title = context.title,
+        subtitle = if (landscapeMinimal) null else subtitle,
+        candles = candles,
+        displayPoints = displayPoints,
+        chartHeightDp = chartHeightDp,
+        referenceLines = referenceLines,
+        pointMarkers = emptyList(),
+        tradeSegments = emptyList(),
+        landscapeMinimal = landscapeMinimal,
+        initialWindowWidth = initialWindowWidth,
+        initialWindowStart = initialWindowStart,
+        pnlRubPerSpreadPoint = context.rubPerSpreadPoint,
+        pnlNetOffsetRub = context.netOffsetRub,
+        onFullscreenClick = onFullscreenClick,
+        onExitFullscreenClick = onExitFullscreenClick,
+    )
 }
 
 @Composable

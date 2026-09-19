@@ -3,6 +3,7 @@ package com.example.moexmvp
 import android.app.Activity
 import android.content.res.Configuration
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -106,6 +107,9 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
                     activityResumed = true
                     memoryPressureLevel = 0
                     MoexWatchdog.recordUiPing(context)
+                    if (SignalForegroundService.isBackgroundMonitorEnabled(context)) {
+                        startSignalMonitorInForeground(context, "on_resume")
+                    }
                     MoexWatchdog.performMonitorWatchdogCheck(context, "on_resume")
                     watchdogStatus = MoexWatchdog.readStatus(context)
                     hydrateVirtualTradeAndSandboxUi()
@@ -158,7 +162,6 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
         strategyTestAccountSizeRub,
         strategyTestCapitalUsagePercent,
         strategyTestMaxLossDdPercent,
-        strategyTestUsePortfolioThresholds,
         strategyTestUseLiveZSignals,
     ) {
         if (selectedTab != MainTab.StrategyTest || !activityResumed) return@LaunchedEffect
@@ -196,6 +199,12 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     LaunchedEffect(portfolioLeverage) {
         withContext(Dispatchers.IO) {
             TinkoffSandboxStorage.setSandboxNotifyLeverage(context, portfolioLeverage)
+        }
+    }
+
+    LaunchedEffect(portfolioTradeAmountRub) {
+        withContext(Dispatchers.IO) {
+            TinkoffSandboxStorage.setPortfolioTradeAmountRub(context, portfolioTradeAmountRub)
         }
     }
 
@@ -375,12 +384,16 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     }
 
     LaunchedEffect(selectedTab, activityResumed, executionMode, memoryPressureLevel) {
-        if (selectedTab != MainTab.Portfolio || !activityResumed) return@LaunchedEffect
+        if (!activityResumed) return@LaunchedEffect
         if (executionMode != TinkoffExecutionMode.Prod) return@LaunchedEffect
+        if (selectedTab != MainTab.Portfolio && selectedTab != MainTab.Markets) return@LaunchedEffect
         refreshProdOpenTradesFromBroker()
-        while (activityResumed && selectedTab == MainTab.Portfolio) {
+        while (activityResumed &&
+            (selectedTab == MainTab.Portfolio || selectedTab == MainTab.Markets)
+        ) {
             delay(PROD_BROKER_PORTFOLIO_POLL_MS)
-            if (!activityResumed || selectedTab != MainTab.Portfolio) break
+            if (!activityResumed) break
+            if (selectedTab != MainTab.Portfolio && selectedTab != MainTab.Markets) break
             if (MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)) continue
             refreshProdOpenTradesFromBroker()
         }
@@ -516,10 +529,25 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
     }
 
     LaunchedEffect(selectedTab, configuration.orientation) {
+        val portrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
         if (selectedTab == MainTab.Markets) {
             val coerced = marketsZChartPeriod.coerceToMarketsUiPeriod()
             if (coerced != marketsZChartPeriod) marketsZChartPeriod = coerced
             if (coerced != selectedPeriod) selectedPeriod = coerced
+        }
+        if (portrait &&
+            (marketsSpreadDeltaChartFullscreen || marketsZChartFullscreen)
+        ) {
+            marketsSpreadDeltaChartFullscreen = false
+            marketsZChartFullscreen = false
+            selectedTab = MainTab.Markets
+            (context as? ComponentActivity)?.unlockScreenOrientation()
+        } else if (selectedTab != MainTab.Markets &&
+            (marketsSpreadDeltaChartFullscreen || marketsZChartFullscreen)
+        ) {
+            marketsSpreadDeltaChartFullscreen = false
+            marketsZChartFullscreen = false
+            (context as? ComponentActivity)?.unlockScreenOrientation()
         }
     }
 
@@ -597,7 +625,7 @@ internal fun MoexScreenEffects(screen: MoexScreenState, scope: CoroutineScope) {
             if (selectedTab == MainTab.Portfolio && portfolioTabUiBuiltKey != 0L) {
                 refreshPortfolioAfterJournalChange(refreshTailIfStale = false)
             }
-            if (selectedTab == MainTab.Portfolio &&
+            if ((selectedTab == MainTab.Portfolio || selectedTab == MainTab.Markets) &&
                 executionMode == TinkoffExecutionMode.Prod &&
                 !MoexMemoryPressure.shouldPauseAutoRefresh(memoryPressureLevel)
             ) {

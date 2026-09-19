@@ -102,4 +102,75 @@ class MoexOpenTradeMtmTest {
         )
         assertSame(enriched, enrichSandboxExecutionsIfNeeded(listOf(enriched), points, 7.0, 0.04).single())
     }
+
+    @Test
+    fun enrichSandboxExecutionsIfNeeded_onProd_preservesBrokerPnlWithMoexPoints() {
+        val brokerEnriched = SandboxSpreadExecUi(
+            tradeId = "P-001",
+            signalType = StrategySignalType.EnterLong,
+            zScore = -0.86,
+            barTimestampMillis = 1_000L,
+            executedAtMillis = 2_000L,
+            entrySpreadPercent = 6.20,
+            source = PortfolioExecSource.AUTO,
+            directionLabel = "long",
+            entryTimeMsk = "2026-06-16 07:45",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "покупка 10 лот",
+            shortLegSideRu = "продажа 10 лот",
+            volumeText = "10+10 лот",
+            confirmLabel = "авто",
+            correlationTag = "tag",
+            notificationIdsText = "—",
+            legs = emptyList(),
+            quantityLots = 10,
+            legLongPnlSplitRubApprox = -31.91,
+            legShortPnlSplitRubApprox = 40.0,
+            netPnlRubApprox = 4.09,
+            exitZDisplay = Double.NaN,
+        )
+        val points = listOf(
+            DataPoint(1_000L, "2026-06-16 07:45", 572.4, 538.7, 6.20, 0.0, -0.86),
+            DataPoint(2_000L, "2026-06-16 09:15", 572.4, 538.7, 6.20, 0.0, -1.01),
+        )
+        val out = enrichSandboxExecutionsIfNeeded(
+            executions = listOf(brokerEnriched),
+            points = points,
+            leverage = 7.0,
+            commissionPercentPerSide = 0.04,
+            executionMode = TinkoffExecutionMode.Prod,
+        ).single()
+        assertEquals(4.09, out.netPnlRubApprox, 0.01)
+        assertEquals(-31.91, out.legLongPnlSplitRubApprox, 0.02)
+        assertEquals(-1.01, out.exitZDisplay, 0.001)
+    }
+
+    @Test
+    fun openPnlBrokerSourceLabel_whenBrokerPnlPresent() {
+        val exec = SandboxSpreadExecUi(
+            tradeId = "P-001",
+            signalType = StrategySignalType.EnterLong,
+            zScore = -0.86,
+            barTimestampMillis = 1_000L,
+            executedAtMillis = 2_000L,
+            entrySpreadPercent = 6.20,
+            source = PortfolioExecSource.AUTO,
+            directionLabel = "long",
+            entryTimeMsk = "2026-06-16 07:45",
+            longLegTicker = "TATN",
+            shortLegTicker = "TATNP",
+            longLegSideRu = "покупка",
+            shortLegSideRu = "продажа",
+            volumeText = "10+10",
+            confirmLabel = "авто",
+            correlationTag = "tag",
+            notificationIdsText = "—",
+            legs = emptyList(),
+            legLongPnlSplitRubApprox = -10.0,
+            legShortPnlSplitRubApprox = 20.0,
+            netPnlRubApprox = 8.0,
+        )
+        assertEquals("счёт Tinkoff", openPnlBrokerSourceLabel(listOf(exec)))
+    }
 }

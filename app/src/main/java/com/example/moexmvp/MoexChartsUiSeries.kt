@@ -107,6 +107,39 @@ private fun patchLastM15ChartBarWithLiveZ(
     return patchedPts to patchedCandles
 }
 
+/** Хвост Δ спреда: spread% последнего 15м бара = live из 1м (parity со шторкой). */
+internal fun applyLiveSpreadToM15ChartPoints(
+    points: List<DataPoint>,
+    liveSpreadPercent: Double?,
+): List<DataPoint> {
+    if (liveSpreadPercent == null || points.isEmpty()) return points
+    val last = points.last()
+    if (kotlin.math.abs(last.spreadPercent - liveSpreadPercent) < 1e-9) return points
+    val patched = points.toMutableList()
+    patched[patched.lastIndex] = last.copy(spreadPercent = liveSpreadPercent)
+    return patched
+}
+
+/** Хвост spread-графика: свечи и точки с live spread% из 1м. */
+internal fun applyLiveSpreadToM15SpreadChart(
+    points: List<DataPoint>,
+    candles: List<CandlePoint>,
+    liveSpreadPercent: Double?,
+): Pair<List<DataPoint>, List<CandlePoint>> {
+    val patchedPts = applyLiveSpreadToM15ChartPoints(points, liveSpreadPercent)
+    if (liveSpreadPercent == null || candles.isEmpty()) return patchedPts to candles
+    val last = candles.last()
+    if (kotlin.math.abs(last.close - liveSpreadPercent) < 1e-9) return patchedPts to candles
+    val open = last.open
+    val patchedCandles = candles.toMutableList()
+    patchedCandles[patchedCandles.lastIndex] = last.copy(
+        close = liveSpreadPercent,
+        high = maxOf(open, liveSpreadPercent),
+        low = minOf(open, liveSpreadPercent),
+    )
+    return patchedPts to patchedCandles
+}
+
 private fun appendFormingM15ChartBar(
     points: List<DataPoint>,
     candles: List<CandlePoint>,
