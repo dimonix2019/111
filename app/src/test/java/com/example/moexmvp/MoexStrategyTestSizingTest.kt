@@ -72,17 +72,18 @@ class MoexStrategyTestSizingTest {
 
     @Test
     fun strategyTestLiveChartHeightsDp_splitsScreenForZAndEquity() {
-        val (z, equity) = strategyTestLiveChartHeightsDp(873)
-        assertTrue(z in 160..220)
-        assertTrue(equity in 200..300)
-        assertTrue(z + equity <= 520)
+        val (z, delta, equity) = strategyTestLiveChartHeightsDp(873)
+        assertTrue(z in 140..190)
+        assertTrue(delta in 110..160)
+        assertTrue(equity in 170..260)
+        assertTrue(z + delta + equity <= 540)
     }
 
     @Test
     fun strategyTestLiveEquityChartHeightDp_redmi12ProClassScreen() {
-        val (_, equity) = strategyTestLiveChartHeightsDp(873)
-        assertTrue(equity in 200..300)
-        assertTrue(strategyTestLiveEquityChartHeightDp(780) in 200..300)
+        val (_, _, equity) = strategyTestLiveChartHeightsDp(873)
+        assertTrue(equity in 170..260)
+        assertTrue(strategyTestLiveEquityChartHeightDp(780) in 170..260)
     }
 
     @Test

@@ -101,22 +101,15 @@ internal fun MoexScreenTabStrategyTest(
             val parityItems = remember(
                 strategyTestAccountSizeRub,
                 strategyTestCapitalUsagePercent,
-                strategyTestUsePortfolioThresholds,
                 strategyTestUseLiveZSignals,
                 portfolioCommissionPercent,
-                realTradeEntryThreshold,
-                realTradeExitThreshold,
-                strategyTestEntryThreshold,
-                strategyTestExitThreshold,
             ) {
                 buildStrategyTestProdParityChecklist(
                     context = context,
                     accountSizeRub = strategyTestAccountSizeRub,
                     capitalUsagePercent = strategyTestCapitalUsagePercent,
-                    usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                     useLiveZSignals = strategyTestUseLiveZSignals,
                     commissionPercentPerSide = simCommission,
-                    thresholdsMatchPortfolio = strategyTestThresholdsMatchPortfolio(),
                 )
             }
             LazyColumn(
@@ -161,11 +154,6 @@ internal fun MoexScreenTabStrategyTest(
                         accountSizeRub = strategyTestAccountSizeRub,
                         capitalUsagePercent = strategyTestCapitalUsagePercent,
                         maxLossDdPercent = strategyTestMaxLossDdPercent,
-                        usePortfolioThresholds = strategyTestUsePortfolioThresholds,
-                        onUsePortfolioThresholdsChange = { enabled ->
-                            strategyTestUsePortfolioThresholds = enabled
-                            markStrategyTestSimParamsStale()
-                        },
                         useLiveZSignals = strategyTestUseLiveZSignals,
                         onUseLiveZSignalsChange = { enabled ->
                             strategyTestUseLiveZSignals = enabled
@@ -223,27 +211,17 @@ internal fun MoexScreenTabStrategyTest(
                             }
                         },
                         onEntryThresholdChange = { newEntry ->
-                            val v = newEntry.coerceIn(
+                            strategyTestEntryThreshold = newEntry.coerceIn(
                                 PORTFOLIO_Z_THRESHOLD_MIN,
                                 PORTFOLIO_Z_THRESHOLD_MAX,
                             )
-                            if (strategyTestUsePortfolioThresholds) {
-                                realTradeEntryThreshold = v
-                            } else {
-                                strategyTestEntryThreshold = v
-                            }
                             markStrategyTestSimParamsStale()
                         },
                         onExitThresholdChange = { newExit ->
-                            val v = newExit.coerceIn(
+                            strategyTestExitThreshold = newExit.coerceIn(
                                 PORTFOLIO_Z_THRESHOLD_MIN,
                                 PORTFOLIO_Z_THRESHOLD_MAX,
                             )
-                            if (strategyTestUsePortfolioThresholds) {
-                                realTradeExitThreshold = v
-                            } else {
-                                strategyTestExitThreshold = v
-                            }
                             markStrategyTestSimParamsStale()
                         },
                         onExportCompareCsv = {
@@ -266,7 +244,6 @@ internal fun MoexScreenTabStrategyTest(
                                         exitThreshold = thresholds.exit,
                                         compoundReturns = strategyTestCompoundReturns,
                                         maxLossDdPercent = strategyTestMaxLossDdPercent,
-                                        usePortfolioThresholds = strategyTestUsePortfolioThresholds,
                                         useLiveZSignals = strategyTestUseLiveZSignals,
                                         thresholdSource = thresholds.source.name,
                                     )?.also { persist ->
