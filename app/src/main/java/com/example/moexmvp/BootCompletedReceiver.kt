@@ -13,7 +13,6 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 scheduleAppUpdateChecks(context)
                 scheduleMonitorWatchdog(context)
                 if (SignalForegroundService.isBackgroundMonitorEnabled(context)) {
-                    SignalForegroundService.start(context)
                     MoexWatchdog.performMonitorWatchdogCheck(context, "boot_or_update")
                 }
             }

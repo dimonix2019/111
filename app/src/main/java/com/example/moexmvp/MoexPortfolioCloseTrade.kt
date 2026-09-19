@@ -44,6 +44,7 @@ internal suspend fun closePortfolioOpenTrade(
     val legs = executeSpreadExitIfConfigured(context, entrySignal, execution.quantityLots)
     val leverage = TinkoffSandboxStorage.getSandboxNotifyLeverage(context)
     val (exitTs, exitZ) = resolveExitBarForPortfolioClose(context, execution, null, null)
+    val exitExecutedAt = System.currentTimeMillis()
     if (legs.isNotEmpty()) {
         val app = context.applicationContext
         val bar = loadZStrategySignalSeries(app, PortfolioM15LoadMode.CACHE_ONLY)
@@ -70,6 +71,7 @@ internal suspend fun closePortfolioOpenTrade(
             exitTimestampMillis = exitTs,
             exitZScore = exitZ,
             mtmBeforeClose = brokerBeforeClose,
+            exitExecutedAtMillis = exitExecutedAt,
         )
     } else {
         null
@@ -92,6 +94,7 @@ internal suspend fun closePortfolioOpenTrade(
         leverage = leverage,
         closedRecord = closedRecord,
         brokerPnlBeforeClose = brokerBeforeClose,
+        exitExecutedAtMillis = exitExecutedAt,
     )
     "Сделка ${execution.tradeId} закрыта"
 }
@@ -181,23 +184,68 @@ internal suspend fun notifySandboxTradeClosedAfterClose(
     commissionPercentPerSide: Double = 0.04,
     brokerPnlBeforeClose: SpreadLegBrokerPnl? = null,
     closedRecord: ProdClosedSpreadExecRecord? = null,
+    exitExecutedAtMillis: Long = System.currentTimeMillis(),
 ) {
     val app = context.applicationContext
+    val mode = currentExecutionMode(app)
     val exitSpread = resolveSpreadPercentAtBar(app, exitBarTimestampMillis, execution.entrySpreadPercent)
     val entryDate = portfolioDateLabelFromMskTableTime(execution.entryTimeMsk)
+    val exitWall = maxOf(exitExecutedAtMillis, execution.executedAtMillis + 1L)
     val exitDate = portfolioDateLabelFromMskTableTime(
-        formatPortfolioExecutionTableMsk(exitBarTimestampMillis)
+        formatPortfolioExecutionTableMsk(exitWall)
     )
-    val pnl = when {
-        closedRecord != null -> computeProdClosedTradePnl(closedRecord, commissionPercentPerSide)
-        brokerPnlBeforeClose != null &&
-            currentExecutionMode(app) == TinkoffExecutionMode.Prod -> {
-            computeProdClosedTradePnlFromBroker(
+    val prodRecord = closedRecord
+        ?: if (mode == TinkoffExecutionMode.Prod) {
+            recordProdClosedTradeAfterExit(
+                context = app,
                 execution = execution,
-                brokerPnl = brokerPnlBeforeClose,
+                exitLegs = exitLegs,
                 exitTimestampMillis = exitBarTimestampMillis,
-                commissionPercentPerSide = commissionPercentPerSide,
+                exitZScore = exitZScore,
+                mtmBeforeClose = brokerPnlBeforeClose,
+                exitExecutedAtMillis = exitExecutedAtMillis,
             )
+        } else {
+            null
+        }
+    val pnl = when {
+        prodRecord != null -> computeProdClosedTradePnl(prodRecord, commissionPercentPerSide)
+        mode == TinkoffExecutionMode.Prod -> {
+            val capture = captureProdCloseRealizedPnl(
+                context = app,
+                execution = execution,
+                exitLegs = exitLegs,
+                exitTimestampMillis = exitBarTimestampMillis,
+                mtmBeforeClose = brokerPnlBeforeClose,
+                exitExecutedAtMillis = exitExecutedAtMillis,
+            )
+            if (capture != null) {
+                computeProdClosedTradePnlFromBroker(
+                    executionNotionalRub = execution.executionNotionalRub,
+                    entryTimeMsk = execution.entryTimeMsk,
+                    exitTimestampMillis = exitWall,
+                    longLegYieldRub = capture.legPnl.longLegYieldRub,
+                    shortLegYieldRub = capture.legPnl.shortLegYieldRub,
+                    commissionPercentPerSide = commissionPercentPerSide,
+                    realizedNetRub = capture.realizedNetRub,
+                    operationsCommissionRub = capture.operationsCommissionRub,
+                )
+            } else if (brokerPnlBeforeClose != null) {
+                computeProdClosedTradePnlFromBroker(
+                    execution = execution,
+                    brokerPnl = brokerPnlBeforeClose,
+                    exitTimestampMillis = exitWall,
+                    commissionPercentPerSide = commissionPercentPerSide,
+                )
+            } else {
+                SandboxClosedTradePnl(
+                    grossRub = 0.0,
+                    commissionRub = 0.0,
+                    overnightRub = 0.0,
+                    netRub = 0.0,
+                    exitSpreadPercent = exitSpread,
+                )
+            }
         }
         else -> computeSandboxClosedTradePnl(
             execution = execution,

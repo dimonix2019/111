@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import java.time.LocalDate
@@ -60,6 +61,44 @@ class MoexSignalMonitor15mTest {
         assertEquals(ZStrategySignal.EnterShort, edges.single().signal)
         assertEquals(points[2].timestampMillis, edges.single().bar.timestampMillis)
         assertEquals(ZStrategyPosition.Short, finalPosition)
+    }
+
+    @Test
+    fun collectZStrategy15mSignalEdges_rechecksFormingBarWhenLastProcessedEqualsLastBar() {
+        val thresholds = DynamicThresholds(entry = 1.8, exit = 1.3, calculatedDate = null)
+        val zone = moexZoneId
+        val now = java.time.ZonedDateTime.of(2026, 6, 26, 15, 10, 0, 0, zone)
+        val bucket = currentM15BucketStartMillis(now.toInstant(), zone)
+        val prev = testM15Bar("2026-06-26 14:45", z = 1.2).copy(timestampMillis = bucket - 15L * 60_000L)
+        val forming = testM15Bar("2026-06-26 15:00", z = 1.85).copy(timestampMillis = bucket)
+        val points = listOf(prev, forming)
+        val (edges, position) = collectZStrategy15mSignalEdgesSinceProcessedBar(
+            points = points,
+            lastProcessedBarTimestampMillis = bucket,
+            initialPosition = ZStrategyPosition.Flat,
+            thresholds = thresholds,
+        )
+        assertEquals(1, edges.size)
+        assertEquals(ZStrategySignal.EnterShort, edges.single().signal)
+        assertEquals(ZStrategyPosition.Short, position)
+    }
+
+    @Test
+    fun shouldAdvanceLastProcessed15mBar_falseWhileLastBarStillForming() {
+        val zone = moexZoneId
+        val now = java.time.ZonedDateTime.of(2026, 6, 26, 15, 10, 0, 0, zone)
+        val bucket = currentM15BucketStartMillis(now.toInstant(), zone)
+        val points = listOf(
+            testM15Bar("2026-06-26 14:45", z = 0.0).copy(timestampMillis = bucket - 15L * 60_000L),
+            testM15Bar("2026-06-26 15:00", z = 0.0).copy(timestampMillis = bucket),
+        )
+        assertFalse(
+            shouldAdvanceLastProcessed15mBar(
+                points = points,
+                lastProcessedBarTimestampMillis = null,
+                nowMillis = now.toInstant().toEpochMilli(),
+            ),
+        )
     }
 
     @Test
