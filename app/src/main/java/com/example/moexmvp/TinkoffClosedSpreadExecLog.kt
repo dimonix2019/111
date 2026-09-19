@@ -239,7 +239,7 @@ internal fun computeProdClosedTradePnlFromBroker(
     commissionPercentPerSide = commissionPercentPerSide,
 )
 
-private fun computeProdClosedTradePnlFromBroker(
+internal fun computeProdClosedTradePnlFromBroker(
     executionNotionalRub: Double,
     entryTimeMsk: String,
     exitTimestampMillis: Long,

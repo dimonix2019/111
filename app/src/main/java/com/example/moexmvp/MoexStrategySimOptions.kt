@@ -40,12 +40,15 @@ internal data class ZStrategySimOptions(
     val forcedHoldHoursIfLosing: Double = 0.0,
     /** К [forcedHoldHoursIfLosing]: только если сделка ни разу не была в плюсе по MTM. */
     val forcedHoldRequireNeverGreen: Boolean = false,
+    /** Take-profit: закрыть при MTM ≥ N% от номинала сделки (0 = выкл.). */
+    val forcedProfitTakePercent: Double = 0.0,
 ) {
     val hasPyramiding: Boolean get() = pyramidAddNotionalRub > 0.0
     val hasForcedExits: Boolean
         get() = forcedTimeStopHours > 0.0 ||
             forcedZStopDeviation > 0.0 ||
-            forcedHoldHoursIfLosing > 0.0
+            forcedHoldHoursIfLosing > 0.0 ||
+            forcedProfitTakePercent > 0.0
     val hasProtections: Boolean
         get() = slippageSpreadPts > 0.0 ||
             maxLossSpreadPts > 0.0 ||
@@ -102,6 +105,9 @@ internal fun describeSimOptions(options: ZStrategySimOptions): String {
         } else {
             "H${options.forcedHoldHoursIfLosing.toInt()}ч−"
         }
+    }
+    if (options.forcedProfitTakePercent > 0.0) {
+        parts += "TP+${options.forcedProfitTakePercent.toInt()}%"
     }
     return if (parts.isEmpty()) "" else " · " + parts.joinToString(" · ")
 }

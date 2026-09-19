@@ -5,12 +5,21 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -28,8 +37,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /** Общая геометрия Z + Equity на «Тест страт.» — одинаковая ширина plot и даты. */
 internal const val STRATEGY_TEST_CHART_LEFT_PADDING = 62f
@@ -110,6 +121,53 @@ internal fun buildStrategyTestZAxisRange(
     val span = (zMax - zMin).coerceAtLeast(0.4)
     val pad = span * 0.1
     return (zMin - pad) to (zMax + pad)
+}
+
+/**
+ * Y-шкала Δ спреда: по последним торговым дням (intraday-амплитуда), не по всему equity-окну.
+ */
+internal fun spreadDeltaFocusDeltasForAxis(
+    points: List<DataPoint>,
+    deltasPp: List<Double>,
+    recentTradingDays: Int = 3,
+): List<Double> {
+    if (points.size != deltasPp.size || points.isEmpty()) {
+        return deltasPp.takeLast(64)
+    }
+    val lastDay = m15LabelCalendarDate(points.last().tradeDate)
+        ?: return deltasPp.takeLast(64)
+    val cutoff = lastDay.minusDays((recentTradingDays - 1).toLong())
+    val focused = points.indices.mapNotNull { i ->
+        val day = m15LabelCalendarDate(points[i].tradeDate) ?: return@mapNotNull null
+        if (!day.isBefore(cutoff)) deltasPp[i] else null
+    }
+    return focused.ifEmpty { deltasPp.takeLast(64) }
+}
+
+internal fun buildStrategyTestSpreadDeltaAxisRange(
+    points: List<DataPoint>,
+    deltasPp: List<Double>,
+    referenceLines: List<ChartReferenceLine>,
+    pointMarkers: List<ChartPointMarker> = emptyList(),
+    recentTradingDays: Int = 3,
+): Pair<Double, Double> {
+    if (deltasPp.isEmpty()) return -0.05 to 0.05
+    val baseline = referenceLines.firstOrNull()?.value ?: 0.0
+    val focusValues = spreadDeltaFocusDeltasForAxis(points, deltasPp, recentTradingDays)
+    val recentValues = buildList {
+        addAll(focusValues)
+        addAll(pointMarkers.map { it.value })
+        add(baseline)
+    }
+    var dMin = recentValues.minOrNull() ?: baseline
+    var dMax = recentValues.maxOrNull() ?: baseline
+    if (dMin == dMax) {
+        val pad = max(0.04, abs(dMin) * 0.15 + 0.02)
+        return (dMin - pad) to (dMax + pad)
+    }
+    val span = (dMax - dMin).coerceAtLeast(0.04)
+    val pad = span * 0.12
+    return (dMin - pad) to (dMax + pad)
 }
 
 internal fun formatStrategyTestZAxisValue(value: Double): String =
@@ -348,6 +406,305 @@ internal fun StrategyTestZScoreLineChart(
             if (ts < tMin || ts > tMax) return@forEach
             val x = xMapper.xForTimestamp(ts)
             val y = yZ(marker.value)
+            if (x.isNaN() || y.isNaN()) return@forEach
+            drawMarkerShape(
+                shape = marker.shape,
+                center = Offset(x, y),
+                color = marker.color,
+                scale = 0.8f,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun StrategyTestSpreadDeltaLineChartCard(
+    dailyLabels: List<String>,
+    m15Points: List<DataPoint>,
+    openPosition: PortfolioOpenPosition?,
+    tradeItems: List<StrategyTestTradeItem>,
+    leverage: Double,
+    accountSizeRub: Double,
+    chartHeightDp: Int,
+    modifier: Modifier = Modifier,
+    onFullscreenClick: (() -> Unit)? = null,
+    onExitFullscreenClick: (() -> Unit)? = null,
+    landscapeMinimal: Boolean = false,
+) {
+    val linePoints = remember(m15Points, dailyLabels) {
+        val inRange = m15PointsInEquityChartRange(m15Points, dailyLabels)
+        downsamplePointsForChartLine(inRange)
+    }
+    val chartData = remember(
+        linePoints,
+        openPosition,
+        leverage,
+        accountSizeRub,
+    ) {
+        buildStrategyTestSpreadDeltaChartData(
+            points = linePoints,
+            openPosition = openPosition,
+            leverage = leverage,
+            accountSizeRub = accountSizeRub,
+        )
+    }
+    val pointMarkers = remember(linePoints, chartData, tradeItems, openPosition) {
+        if (chartData == null) emptyList()
+        else buildSpreadDeltaMarkersFromStrategyTestTrades(
+            points = linePoints,
+            deltasPp = chartData.deltasPp,
+            tradeItems = tradeItems,
+            openPosition = openPosition,
+        )
+    }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (landscapeMinimal) Modifier.fillMaxSize() else Modifier)
+            .background(Color(0xFF171717), RoundedCornerShape(if (landscapeMinimal) 0.dp else 8.dp))
+            .padding(if (landscapeMinimal) 4.dp else 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val markerHint = if (pointMarkers.isNotEmpty()) " · ${pointMarkers.size} меток" else ""
+            Text(
+                "${chartData?.title ?: "Δ спред 15м"}$markerHint",
+                color = SPREAD_DELTA_LINE_COLOR,
+                fontSize = if (landscapeMinimal) 11.sp else 9.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            when {
+                onExitFullscreenClick != null -> {
+                    IconButton(
+                        onClick = onExitFullscreenClick,
+                        modifier = Modifier.size(36.dp),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            contentColor = Color(0xFF90CAF9),
+                        ),
+                    ) {
+                        Icon(
+                            Icons.Filled.CloseFullscreen,
+                            contentDescription = "Свернуть",
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+                onFullscreenClick != null -> {
+                    IconButton(
+                        onClick = onFullscreenClick,
+                        modifier = Modifier.size(36.dp),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            contentColor = Color(0xFF90CAF9),
+                        ),
+                    ) {
+                        Icon(
+                            Icons.Filled.OpenInFull,
+                            contentDescription = "На весь экран",
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+            }
+        }
+        StrategyTestSpreadDeltaLineChart(
+            dailyLabels = dailyLabels,
+            linePoints = linePoints,
+            deltasPp = chartData?.deltasPp.orEmpty(),
+            referenceLines = chartData?.referenceLines.orEmpty(),
+            pointMarkers = pointMarkers,
+            chartHeightDp = chartHeightDp,
+            landscapeMinimal = landscapeMinimal,
+        )
+    }
+}
+
+@Composable
+internal fun LandscapeStrategyTestSpreadDeltaFullscreenPane(
+    dailyLabels: List<String>,
+    m15Points: List<DataPoint>,
+    openPosition: PortfolioOpenPosition?,
+    tradeItems: List<StrategyTestTradeItem>,
+    leverage: Double,
+    accountSizeRub: Double,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val chartH = maxHeight.value
+            .takeIf { it.isFinite() && it > 0f }
+            ?.roundToInt()
+            ?.coerceIn(140, 900)
+            ?: 320
+        StrategyTestSpreadDeltaLineChartCard(
+            dailyLabels = dailyLabels,
+            m15Points = m15Points,
+            openPosition = openPosition,
+            tradeItems = tradeItems,
+            leverage = leverage,
+            accountSizeRub = accountSizeRub,
+            chartHeightDp = chartH,
+            onExitFullscreenClick = onExit,
+            landscapeMinimal = true,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}
+
+@Composable
+internal fun StrategyTestSpreadDeltaLineChart(
+    dailyLabels: List<String>,
+    linePoints: List<DataPoint>,
+    deltasPp: List<Double>,
+    referenceLines: List<ChartReferenceLine>,
+    modifier: Modifier = Modifier,
+    chartHeightDp: Int = 160,
+    pointMarkers: List<ChartPointMarker> = emptyList(),
+    landscapeMinimal: Boolean = false,
+) {
+    val axis = remember(dailyLabels) { buildStrategyTestChartTimeAxis(dailyLabels) }
+    if (axis == null || linePoints.size < 2 || deltasPp.size != linePoints.size) {
+        Box(
+            modifier = modifier
+                .height(chartHeightDp.dp)
+                .fillMaxWidth()
+                .background(Color(0xFF0F1722), RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Нет данных для Δ спреда", color = Color(0xFFD7E3F4), fontSize = 11.sp)
+        }
+        return
+    }
+    val (dMin, dMax) = buildStrategyTestSpreadDeltaAxisRange(
+        points = linePoints,
+        deltasPp = deltasPp,
+        referenceLines = referenceLines,
+        pointMarkers = pointMarkers,
+    )
+    val yTicks = buildYTicks(dMin, dMax, count = 4)
+
+    Canvas(
+        modifier = modifier
+            .then(
+                if (landscapeMinimal) {
+                    Modifier.fillMaxSize()
+                } else {
+                    Modifier.height(chartHeightDp.dp)
+                }
+            )
+            .fillMaxWidth()
+            .background(Color(0xFF0F1722), RoundedCornerShape(if (landscapeMinimal) 0.dp else 8.dp)),
+    ) {
+        val plotWidth = size.width - STRATEGY_TEST_CHART_LEFT_PADDING - STRATEGY_TEST_CHART_RIGHT_PADDING
+        val plotHeight = size.height - STRATEGY_TEST_CHART_TOP_PADDING - STRATEGY_TEST_CHART_BOTTOM_PADDING
+        val xMapper = StrategyTestChartXMapper(axis.timeRange, STRATEGY_TEST_CHART_LEFT_PADDING, plotWidth)
+
+        fun yDelta(v: Double): Float {
+            val span = (dMax - dMin).coerceAtLeast(1e-6)
+            val rel = ((v - dMin) / span).toFloat().coerceIn(0f, 1f)
+            return STRATEGY_TEST_CHART_TOP_PADDING + plotHeight * (1f - rel)
+        }
+
+        val rightLabelPaint = Paint().apply {
+            color = SPREAD_DELTA_LINE_COLOR.toArgb()
+            textSize = 10.sp.toPx()
+            textAlign = Paint.Align.LEFT
+            isAntiAlias = true
+        }
+
+        yTicks.forEach { tick ->
+            val y = yDelta(tick)
+            drawLine(
+                color = Color(0xFF30455A),
+                start = Offset(STRATEGY_TEST_CHART_LEFT_PADDING, y),
+                end = Offset(STRATEGY_TEST_CHART_LEFT_PADDING + plotWidth, y),
+                strokeWidth = 1f,
+            )
+        }
+        referenceLines.forEach { reference ->
+            val y = yDelta(reference.value)
+            drawLine(
+                color = reference.color.copy(alpha = 0.85f),
+                start = Offset(STRATEGY_TEST_CHART_LEFT_PADDING, y),
+                end = Offset(STRATEGY_TEST_CHART_LEFT_PADDING + plotWidth, y),
+                strokeWidth = 1.5f,
+                pathEffect = PathEffect.dashPathEffect(
+                    intervals = floatArrayOf(reference.dashOnPx, reference.dashOffPx),
+                ),
+            )
+        }
+
+        drawLine(
+            color = Color(0xFF8AA6C1),
+            start = Offset(STRATEGY_TEST_CHART_LEFT_PADDING, STRATEGY_TEST_CHART_TOP_PADDING),
+            end = Offset(STRATEGY_TEST_CHART_LEFT_PADDING, STRATEGY_TEST_CHART_TOP_PADDING + plotHeight),
+            strokeWidth = 1.5f,
+        )
+        drawLine(
+            color = Color(0xFF8AA6C1),
+            start = Offset(STRATEGY_TEST_CHART_LEFT_PADDING, STRATEGY_TEST_CHART_TOP_PADDING + plotHeight),
+            end = Offset(STRATEGY_TEST_CHART_LEFT_PADDING + plotWidth, STRATEGY_TEST_CHART_TOP_PADDING + plotHeight),
+            strokeWidth = 1.5f,
+        )
+        drawLine(
+            color = Color(0xFF8AA6C1),
+            start = Offset(STRATEGY_TEST_CHART_LEFT_PADDING + plotWidth, STRATEGY_TEST_CHART_TOP_PADDING),
+            end = Offset(STRATEGY_TEST_CHART_LEFT_PADDING + plotWidth, STRATEGY_TEST_CHART_TOP_PADDING + plotHeight),
+            strokeWidth = 1.5f,
+        )
+
+        val path = Path()
+        linePoints.forEachIndexed { i, point ->
+            val pt = Offset(xMapper.xForTimestamp(point.timestampMillis), yDelta(deltasPp[i]))
+            if (i == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+        }
+        drawPath(
+            path = path,
+            color = SPREAD_DELTA_LINE_COLOR,
+            style = Stroke(width = 2.5f, cap = StrokeCap.Round),
+        )
+
+        drawReferenceLineLabels(
+            referenceLines = referenceLines,
+            leftPadding = STRATEGY_TEST_CHART_LEFT_PADDING,
+            topPadding = STRATEGY_TEST_CHART_TOP_PADDING,
+            chartWidth = plotWidth,
+            chartHeight = plotHeight,
+            yForValue = ::yDelta,
+            labelTextSizeSp = 10.sp,
+        )
+        yTicks.forEach { tick ->
+            val y = yDelta(tick)
+            drawContext.canvas.nativeCanvas.drawText(
+                formatSpreadDeltaAxisTick(tick),
+                STRATEGY_TEST_CHART_LEFT_PADDING + plotWidth + 6f,
+                y + 4f,
+                rightLabelPaint,
+            )
+        }
+
+        drawStrategyTestMonthTicks(
+            drawScope = this,
+            axis = axis,
+            xMapper = xMapper,
+            leftPadding = STRATEGY_TEST_CHART_LEFT_PADDING,
+            plotWidth = plotWidth,
+            topPadding = STRATEGY_TEST_CHART_TOP_PADDING,
+            plotHeight = plotHeight,
+            labelTextSizePx = 10.sp.toPx(),
+        )
+
+        val (tMin, tMax) = axis.timeRange
+        pointMarkers.forEach { marker ->
+            val label = marker.barDateLabel ?: return@forEach
+            val ts = parseSimTradeExitMillis(label) ?: return@forEach
+            if (ts < tMin || ts > tMax) return@forEach
+            val x = xMapper.xForTimestamp(ts)
+            val y = yDelta(marker.value)
             if (x.isNaN() || y.isNaN()) return@forEach
             drawMarkerShape(
                 shape = marker.shape,

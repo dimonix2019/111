@@ -137,52 +137,63 @@ internal data class PortfolioTradesBucketUi(
     val tradeCount: Int,
     val totalPnlRub: Double,
     val groups: List<PortfolioTradeGroupRow>,
-    val isOpenTrades: Boolean
+    val isOpenTrades: Boolean,
+    /** Подпись источника PnL, напр. «Tinkoff». */
+    val pnlSourceLabel: String? = null,
 )
 
-/** Фильтр таблиц сделок: скрыть ручные, оставить авто (и тестовые). */
-internal fun filterSandboxExecutionsForTradesTable(
-    executions: List<SandboxSpreadExecUi>,
-    autoOnly: Boolean,
-): List<SandboxSpreadExecUi> =
-    if (!autoOnly) executions
-    else filterSandboxExecutionsByPortfolioMode(executions, portfolioLedgerIncludeAuto = true)
-
-internal fun filterConfirmedTableRowsForTradesTable(
+/** Фильтр закрытых сделок в блоке «Закрытые». */
+internal fun filterClosedRowsForTradesTable(
     rows: List<PortfolioConfirmedTradeTableRow>,
-    autoOnly: Boolean,
+    filter: PortfolioClosedTradesSourceFilter,
 ): List<PortfolioConfirmedTradeTableRow> =
-    if (!autoOnly) rows
-    else filterConfirmedTableRowsByPortfolioMode(rows, portfolioLedgerIncludeAuto = true)
+    filterClosedTradesBySourceFilter(rows, filter)
 
 internal fun buildPortfolioTradesBuckets(
     openExecutions: List<SandboxSpreadExecUi>,
     closedRows: List<PortfolioConfirmedTradeTableRow>,
     lookbackDays: Long,
     windowStartMillis: Long = portfolioTradesWindowStartMillis(lookbackDays),
-    tradesAutoOnlyFilter: Boolean = false,
+    closedSourceFilter: PortfolioClosedTradesSourceFilter = PortfolioClosedTradesSourceFilter.All,
+    closedPnlOverrideRub: Double? = null,
+    closedPnlSourceLabel: String? = null,
+    closedTradeCountOverride: Int? = null,
+    openPnlSourceLabel: String? = null,
+    m15Points: List<DataPoint> = emptyList(),
 ): Pair<PortfolioTradesBucketUi, PortfolioTradesBucketUi> {
-    val openFiltered = filterSandboxExecutionsForTradesTable(
-        openExecutions,
-        autoOnly = tradesAutoOnlyFilter,
-    )
-    val closedFiltered = filterConfirmedTableRowsForTradesTable(
-        filterClosedTradeRowsInWindow(closedRows, lookbackDays, windowStartMillis),
-        autoOnly = tradesAutoOnlyFilter,
-    )
-    val openGroups = openFiltered.asReversed().map { it.toTradeGroup() }
+    val openSingle = resolveSingleOpenExecutionForDisplay(openExecutions)?.let { listOf(it) } ?: emptyList()
+    val closedInWindow = filterClosedTradeRowsInWindow(closedRows, lookbackDays, windowStartMillis)
+    val closedFiltered = filterClosedRowsForTradesTable(closedInWindow, closedSourceFilter)
+    val openGroups = openSingle.map { exec ->
+        enrichOpenTradeGroupSpreadDrivers(exec.toTradeGroup(), exec, m15Points)
+    }
     val closedGroups = closedFiltered.map { it.toTradeGroup() }
     return PortfolioTradesBucketUi(
-        title = "Открытые",
+        title = "Открытая",
         tradeCount = openGroups.size,
         totalPnlRub = sumTradeGroupsNetPnl(openGroups),
         groups = openGroups,
-        isOpenTrades = true
+        isOpenTrades = true,
+        pnlSourceLabel = openPnlSourceLabel,
     ) to PortfolioTradesBucketUi(
         title = "Закрытые",
-        tradeCount = closedGroups.size,
-        totalPnlRub = sumTradeGroupsNetPnl(closedGroups),
+        tradeCount = when {
+            closedSourceFilter != PortfolioClosedTradesSourceFilter.All -> closedGroups.size
+            closedTradeCountOverride != null -> closedTradeCountOverride
+            else -> closedGroups.size
+        },
+        totalPnlRub = when {
+            closedSourceFilter == PortfolioClosedTradesSourceFilter.All &&
+                closedPnlOverrideRub != null -> closedPnlOverrideRub
+            else -> sumTradeGroupsNetPnl(closedGroups)
+        },
         groups = closedGroups,
-        isOpenTrades = false
+        isOpenTrades = false,
+        pnlSourceLabel = closedPnlSourceLabel,
     )
 }
+
+/** Стратегия — не более одной открытой сделки; для UI берём последнюю по времени входа. */
+internal fun resolveSingleOpenExecutionForDisplay(
+    executions: List<SandboxSpreadExecUi>,
+): SandboxSpreadExecUi? = executions.maxByOrNull { it.executedAtMillis }

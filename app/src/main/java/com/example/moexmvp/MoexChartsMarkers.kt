@@ -93,6 +93,31 @@ internal fun buildZScoreReferenceLines(
     )
 }
 
+/** Горизонтали спреда %: вход в сделку и текущее значение (live 1м). */
+internal fun buildSpreadChartReferenceLines(
+    currentSpreadPercent: Double?,
+    entrySpreadPercent: Double?,
+): List<ChartReferenceLine> {
+    val lines = mutableListOf<ChartReferenceLine>()
+    entrySpreadPercent?.takeIf { !it.isNaN() }?.let { entry ->
+        lines += ChartReferenceLine(
+            value = entry,
+            color = Color(0xFFFFB74D),
+            label = String.format(Locale.US, "вход %.2f", entry),
+            dashOnPx = 6f,
+            dashOffPx = 6f,
+        )
+    }
+    currentSpreadPercent?.takeIf { !it.isNaN() }?.let { cur ->
+        lines += ChartReferenceLine(
+            value = cur,
+            color = Color(0xFF60A5FA),
+            label = String.format(Locale.US, "сейчас %.2f", cur),
+        )
+    }
+    return lines
+}
+
 internal fun buildZScoreSignalMarkersFromEvents(
     points: List<DataPoint>,
     events: List<StrategySignalEvent>
@@ -344,6 +369,22 @@ internal fun buildZScoreMarkersFromStrategyTestTrades(
         }
     }
     return markers
+}
+
+/** Маркеры входа/выхода на Δ спреда «Тест страт.» — те же сделки, что на Z-score. */
+internal fun buildSpreadDeltaMarkersFromStrategyTestTrades(
+    points: List<DataPoint>,
+    deltasPp: List<Double>,
+    tradeItems: List<StrategyTestTradeItem>,
+    openPosition: PortfolioOpenPosition? = null,
+): List<ChartPointMarker> {
+    if (points.isEmpty() || points.size != deltasPp.size) return emptyList()
+    val zMarkers = buildZScoreMarkersFromStrategyTestTrades(points, tradeItems, openPosition)
+    return zMarkers.mapNotNull { marker ->
+        val idx = marker.index
+        if (idx !in deltasPp.indices) return@mapNotNull null
+        marker.copy(value = deltasPp[idx])
+    }
 }
 
 private fun portfolioTradeEnterMarkerStyle(directionLabel: String): Pair<ChartMarkerShape, Color> =
