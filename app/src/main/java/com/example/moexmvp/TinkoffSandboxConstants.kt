@@ -17,6 +17,7 @@ private const val PROD_HOST_TINKOFF = "https://invest-public-api.tinkoff.ru/rest
 private const val SBX_SANDBOX_SERVICE = "tinkoff.public.invest.api.contract.v1.SandboxService"
 private const val SBX_INSTRUMENTS_SERVICE = "tinkoff.public.invest.api.contract.v1.InstrumentsService"
 private const val PROD_ORDERS_SERVICE = "tinkoff.public.invest.api.contract.v1.OrdersService"
+private const val PROD_STOP_ORDERS_SERVICE = "tinkoff.public.invest.api.contract.v1.StopOrdersService"
 private const val PROD_INSTRUMENTS_SERVICE = "tinkoff.public.invest.api.contract.v1.InstrumentsService"
 private const val PROD_OPERATIONS_SERVICE = "tinkoff.public.invest.api.contract.v1.OperationsService"
 private const val PROD_USERS_SERVICE = "tinkoff.public.invest.api.contract.v1.UsersService"
@@ -34,6 +35,11 @@ internal val TINVEST_SANDBOX_INSTRUMENTS_PREFIXES: List<String> = listOf(
 internal val TINVEST_PROD_ORDERS_PREFIXES: List<String> = listOf(
     "$PROD_HOST_TBANK/$PROD_ORDERS_SERVICE",
     "$PROD_HOST_TINKOFF/$PROD_ORDERS_SERVICE",
+)
+
+internal val TINVEST_PROD_STOP_ORDERS_PREFIXES: List<String> = listOf(
+    "$PROD_HOST_TBANK/$PROD_STOP_ORDERS_SERVICE",
+    "$PROD_HOST_TINKOFF/$PROD_STOP_ORDERS_SERVICE",
 )
 
 internal val TINVEST_PROD_INSTRUMENTS_PREFIXES: List<String> = listOf(

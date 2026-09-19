@@ -1,7 +1,6 @@
 package com.example.moexmvp
 
 import java.time.Instant
-import java.time.LocalDate
 
 /** Fingerprint последнего бара 15м ряда (без полного списка в state). */
 internal fun m15SeriesTailFingerprint(points: List<DataPoint>): Long {
@@ -13,10 +12,13 @@ internal fun m15SeriesTailFingerprint(points: List<DataPoint>): Long {
 internal fun m15PointsCoverPortfolioLookback(points: List<DataPoint>, lookbackDays: Long): Boolean {
     if (points.size < 2) return false
     val days = normalizePortfolioLookbackDays(lookbackDays)
-    val cutoff = LocalDate.now(portfolioCompareZone).minusDays(days - 1)
     val firstDay = Instant.ofEpochMilli(points.first().timestampMillis)
         .atZone(portfolioCompareZone)
         .toLocalDate()
+    val lastDay = Instant.ofEpochMilli(points.last().timestampMillis)
+        .atZone(portfolioCompareZone)
+        .toLocalDate()
+    val cutoff = lastDay.minusDays(days - 1)
     return !firstDay.isAfter(cutoff)
 }
 

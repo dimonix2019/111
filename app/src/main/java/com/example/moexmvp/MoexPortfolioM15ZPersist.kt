@@ -421,11 +421,15 @@ internal suspend fun mergePortfolioM15InsertPreservingSnapshots(
                 row.copy(
                     persistedZScore = null,
                     spreadAtZSnapshot = null,
+                    persistedSpreadDeltaPp = null,
+                    spreadDeltaDayOpenPercent = null,
                 )
             } else {
                 row.copy(
                     persistedZScore = row.persistedZScore ?: prev.persistedZScore,
                     spreadAtZSnapshot = row.spreadAtZSnapshot ?: prev.spreadAtZSnapshot,
+                    persistedSpreadDeltaPp = row.persistedSpreadDeltaPp ?: prev.persistedSpreadDeltaPp,
+                    spreadDeltaDayOpenPercent = row.spreadDeltaDayOpenPercent ?: prev.spreadDeltaDayOpenPercent,
                 )
             }
         }

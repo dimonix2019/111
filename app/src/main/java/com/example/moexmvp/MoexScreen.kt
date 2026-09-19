@@ -41,14 +41,29 @@ internal fun MoexScreen() {
     }
 
     val configuration = LocalConfiguration.current
-    val landscapeZChartFullscreen =
+    val landscapeSpreadDeltaFullscreen =
         configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-            (screen.selectedTab == MainTab.Markets || screen.selectedTab == MainTab.StrategyTest)
-
+            screen.selectedTab == MainTab.Markets &&
+            screen.marketsSpreadDeltaChartFullscreen
+    val landscapeStrategyTestSpreadDeltaFullscreen =
+        configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            screen.selectedTab == MainTab.StrategyTest &&
+            screen.strategyTestSpreadDeltaChartFullscreen
+    val landscapeMarketsZFullscreen =
+        configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            screen.selectedTab == MainTab.Markets &&
+            screen.marketsZChartFullscreen
+    val landscapeZChartFullscreen =
+        landscapeMarketsZFullscreen ||
+            (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                screen.selectedTab == MainTab.StrategyTest &&
+                !landscapeStrategyTestSpreadDeltaFullscreen)
     val chartSuccess = (screen.state as? UiState.Success) ?: screen.lastGoodMarkets
     val staleMarkets = screen.marketsStale || (screen.realtimeError != null && chartSuccess != null)
     val onMarketsTab = screen.selectedTab == MainTab.Markets
     val onStrategyTestTab = screen.selectedTab == MainTab.StrategyTest
+
+    val marketsM15RollingBase = if (onMarketsTab) screen.marketsM15Source() else emptyList()
 
     val marketsM15SimPoints by produceState(
         initialValue = emptyList<DataPoint>(),
@@ -61,10 +76,13 @@ internal fun MoexScreen() {
             return@produceState
         }
         value = withContext(Dispatchers.Default) {
-            filterM15PointsForMarketsPeriod(
-                screen.marketsM15Source(),
-                screen.marketsZChartPeriod,
-            )
+            val base = screen.marketsM15Source()
+            val filtered = filterM15PointsForMarketsPeriod(base, screen.marketsZChartPeriod)
+            if (base.size >= Z_SCORE_ROLLING_MIN_BARS) {
+                recalcM15ZForChartDisplayWindow(filtered, base)
+            } else {
+                filtered
+            }
         }
     }
     val marketsChartBase = if (onMarketsTab) {
@@ -119,7 +137,6 @@ internal fun MoexScreen() {
     val strategyTestM15ChartPoints = strategyTestChartSeries.first
     val strategyTestZScoreCandles = strategyTestChartSeries.second
     val strategyTestChartThresholds = remember(
-        screen.strategyTestUsePortfolioThresholds,
         screen.realTradeEntryThreshold,
         screen.realTradeExitThreshold,
         screen.strategyTestEntryThreshold,
@@ -286,10 +303,22 @@ internal fun MoexScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(if (landscapeZChartFullscreen) 0.dp else 12.dp)
+            .padding(
+                if (landscapeZChartFullscreen ||
+                    landscapeSpreadDeltaFullscreen ||
+                    landscapeStrategyTestSpreadDeltaFullscreen
+                ) {
+                    0.dp
+                } else {
+                    12.dp
+                }
+            )
     ) {
         Column(Modifier.fillMaxSize()) {
-            if (!landscapeZChartFullscreen) {
+            if (!landscapeZChartFullscreen &&
+                !landscapeSpreadDeltaFullscreen &&
+                !landscapeStrategyTestSpreadDeltaFullscreen
+            ) {
                 MainTabSelector(
                     selected = screen.selectedTab,
                     onSelect = { screen.selectedTab = it }
@@ -312,6 +341,7 @@ internal fun MoexScreen() {
                 scope = scope,
                 modifier = Modifier.weight(1f).fillMaxSize(),
                 landscapeZChartFullscreen = landscapeZChartFullscreen,
+                landscapeSpreadDeltaFullscreen = landscapeStrategyTestSpreadDeltaFullscreen,
                 strategyTestTradeItems = strategyTestTradeItems,
                 strategyTestM15ChartPoints = strategyTestM15ChartPoints,
                 strategyTestZScoreCandles = strategyTestZScoreCandles,
@@ -326,9 +356,11 @@ internal fun MoexScreen() {
                 scope = scope,
                 modifier = Modifier.weight(1f).fillMaxSize(),
                 landscapeZChartFullscreen = landscapeZChartFullscreen,
+                landscapeSpreadDeltaFullscreen = landscapeSpreadDeltaFullscreen,
                 chartSuccess = chartSuccess,
                 staleMarkets = staleMarkets,
                 marketsM15SourcePoints = marketsM15SimPoints,
+                marketsM15RollingBase = marketsM15RollingBase,
                 marketsM15ChartPoints = marketsM15ChartPoints,
                 marketsZScoreCandles = marketsZScoreCandles,
                 marketsChartThresholds = marketsChartThresholds,

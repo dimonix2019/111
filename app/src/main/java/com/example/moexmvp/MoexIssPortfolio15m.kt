@@ -100,6 +100,16 @@ internal fun currentM15BucketStartMillis(
     return bucket.toInstant().toEpochMilli()
 }
 
+/** Бар ещё формируется (текущий 15м слот) — Z может меняться каждую минуту. */
+internal fun isM15BarStillForming(
+    barTimestampMillis: Long,
+    nowMillis: Long = System.currentTimeMillis(),
+    zone: ZoneId = moexZoneId,
+): Boolean {
+    val bucketStart = currentM15BucketStartMillis(Instant.ofEpochMilli(nowMillis), zone)
+    return barTimestampMillis >= bucketStart
+}
+
 /**
  * 15м ряд для кнопок «Тестовая пара»: всегда догружаем хвост MOEX (включая формирующийся бар),
  * без ожидания [PORTFOLIO_M15_TAIL_MAX_AGE_MS].
@@ -146,9 +156,44 @@ internal fun portfolio15mSeriesTailStale(points: List<DataPoint>): Boolean {
 }
 
 /** Последний закрытый/формирующийся 15м бар старше ~20 мин — пора догрузить хвост. */
-internal fun portfolio15mSeriesIntradayStale(points: List<DataPoint>): Boolean {
+internal fun portfolio15mSeriesIntradayStale(
+    points: List<DataPoint>,
+    nowMillis: Long = System.currentTimeMillis(),
+): Boolean {
     val lastTs = points.lastOrNull()?.timestampMillis ?: return true
-    return System.currentTimeMillis() - lastTs > PORTFOLIO_M15_INTRADAY_STALE_MS
+    val zone = moexZoneId
+    val now = Instant.ofEpochMilli(nowMillis).atZone(zone)
+    val bucketStart = currentM15BucketStartMillis(now.toInstant(), zone)
+
+    // Текущий или предыдущий 15м слот — норма (формирующийся бар).
+    val bucketLagMs = bucketStart - lastTs
+    if (bucketLagMs in 0..15L * 60_000L) return false
+
+    val lastDay = Instant.ofEpochMilli(lastTs).atZone(zone).toLocalDate()
+    val today = now.toLocalDate()
+
+    if (!isMoexMainSessionLikelyOpen(now)) {
+        if (lastDay == today) return false
+        if (lastDay.isBefore(today) && isMoexLastTradingDay(lastDay, today)) return false
+    }
+
+    if (lastDay.isBefore(today)) return true
+
+    return (nowMillis - lastTs) > PORTFOLIO_M15_INTRADAY_STALE_MS
+}
+
+/** Последний торговый день ≤ [today] (пятница в выходные / перед открытием). */
+internal fun isMoexLastTradingDay(lastBarDay: LocalDate, today: LocalDate): Boolean {
+    var probe = today
+    repeat(8) {
+        if (probe.dayOfWeek != java.time.DayOfWeek.SATURDAY &&
+            probe.dayOfWeek != java.time.DayOfWeek.SUNDAY
+        ) {
+            return lastBarDay == probe
+        }
+        probe = probe.minusDays(1)
+    }
+    return false
 }
 
 /** Нужна догрузка MOEX: хвост устарел или последний бар не за сегодня (МСК). */
@@ -253,6 +298,41 @@ internal suspend fun loadPortfolio15mDataPoints(
     retentionDays: Long = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
     /** true для «Тест страт.» при открытии вкладки — только SQLite, без догрузки хвоста с MOEX. */
     skipMoexTailMerge: Boolean = false,
+): List<DataPoint> {
+    if (mode != PortfolioM15LoadMode.CACHE_ONLY && !isMoexNetworkAvailable(context)) {
+        return loadPortfolio15mDataPoints(
+            context, from, till, PortfolioM15LoadMode.CACHE_ONLY, onProgress,
+            wipeAllOnFullRefresh, retentionDays, skipMoexTailMerge,
+        )
+    }
+    return runCatching {
+        loadPortfolio15mDataPointsLocked(
+            context, from, till, mode, onProgress, wipeAllOnFullRefresh, retentionDays, skipMoexTailMerge,
+        )
+    }.recoverCatching { e ->
+        if (!MoexDiagnostics.isTransientNetworkError(e)) throw e
+        MoexDiagnostics.logNetworkErrorThrottled(
+            context.applicationContext,
+            "m15_load",
+            e,
+            "offline_fallback mode=$mode",
+        )
+        loadPortfolio15mDataPoints(
+            context, from, till, PortfolioM15LoadMode.CACHE_ONLY, onProgress,
+            wipeAllOnFullRefresh, retentionDays, skipMoexTailMerge = true,
+        )
+    }.getOrThrow()
+}
+
+private suspend fun loadPortfolio15mDataPointsLocked(
+    context: Context,
+    from: LocalDate,
+    till: LocalDate,
+    mode: PortfolioM15LoadMode,
+    onProgress: DataLoadProgressCallback = null,
+    wipeAllOnFullRefresh: Boolean = true,
+    retentionDays: Long = PORTFOLIO_M15_CACHE_RETENTION_DAYS,
+    skipMoexTailMerge: Boolean = false,
 ): List<DataPoint> = withContext(Dispatchers.IO) {
     withPortfolioM15LoadLock {
         val dao = PortfolioM15Database.get(context).dao()
@@ -345,7 +425,12 @@ internal suspend fun loadPortfolio15mDataPoints(
         val tailAgeMs = System.currentTimeMillis() - lastTsAfterLoad
         val tailStillStale = tailAgeMs > PORTFOLIO_M15_TAIL_MAX_AGE_MS ||
             tailAgeMs > PORTFOLIO_M15_INTRADAY_STALE_MS
-        if (!skipMoexTailMerge && mode != PortfolioM15LoadMode.FULL_REFRESH && tailStillStale) {
+        if (!skipMoexTailMerge &&
+            mode != PortfolioM15LoadMode.FULL_REFRESH &&
+            mode != PortfolioM15LoadMode.CACHE_ONLY &&
+            isMoexNetworkAvailable(context) &&
+            tailStillStale
+        ) {
             mergePortfolio15mRecentTailFromMoex(dao, onProgress)
         }
 
@@ -377,7 +462,11 @@ internal suspend fun loadPortfolio15mDataPoints(
         for (entity in rows) {
             points.add(entity.toDataPoint())
         }
+        fillM15SpreadFromLegClosesInPlace(points, rows)
+        persistM15SpreadFromLegSnapshots(dao, rows, points)
         val recalculated = fillM15ZScoresInPlace(points, rows)
+        fillM15SpreadDeltaSnapshotsInPlace(points, rows)
+        persistM15SpreadDeltaSnapshots(dao, rows, points)
         persistM15ZScoreSnapshots(dao, rows, points)
         if (!recalculated) {
             MoexDiagnostics.log(
@@ -400,7 +489,18 @@ internal suspend fun loadPortfolio15mLiveFormingTailLocked(
     lookbackDays: Long,
 ): List<DataPoint>? {
     val dao = PortfolioM15Database.get(context.applicationContext).dao()
-    mergePortfolio15mLiveFormingBarFromMoex(dao)
+    if (isMoexNetworkAvailable(context.applicationContext)) {
+        runCatching { mergePortfolio15mLiveFormingBarFromMoex(dao) }
+            .onFailure { t ->
+                if (!MoexDiagnostics.isTransientNetworkError(t)) throw t
+                MoexDiagnostics.logNetworkErrorThrottled(
+                    context.applicationContext,
+                    "m15_z",
+                    t,
+                    "live_forming_merge_skip",
+                )
+            }
+    }
     clearM15LiveTailPersistedZ(dao)
     val till = LocalDate.now(moexZoneId)
     val from = till.minusDays(lookbackDays)
@@ -408,7 +508,11 @@ internal suspend fun loadPortfolio15mLiveFormingTailLocked(
     val rows = dao.getSince(queryCutoffMillis)
     if (rows.size < 2) return null
     val points = ArrayList(rows.map { it.toDataPoint() })
+    fillM15SpreadFromLegClosesInPlace(points, rows)
+    persistM15SpreadFromLegSnapshots(dao, rows, points)
     val recalculated = fillM15ZScoresInPlace(points, rows)
+    fillM15SpreadDeltaSnapshotsInPlace(points, rows)
+    persistM15SpreadDeltaSnapshots(dao, rows, points)
     persistM15ZScoreSnapshots(dao, rows, points)
     val last = points.last()
     MoexDiagnostics.log(

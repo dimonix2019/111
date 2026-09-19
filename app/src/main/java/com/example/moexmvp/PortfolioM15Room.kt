@@ -24,6 +24,10 @@ internal data class PortfolioM15SpreadEntity(
     val persistedZScore: Double? = null,
     /** Spread на момент снимка Z (не пересмотренный MOEX close). */
     val spreadAtZSnapshot: Double? = null,
+    /** Δ спреда от открытия дня (07:30); null — пересчитать из spread%. */
+    val persistedSpreadDeltaPp: Double? = null,
+    /** База day-open для [persistedSpreadDeltaPp]. */
+    val spreadDeltaDayOpenPercent: Double? = null,
 )
 
 @Dao
@@ -66,7 +70,7 @@ internal interface PortfolioM15Dao {
     suspend fun deleteOlderThan(cutoffMillis: Long)
 }
 
-@Database(entities = [PortfolioM15SpreadEntity::class], version = 3, exportSchema = false)
+@Database(entities = [PortfolioM15SpreadEntity::class], version = 4, exportSchema = false)
 internal abstract class PortfolioM15Database : RoomDatabase() {
     abstract fun dao(): PortfolioM15Dao
 
