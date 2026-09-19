@@ -15,6 +15,12 @@ class MoexWatchdogTest {
     }
 
     @Test
+    fun signalWork_usesMinuteOpenAndFifteenMinutesClosed() {
+        assertEquals(60_000L, signalMonitorWorkDelayMs(sessionOpen = true))
+        assertEquals(15 * 60_000L, signalMonitorWorkDelayMs(sessionOpen = false))
+    }
+
+    @Test
     fun status_notStale_whenMonitorDisabled() {
         val status = MoexWatchdogStatus(
             monitorEnabled = false,

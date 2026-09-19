@@ -16,11 +16,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val notificationPermissionRequester = registerForActivityResult(
@@ -45,10 +42,6 @@ class MainActivity : ComponentActivity() {
         createPushNotificationChannel(this)
         requestPushPermissionIfNeeded()
         initPushMessaging()
-        scheduleAppUpdateChecks(this)
-        lifecycleScope.launch(Dispatchers.IO) {
-            runCatching { checkRemoteAppUpdateAndNotify(this@MainActivity) }
-        }
         if (SignalForegroundService.isBackgroundMonitorEnabled(this)) {
             MoexWatchdog.performMonitorWatchdogCheck(this, "activity_onCreate")
         }

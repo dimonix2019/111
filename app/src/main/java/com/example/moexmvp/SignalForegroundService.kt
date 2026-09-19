@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,10 +26,13 @@ import java.util.Locale
 internal const val SIGNAL_MONITOR_CHANNEL_ID = "moex_signal_monitor_channel"
 internal const val SIGNAL_MONITOR_NOTIFICATION_ID = 11001
 /** Быстрое обновление шторки (спред %, возраст тика) — не ждёт тяжёлый signal-work. */
-internal const val SIGNAL_MONITOR_PULSE_MS = 10_000L
-/** Тяжёлая обработка сигналов реже pulse, чтобы шторка не «замирала». */
-internal const val SIGNAL_MONITOR_SIGNAL_WORK_MS = 45_000L
+internal const val SIGNAL_MONITOR_PULSE_MS = 60_000L
+internal const val SIGNAL_MONITOR_OPEN_SESSION_WORK_MS = 60_000L
+internal const val SIGNAL_MONITOR_CLOSED_SESSION_WORK_MS = 15 * 60_000L
 internal const val SIGNAL_MONITOR_1M_FETCH_TIMEOUT_MS = 8_000L
+
+internal fun signalMonitorWorkDelayMs(sessionOpen: Boolean): Long =
+    if (sessionOpen) SIGNAL_MONITOR_OPEN_SESSION_WORK_MS else SIGNAL_MONITOR_CLOSED_SESSION_WORK_MS
 
 private val bgSignalFallbackThresholds = DynamicThresholds(
     entry = DEFAULT_DYNAMIC_Z_ENTRY,
@@ -43,7 +47,6 @@ class SignalForegroundService : Service() {
     private var webDeskPollJob: kotlinx.coroutines.Job? = null
     private var brokerPollJob: kotlinx.coroutines.Job? = null
     private var foregroundStarted = false
-    private var ticksSinceAppUpdateCheck = 0
     private var signalWorkTickCount = 0
     private var lastForegroundSpreadPercent: Double? = null
     private var lastForegroundDeskShade: WebDeskShadeSnapshot? = null
@@ -65,7 +68,12 @@ class SignalForegroundService : Service() {
         }
         saveSignalMonitorEnabled(this, true)
         if (!foregroundStarted) {
-            MoexDiagnostics.log(applicationContext, "monitor", "service_start foreground")
+            MoexDiagnostics.log(
+                applicationContext,
+                "monitor",
+                "service_start foreground type=specialUse " +
+                    "notifications=${NotificationManagerCompat.from(this).areNotificationsEnabled()}",
+            )
             startForeground(SIGNAL_MONITOR_NOTIFICATION_ID, buildForegroundNotification())
             foregroundStarted = true
         }
@@ -93,7 +101,7 @@ class SignalForegroundService : Service() {
                         .onFailure { e ->
                             MoexDiagnostics.logError(applicationContext, "monitor", e, "signal_work failed")
                         }
-                    delay(SIGNAL_MONITOR_SIGNAL_WORK_MS)
+                    delay(signalMonitorWorkDelayMs(isMoexQuotesSessionLikelyOpen()))
                 }
             }
         }
@@ -192,6 +200,9 @@ class SignalForegroundService : Service() {
             .setContentText(subtitle)
             .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(pendingIntent)
             .build()
     }
@@ -217,15 +228,6 @@ class SignalForegroundService : Service() {
 
     private suspend fun performSignalWork() = withContext(Dispatchers.IO) {
         signalWorkTickCount++
-        ticksSinceAppUpdateCheck++
-        if (ticksSinceAppUpdateCheck * SIGNAL_MONITOR_SIGNAL_WORK_MS >= APP_UPDATE_CHECK_INTERVAL_MS) {
-            ticksSinceAppUpdateCheck = 0
-            runCatching { checkRemoteAppUpdateAndNotify(applicationContext) }
-                .onFailure { e ->
-                    MoexDiagnostics.logError(applicationContext, "monitor", e, "app_update_check")
-                }
-        }
-
         val points = runCatching {
             loadZStrategySignalSeries(
                 applicationContext,
