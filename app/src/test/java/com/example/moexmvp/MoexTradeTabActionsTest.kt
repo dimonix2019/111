@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -116,5 +117,173 @@ class MoexTradeTabActionsTest {
             ),
         )
         assertTrue(matchSpreadTrades(events, emptyList()).isEmpty())
+        val open = unmatchedOpenSpread(events)!!
+        assertEquals("LONG", open.side)
+        assertEquals(60.0, open.tatnQty, 0.01)
+        assertEquals(-60.0, open.tatnpQty, 0.01)
+    }
+
+    @Test
+    fun overlaySnapshotFromOpenOperations_doesNotInventPositionWhenPortfolioIsFlat() {
+        val t0 = 1_700_000_000_000L
+        val open = unmatchedOpenSpread(
+            pairSpreadLegs(
+                listOf(
+                    op(t0, "TATN", -57.0, 618.0),
+                    op(t0 + 2_000, "TATNP", 57.0, 593.4),
+                ),
+            ),
+        )!!
+        val loaded = overlaySnapshotFromOpenOperations(
+            TradeScreenSnapshot(
+                loadedAtMillis = t0,
+                portfolioTotalRub = 9_895.0,
+                cashRub = 9_895.0,
+            ),
+            open,
+        )
+        assertFalse(loaded.isOpen)
+        assertEquals(0, loaded.tatnLots)
+        assertEquals(0, loaded.tatnpLots)
+        val failed = overlaySnapshotFromOpenOperations(
+            TradeScreenSnapshot(loadedAtMillis = t0, error = "timeout"),
+            open,
+        )
+        assertTrue(failed.isOpen)
+        assertEquals(ZStrategyPosition.Short, failed.side)
+        assertEquals(-57, failed.tatnLots)
+        assertEquals(57, failed.tatnpLots)
+    }
+
+    @Test
+    fun resolveOperationTicker_readsFigiAndPrefName() {
+        assertEquals(
+            "TATN",
+            resolveOperationTicker(org.json.JSONObject("""{"figi":"BBG004RVFFC0"}""")),
+        )
+        assertEquals(
+            "TATNP",
+            resolveOperationTicker(org.json.JSONObject("""{"figi":"BBG004S68829"}""")),
+        )
+        assertEquals(
+            "TATNP",
+            resolveOperationTicker(
+                org.json.JSONObject("""{"description":"Продажа 57 акций Татнефть-п"}"""),
+            ),
+        )
+    }
+
+    private fun brokerSnap(
+        side: ZStrategyPosition,
+        tatnLots: Int,
+        tatnpLots: Int,
+    ) = BrokerSpreadPositionSnap(
+        side = side,
+        tatnLots = tatnLots,
+        tatnpLots = tatnpLots,
+        expectedYieldRub = null,
+        tatnPriceRub = 577.0,
+        tatnpPriceRub = 558.0,
+        portfolioTotalRub = 100_000.0,
+    )
+
+    @Test
+    fun flattenLegsForBrokerSnap_longSellsTatnBuysTatnp() {
+        val legs = flattenLegsForBrokerSnap(brokerSnap(ZStrategyPosition.Long, 246, -246))
+        assertEquals(2, legs.size)
+        assertEquals("TATN", legs[0].ticker)
+        assertFalse(legs[0].buy)
+        assertEquals(246, legs[0].lots)
+        assertEquals("TATNP", legs[1].ticker)
+        assertTrue(legs[1].buy)
+        assertEquals(246, legs[1].lots)
+    }
+
+    @Test
+    fun flattenLegsForBrokerSnap_shortBuysTatnSellsTatnp() {
+        val legs = flattenLegsForBrokerSnap(brokerSnap(ZStrategyPosition.Short, -80, 80))
+        assertEquals("TATN", legs[0].ticker)
+        assertTrue(legs[0].buy)
+        assertEquals(80, legs[0].lots)
+        assertEquals("TATNP", legs[1].ticker)
+        assertFalse(legs[1].buy)
+        assertEquals(80, legs[1].lots)
+    }
+
+    @Test
+    fun flattenLegsForBrokerSnap_oneSidedLeftover() {
+        val legs = flattenLegsForBrokerSnap(brokerSnap(ZStrategyPosition.Flat, 40, 0))
+        assertEquals(1, legs.size)
+        assertEquals("TATN", legs[0].ticker)
+        assertFalse(legs[0].buy)
+        assertEquals(40, legs[0].lots)
+    }
+
+    @Test
+    fun flattenLegsForBrokerSnap_flatEmpty() {
+        assertTrue(flattenLegsForBrokerSnap(brokerSnap(ZStrategyPosition.Flat, 0, 0)).isEmpty())
+    }
+
+    @Test
+    fun tradeTabManualEntryBlockReason_blocksLeftoverLegs() {
+        assertTrue(
+            tradeTabManualEntryBlockReason(brokerSnap(ZStrategyPosition.Flat, 40, 0))
+                ?.contains("экстренное закрытие") == true,
+        )
+        assertEquals(null, tradeTabManualEntryBlockReason(brokerSnap(ZStrategyPosition.Flat, 0, 0)))
+    }
+
+    @Test
+    fun shouldOfferPendingVirtualTrade_rejectsSameBarAfterCancel() {
+        val ts = 1_700_000_000_000L
+        assertFalse(
+            shouldOfferPendingVirtualTrade(
+                rejectedTimestampMillis = ts,
+                rejectedTypeName = StrategySignalType.EnterLong.name,
+                signalType = StrategySignalType.EnterLong,
+                timestampMillis = ts,
+            ),
+        )
+        assertTrue(
+            shouldOfferPendingVirtualTrade(
+                rejectedTimestampMillis = ts,
+                rejectedTypeName = StrategySignalType.EnterLong.name,
+                signalType = StrategySignalType.EnterShort,
+                timestampMillis = ts,
+            ),
+        )
+        assertTrue(
+            shouldOfferPendingVirtualTrade(
+                rejectedTimestampMillis = ts,
+                rejectedTypeName = StrategySignalType.EnterLong.name,
+                signalType = StrategySignalType.EnterLong,
+                timestampMillis = ts + 900_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun pendingVirtualTradeCard_hiddenWhenTradeAlreadyOpen() {
+        val pending = PendingVirtualTradeProposal(
+            signalType = StrategySignalType.EnterLong,
+            zScore = 1.44,
+            timestampMillis = 1_700_000_000_000L,
+            entryThreshold = 1.3,
+            exitThreshold = 1.2,
+            receivedAtMillis = 1_700_000_000_000L,
+        )
+        assertTrue(shouldShowPendingVirtualTradeCard(pending, tradeOpen = false))
+        assertFalse(shouldShowPendingVirtualTradeCard(pending, tradeOpen = true))
+        assertFalse(
+            shouldShowPendingVirtualTradeCard(
+                pending,
+                tradeOpen = false,
+                savedPosition = ZStrategyPosition.Long,
+            ),
+        )
+        assertFalse(shouldShowPendingVirtualTradeCard(null, tradeOpen = false))
+        assertFalse(shouldRestorePendingVirtualFromJournal(ZStrategyPosition.Long))
+        assertFalse(shouldRestorePendingVirtualFromJournal(ZStrategyPosition.Short))
+        assertTrue(shouldRestorePendingVirtualFromJournal(ZStrategyPosition.Flat))
     }
 }

@@ -10,10 +10,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 MoexDiagnostics.log(context, "lifecycle", "boot_or_update action=${intent.action}")
-                scheduleAppUpdateChecks(context)
                 scheduleMonitorWatchdog(context)
                 if (SignalForegroundService.isBackgroundMonitorEnabled(context)) {
-                    SignalForegroundService.start(context)
                     MoexWatchdog.performMonitorWatchdogCheck(context, "boot_or_update")
                 }
             }

@@ -15,6 +15,12 @@ class MoexWatchdogTest {
     }
 
     @Test
+    fun signalWork_usesMinuteOpenAndFifteenMinutesClosed() {
+        assertEquals(60_000L, signalMonitorWorkDelayMs(sessionOpen = true))
+        assertEquals(15 * 60_000L, signalMonitorWorkDelayMs(sessionOpen = false))
+    }
+
+    @Test
     fun status_notStale_whenMonitorDisabled() {
         val status = MoexWatchdogStatus(
             monitorEnabled = false,
@@ -55,6 +61,14 @@ class MoexWatchdogTest {
     @Test
     fun formatWatchdogAgeSec_formatsMinutes() {
         assertTrue(formatWatchdogAgeSec(90).contains("1м"))
+    }
+
+    @Test
+    fun restartCooldown_suppressesOnlyRecentDuplicateRequests() {
+        val now = 100_000L
+        assertTrue(watchdogRestartRecentlyRequested(now - 1_000L, now))
+        assertFalse(watchdogRestartRecentlyRequested(now - WATCHDOG_RESTART_COOLDOWN_MS, now))
+        assertFalse(watchdogRestartRecentlyRequested(0L, now))
     }
 
     @Test

@@ -23,14 +23,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDateTime
 import java.util.Locale
 
-private const val MARKETS_PHONE_SPREAD_POLL_MS = 30_000L
+internal const val MARKETS_PHONE_SPREAD_POLL_MS = 30_000L
+internal const val MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS = 20_000L
+internal const val MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS = 8_000L
+/** После первой загрузки на выходных не дёргаем ISS каждые 30 с. */
+internal const val MARKETS_PHONE_CLOSED_IDLE_MS = 5L * 60_000L
 private const val MARKETS_PHONE_CHART_HEIGHT_DP = 280
 
 private data class MarketsPhoneChartState(
@@ -39,6 +45,7 @@ private data class MarketsPhoneChartState(
     val openEntrySpread: Double?,
     val openDepositRub: Double?,
     val openNotionalRub: Double?,
+    val takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
 )
 
 /**
@@ -88,31 +95,81 @@ internal fun MoexScreenTabMarketsPhone(
     var loading by remember { mutableStateOf(true) }
     var brokerSide by remember { mutableStateOf(BrokerAccountPrefs.lastSide(screen.context)) }
 
-    LaunchedEffect(screen.selectedTab, screen.activityResumed) {
-        if (screen.selectedTab != MainTab.Markets || !screen.activityResumed) return@LaunchedEffect
+    LaunchedEffect(screen.selectedTab) {
+        if (screen.selectedTab != MainTab.Markets) return@LaunchedEffect
+        var cachedWeek: MarketsSpreadWeekSnapshot? = null
         while (true) {
-            runCatching {
-                val snap = withContext(Dispatchers.IO) { fetchMarketsIntraday1mWeek() }
-                candles = snap.spreadCandles
-                lastSpread = snap.lastSpreadPercent
-                maybeNotifySpreadLevelAlerts(screen.context, snap.lastSpreadPercent)
-                lastBarLabel = formatIntraday1mLastBarLabel(snap.lastBarMillis)
-                    ?: snap.spreadCandles.lastOrNull()?.label
-                loadError = null
-                loading = false
-            }.onFailure { e ->
+            if (!screen.activityResumed) {
+                delay(1_000L)
+                continue
+            }
+            val haveWeek = cachedWeek != null
+            if (haveWeek && !isMoexQuotesSessionLikelyOpen()) {
+                delay(MARKETS_PHONE_CLOSED_IDLE_MS)
+                continue
+            }
+            val timeoutMs = if (haveWeek) {
+                MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS
+            } else {
+                MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS
+            }
+            try {
+                val snap = withTimeoutOrNull(timeoutMs) {
+                    withContext(Dispatchers.IO) {
+                        if (cachedWeek == null) {
+                            fetchMarketsIntraday1mWeek()
+                        } else {
+                            mergeSpreadWeekSnapshots(cachedWeek!!, fetchMarketsIntraday1mWeekTail())
+                        }
+                    }
+                }
+                if (snap == null) {
+                    loading = false
+                    if (cachedWeek == null) {
+                        loadError = "Обновление спреда: таймаут ISS"
+                    }
+                    MoexDiagnostics.log(
+                        screen.context,
+                        "markets_phone",
+                        "spread fetch timeout ${timeoutMs}ms haveWeek=$haveWeek",
+                    )
+                } else {
+                    cachedWeek = snap
+                    candles = snap.spreadCandles
+                    lastSpread = snap.lastSpreadPercent
+                    maybeNotifySpreadLevelAlerts(screen.context, snap.lastSpreadPercent)
+                    lastBarLabel = formatIntraday1mLastBarLabel(snap.lastBarMillis)
+                        ?: snap.spreadCandles.lastOrNull()?.label
+                    loadError = null
+                    loading = false
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 loadError = e.message?.take(120) ?: e.javaClass.simpleName
                 loading = false
                 MoexDiagnostics.logError(screen.context, "markets_phone", e, "week spread fetch")
             }
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    pollBrokerAccountAndNotify(screen.context)
+            if (screen.activityResumed) {
+                try {
+                    withTimeoutOrNull(8_000L) {
+                        withContext(Dispatchers.IO) {
+                            pollBrokerAccountAndNotify(screen.context)
+                        }
+                    }
+                    brokerSide = BrokerAccountPrefs.lastSide(screen.context)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
                 }
-                brokerSide = BrokerAccountPrefs.lastSide(screen.context)
             }
-            delay(MARKETS_PHONE_SPREAD_POLL_MS)
-            if (screen.selectedTab != MainTab.Markets || !screen.activityResumed) break
+            delay(
+                if (isMoexQuotesSessionLikelyOpen()) {
+                    MARKETS_PHONE_SPREAD_POLL_MS
+                } else {
+                    MARKETS_PHONE_CLOSED_IDLE_MS
+                },
+            )
         }
     }
 
@@ -184,6 +241,7 @@ internal fun MoexScreenTabMarketsPhone(
                 openDepositRub = openExec?.entryPortfolioTotalRub?.takeIf { it > 0 }
                     ?: openExec?.entryPortfolioCashRub?.takeIf { it > 0 },
                 openNotionalRub = openExec?.executionNotionalRub?.takeIf { it > 0 },
+                takeProfitPct = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(screen.context),
             )
         }
     }
@@ -206,12 +264,14 @@ internal fun MoexScreenTabMarketsPhone(
         chartState.openEntrySpread,
         chartState.openDepositRub,
         chartState.openNotionalRub,
+        chartState.takeProfitPct,
     ) {
         buildMarketsSpreadChartReferenceLines(
             openSide = chartState.openSide,
             openEntrySpread = chartState.openEntrySpread,
             depositRub = chartState.openDepositRub,
             notionalRub = chartState.openNotionalRub,
+            takeProfitPct = chartState.takeProfitPct,
         )
     }
     Column(
@@ -224,7 +284,10 @@ internal fun MoexScreenTabMarketsPhone(
     ) {
         Text(
             text = "S% (последний): $spreadText · позиция: $sideLabel" +
-                (lastBarLabel?.let { " · бар $it" } ?: ""),
+                (lastBarLabel?.let { " · бар $it" } ?: "") +
+                marketsPhoneSpreadStatusSuffix(
+                    lastBarLabel?.let { parsePortfolioExecutionTableMsk(it) } ?: 0L,
+                ),
             color = Color(0xFFE0E0E0),
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
@@ -261,7 +324,7 @@ internal fun MoexScreenTabMarketsPhone(
 
         Text(
             text = "Pinch — масштаб, drag — панорамирование, шкала справа — масштаб цены. " +
-                "Маркеры — входы/выходы сделок за неделю. График обновляется ~30 с.",
+                "Маркеры — входы/выходы сделок за неделю. График обновляется ~30 с (хвост дня, не вся неделя).",
             color = Color(0xFF757575),
             fontSize = 11.sp,
         )

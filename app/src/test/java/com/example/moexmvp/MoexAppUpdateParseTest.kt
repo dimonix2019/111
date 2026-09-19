@@ -10,6 +10,11 @@ import java.io.File
 class MoexAppUpdateParseTest {
 
     @Test
+    fun inAppUpdateCheck_doesNotPollEveryFiveMinutes() {
+        assertEquals(6 * 60 * 60 * 1000L, APP_UPDATE_CHECK_INTERVAL_MS)
+    }
+
+    @Test
     fun parseAppUpdateManifestJson_readsVersionAndUrl() {
         val json = """
             {"versionCode":104,"versionName":"1.6.92","apkUrl":"https://example.com/app.apk"}

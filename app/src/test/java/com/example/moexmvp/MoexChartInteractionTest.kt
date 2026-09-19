@@ -76,6 +76,11 @@ class MoexChartInteractionTest {
         assertTrue(html.contains("applyLockedPriceRange"))
         assertTrue(html.contains("minMove: 0.01"))
         assertTrue(html.contains("Math.exp(dy / 60)"))
+        assertTrue(html.contains("setVisibleRange"))
+        assertTrue(html.contains("setAutoScale(true)"))
+        assertTrue(html.contains("function zoomPriceRange"))
+        assertTrue(html.contains("1e-6"))
+        assertTrue(!html.contains("Math.max(0.05, ((startRange"))
     }
 
     @Test
@@ -88,5 +93,7 @@ class MoexChartInteractionTest {
         assertTrue(html.contains("userInteracting && fitted"))
         assertTrue(html.contains("bindGestureGuards"))
         assertTrue(html.contains("touch-action: none"))
+        assertTrue(html.contains("INTERACT_IDLE_MS"))
+        assertTrue(html.contains("bumpInteractIdleWatchdog"))
     }
 }

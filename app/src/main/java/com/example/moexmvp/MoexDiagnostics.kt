@@ -11,6 +11,7 @@ import android.provider.MediaStore
 import android.util.Log
 import android.content.ContentValues
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -49,7 +50,7 @@ internal object MoexDiagnostics {
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(EVENT_LOG_PREFS, Context.MODE_PRIVATE)
 
-    /** Пользовательский тумблер «О приложении» → журнал событий. */
+    /** Пользовательский тумблер «Настройки → Лог приложения». */
     fun isEventLogWritingEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_EVENT_LOG_WRITING, EVENT_LOG_WRITING_DEFAULT)
 
@@ -100,11 +101,17 @@ internal object MoexDiagnostics {
         log(context, category, head)
     }
 
-    fun log(context: Context, category: String, message: String) {
-        val clipped = if (message.length > 400) message.take(400) + "…" else message
+    fun log(
+        context: Context,
+        category: String,
+        message: String,
+        maxChars: Int = 400,
+        alwaysWriteFile: Boolean = false,
+    ) {
+        val clipped = if (message.length > maxChars) message.take(maxChars) + "…" else message
         val line = "${timestamp()} [$category] $clipped"
         Log.i(TAG, line)
-        if (!mayWriteToFile(context)) return
+        if (!alwaysWriteFile && !mayWriteToFile(context)) return
         appendLine(context.applicationContext, line)
     }
 
@@ -116,6 +123,7 @@ internal object MoexDiagnostics {
     }
 
     fun logError(context: Context, category: String, throwable: Throwable, message: String = "") {
+        if (throwable is CancellationException) return
         val head = if (message.isNotBlank()) {
             "$message — ${throwable.javaClass.simpleName}: ${throwable.message?.take(200)}"
         } else {
@@ -368,4 +376,10 @@ internal object MoexDiagnostics {
         val keep = lines.takeLast(lines.size / 2).joinToString("\n") + "\n"
         file.writeText(keep)
     }
+}
+
+/** Compose `LeftCompositionCancellationException` тоже CancellationException — не глотать. */
+internal fun Throwable.rethrowIfCancelled(): Throwable {
+    if (this is CancellationException) throw this
+    return this
 }

@@ -29,8 +29,8 @@ internal data class SpreadEntryExecutionResult(
 internal suspend fun executeSpreadEntryDetailedForConfiguredMode(
     context: Context,
     signalType: StrategySignalType,
+    mode: TinkoffExecutionMode = currentExecutionMode(context),
 ): SpreadEntryExecutionResult {
-    val mode = currentExecutionMode(context)
     val token = TinkoffSandboxStorage.getActiveToken(context, mode)
         ?: throw IOException("Нет токена (${executionModeLabelRu(mode)}).")
     val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode)
@@ -50,8 +50,8 @@ internal suspend fun executeSpreadExitDetailedForConfiguredMode(
     context: Context,
     openedWithEntrySignal: StrategySignalType,
     quantityLots: Int,
+    mode: TinkoffExecutionMode = currentExecutionMode(context),
 ): List<SandboxLegOrderResult> {
-    val mode = currentExecutionMode(context)
     val token = TinkoffSandboxStorage.getActiveToken(context, mode)
         ?: throw IOException("Нет токена (${executionModeLabelRu(mode)}).")
     val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode)

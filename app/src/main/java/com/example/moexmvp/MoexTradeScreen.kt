@@ -17,26 +17,37 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import kotlin.math.abs
 
@@ -63,11 +74,13 @@ internal data class TradeScreenSnapshot(
     val entryTimeMsk: String? = null,
     val entryTimeSource: SpreadEntryTimeSource? = null,
     val takeProfitForecast: TakeProfitForecast? = null,
+    val takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
+    val closeNowPnl: CloseNowPnl? = null,
     val execSourceLabel: String? = null,
     val quantityLots: Int = 0,
 ) {
     val isOpen: Boolean
-        get() = side == ZStrategyPosition.Long || side == ZStrategyPosition.Short
+        get() = tatnLots != 0 || tatnpLots != 0
 
     val pnlPercentFromDeposit: Double?
         get() {
@@ -84,27 +97,38 @@ internal data class TradeScreenSnapshot(
         }
 }
 
-internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnapshot {
+internal suspend fun loadTradeScreenSnapshot(
+    context: Context,
+    quick: Boolean = false,
+): TradeScreenSnapshot {
     val now = System.currentTimeMillis()
-    val mode = currentExecutionMode(context)
-    if (mode != TinkoffExecutionMode.Prod) {
-        return TradeScreenSnapshot(
-            loadedAtMillis = now,
-            error = "Вкладка «Сделка» показывает боевой счёт T‑Invest Prod. Сейчас режим: ${executionModeLabelRu(mode)}.",
-        )
-    }
+    val mode = TinkoffExecutionMode.Prod
     val token = TinkoffSandboxStorage.getActiveToken(context, mode)
     val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode)
     if (token.isNullOrBlank() || accountId.isNullOrBlank()) {
         return TradeScreenSnapshot(
             loadedAtMillis = now,
-            error = "Нет токена или счёта — настройте в «Песочница».",
+            error = "Нет токена или счёта боевого контура — настройте Prod на вкладке «Песочница».",
         )
     }
-    return runCatching {
+    return try {
+        val extraTatn = if (quick) {
+            emptySet()
+        } else {
+            runCatching {
+                setOf(tinkoffResolveShareInstrumentId(mode, token, "TATN").uppercase(Locale.US))
+            }.getOrDefault(emptySet())
+        }
+        val extraTatnp = if (quick) {
+            emptySet()
+        } else {
+            runCatching {
+                setOf(tinkoffResolveShareInstrumentId(mode, token, "TATNP").uppercase(Locale.US))
+            }.getOrDefault(emptySet())
+        }
         val portfolio = tinkoffGetPortfolio(mode, token, accountId)
-        val broker = detectBrokerSpreadPosition(portfolio)
-        val avg = parseSpreadLegAveragePrices(portfolio)
+        val broker = detectBrokerSpreadPosition(portfolio, extraTatn, extraTatnp)
+        val avg = parseSpreadLegAveragePrices(portfolio, extraTatn, extraTatnp)
         val margin = runCatching { tinkoffGetMarginAttributes(mode, token, accountId) }.getOrNull()
         val cash = parsePortfolioCashRubDouble(portfolio)
         val exec = TinkoffSandboxSpreadExecLog.loadRecent(context)
@@ -141,6 +165,7 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
         }
         val holdFromEntry = entryTimeMsk?.let { parsePortfolioExecutionTableMsk(it) }
             ?.let { now - it }?.takeIf { it >= 0 }
+        val takeProfitPct = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(context)
         val tpForecast = computeTakeProfitForecast(
             side = broker.side,
             entrySpreadPercent = entrySpread,
@@ -150,6 +175,55 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             fillTatnRub = avg.tatnAvgPriceRub,
             fillTatnpRub = avg.tatnpAvgPriceRub,
             entryTimeMsk = entryTimeMsk,
+            takeProfitPct = takeProfitPct,
+        )
+        val closeLotsAbs = maxOf(abs(broker.tatnLots), abs(broker.tatnpLots)).toDouble()
+            .coerceAtLeast(1.0)
+        val tinkoffQuotes = if (broker.tatnLots != 0 || broker.tatnpLots != 0) {
+            withTimeoutOrNull(CLOSE_NOW_BOOK_FETCH_MS) {
+                fetchTinkoffPairQuotesForClose(
+                    token = token,
+                    tatnInstrumentId = TINKOFF_MOEX_TATN_FIGI,
+                    tatnpInstrumentId = TINKOFF_MOEX_TATNP_FIGI,
+                    lotsAbs = closeLotsAbs,
+                )
+            }
+        } else {
+            null
+        }
+        val tinkoffBooksOk = tinkoffQuotes != null &&
+            shareQuoteHasCloseSide(tinkoffQuotes.tatn, broker.tatnLots) &&
+            shareQuoteHasCloseSide(tinkoffQuotes.tatnp, broker.tatnpLots)
+        val issQuotes = if (!tinkoffBooksOk) {
+            withTimeoutOrNull(1_800) { fetchIssPairQuotes(closeLotsAbs) }?.let { q ->
+                val keepTatn = shareQuoteHasAnyBook(q.tatn)
+                val keepTatnp = shareQuoteHasAnyBook(q.tatnp)
+                if (!keepTatn && !keepTatnp) {
+                    null
+                } else {
+                    PairQuotes(
+                        tatn = if (keepTatn) q.tatn else ShareQuote(),
+                        tatnp = if (keepTatnp) q.tatnp else ShareQuote(),
+                        source = q.source,
+                    )
+                }
+            }
+        } else {
+            null
+        }
+        val quotes = mergeCloseNowQuotes(tinkoffQuotes, issQuotes)
+        val closeNowPnl = computeCloseNowPnl(
+            tatnLots = broker.tatnLots,
+            tatnpLots = broker.tatnpLots,
+            fillTatnRub = avg.tatnAvgPriceRub,
+            fillTatnpRub = avg.tatnpAvgPriceRub,
+            quotes = quotes,
+            fallbackTatnLast = broker.tatnPriceRub,
+            fallbackTatnpLast = broker.tatnpPriceRub,
+            depositRub = deposit,
+            cashRub = cash,
+            entryTimeMsk = entryTimeMsk,
+            nowMillis = now,
         )
         TradeScreenSnapshot(
             loadedAtMillis = now,
@@ -172,15 +246,32 @@ internal suspend fun loadTradeScreenSnapshot(context: Context): TradeScreenSnaps
             entryTimeMsk = entryTimeMsk,
             entryTimeSource = entrySource,
             takeProfitForecast = tpForecast,
+            takeProfitPct = takeProfitPct,
+            closeNowPnl = closeNowPnl,
             execSourceLabel = exec?.let { portfolioExecSourceLabel(it.source) },
             quantityLots = lots,
         )
-    }.getOrElse { err ->
+    } catch (err: CancellationException) {
+        throw err
+    } catch (err: Exception) {
         TradeScreenSnapshot(
             loadedAtMillis = now,
             error = err.message ?: "Ошибка загрузки портфеля",
         )
     }
+}
+
+internal fun mergeCloseNowQuotes(tinkoff: PairQuotes?, iss: PairQuotes?): PairQuotes? {
+    if (tinkoff == null) return iss
+    if (iss == null) return tinkoff
+    val tn = if (shareQuoteHasAnyBook(tinkoff.tatn)) tinkoff.tatn else iss.tatn
+    val tp = if (shareQuoteHasAnyBook(tinkoff.tatnp)) tinkoff.tatnp else iss.tatnp
+    val src = when {
+        shareQuoteHasAnyBook(tinkoff.tatn) && shareQuoteHasAnyBook(tinkoff.tatnp) -> "tinkoff"
+        shareQuoteHasAnyBook(tinkoff.tatn) || shareQuoteHasAnyBook(tinkoff.tatnp) -> "tinkoff+iss"
+        else -> iss.source
+    }
+    return PairQuotes(tatn = tn, tatnp = tp, source = src)
 }
 
 private fun openExecMatchesBrokerSide(exec: SandboxSpreadExecUi, side: ZStrategyPosition): Boolean =
@@ -212,14 +303,44 @@ internal fun computeSpreadNotionalRub(
     return abs(tatnLots) * a + abs(tatnpLots) * b
 }
 
-internal suspend fun MoexScreenState.refreshTradeScreenFromBroker() {
-    tradeScreenLoading = true
-    val snap = withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context) }
-    tradeScreenSnapshot = snap
-    val (trades, source) = withContext(Dispatchers.IO) { loadTradeTabClosedTrades(context) }
-    tradeTabClosedTrades = trades
-    tradeTabTradesSource = source
-    tradeScreenLoading = false
+internal suspend fun MoexScreenState.refreshTradeScreenFromBroker(
+    includeClosedTrades: Boolean = true,
+    showLoading: Boolean = true,
+) {
+    if (tradeScreenRefreshInFlight) {
+        tradeScreenRefreshQueued = true
+        return
+    }
+    do {
+        tradeScreenRefreshInFlight = true
+        tradeScreenRefreshQueued = false
+        if (showLoading) tradeScreenLoading = true
+        try {
+            val quick = !includeClosedTrades && !showLoading
+            val snap = withTimeoutOrNull(TRADE_SCREEN_LOAD_TIMEOUT_MS) {
+                withContext(Dispatchers.IO) { loadTradeScreenSnapshot(context, quick = quick) }
+            }
+            if (snap != null) {
+                if (includeClosedTrades) {
+                    val (trades, source) = withContext(Dispatchers.IO) { loadTradeTabClosedTrades(context) }
+                    tradeTabClosedTrades = if (snap.isOpen) trades else trades.filter { !it.isOpen }
+                    tradeTabTradesSource = source
+                }
+                tradeScreenSnapshot = if (snap.error.isNullOrBlank()) {
+                    snap
+                } else {
+                    overlaySnapshotFromOpenOperations(snap)
+                }
+                if (snap.isOpen && pendingVirtualTrade != null) {
+                    pendingVirtualTrade = null
+                    withContext(Dispatchers.IO) { clearPendingVirtualTradeProposal(context) }
+                }
+            }
+        } finally {
+            tradeScreenLoading = false
+            tradeScreenRefreshInFlight = false
+        }
+    } while (tradeScreenRefreshQueued)
 }
 
 @Composable
@@ -233,11 +354,11 @@ internal fun MoexScreenTabTrade(
 
     LaunchedEffect(screen.selectedTab, screen.activityResumed) {
         if (screen.selectedTab != MainTab.Trade || !screen.activityResumed) return@LaunchedEffect
-        screen.refreshTradeScreenFromBroker()
+        screen.refreshTradeScreenFromBroker(includeClosedTrades = true, showLoading = true)
         while (screen.activityResumed && screen.selectedTab == MainTab.Trade) {
-            delay(BROKER_ACCOUNT_POLL_MS)
+            delay(TRADE_SCREEN_POLL_MS)
             if (!screen.activityResumed || screen.selectedTab != MainTab.Trade) break
-            screen.refreshTradeScreenFromBroker()
+            screen.refreshTradeScreenFromBroker(includeClosedTrades = false, showLoading = false)
         }
     }
 
@@ -247,6 +368,16 @@ internal fun MoexScreenTabTrade(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        snap?.closeNowPnl?.let { TradeCloseNowHero(it) }
+        if (snap?.isOpen == true && snap.closeNowPnl == null && !loading) {
+            Text(
+                text = "PnL при закрытии недоступен — нет средней входа или котировок.",
+                color = Color(0xFFFFCC80),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -268,15 +399,16 @@ internal fun MoexScreenTabTrade(
         }
 
         Button(
-            onClick = { screen.showCloseAllPortfolioDialog = true },
+            onClick = { screen.showEmergencyFlattenDialog = true },
             modifier = Modifier.fillMaxWidth(),
+            enabled = !screen.emergencyFlattenBusy,
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFFC62828),
                 contentColor = Color.White,
             ),
         ) {
             Text(
-                "Экстренное закрытие пары",
+                if (screen.emergencyFlattenBusy) "Закрытие…" else "Экстренное закрытие пары",
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
             )
@@ -311,7 +443,12 @@ internal fun MoexScreenTabTrade(
                     TradeMetricRow("Деньги (₽)", formatRubPlain(it))
                 }
             }
-            TradeManualOpenButtons(screen, scope, enabled = !loading)
+            TradeManualOpenButtons(
+                screen,
+                scope,
+                enabled = !screen.tradeManualEntryBusy && !screen.emergencyFlattenBusy,
+                depositRub = takeProfitDepositRub(snap.portfolioTotalRub, snap.cashRub, snap.depositRub),
+            )
             snap.margin?.let { TradeMarginCard(it) }
             TradeClosedTradesCard(screen.tradeTabClosedTrades, screen.tradeTabTradesSource)
             TradeFooterNote(snap.loadedAtMillis, loading)
@@ -319,8 +456,12 @@ internal fun MoexScreenTabTrade(
         }
 
         val sourceSuffix = snap.execSourceLabel?.let { " · $it" }.orEmpty()
+        val sideLabel = when {
+            snap.side == ZStrategyPosition.Long || snap.side == ZStrategyPosition.Short -> snap.sideTitleRu
+            else -> "Ноги"
+        }
         TradeInfoCard(
-            title = "${snap.sideTitleRu} ${snap.quantityLots}+${snap.quantityLots} лот$sourceSuffix",
+            title = tradeOpenLegsTitle(sideLabel, snap.tatnLots, snap.tatnpLots) + sourceSuffix,
             accent = if (snap.side == ZStrategyPosition.Long) Color(0xFF26A69A) else Color(0xFFEF5350),
         ) {
             snap.entryTimeMsk?.let { TradeMetricRow("Вход", it) }
@@ -340,6 +481,15 @@ internal fun MoexScreenTabTrade(
             }
             snap.notionalRub?.let { TradeMetricRow("Номинал", formatRubPlain(it)) }
             snap.depositRub?.let { TradeMetricRow("Вложения (оценка)", formatRubPlain(it)) }
+            run {
+                val dep = snap.depositRub ?: snap.portfolioTotalRub ?: 0.0
+                val tpRub = takeProfitRubFromPercent(snap.takeProfitPct, dep)
+                val rubPart = if (dep > 0) " ≈ ${formatRubPlain(tpRub)}" else ""
+                TradeMetricRow(
+                    "Take profit",
+                    "${formatTakeProfitPctInput(snap.takeProfitPct)}%$rubPart",
+                )
+            }
             snap.portfolioTotalRub?.let { TradeMetricRow("Средства (портфель)", formatRubPlain(it)) }
             snap.cashRub?.let { TradeMetricRow("Деньги (₽)", formatRubPlain(it)) }
             snap.expectedYieldRub?.let { pnl ->
@@ -384,10 +534,15 @@ internal fun MoexScreenTabTrade(
 
         TradeInfoCard(title = "Источник данных") {
             Text(
-                "Позиции, PnL и цены — GetPortfolio T‑Invest. Маржа — GetMarginAttributes. " +
-                    "Время входа — журнал исполнений, лог ног, prefs или GetOperations. " +
-                    "Прогноз ТП — локально (parity web close_forecast, ТП ${DEFAULT_TAKE_PROFIT_PCT.toInt()}%). " +
-                    "Овернайт-строка, риск и AUTO — только на web-столе.",
+                "Крупный PnL сверху — если закрыть сейчас: стакан T‑Invest дилер " +
+                    "(ORDERBOOK_TYPE_DEALER, VWAP на ваши лоты; выходные без биржевого стакана), " +
+                    "сдвиг на текущий last портфеля если стакан застыл, " +
+                    "иначе стакан ISS, иначе рыночный слип ${formatCloseNowSlipPct()} от last. " +
+                    "Комиссия Премиум 0,04% номинала на вход и на выход, перенос короткой ноги (ступени Премиум) " +
+                    "и плата 0,033%/день за отрицательный кэш. " +
+                    "«На счёте останется» = кэш + продажа/откуп ног − комиссия выхода. " +
+                    "Позиции и цены портфеля — GetPortfolio. Маржа — GetMarginAttributes. " +
+                    "Прогноз ТП — локально (parity web close_forecast, ТП ${formatTakeProfitPctInput(snap.takeProfitPct)}%).",
                 color = Color(0xFF9E9E9E),
                 fontSize = 10.sp,
                 lineHeight = 14.sp,
@@ -399,10 +554,82 @@ internal fun MoexScreenTabTrade(
 }
 
 @Composable
+private fun TradeCloseNowHero(pnl: CloseNowPnl) {
+    val color = closeNowPnlAccent(pnl.netRub)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF0D1B12), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = formatCloseNowHeroRub(pnl.netRub),
+            color = color,
+            fontSize = 46.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            lineHeight = 48.sp,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = buildString {
+                append("если закрыть сейчас")
+                pnl.pctFromDeposit?.let { append(" · ${formatPercentSigned(it)} от вложения") }
+            },
+            color = Color(0xFFCFD8DC),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp),
+        )
+        Text(
+            text = formatCloseNowBreakdown(pnl),
+            color = Color(0xFF90A4AE),
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+            lineHeight = 14.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+        )
+        Text(
+            text = pnl.note,
+            color = Color(0xFF78909C),
+            fontSize = 10.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp),
+        )
+        pnl.cashAfterCloseRub?.let { cashAfter ->
+            Text(
+                text = "на счёте останется ≈ ${formatCloseNowCashAfterRub(cashAfter)}",
+                color = Color(0xFFB0BEC5),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+internal fun closeNowPnlAccent(netRub: Double): Color = when {
+    netRub > 0 -> Color(0xFF69F0AE)
+    netRub < 0 -> Color(0xFFFF8A80)
+    else -> Color(0xFFECEFF1)
+}
+
+@Composable
 private fun TradeFooterNote(loadedAtMillis: Long, loading: Boolean) {
     val label = formatPortfolioExecutionTableMsk(loadedAtMillis)
     Text(
-        text = if (loading) "Обновление… · было $label" else "Обновлено $label · опрос раз в мин",
+        text = if (loading) "Обновление… · было $label" else "Обновлено $label · опрос раз в 5 с",
         color = Color(0xFF616161),
         fontSize = 9.sp,
         modifier = Modifier.padding(top = 4.dp),
@@ -441,6 +668,24 @@ private fun TradeMarginCard(margin: MarginAttributesSnapshot) {
                 modifier = Modifier.align(Alignment.Center),
             )
         }
+        Text(
+            text = "ликвид ${formatRubPlain(headroom.liquidRub)} · мин.маржа ${formatRubPlain(headroom.minimalMarginRub)}" +
+                if (headroom.startingMarginRub > 0) {
+                    " · нач. ${formatRubPlain(headroom.startingMarginRub)}"
+                } else {
+                    ""
+                },
+            color = Color(0xFF90A4AE),
+            fontSize = 10.sp,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Text(
+            text = "Как в Т‑Инвест: маржин-колл, когда ликвид < минимальной маржи (не скорректированной).",
+            color = Color(0xFF616161),
+            fontSize = 9.sp,
+            lineHeight = 12.sp,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
@@ -490,6 +735,16 @@ private fun TradeMetricRow(
     }
 }
 
+internal fun tradeOpenLegsTitle(sideLabel: String, tatnLots: Int, tatnpLots: Int): String {
+    val a = kotlin.math.abs(tatnLots)
+    val b = kotlin.math.abs(tatnpLots)
+    return if (a > 0 && b > 0 && a == b) {
+        "$sideLabel $a+$b лот"
+    } else {
+        "$sideLabel TATN $tatnLots / TATNP $tatnpLots"
+    }
+}
+
 private fun formatRubPlain(v: Double): String =
     String.format(Locale.US, "%,.0f ₽", v)
 
@@ -520,6 +775,7 @@ private fun TradeManualOpenButtons(
     screen: MoexScreenState,
     scope: CoroutineScope,
     enabled: Boolean,
+    depositRub: Double,
 ) {
     val busy = screen.tradeManualEntryBusy
     Row(
@@ -560,21 +816,76 @@ private fun TradeManualOpenButtons(
 
     screen.tradeManualEntryConfirm?.let { signal ->
         val dir = if (signal == StrategySignalType.EnterShort) "Short" else "Long"
+        val initialPct = remember(signal) {
+            BrokerAccountPrefs.lastTakeProfitPct(screen.context)
+        }
+        var pctText by remember(signal, initialPct) {
+            mutableStateOf(formatTakeProfitPctInput(initialPct))
+        }
+        var rubText by remember(signal, initialPct, depositRub) {
+            mutableStateOf(
+                formatTakeProfitRubInput(takeProfitRubFromPercent(initialPct, depositRub)),
+            )
+        }
+        val resolvedPct = resolveTakeProfitPctFromInputs(pctText, rubText, depositRub)
         AlertDialog(
             onDismissRequest = { if (!busy) screen.tradeManualEntryConfirm = null },
             title = { Text("Открыть $dir?", color = Color.White) },
             text = {
-                Text(
-                    "Боевой счёт T‑Invest: две рыночные заявки (пара TATN/TATNP), " +
-                        "лоты — по расчёту как у AUTO. Web-стол подхватит сделку сверкой.",
-                    color = Color(0xFFE0E0E0),
-                    fontSize = 13.sp,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Боевой счёт T‑Invest: две рыночные заявки (пара TATN/TATNP), " +
+                            "лоты — по расчёту как у AUTO. Web-стол подхватит сделку сверкой.",
+                        color = Color(0xFFE0E0E0),
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        "Take profit" +
+                            if (depositRub > 0) {
+                                " · вложение ${formatRubPlain(depositRub)}"
+                            } else {
+                                ""
+                            },
+                        color = Color(0xFFB3E5FC),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    TakeProfitInputFields(
+                        pctText = pctText,
+                        rubText = rubText,
+                        depositRub = depositRub,
+                        enabled = !busy,
+                        onPctText = { next ->
+                            pctText = next
+                            val pct = parseTakeProfitNumber(next)
+                            if (pct != null && pct > 0.0 && depositRub > 0.0) {
+                                rubText = formatTakeProfitRubInput(
+                                    takeProfitRubFromPercent(pct, depositRub),
+                                )
+                            }
+                        },
+                        onRubText = { next ->
+                            rubText = next
+                            val rub = parseTakeProfitNumber(next)
+                            if (rub != null && rub > 0.0 && depositRub > 0.0) {
+                                pctText = formatTakeProfitPctInput(
+                                    takeProfitPercentFromRub(rub, depositRub),
+                                )
+                            }
+                        },
+                    )
+                    Text(
+                        "По умолчанию 2% от вложения. Поля связаны: % ↔ ₽.",
+                        color = Color(0xFF90A4AE),
+                        fontSize = 11.sp,
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
-                    enabled = !busy,
+                    enabled = !busy && resolvedPct != null,
                     onClick = {
+                        val tp = resolvedPct ?: DEFAULT_TAKE_PROFIT_PCT
                         screen.tradeManualEntryBusy = true
                         scope.launch {
                             try {
@@ -582,6 +893,7 @@ private fun TradeManualOpenButtons(
                                     runManualSpreadEntryFromTradeTab(
                                         screen.context.applicationContext,
                                         signal,
+                                        takeProfitPct = tp,
                                     ).getOrThrow()
                                 }
                                 Toast.makeText(screen.context, msg, Toast.LENGTH_LONG).show()
@@ -616,6 +928,73 @@ private fun TradeManualOpenButtons(
 }
 
 @Composable
+internal fun TakeProfitInputFields(
+    pctText: String,
+    rubText: String,
+    depositRub: Double,
+    enabled: Boolean,
+    onPctText: (String) -> Unit,
+    onRubText: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        TakeProfitOutlinedField(
+            value = pctText,
+            onValueChange = { onPctText(filterTakeProfitInput(it)) },
+            suffix = "%",
+            enabled = enabled,
+            modifier = Modifier.weight(1f),
+            label = "Процент",
+        )
+        TakeProfitOutlinedField(
+            value = rubText,
+            onValueChange = { onRubText(filterTakeProfitInput(it, maxLen = 10)) },
+            suffix = "₽",
+            enabled = enabled && depositRub > 0.0,
+            modifier = Modifier.weight(1f),
+            label = "Рубли",
+        )
+    }
+}
+
+@Composable
+private fun TakeProfitOutlinedField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    suffix: String,
+    enabled: Boolean,
+    modifier: Modifier,
+    label: String,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        enabled = enabled,
+        singleLine = true,
+        label = { Text(label, color = Color(0xFF90A4AE), fontSize = 11.sp) },
+        suffix = { Text(suffix, color = Color(0xFFBDBDBD), fontSize = 12.sp) },
+        textStyle = androidx.compose.ui.text.TextStyle(
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+        ),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Color(0xFF81D4FA),
+            unfocusedBorderColor = Color(0xFF546E7A),
+            disabledBorderColor = Color(0xFF37474F),
+            cursorColor = Color(0xFF81D4FA),
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            disabledTextColor = Color(0xFF757575),
+        ),
+    )
+}
+
+@Composable
 private fun TradeClosedTradesCard(
     rows: List<TradeTabClosedTrade>,
     source: String?,
@@ -623,7 +1002,7 @@ private fun TradeClosedTradesCard(
     TradeInfoCard(title = "Сделки · 2 недели") {
         if (rows.isEmpty()) {
             Text(
-                "Нет закрытых сделок за период" + (source?.let { " ($it)" }.orEmpty()),
+                "Нет сделок за период" + (source?.let { " ($it)" }.orEmpty()),
                 color = Color(0xFF757575),
                 fontSize = 11.sp,
             )
@@ -653,7 +1032,11 @@ private fun TradeClosedTradesCard(
                 }
                 Column(modifier = Modifier.weight(1.9f)) {
                     Text(row.entryTimeMsk.ifBlank { "—" }, color = Color(0xFFB0BEC5), fontSize = 9.sp)
-                    Text(row.exitTimeMsk.ifBlank { "—" }, color = Color(0xFFB0BEC5), fontSize = 9.sp)
+                    Text(
+                        if (row.isOpen) "открыта" else row.exitTimeMsk.ifBlank { "—" },
+                        color = if (row.isOpen) Color(0xFFFFD54F) else Color(0xFFB0BEC5),
+                        fontSize = 9.sp,
+                    )
                 }
                 Text(
                     formatSpreadPair(row.entrySpreadPercent, row.exitSpreadPercent),

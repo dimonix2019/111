@@ -213,25 +213,31 @@ private fun JSONObject.firstNonBlankString(vararg keys: String): String? {
 }
 
 internal fun resolveOperationTicker(op: JSONObject): String? {
-    op.firstNonBlankString("ticker", "Ticker")?.uppercase(Locale.US)?.let { return it }
+    resolveTatnTatnpTicker(op)?.let { return it }
+    op.firstNonBlankString("ticker", "Ticker")?.uppercase(Locale.US)?.let { t ->
+        if (t == "TATNP" || t == "TATN") return t
+    }
     val figi = op.firstNonBlankString("figi", "FIGI")?.uppercase(Locale.US).orEmpty()
     val uid = op.firstNonBlankString(
         "instrumentUid",
         "instrument_uid",
-        "instrumentUid",
+        "instrument_id",
+        "instrumentId",
         "uid",
     )?.uppercase(Locale.US).orEmpty()
     val type = op.firstNonBlankString("operationType", "type", "operation_type").orEmpty()
-    val desc = op.firstNonBlankString("description", "name").orEmpty().uppercase(Locale.US)
+    val desc = op.firstNonBlankString("description", "name", "instrumentName").orEmpty()
+        .uppercase(Locale.US)
+    val blob = "$figi $uid $type $desc"
     return when {
-        "TATNP" in figi || "TATNP" in uid || "TATNP_TQBR" in uid -> "TATNP"
-        "TATN" in figi || "TATN" in uid || "TATN_TQBR" in uid -> "TATN"
-        type.contains("TATNP") || desc.contains("TATNP") -> "TATNP"
-        type.contains("TATN") || desc.contains("TATN") -> "TATN"
-        desc.contains("ПРИВИЛЕГИР") -> "TATNP"
-        desc.contains("ТАТНЕФТЬ") || desc.contains("TATNEFT") -> {
-            if (desc.contains("ПРИВИЛЕГИР")) "TATNP" else "TATN"
-        }
+        figi == TINKOFF_MOEX_TATNP_FIGI || uid == TINKOFF_MOEX_TATNP_FIGI -> "TATNP"
+        figi == TINKOFF_MOEX_TATN_FIGI || uid == TINKOFF_MOEX_TATN_FIGI -> "TATN"
+        "TATNP" in blob || "TATNP_TQBR" in blob -> "TATNP"
+        "TATN_TQBR" in blob || Regex("""(?<![A-Z])TATN(?![A-Z])""").containsMatchIn(blob) -> "TATN"
+        desc.contains("ПРИВИЛЕГИР") || desc.contains("ПРЕФ") ||
+            desc.contains("TATNEFT-P") || desc.contains("ТАТНЕФТЬ-П") ||
+            desc.contains("ТАТНЕФТЬ П") -> "TATNP"
+        desc.contains("ТАТНЕФТЬ") || desc.contains("TATNEFT") -> "TATN"
         else -> null
     }
 }

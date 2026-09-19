@@ -217,11 +217,12 @@ internal enum class MainTab(val label: String) {
     Journal("Журнал"),
     Sandbox("Песочница"),
     WebDesk("Стол web"),
+    Settings("Настройки"),
     About("О приложении");
 
     companion object {
-        /** Вкладки телефона: рынок, сделка, песочница, стол web (крайняя справа), о приложении. */
-        val navTabs: List<MainTab> = listOf(Markets, Trade, Sandbox, WebDesk, About)
+        /** Вкладки телефона: рынок, сделка, песочница, стол web, настройки, о приложении. */
+        val navTabs: List<MainTab> = listOf(Markets, Trade, Sandbox, WebDesk, Settings, About)
     }
 }
 

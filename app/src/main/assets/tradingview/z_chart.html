@@ -92,6 +92,8 @@
     let userInteracting = false;
     let followLive = true;
     let interactEndTimer = 0;
+    let interactIdleTimer = 0;
+    const INTERACT_IDLE_MS = 2500;
     let savedLogicalRange = null;
     let lastAppliedRightOffset = null;
     let lastChartSize = { w: 0, h: 0 };
@@ -382,6 +384,14 @@
       return range.to >= lastIndex - FOLLOW_LIVE_TOLERANCE_BARS;
     }
 
+    function bumpInteractIdleWatchdog() {
+      if (interactIdleTimer) clearTimeout(interactIdleTimer);
+      interactIdleTimer = setTimeout(() => {
+        interactIdleTimer = 0;
+        if (userInteracting) onInteractEnd();
+      }, INTERACT_IDLE_MS);
+    }
+
     function setUserInteracting(on) {
       userInteracting = on;
       if (on) {
@@ -390,12 +400,20 @@
           clearTimeout(interactEndTimer);
           interactEndTimer = 0;
         }
+        bumpInteractIdleWatchdog();
         captureLogicalRange();
+      } else if (interactIdleTimer) {
+        clearTimeout(interactIdleTimer);
+        interactIdleTimer = 0;
       }
     }
 
     function onInteractEnd() {
       interactEndTimer = 0;
+      if (interactIdleTimer) {
+        clearTimeout(interactIdleTimer);
+        interactIdleTimer = 0;
+      }
       userInteracting = false;
       if (chart) {
         try {
@@ -413,7 +431,10 @@
     function bindGestureGuards(el) {
       if (!el || gestureBound) return;
       gestureBound = true;
-      const start = () => setUserInteracting(true);
+      const start = () => {
+        setUserInteracting(true);
+        bumpInteractIdleWatchdog();
+      };
       const end = () => {
         if (interactEndTimer) clearTimeout(interactEndTimer);
         interactEndTimer = setTimeout(onInteractEnd, 180);
@@ -448,8 +469,8 @@
     function applyPriceAxisMargins(top, bottom) {
       if (!chart) return;
       priceAxisMargins = {
-        top: Math.min(0.85, Math.max(0.02, top)),
-        bottom: Math.min(0.85, Math.max(0.02, bottom)),
+        top: Math.min(0.85, Math.max(0, top)),
+        bottom: Math.min(0.85, Math.max(0, bottom)),
       };
       window.__priceAxisMargins = priceAxisMargins; // тестовый хук
       try {
@@ -458,6 +479,15 @@
         });
       } catch (e) {}
     }
+
+    /** Зум правой шкалы: без пола 0.05 (он упирался в пороги 3.20–6.10). */
+    function zoomPriceRange(startRange, factor, minHalf) {
+      const floor = (typeof minHalf === 'number' && minHalf > 0) ? minHalf : 1e-6;
+      const mid = (startRange.minValue + startRange.maxValue) / 2;
+      const half = Math.max(floor, ((startRange.maxValue - startRange.minValue) * factor) / 2);
+      return { minValue: mid - half, maxValue: mid + half };
+    }
+    window.__zoomPriceRange = zoomPriceRange;
 
     function plotHeightPx(container) {
       if (!chart) return 0;
@@ -470,6 +500,14 @@
     }
 
     function readVisiblePriceRange(container) {
+      if (chart) {
+        try {
+          const vr = chart.priceScale('right').getVisibleRange();
+          if (vr && vr.from != null && vr.to != null && vr.to > vr.from) {
+            return { minValue: vr.from, maxValue: vr.to };
+          }
+        } catch (e) {}
+      }
       if (!series) return null;
       const h = plotHeightPx(container);
       const p0 = series.coordinateToPrice(1);
@@ -482,9 +520,19 @@
     }
 
     function applyLockedPriceRange(range) {
-      if (!series) return;
       priceAxisLockedRange = range;
       window.__priceAxisLockedRange = range;
+      if (!chart) return;
+      try {
+        const scale = chart.priceScale('right');
+        if (range && range.maxValue > range.minValue) {
+          // setVisibleRange выключает autoScale — зоны/пороги больше не держат шкалу.
+          scale.setVisibleRange({ from: range.minValue, to: range.maxValue });
+        } else {
+          scale.setAutoScale(true);
+        }
+      } catch (e) {}
+      if (!series) return;
       try {
         series.applyOptions({
           autoscaleInfoProvider: range
@@ -521,17 +569,17 @@
           ? { minValue: priceAxisLockedRange.minValue, maxValue: priceAxisLockedRange.maxValue }
           : readVisiblePriceRange(container);
         setUserInteracting(true);
+        bumpInteractIdleWatchdog();
       };
       const move = (y) => {
         if (!startMargins) return;
+        bumpInteractIdleWatchdog();
         const dy = y - dragY;
         if (Math.abs(dy) > 4) moved = true;
         const factor = Math.exp(dy / 60); // вниз = растянуть (zoom out), вверх = сжать (zoom in), ×3 чувствительность
         if (startRange && startRange.maxValue > startRange.minValue) {
-          const mid = (startRange.minValue + startRange.maxValue) / 2;
-          const half = Math.max(0.05, ((startRange.maxValue - startRange.minValue) * factor) / 2);
-          applyLockedPriceRange({ minValue: mid - half, maxValue: mid + half });
-          applyPriceAxisMargins(0.02, 0.02);
+          applyLockedPriceRange(zoomPriceRange(startRange, factor));
+          applyPriceAxisMargins(0, 0);
         } else {
           applyPriceAxisMargins(startMargins.top * factor, startMargins.bottom * factor);
         }
@@ -943,6 +991,7 @@
           priceLineStyle: LightweightCharts.LineStyle.Dashed,
         });
       }
+      if (priceAxisLockedRange) applyLockedPriceRange(priceAxisLockedRange);
       if (markersPlugin) {
         try { markersPlugin.detach(); } catch (e) {}
         markersPlugin = null;

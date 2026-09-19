@@ -1,8 +1,11 @@
 package com.example.moexmvp
 
+import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalTime
@@ -189,6 +192,93 @@ class MoexMarketsIntraday1mTest {
         val yMax = candles.maxOf { it.high }
         assertTrue("ось не должна раздуваться битым баром: $yMin..$yMax", yMax < 5.0)
         assertTrue("ось не должна раздуваться битым баром: $yMin..$yMax", yMin > 2.0)
+    }
+
+    @Test
+    fun mergeSpreadWeekSnapshots_overwritesTailAndKeepsOlderDays() {
+        val mon = CandlePoint("2026-09-07 10:00", 3.4, 3.4, 3.4, 3.4)
+        val tueOld = CandlePoint("2026-09-08 12:00", 3.5, 3.5, 3.5, 3.5)
+        val tueNew = CandlePoint("2026-09-08 12:00", 3.6, 3.6, 3.6, 3.6)
+        val wed = CandlePoint("2026-09-09 11:00", 3.7, 3.7, 3.7, 3.7)
+        val cached = MarketsSpreadWeekSnapshot(
+            spreadCandles = listOf(mon, tueOld),
+            lastBarMillis = 100L,
+            lastSpreadPercent = 3.5,
+            fetchedAtMillis = 1L,
+        )
+        val tail = MarketsSpreadWeekSnapshot(
+            spreadCandles = listOf(tueNew, wed),
+            lastBarMillis = 200L,
+            lastSpreadPercent = 3.7,
+            fetchedAtMillis = 2L,
+        )
+        val merged = mergeSpreadWeekSnapshots(cached, tail)
+        assertEquals(listOf(mon.label, tueNew.label, wed.label), merged.spreadCandles.map { it.label })
+        assertEquals(3.6, merged.spreadCandles[1].close, 1e-9)
+        assertEquals(3.7, merged.lastSpreadPercent!!, 1e-9)
+        assertEquals(parsePortfolioExecutionTableMsk(wed.label), merged.lastBarMillis)
+        assertEquals(2L, merged.fetchedAtMillis)
+    }
+
+    @Test
+    fun appendFormingIntraday1mFrom10m_skipsStaleFridayBarOnSunday() {
+        val sunday = ZonedDateTime.of(LocalDate.of(2026, 9, 13), LocalTime.of(22, 17), zone)
+        val fridayLast1m = LocalDate.of(2026, 9, 11).atTime(23, 49)
+        val fridayLast10m = LocalDate.of(2026, 9, 11).atTime(23, 40)
+        val bars1m = listOf(CandleBar(fridayLast1m, 618.0, 618.2, 617.8, 618.1))
+        val bars10m = listOf(CandleBar(fridayLast10m, 617.5, 618.5, 617.0, 618.1))
+        val out = appendFormingIntraday1mFrom10m(bars1m, bars10m, sunday)
+        assertEquals(1, out.size)
+        assertEquals(fridayLast1m, out.single().timestamp)
+    }
+
+    @Test
+    fun appendFormingIntraday1mFrom10m_skipsWhenQuotesSessionClosed() {
+        val saturday = ZonedDateTime.of(LocalDate.of(2026, 9, 12), LocalTime.of(12, 0), zone)
+        val minute = saturday.withSecond(0).withNano(0).toLocalDateTime()
+        val bars1m = listOf(CandleBar(minute.minusMinutes(1), 100.0, 101.0, 99.0, 100.5))
+        val bars10m = listOf(CandleBar(minute, 100.5, 102.0, 100.0, 101.2))
+        val out = appendFormingIntraday1mFrom10m(bars1m, bars10m, saturday)
+        assertEquals(bars1m, out)
+    }
+
+    @Test
+    fun marketsPhoneSpreadStatusSuffix_sundayShowsClosedNotLiveClock() {
+        val sunday = ZonedDateTime.of(LocalDate.of(2026, 9, 13), LocalTime.of(22, 18), zone)
+        val fridayBar = ZonedDateTime.of(LocalDate.of(2026, 9, 11), LocalTime.of(23, 49), zone)
+            .toInstant().toEpochMilli()
+        assertEquals(" · биржа закрыта", marketsPhoneSpreadStatusSuffix(fridayBar, sunday))
+    }
+
+    @Test
+    fun lastSpreadCandleMillis_usesLastCandleLabelNotNow() {
+        val last = CandlePoint("2026-09-11 23:49", 4.09, 4.09, 4.09, 4.09)
+        assertEquals(parsePortfolioExecutionTableMsk(last.label), lastSpreadCandleMillis(listOf(last)))
+    }
+
+    @Test
+    fun marketsPhoneSpreadTimeouts_tailFasterThanFullWeek() {
+        assertTrue(MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS < MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS)
+        assertTrue(MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS <= 8_000L)
+        assertTrue(MARKETS_PHONE_CLOSED_IDLE_MS > MARKETS_PHONE_SPREAD_POLL_MS)
+    }
+
+    @Test
+    fun rethrowIfCancelled_rethrowsCancellationAndPassesOther() {
+        val cancel = CancellationException("The coroutine scope left the composition")
+        try {
+            cancel.rethrowIfCancelled()
+            fail("expected CancellationException")
+        } catch (e: CancellationException) {
+            assertSame(cancel, e)
+        }
+        val other = IllegalStateException("iss")
+        assertSame(other, other.rethrowIfCancelled())
+    }
+
+    @Test
+    fun issHttpClient_hasCallTimeoutSoIssCannotHangForever() {
+        assertEquals(15_000, issHttpClient.callTimeoutMillis)
     }
 
     @Test

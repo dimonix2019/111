@@ -19,7 +19,7 @@ import kotlin.math.roundToInt
 
 internal const val APP_UPDATE_MIN_APK_BYTES = 5_000_000L
 
-internal const val APP_UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000L
+internal const val APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
 internal const val APP_UPDATE_GITHUB_RELEASE_TAG = "moexmvp-debug-latest"
 internal const val APP_UPDATE_MANIFEST_URL =
     "https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/app-update.json"

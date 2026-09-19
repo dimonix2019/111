@@ -101,7 +101,7 @@ internal fun MoexScreenTabWebDesk(
                 Text("Обновить", color = Color(0xFF90CAF9), fontSize = 12.sp)
             }
             TextButton(
-                onClick = { screen.showCloseAllPortfolioDialog = true },
+                onClick = { screen.showEmergencyFlattenDialog = true },
             ) {
                 Text("Закрыть пару", color = Color(0xFFFFAB91), fontSize = 12.sp)
             }

@@ -1,6 +1,7 @@
 package com.example.moexmvp
 
 import android.widget.Toast
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withLock
@@ -70,6 +71,10 @@ internal suspend fun MoexScreenState.refreshMarketsIntraday1mQuotes(
 ) {
     if (!activityResumed) return
     if (MoexMemoryPressure.shouldPauseMarkets1mQuotesRefresh(memoryPressureLevel)) return
+    if (!isMoexQuotesSessionLikelyOpen()) {
+        MoexDiagnostics.log(context, "quotes", "skip 1m fetch session_closed reason=$reason")
+        return
+    }
     if (!isMoexNetworkAvailable(context)) {
         MoexDiagnostics.log(context, "quotes", "skip 1m fetch offline reason=$reason")
         return
@@ -91,6 +96,8 @@ internal suspend fun MoexScreenState.refreshMarketsIntraday1mQuotes(
         if (scope != null) {
             scheduleMarketsM15MoexCatchup(scope, reason = "1m_$reason")
         }
+    } catch (t: CancellationException) {
+        throw t
     } catch (t: Throwable) {
         MoexDiagnostics.logError(context, "quotes", t, "fetch failed reason=$reason")
     }

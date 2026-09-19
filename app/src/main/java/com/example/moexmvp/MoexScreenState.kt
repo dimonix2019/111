@@ -109,6 +109,9 @@ internal class MoexScreenState(val context: Context) {
     var portfolioTestBusy by mutableStateOf(false)
     var showCloseAllPortfolioDialog by mutableStateOf(false)
     var closeAllPortfolioBusy by mutableStateOf(false)
+    /** Экстренное закрытие TATN/TATNP по лотам брокера (вкладка «Сделка» / «Стол web»). */
+    var showEmergencyFlattenDialog by mutableStateOf(false)
+    var emergencyFlattenBusy by mutableStateOf(false)
     var partialCloseAlert by mutableStateOf<PartialCloseSummary?>(null)
     var partialCloseAlertTradeId by mutableStateOf<String?>(null)
     var bgMonitorToggleEpoch by mutableStateOf(0)
@@ -144,6 +147,10 @@ internal class MoexScreenState(val context: Context) {
     /** Снимок открытой сделки TATN/TATNP (вкладка «Сделка»). */
     var tradeScreenSnapshot by mutableStateOf<TradeScreenSnapshot?>(null)
     var tradeScreenLoading by mutableStateOf(false)
+    @Volatile
+    internal var tradeScreenRefreshInFlight: Boolean = false
+    @Volatile
+    internal var tradeScreenRefreshQueued: Boolean = false
     /** Таблица закрытых сделок (2 недели) на вкладке «Сделка» + источник данных. */
     var tradeTabClosedTrades by mutableStateOf<List<TradeTabClosedTrade>>(emptyList())
     var tradeTabTradesSource by mutableStateOf<String?>(null)

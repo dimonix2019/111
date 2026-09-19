@@ -8,14 +8,22 @@ import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 /** Если нет новой 1м свечи дольше — пишем в журнал отладки (только в торговую сессию). */
 internal const val MARKETS_QUOTES_STALE_WARN_MS = 3L * 60L * 1000L
+
+/** 10м бар годится как «формирующаяся минута» только пока он из текущего окна. */
+internal const val FORMING_10M_MAX_AGE_MINUTES = 15L
+
+/** Возраст последнего бара, после которого в шапке пишем «без сделок N мин». */
+internal const val MARKETS_PHONE_STALE_PRINT_MINUTES = 15L
 
 /** Не спамить предупреждением чаще раза в 5 минут. */
 private const val QUOTES_STALE_WARN_THROTTLE_MS = 5L * 60L * 1000L
@@ -187,15 +195,15 @@ internal data class MarketsSpreadWeekSnapshot(
     val fetchedAtMillis: Long = System.currentTimeMillis(),
 )
 
-/** 1м TATN/TATNP с понедельника недели до завтра (МСК) → свечи спреда %. */
-internal suspend fun fetchMarketsIntraday1mWeek(): MarketsSpreadWeekSnapshot = withContext(Dispatchers.IO) {
-    val today = LocalDate.now(moexZoneId)
-    val weekFrom = currentWeekMondayMsk(today)
-    val till = today.plusDays(1)
-    val tenFrom = weekFrom.minusDays(1)
+/** 1м TATN/TATNP за [from]…[till) (МСК) → свечи спреда %. */
+internal suspend fun fetchMarketsSpreadRange(
+    from: LocalDate,
+    till: LocalDate,
+): MarketsSpreadWeekSnapshot = withContext(Dispatchers.IO) {
+    val tenFrom = from.minusDays(1)
     coroutineScope {
-        val tatn1 = async { loadCandleBars("TATN", weekFrom, till, interval = 1) }
-        val tatnp1 = async { loadCandleBars("TATNP", weekFrom, till, interval = 1) }
+        val tatn1 = async { loadCandleBars("TATN", from, till, interval = 1) }
+        val tatnp1 = async { loadCandleBars("TATNP", from, till, interval = 1) }
         val tatn10 = async { loadCandleBars("TATN", tenFrom, till, interval = 10) }
         val tatnp10 = async { loadCandleBars("TATNP", tenFrom, till, interval = 10) }
         val tatnBars = appendFormingIntraday1mFrom10m(tatn1.await(), tatn10.await())
@@ -203,10 +211,69 @@ internal suspend fun fetchMarketsIntraday1mWeek(): MarketsSpreadWeekSnapshot = w
         val candles = buildSpreadPercentCandlesFromLegs(tatnBars, tatnpBars)
         MarketsSpreadWeekSnapshot(
             spreadCandles = candles,
-            lastBarMillis = maxOf(lastCandleBarMillis(tatnBars), lastCandleBarMillis(tatnpBars)),
+            lastBarMillis = lastSpreadCandleMillis(candles),
             lastSpreadPercent = candles.lastOrNull()?.close,
         )
     }
+}
+
+/** 1м TATN/TATNP с понедельника недели до завтра (МСК) → свечи спреда %. */
+internal suspend fun fetchMarketsIntraday1mWeek(): MarketsSpreadWeekSnapshot {
+    val today = LocalDate.now(moexZoneId)
+    return fetchMarketsSpreadRange(currentWeekMondayMsk(today), today.plusDays(1))
+}
+
+/** Хвост за сегодня (+10м со вчера) — для опроса без повторной загрузки всей недели. */
+internal suspend fun fetchMarketsIntraday1mWeekTail(): MarketsSpreadWeekSnapshot {
+    val today = LocalDate.now(moexZoneId)
+    return fetchMarketsSpreadRange(today, today.plusDays(1))
+}
+
+/** Подмешать свежий хвост в недельный снимок (новые/обновлённые метки перезаписывают старые). */
+internal fun mergeSpreadWeekSnapshots(
+    cached: MarketsSpreadWeekSnapshot,
+    tail: MarketsSpreadWeekSnapshot,
+): MarketsSpreadWeekSnapshot {
+    if (tail.spreadCandles.isEmpty()) {
+        return cached.copy(fetchedAtMillis = tail.fetchedAtMillis)
+    }
+    val map = LinkedHashMap<String, CandlePoint>(cached.spreadCandles.size + tail.spreadCandles.size)
+    for (c in cached.spreadCandles) map[c.label] = c
+    for (c in tail.spreadCandles) map[c.label] = c
+    val candles = map.values.sortedBy { it.label }
+    return MarketsSpreadWeekSnapshot(
+        spreadCandles = candles,
+        lastBarMillis = lastSpreadCandleMillis(candles).takeIf { it > 0L }
+            ?: maxOf(cached.lastBarMillis, tail.lastBarMillis),
+        lastSpreadPercent = candles.lastOrNull()?.close
+            ?: tail.lastSpreadPercent
+            ?: cached.lastSpreadPercent,
+        fetchedAtMillis = tail.fetchedAtMillis,
+    )
+}
+
+internal fun lastSpreadCandleMillis(candles: List<CandlePoint>): Long =
+    candles.lastOrNull()?.let { parsePortfolioExecutionTableMsk(it.label) } ?: 0L
+
+/** Подпись в шапке «Рынок»: не маскируем простой выходных тикающей «текущей минутой». */
+internal fun marketsPhoneSpreadStatusSuffix(
+    lastBarMillis: Long,
+    now: ZonedDateTime = ZonedDateTime.now(moexZoneId),
+): String {
+    if (lastBarMillis <= 0L) return ""
+    if (!isMoexQuotesSessionLikelyOpen(now)) return " · биржа закрыта"
+    val age = intraday1mLastBarAgeMinutes(lastBarMillis, now.toInstant().toEpochMilli()) ?: return ""
+    return if (age >= MARKETS_PHONE_STALE_PRINT_MINUTES) " · без сделок $age мин" else ""
+}
+
+internal fun isForming10mBarFresh(
+    barTime: LocalDateTime,
+    now: ZonedDateTime,
+    maxAgeMinutes: Long = FORMING_10M_MAX_AGE_MINUTES,
+): Boolean {
+    val nowLdt = now.toLocalDateTime()
+    if (barTime.isAfter(nowLdt)) return false
+    return ChronoUnit.MINUTES.between(barTime, nowLdt) <= maxAgeMinutes
 }
 
 internal fun lastCandleBarMillis(bars: List<CandleBar>, zone: ZoneId = moexZoneId): Long =
@@ -233,9 +300,11 @@ internal fun appendFormingIntraday1mFrom10m(
     now: ZonedDateTime = ZonedDateTime.now(moexZoneId),
 ): List<CandleBar> {
     if (bars10m.isEmpty()) return bars1m
+    if (!isMoexQuotesSessionLikelyOpen(now)) return bars1m
     val nowLdt = now.toLocalDateTime()
     val latest10 = bars10m.filter { !it.timestamp.isAfter(nowLdt) }.maxByOrNull { it.timestamp }
         ?: return bars1m
+    if (!isForming10mBarFresh(latest10.timestamp, now)) return bars1m
     val price = latest10.close
     val minuteBucket = now.withSecond(0).withNano(0).toLocalDateTime()
     val result = bars1m.toMutableList()

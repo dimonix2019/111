@@ -16,6 +16,14 @@ internal fun watchdogServiceStaleThresholdMs(): Long =
 
 /** UI «не на связи» для сервиса — только информативно (не перезапуск UI). */
 internal const val WATCHDOG_UI_STALE_MS = 10 * 60_000L
+/** Не посылать повторный startForegroundService, пока первый запрос ещё запускается. */
+internal const val WATCHDOG_RESTART_COOLDOWN_MS = 15_000L
+
+internal fun watchdogRestartRecentlyRequested(
+    lastRestartMs: Long,
+    nowMs: Long,
+    cooldownMs: Long = WATCHDOG_RESTART_COOLDOWN_MS,
+): Boolean = lastRestartMs > 0L && nowMs >= lastRestartMs && nowMs - lastRestartMs < cooldownMs
 
 internal data class MoexWatchdogStatus(
     val monitorEnabled: Boolean,
@@ -123,10 +131,12 @@ internal object MoexWatchdog {
         if (!SignalForegroundService.isBackgroundMonitorEnabled(app)) return false
         val status = readStatus(app)
         if (!status.serviceStale && status.serviceRunning) return false
+        val now = System.currentTimeMillis()
+        if (watchdogRestartRecentlyRequested(status.lastRestartMs, now)) return false
         val count = prefs(app).getInt(PREF_SERVICE_RESTART_COUNT, 0) + 1
         prefs(app).edit()
             .putInt(PREF_SERVICE_RESTART_COUNT, count)
-            .putLong(PREF_LAST_RESTART_MS, System.currentTimeMillis())
+            .putLong(PREF_LAST_RESTART_MS, now)
             .putString(PREF_LAST_RESTART_REASON, reason)
             .apply()
         MoexDiagnostics.log(

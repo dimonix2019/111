@@ -82,4 +82,23 @@ class MoexSignalMonitor15mTest {
         assertEquals(points.last().timestampMillis, edges.single().bar.timestampMillis)
         assertEquals(ZStrategyPosition.Short, finalPosition)
     }
+
+    @Test
+    fun collectZStrategy15mSignalEdges_keepsQuietWhenLastBarAlreadyProcessed() {
+        val thresholds = DynamicThresholds(entry = 0.7, exit = 0.5, calculatedDate = null)
+        val points = testM15BarSeries(
+            day = LocalDate.of(2026, 6, 9),
+            hour = 10,
+            minute = 0,
+            zAt = listOf(0.2, 0.65, 0.75),
+        )
+        val (edges, pos) = collectZStrategy15mSignalEdgesSinceProcessedBar(
+            points = points,
+            lastProcessedBarTimestampMillis = points.last().timestampMillis,
+            initialPosition = ZStrategyPosition.Flat,
+            thresholds = thresholds,
+        )
+        assertEquals(0, edges.size)
+        assertEquals(ZStrategyPosition.Flat, pos)
+    }
 }

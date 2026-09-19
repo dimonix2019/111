@@ -3,6 +3,7 @@ package com.example.moexmvp
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -104,6 +105,7 @@ private suspend fun tinkoffSbxPostRaw(
     bodyJson: String
 ): String =
     withContext(Dispatchers.IO) {
+        val orderLogPurpose = coroutineContext[TinkoffOrderPurpose]?.value.orEmpty()
         val norm = normalizeInvestToken(token)
         if (norm.isEmpty()) {
             throw IOException(
@@ -131,6 +133,18 @@ private suspend fun tinkoffSbxPostRaw(
             try {
                 httpClient.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
+                    if (method in TINVEST_ORDER_LOG_METHODS) {
+                        runCatching {
+                            BrokerExchangeReplyLog.recordHttp(
+                                method = method,
+                                requestJson = bodyJson,
+                                httpCode = resp.code,
+                                responseText = text,
+                                ok = resp.isSuccessful,
+                                purpose = orderLogPurpose,
+                            )
+                        }
+                    }
                     if (!resp.isSuccessful) {
                         lastFailure =
                             IOException("${extractApiErrorMessage(resp.code, text)} · $url")
@@ -163,6 +177,9 @@ private suspend fun tinkoffProdOperationsPostRaw(token: String, method: String, 
 private suspend fun tinkoffProdUsersPostRaw(token: String, method: String, bodyJson: String): String =
     tinkoffSbxPostRaw(TINVEST_PROD_USERS_PREFIXES, token, method, bodyJson)
 
+private suspend fun tinkoffProdMarketDataPostRaw(token: String, method: String, bodyJson: String): String =
+    tinkoffSbxPostRaw(TINVEST_PROD_MARKETDATA_PREFIXES, token, method, bodyJson)
+
 internal suspend fun tinkoffInstrumentsPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffInstrumentsPostRaw(token, method, body.toString())
     return parseJsonObjectOrEmpty(raw)
@@ -190,6 +207,11 @@ internal suspend fun tinkoffProdOperationsPostAsync(token: String, method: Strin
 
 internal suspend fun tinkoffProdUsersPostAsync(token: String, method: String, body: JSONObject): JSONObject {
     val raw = tinkoffProdUsersPostRaw(token, method, body.toString())
+    return parseJsonObjectOrEmpty(raw)
+}
+
+internal suspend fun tinkoffProdMarketDataPostAsync(token: String, method: String, body: JSONObject): JSONObject {
+    val raw = tinkoffProdMarketDataPostRaw(token, method, body.toString())
     return parseJsonObjectOrEmpty(raw)
 }
 
@@ -592,6 +614,23 @@ internal suspend fun tinkoffPostProdMarketOrder(
     throw last ?: IOException("PostOrder: неизвестная ошибка")
 }
 
+internal suspend fun tinkoffGetMaxLots(
+    token: String,
+    accountId: String,
+    instrumentId: String,
+): TinkoffMaxLots {
+    val root = tinkoffProdOrdersPostAsync(
+        token,
+        "GetMaxLots",
+        JSONObject()
+            .put("accountId", accountId)
+            .put("account_id", accountId)
+            .put("instrumentId", instrumentId)
+            .put("instrument_id", instrumentId),
+    )
+    return parseTinkoffMaxLots(root)
+}
+
 internal suspend fun tinkoffPostMarketOrder(
     mode: TinkoffExecutionMode,
     token: String,
@@ -735,7 +774,7 @@ internal suspend fun tinkoffSandboxPostTestSingleLegOrder(
     val inst = try {
         tinkoffResolveShareInstrumentId(token, "TATN")
     } catch (_: Exception) {
-        TINKOFF_MOEX_TATN_INSTRUMENT_ID
+        TINKOFF_MOEX_TATN_FIGI
     }
     val dir = if (buy) "ORDER_DIRECTION_BUY" else "ORDER_DIRECTION_SELL"
     return tinkoffPostSandboxMarketOrder(token, accountId, inst, dir, quantityLots)
@@ -811,35 +850,87 @@ internal suspend fun tinkoffExecuteSpreadEntryDetailed(
     signalType: StrategySignalType,
     quantityLots: Int = 1,
 ): List<SandboxLegOrderResult> {
-    val qty = quantityLots.coerceAtLeast(1)
-    val tatnId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
-        .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
-    val tatnpId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
-        .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
-    val buy = "ORDER_DIRECTION_BUY"
-    val sell = "ORDER_DIRECTION_SELL"
-    suspend fun postLeg(ticker: String, instId: String, dir: String, buyLeg: Boolean): SandboxLegOrderResult {
-        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, dir, qty)
-        val pf = runCatching { tinkoffGetPortfolio(mode, token, accountId) }.getOrNull()
+    val plan = try {
+        spreadEntryLegPlan(signalType)
+    } catch (e: IllegalArgumentException) {
+        throw IOException(e.message ?: "Только EnterLong / EnterShort")
+    }
+    val instIds = mapOf(
+        "TATN" to canonicalMoexShareInstrumentId(
+            "TATN",
+            runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }.getOrNull(),
+        ),
+        "TATNP" to canonicalMoexShareInstrumentId(
+            "TATNP",
+            runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }.getOrNull(),
+        ),
+    )
+    val posted = mutableListOf<Pair<SpreadEntryLegSpec, SandboxLegOrderResult>>()
+    var qty = quantityLots.coerceAtLeast(1)
+    if (mode == TinkoffExecutionMode.Prod) {
+        val tatnMax = runCatching {
+            withContext(TinkoffOrderPurpose("max_lots")) {
+                tinkoffGetMaxLots(token, accountId, instIds.getValue("TATN"))
+            }
+        }.getOrNull()
+        val tatnpMax = runCatching {
+            withContext(TinkoffOrderPurpose("max_lots")) {
+                tinkoffGetMaxLots(token, accountId, instIds.getValue("TATNP"))
+            }
+        }.getOrNull()
+        if (tatnMax != null && tatnpMax != null) {
+            explainSpreadMaxLotsBlock(signalType, qty, tatnMax, tatnpMax)?.let { throw IOException(it) }
+            val capped = clampSpreadLotsToBrokerMax(qty, signalType, tatnMax, tatnpMax)
+            if (capped < 1) {
+                throw IOException("Пара не открыта: брокер даёт 0 лот по ногам.")
+            }
+            qty = capped
+        }
+    }
+    suspend fun postSpec(spec: SpreadEntryLegSpec, purpose: String): SandboxLegOrderResult {
+        val instId = instIds.getValue(spec.ticker)
+        val order = withContext(TinkoffOrderPurpose(purpose)) {
+            tinkoffPostMarketOrder(mode, token, accountId, instId, spec.orderDirection, qty)
+        }
         return SandboxLegOrderResult(
-            ticker = ticker,
-            sideRu = spreadLegSideRu(buyLeg, qty),
+            ticker = spec.ticker,
+            sideRu = spreadLegSideRu(spec.buy, qty),
             orderJson = order,
-            portfolioTotalRub = pf?.let { formatSandboxPortfolioTotalRub(it) },
-            portfolioCashRub = pf?.let { formatSandboxCashRub(it) },
-            completedAtMillis = System.currentTimeMillis()
+            portfolioTotalRub = null,
+            portfolioCashRub = null,
+            completedAtMillis = System.currentTimeMillis(),
         )
     }
-    return when (signalType) {
-        StrategySignalType.EnterLong -> listOf(
-            postLeg("TATN", tatnId, buy, buyLeg = true),
-            postLeg("TATNP", tatnpId, sell, buyLeg = false)
+    try {
+        for (spec in plan) {
+            posted += spec to postSpec(spec, "spread_entry")
+        }
+    } catch (e: Exception) {
+        val rollbackErrors = mutableListOf<String>()
+        for ((spec, _) in posted.asReversed()) {
+            val undo = spec.copy(buy = !spec.buy)
+            runCatching { postSpec(undo, "rollback") }.onFailure { rollback ->
+                rollbackErrors += "${undo.ticker} ${undo.orderDirection}: ${rollback.message}"
+            }
+        }
+        val opened = posted.joinToString(", ") { (spec, _) ->
+            "${spec.ticker} ${if (spec.buy) "покупка" else "продажа"} ×$qty"
+        }
+        val rollbackPart = if (rollbackErrors.isEmpty()) {
+            if (posted.isEmpty()) "" else " Первая нога снята."
+        } else {
+            " Откат не удался (${rollbackErrors.joinToString("; ")}). Закройте хвост вручную."
+        }
+        throw IOException(
+            "Пара не открыта целиком (${e.message}). Успели: ${opened.ifBlank { "нет" }}.$rollbackPart"
         )
-        StrategySignalType.EnterShort -> listOf(
-            postLeg("TATNP", tatnpId, buy, buyLeg = true),
-            postLeg("TATN", tatnId, sell, buyLeg = false)
+    }
+    val pf = runCatching { tinkoffGetPortfolio(mode, token, accountId) }.getOrNull()
+    return posted.map { (_, result) ->
+        result.copy(
+            portfolioTotalRub = pf?.let { formatSandboxPortfolioTotalRub(it) },
+            portfolioCashRub = pf?.let { formatSandboxCashRub(it) },
         )
-        else -> throw IOException("Только EnterLong / EnterShort")
     }
 }
 
@@ -877,14 +968,20 @@ internal suspend fun tinkoffExecuteSpreadExitDetailed(
     quantityLots: Int = 1,
 ): List<SandboxLegOrderResult> {
     val qty = quantityLots.coerceAtLeast(1)
-    val tatnId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }
-        .getOrDefault(TINKOFF_MOEX_TATN_INSTRUMENT_ID)
-    val tatnpId = runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }
-        .getOrDefault(TINKOFF_MOEX_TATNP_INSTRUMENT_ID)
+    val tatnId = canonicalMoexShareInstrumentId(
+        "TATN",
+        runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATN") }.getOrNull(),
+    )
+    val tatnpId = canonicalMoexShareInstrumentId(
+        "TATNP",
+        runCatching { tinkoffResolveShareInstrumentId(mode, token, "TATNP") }.getOrNull(),
+    )
     val buy = "ORDER_DIRECTION_BUY"
     val sell = "ORDER_DIRECTION_SELL"
     suspend fun postLeg(ticker: String, instId: String, dir: String, buyLeg: Boolean): SandboxLegOrderResult {
-        val order = tinkoffPostMarketOrder(mode, token, accountId, instId, dir, qty)
+        val order = withContext(TinkoffOrderPurpose("spread_exit")) {
+            tinkoffPostMarketOrder(mode, token, accountId, instId, dir, qty)
+        }
         val pf = runCatching { tinkoffGetPortfolio(mode, token, accountId) }.getOrNull()
         return SandboxLegOrderResult(
             ticker = ticker,
@@ -1064,6 +1161,8 @@ internal data class MarginAttributesSnapshot(
     val correctedMarginRub: Double,
     val startingMarginRub: Double,
     val amountOfMissingFundsRub: Double?,
+    val minimalMarginRub: Double? = null,
+    val fundsSufficiencyLevel: Double? = null,
 )
 
 private fun findMarginMoneyField(portfolioJson: JSONObject, fieldKeys: List<String>): Double? {
@@ -1108,11 +1207,21 @@ internal fun parseMarginAttributesJson(root: JSONObject): MarginAttributesSnapsh
         envelope,
         listOf("amountOfMissingFunds", "amount_of_missing_funds"),
     )
+    val minimal = findMarginMoneyField(
+        envelope,
+        listOf("minimalMargin", "minimal_margin"),
+    )
+    val sufficiency = findMarginMoneyField(
+        envelope,
+        listOf("fundsSufficiencyLevel", "funds_sufficiency_level"),
+    )
     return MarginAttributesSnapshot(
         liquidPortfolioRub = liquid,
         correctedMarginRub = corrected ?: starting,
         startingMarginRub = starting,
         amountOfMissingFundsRub = missing,
+        minimalMarginRub = minimal,
+        fundsSufficiencyLevel = sufficiency,
     )
 }
 
@@ -1184,11 +1293,15 @@ internal data class SpreadLegAveragePrices(
 )
 
 /** Средние цены входа по ногам TATN/TATNP из GetPortfolio. */
-internal fun parseSpreadLegAveragePrices(portfolioJson: JSONObject): SpreadLegAveragePrices {
+internal fun parseSpreadLegAveragePrices(
+    portfolioJson: JSONObject,
+    extraTatnIds: Set<String> = emptySet(),
+    extraTatnpIds: Set<String> = emptySet(),
+): SpreadLegAveragePrices {
     var tatnAvg: Double? = null
     var tatnpAvg: Double? = null
     for (pos in collectPortfolioPositions(portfolioJson)) {
-        val ticker = pos.positionTicker() ?: continue
+        val ticker = pos.positionTicker(extraTatnIds, extraTatnpIds) ?: continue
         val avg = parsePositionAveragePriceRub(pos) ?: continue
         when (ticker) {
             "TATN" -> tatnAvg = avg
@@ -1206,8 +1319,10 @@ private fun parsePositionQuantityUnits(position: JSONObject): Int {
     return quotationUnitsToDouble(q)?.toInt() ?: 0
 }
 
-private fun JSONObject.positionTicker(): String? =
-    firstNonBlankString("ticker", "Ticker")?.uppercase(Locale.US)
+private fun JSONObject.positionTicker(
+    extraTatnIds: Set<String> = emptySet(),
+    extraTatnpIds: Set<String> = emptySet(),
+): String? = resolveTatnTatnpTicker(this, extraTatnIds, extraTatnpIds)
 
 private fun parsePositionExpectedYieldRub(position: JSONObject): Double? {
     val yieldObj = position.optJSONObject("expectedYield")
@@ -1247,6 +1362,9 @@ internal data class BrokerSpreadPositionSnap(
 ) {
     val lotsAbs: Int get() = maxOf(kotlin.math.abs(tatnLots), kotlin.math.abs(tatnpLots))
 
+    /** Любые ненулевые TATN/TATNP — в том числе одна нога после частичного fill. */
+    val hasBrokerLegs: Boolean get() = tatnLots != 0 || tatnpLots != 0
+
     val spreadPercent: Double?
         get() {
             val a = tatnPriceRub ?: return null
@@ -1267,10 +1385,14 @@ internal data class BrokerSpreadPositionSnap(
  * Определяет FLAT / Long / Short по знакам количеств TATN и TATNP.
  * Long: TATN>0 и TATNP<0; Short: TATN<0 и TATNP>0.
  */
-internal fun detectBrokerSpreadPosition(portfolioJson: JSONObject): BrokerSpreadPositionSnap {
+internal fun detectBrokerSpreadPosition(
+    portfolioJson: JSONObject,
+    extraTatnIds: Set<String> = emptySet(),
+    extraTatnpIds: Set<String> = emptySet(),
+): BrokerSpreadPositionSnap {
     val rowsByTicker = linkedMapOf<String, BrokerPositionRow>()
     for (pos in collectPortfolioPositions(portfolioJson)) {
-        val ticker = pos.positionTicker() ?: continue
+        val ticker = pos.positionTicker(extraTatnIds, extraTatnpIds) ?: continue
         if (ticker != "TATN" && ticker != "TATNP") continue
         val yieldRub = parsePositionExpectedYieldRub(pos) ?: 0.0
         val prev = rowsByTicker[ticker]

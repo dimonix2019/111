@@ -915,7 +915,8 @@ internal fun recordStrategySignalEvent(
     }
     if (savePendingVirtualTradeIfEntry &&
         !TinkoffSandboxStorage.isSandboxSpreadAutoExecute(context) &&
-        (signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort)
+        (signalType == StrategySignalType.EnterLong || signalType == StrategySignalType.EnterShort) &&
+        !isRejectedVirtualEntry(context, signalType, timestampMillis)
     ) {
         savePendingVirtualTradeProposal(
             context = context,

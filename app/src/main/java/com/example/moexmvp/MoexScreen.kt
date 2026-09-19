@@ -70,13 +70,15 @@ internal fun MoexScreen() {
         Column(Modifier.fillMaxSize()) {
             MainTabSelector(
                 selected = screen.selectedTab,
-                onSelect = { screen.selectedTab = it }
+                onSelect = { screen.selectedTab = it },
+                tradeCloseNowPnl = screen.tradeScreenSnapshot?.closeNowPnl,
             )
             if (!screen.sandboxSpreadAutoExecute) {
                 MoexScreenVirtualTradeCard(screen, scope, Modifier.padding(top = 6.dp))
             }
             when (screen.selectedTab) {
                 MainTab.About -> MoexScreenTabAbout(screen, scope, Modifier.weight(1f).fillMaxSize())
+                MainTab.Settings -> MoexScreenTabSettings(Modifier.weight(1f).fillMaxSize())
                 MainTab.Sandbox -> MoexScreenTabSandbox(screen, scope, Modifier.weight(1f).fillMaxSize())
                 MainTab.WebDesk -> MoexScreenTabWebDesk(screen, scope, Modifier.weight(1f).fillMaxSize())
                 MainTab.Markets -> MoexScreenTabMarketsPhone(screen, scope, Modifier.weight(1f).fillMaxSize())
