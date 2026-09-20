@@ -1,10 +1,12 @@
 package com.example.moexmvp
 
+import android.content.Context
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Полутик ISS — только если есть живой односторонний BID/OFFER. */
 internal const val CLOSE_NOW_HALF_TICK_RUB = 0.05
@@ -34,6 +36,54 @@ internal data class PairQuotes(
     val tatnp: ShareQuote = ShareQuote(),
     val source: String = "iss",
 )
+
+/** Read-only дилерская котировка спреда для внебиржевых торгов T‑Invest. */
+internal data class TinkoffOtcSpreadQuote(
+    val spreadPercent: Double,
+    val tatnPriceRub: Double,
+    val tatnpPriceRub: Double,
+    val fetchedAtMillis: Long = System.currentTimeMillis(),
+)
+
+/** Для индикативного спреда берём середину живого стакана; LAST — только fallback. */
+internal fun shareQuoteIndicativePrice(quote: ShareQuote): Double? {
+    val bid = quote.bid?.takeIf { it > 0.0 && it.isFinite() }
+    val ask = quote.ask?.takeIf { it > 0.0 && it.isFinite() }
+    if (bid != null && ask != null && ask >= bid) return (bid + ask) / 2.0
+    return quote.last?.takeIf { it > 0.0 && it.isFinite() } ?: bid ?: ask
+}
+
+internal fun tinkoffOtcSpreadFromPairQuotes(
+    quotes: PairQuotes?,
+    fetchedAtMillis: Long = System.currentTimeMillis(),
+): TinkoffOtcSpreadQuote? {
+    val pair = quotes ?: return null
+    val tatn = shareQuoteIndicativePrice(pair.tatn) ?: return null
+    val tatnp = shareQuoteIndicativePrice(pair.tatnp) ?: return null
+    val spread = spreadPercentFromLegPrices(tatn, tatnp)
+        ?.takeIf(::isPlausibleSpreadPercent)
+        ?: return null
+    return TinkoffOtcSpreadQuote(
+        spreadPercent = spread,
+        tatnPriceRub = tatn,
+        tatnpPriceRub = tatnp,
+        fetchedAtMillis = fetchedAtMillis,
+    )
+}
+
+/** Только GetOrderBook: заявок и изменений счёта здесь нет. */
+internal suspend fun fetchTinkoffOtcSpreadQuote(context: Context): TinkoffOtcSpreadQuote? {
+    val token = TinkoffSandboxStorage.getProdToken(context.applicationContext) ?: return null
+    val quotes = withTimeoutOrNull(CLOSE_NOW_BOOK_FETCH_MS) {
+        fetchTinkoffPairQuotesForClose(
+            token = token,
+            tatnInstrumentId = TINKOFF_MOEX_TATN_FIGI,
+            tatnpInstrumentId = TINKOFF_MOEX_TATNP_FIGI,
+            lotsAbs = 1.0,
+        )
+    }
+    return tinkoffOtcSpreadFromPairQuotes(quotes)
+}
 
 /** Чистый результат, если закрыть пару рыночными заявками сейчас. */
 internal data class CloseNowPnl(

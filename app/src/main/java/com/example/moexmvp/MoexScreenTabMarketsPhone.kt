@@ -37,6 +37,8 @@ internal const val MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS = 20_000L
 internal const val MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS = 8_000L
 /** После первой загрузки на выходных не дёргаем ISS каждые 30 с. */
 internal const val MARKETS_PHONE_CLOSED_IDLE_MS = 5L * 60_000L
+/** Внебиржевой дилерский стакан T‑Invest опрашиваем только пока вкладка на экране. */
+internal const val MARKETS_PHONE_OTC_POLL_MS = 15_000L
 private const val MARKETS_PHONE_CHART_HEIGHT_DP = 280
 
 private data class MarketsPhoneChartState(
@@ -94,6 +96,7 @@ internal fun MoexScreenTabMarketsPhone(
     var loadError by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var brokerSide by remember { mutableStateOf(BrokerAccountPrefs.lastSide(screen.context)) }
+    var tinkoffOtcLive by remember { mutableStateOf(false) }
 
     LaunchedEffect(screen.selectedTab) {
         if (screen.selectedTab != MainTab.Markets) return@LaunchedEffect
@@ -104,51 +107,78 @@ internal fun MoexScreenTabMarketsPhone(
                 continue
             }
             val haveWeek = cachedWeek != null
-            if (haveWeek && !isMoexQuotesSessionLikelyOpen()) {
-                delay(MARKETS_PHONE_CLOSED_IDLE_MS)
-                continue
-            }
-            val timeoutMs = if (haveWeek) {
-                MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS
-            } else {
-                MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS
-            }
-            try {
-                val snap = withTimeoutOrNull(timeoutMs) {
-                    withContext(Dispatchers.IO) {
-                        if (cachedWeek == null) {
-                            fetchMarketsIntraday1mWeek()
-                        } else {
-                            mergeSpreadWeekSnapshots(cachedWeek!!, fetchMarketsIntraday1mWeekTail())
+            val moexSessionOpen = isMoexQuotesSessionLikelyOpen()
+            if (!haveWeek || moexSessionOpen) {
+                val timeoutMs = if (haveWeek) {
+                    MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS
+                } else {
+                    MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS
+                }
+                try {
+                    val snap = withTimeoutOrNull(timeoutMs) {
+                        withContext(Dispatchers.IO) {
+                            if (cachedWeek == null) {
+                                fetchMarketsIntraday1mWeek()
+                            } else {
+                                mergeSpreadWeekSnapshots(cachedWeek!!, fetchMarketsIntraday1mWeekTail())
+                            }
                         }
                     }
-                }
-                if (snap == null) {
-                    loading = false
-                    if (cachedWeek == null) {
-                        loadError = "Обновление спреда: таймаут ISS"
+                    if (snap == null) {
+                        loading = false
+                        if (cachedWeek == null) {
+                            loadError = "Обновление спреда: таймаут ISS"
+                        }
+                        MoexDiagnostics.log(
+                            screen.context,
+                            "markets_phone",
+                            "spread fetch timeout ${timeoutMs}ms haveWeek=$haveWeek",
+                        )
+                    } else {
+                        cachedWeek = snap
+                        candles = snap.spreadCandles
+                        lastSpread = snap.lastSpreadPercent
+                        tinkoffOtcLive = false
+                        maybeNotifySpreadLevelAlerts(screen.context, snap.lastSpreadPercent)
+                        lastBarLabel = formatIntraday1mLastBarLabel(snap.lastBarMillis)
+                            ?: snap.spreadCandles.lastOrNull()?.label
+                        loadError = null
+                        loading = false
                     }
-                    MoexDiagnostics.log(
-                        screen.context,
-                        "markets_phone",
-                        "spread fetch timeout ${timeoutMs}ms haveWeek=$haveWeek",
-                    )
-                } else {
-                    cachedWeek = snap
-                    candles = snap.spreadCandles
-                    lastSpread = snap.lastSpreadPercent
-                    maybeNotifySpreadLevelAlerts(screen.context, snap.lastSpreadPercent)
-                    lastBarLabel = formatIntraday1mLastBarLabel(snap.lastBarMillis)
-                        ?: snap.spreadCandles.lastOrNull()?.label
-                    loadError = null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    loadError = e.message?.take(120) ?: e.javaClass.simpleName
                     loading = false
+                    MoexDiagnostics.logError(screen.context, "markets_phone", e, "week spread fetch")
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                loadError = e.message?.take(120) ?: e.javaClass.simpleName
-                loading = false
-                MoexDiagnostics.logError(screen.context, "markets_phone", e, "week spread fetch")
+            }
+            if (!moexSessionOpen) {
+                try {
+                    val quote = withContext(Dispatchers.IO) {
+                        fetchTinkoffOtcSpreadQuote(screen.context)
+                    }
+                    if (quote != null) {
+                        val base = cachedWeek ?: MarketsSpreadWeekSnapshot(
+                            spreadCandles = emptyList(),
+                            lastBarMillis = 0L,
+                            lastSpreadPercent = null,
+                        )
+                        val snap = mergeTinkoffOtcSpreadQuote(base, quote)
+                        cachedWeek = snap
+                        candles = snap.spreadCandles
+                        lastSpread = quote.spreadPercent
+                        lastBarLabel = formatIntraday1mLastBarLabel(snap.lastBarMillis)
+                        tinkoffOtcLive = true
+                        loadError = null
+                        loading = false
+                        maybeNotifySpreadLevelAlerts(screen.context, quote.spreadPercent)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    MoexDiagnostics.logError(screen.context, "markets_otc", e, "T-Invest quote")
+                }
             }
             if (screen.activityResumed) {
                 try {
@@ -164,8 +194,10 @@ internal fun MoexScreenTabMarketsPhone(
                 }
             }
             delay(
-                if (isMoexQuotesSessionLikelyOpen()) {
+                if (moexSessionOpen) {
                     MARKETS_PHONE_SPREAD_POLL_MS
+                } else if (TinkoffSandboxStorage.getProdToken(screen.context) != null) {
+                    MARKETS_PHONE_OTC_POLL_MS
                 } else {
                     MARKETS_PHONE_CLOSED_IDLE_MS
                 },
@@ -287,6 +319,7 @@ internal fun MoexScreenTabMarketsPhone(
                 (lastBarLabel?.let { " · бар $it" } ?: "") +
                 marketsPhoneSpreadStatusSuffix(
                     lastBarLabel?.let { parsePortfolioExecutionTableMsk(it) } ?: 0L,
+                    tinkoffOtc = tinkoffOtcLive,
                 ),
             color = Color(0xFFE0E0E0),
             fontSize = 13.sp,
@@ -301,7 +334,8 @@ internal fun MoexScreenTabMarketsPhone(
 
         if (candles.isNotEmpty()) {
             TradingViewZScoreChartCard(
-                title = "Спред TATN/TATNP, % · 1м · неделя (TradingView)",
+                title = "Спред TATN/TATNP, % · 1м · неделя · " +
+                    if (tinkoffOtcLive) "T‑Invest внебиржа" else "MOEX",
                 showOhlcLegend = true,
                 spreadChart = true,
                 candles = candles,
@@ -324,7 +358,8 @@ internal fun MoexScreenTabMarketsPhone(
 
         Text(
             text = "Pinch — масштаб, drag — панорамирование, шкала справа — масштаб цены. " +
-                "Маркеры — входы/выходы сделок за неделю. График обновляется ~30 с (хвост дня, не вся неделя).",
+                "Маркеры — входы/выходы сделок за неделю. В сессию — MOEX ~30 с; " +
+                "вне сессии — индикативная середина дилерского стакана T‑Invest ~15 с.",
             color = Color(0xFF757575),
             fontSize = 11.sp,
         )
