@@ -80,6 +80,7 @@ internal suspend fun fetchTinkoffOtcSpreadQuote(context: Context): TinkoffOtcSpr
             tatnInstrumentId = TINKOFF_MOEX_TATN_FIGI,
             tatnpInstrumentId = TINKOFF_MOEX_TATNP_FIGI,
             lotsAbs = 1.0,
+            dealerOnly = true,
         )
     }
     return tinkoffOtcSpreadFromPairQuotes(quotes)
@@ -228,18 +229,24 @@ internal suspend fun fetchTinkoffOrderBookQuote(
     token: String,
     instrumentId: String,
     lotsAbs: Double,
+    dealerOnly: Boolean = false,
 ): ShareQuote? {
     if (token.isBlank() || instrumentId.isBlank()) return null
     val figi = canonicalCloseNowFigi(instrumentId, instrumentId.contains("TATNP", ignoreCase = true))
-    val attempts = listOf(
-        org.json.JSONObject()
-            .put("instrumentId", figi)
-            .put("depth", CLOSE_NOW_BOOK_DEPTH)
-            .put("orderBookType", CLOSE_NOW_ORDERBOOK_TYPE_DEALER),
-        org.json.JSONObject()
-            .put("instrumentId", figi)
-            .put("depth", CLOSE_NOW_BOOK_DEPTH),
-    )
+    val dealer = org.json.JSONObject()
+        .put("instrumentId", figi)
+        .put("depth", CLOSE_NOW_BOOK_DEPTH)
+        .put("orderBookType", CLOSE_NOW_ORDERBOOK_TYPE_DEALER)
+    val attempts = if (dealerOnly) {
+        listOf(dealer)
+    } else {
+        listOf(
+            dealer,
+            org.json.JSONObject()
+                .put("instrumentId", figi)
+                .put("depth", CLOSE_NOW_BOOK_DEPTH),
+        )
+    }
     for (body in attempts) {
         val quote = runCatching {
             parseTinkoffOrderBookQuote(
@@ -257,9 +264,10 @@ internal suspend fun fetchTinkoffPairQuotesForClose(
     tatnInstrumentId: String,
     tatnpInstrumentId: String,
     lotsAbs: Double,
+    dealerOnly: Boolean = false,
 ): PairQuotes? = coroutineScope {
-    val tn = async { fetchTinkoffOrderBookQuote(token, tatnInstrumentId, lotsAbs) }
-    val tp = async { fetchTinkoffOrderBookQuote(token, tatnpInstrumentId, lotsAbs) }
+    val tn = async { fetchTinkoffOrderBookQuote(token, tatnInstrumentId, lotsAbs, dealerOnly) }
+    val tp = async { fetchTinkoffOrderBookQuote(token, tatnpInstrumentId, lotsAbs, dealerOnly) }
     val a = tn.await()
     val b = tp.await()
     if (a == null && b == null) return@coroutineScope null
