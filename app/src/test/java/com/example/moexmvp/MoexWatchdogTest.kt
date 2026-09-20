@@ -21,6 +21,27 @@ class MoexWatchdogTest {
     }
 
     @Test
+    fun otcSpreadPoll_runsOnlyOutsideMoexSessionOncePerMinute() {
+        val now = 100_000L
+        assertFalse(shouldPollTinkoffOtcSpread(sessionOpen = true, nowMs = now, lastPollMs = 0L))
+        assertTrue(shouldPollTinkoffOtcSpread(sessionOpen = false, nowMs = now, lastPollMs = 0L))
+        assertFalse(
+            shouldPollTinkoffOtcSpread(
+                sessionOpen = false,
+                nowMs = now,
+                lastPollMs = now - SIGNAL_MONITOR_OTC_SPREAD_POLL_MS + 1L,
+            ),
+        )
+        assertTrue(
+            shouldPollTinkoffOtcSpread(
+                sessionOpen = false,
+                nowMs = now,
+                lastPollMs = now - SIGNAL_MONITOR_OTC_SPREAD_POLL_MS,
+            ),
+        )
+    }
+
+    @Test
     fun status_notStale_whenMonitorDisabled() {
         val status = MoexWatchdogStatus(
             monitorEnabled = false,

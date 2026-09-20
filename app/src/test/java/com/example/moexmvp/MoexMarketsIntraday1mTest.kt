@@ -257,10 +257,57 @@ class MoexMarketsIntraday1mTest {
     }
 
     @Test
+    fun mergeTinkoffOtcSpreadQuote_updatesOneWeekendMinuteOhlc() {
+        val friday = CandlePoint("2026-09-18 23:49", 4.09, 4.09, 4.09, 4.09)
+        val base = MarketsSpreadWeekSnapshot(
+            spreadCandles = listOf(friday),
+            lastBarMillis = parsePortfolioExecutionTableMsk(friday.label)!!,
+            lastSpreadPercent = friday.close,
+        )
+        val saturday = ZonedDateTime.of(LocalDate.of(2026, 9, 19), LocalTime.of(12, 0, 5), zone)
+        val first = mergeTinkoffOtcSpreadQuote(
+            base,
+            TinkoffOtcSpreadQuote(4.20, 620.0, 595.0, saturday.toInstant().toEpochMilli()),
+            zone,
+        )
+        val second = mergeTinkoffOtcSpreadQuote(
+            first,
+            TinkoffOtcSpreadQuote(
+                4.40,
+                621.0,
+                594.8,
+                saturday.plusSeconds(35).toInstant().toEpochMilli(),
+            ),
+            zone,
+        )
+        assertEquals(2, second.spreadCandles.size)
+        val live = second.spreadCandles.last()
+        assertEquals("2026-09-19 12:00", live.label)
+        assertEquals(4.20, live.open, 1e-9)
+        assertEquals(4.40, live.high, 1e-9)
+        assertEquals(4.20, live.low, 1e-9)
+        assertEquals(4.40, live.close, 1e-9)
+    }
+
+    @Test
+    fun marketsPhoneSpreadStatusSuffix_weekendOtcIsLive() {
+        val saturday = ZonedDateTime.of(LocalDate.of(2026, 9, 19), LocalTime.of(12, 0), zone)
+        assertEquals(
+            " · внебиржа T‑Invest",
+            marketsPhoneSpreadStatusSuffix(
+                lastBarMillis = saturday.minusMinutes(1).toInstant().toEpochMilli(),
+                now = saturday,
+                tinkoffOtc = true,
+            ),
+        )
+    }
+
+    @Test
     fun marketsPhoneSpreadTimeouts_tailFasterThanFullWeek() {
         assertTrue(MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS < MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS)
         assertTrue(MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS <= 8_000L)
         assertTrue(MARKETS_PHONE_CLOSED_IDLE_MS > MARKETS_PHONE_SPREAD_POLL_MS)
+        assertTrue(MARKETS_PHONE_OTC_POLL_MS < MARKETS_PHONE_CLOSED_IDLE_MS)
     }
 
     @Test

@@ -909,4 +909,32 @@ class MoexTradeScreenTest {
         assertTrue(formatCloseNowHeroRub(1234.4).startsWith("+"))
         assertTrue(formatCloseNowHeroRub(-50.2).startsWith("-"))
     }
+
+    @Test
+    fun shareQuoteIndicativePrice_prefersDealerMidThenFallsBack() {
+        assertEquals(
+            620.0,
+            shareQuoteIndicativePrice(ShareQuote(last = 610.0, bid = 619.0, ask = 621.0))!!,
+            1e-9,
+        )
+        assertEquals(610.0, shareQuoteIndicativePrice(ShareQuote(last = 610.0))!!, 1e-9)
+        assertNull(shareQuoteIndicativePrice(ShareQuote()))
+    }
+
+    @Test
+    fun tinkoffOtcSpreadFromPairQuotes_buildsIndicativeWeekendSpread() {
+        val quote = tinkoffOtcSpreadFromPairQuotes(
+            PairQuotes(
+                tatn = ShareQuote(last = 610.0, bid = 619.0, ask = 621.0),
+                tatnp = ShareQuote(last = 590.0, bid = 594.0, ask = 596.0),
+                source = "tinkoff",
+            ),
+            fetchedAtMillis = 123L,
+        )
+        requireNotNull(quote)
+        assertEquals(620.0, quote.tatnPriceRub, 1e-9)
+        assertEquals(595.0, quote.tatnpPriceRub, 1e-9)
+        assertEquals((620.0 / 595.0 - 1.0) * 100.0, quote.spreadPercent, 1e-9)
+        assertEquals(123L, quote.fetchedAtMillis)
+    }
 }
