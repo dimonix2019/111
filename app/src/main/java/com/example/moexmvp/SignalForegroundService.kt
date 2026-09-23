@@ -30,9 +30,16 @@ internal const val SIGNAL_MONITOR_PULSE_MS = 60_000L
 internal const val SIGNAL_MONITOR_OPEN_SESSION_WORK_MS = 60_000L
 internal const val SIGNAL_MONITOR_CLOSED_SESSION_WORK_MS = 15 * 60_000L
 internal const val SIGNAL_MONITOR_1M_FETCH_TIMEOUT_MS = 8_000L
+internal const val SIGNAL_MONITOR_OTC_SPREAD_POLL_MS = 60_000L
 
 internal fun signalMonitorWorkDelayMs(sessionOpen: Boolean): Long =
     if (sessionOpen) SIGNAL_MONITOR_OPEN_SESSION_WORK_MS else SIGNAL_MONITOR_CLOSED_SESSION_WORK_MS
+
+internal fun shouldPollTinkoffOtcSpread(
+    sessionOpen: Boolean,
+    nowMs: Long,
+    lastPollMs: Long,
+): Boolean = !sessionOpen && (lastPollMs <= 0L || nowMs - lastPollMs >= SIGNAL_MONITOR_OTC_SPREAD_POLL_MS)
 
 private val bgSignalFallbackThresholds = DynamicThresholds(
     entry = DEFAULT_DYNAMIC_Z_ENTRY,
@@ -51,6 +58,7 @@ class SignalForegroundService : Service() {
     private var lastForegroundSpreadPercent: Double? = null
     private var lastForegroundDeskShade: WebDeskShadeSnapshot? = null
     private var lastForegroundOpenTrade: SignalMonitorOpenTradeSnapshot? = null
+    private var lastOtcSpreadPollMs = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -139,6 +147,25 @@ class SignalForegroundService : Service() {
                         .onFailure { e ->
                             MoexDiagnostics.logError(applicationContext, "broker_poll", e, "poll failed")
                         }
+                    val now = System.currentTimeMillis()
+                    if (shouldPollTinkoffOtcSpread(
+                            sessionOpen = isMoexQuotesSessionLikelyOpen(),
+                            nowMs = now,
+                            lastPollMs = lastOtcSpreadPollMs,
+                        )
+                    ) {
+                        lastOtcSpreadPollMs = now
+                        runCatching { fetchTinkoffOtcSpreadQuote(applicationContext) }
+                            .onSuccess { quote ->
+                                quote ?: return@onSuccess
+                                lastForegroundSpreadPercent = quote.spreadPercent
+                                maybeNotifySpreadLevelAlerts(applicationContext, quote.spreadPercent)
+                                refreshForegroundNotification()
+                            }
+                            .onFailure { e ->
+                                MoexDiagnostics.logError(applicationContext, "monitor_otc", e, "T-Invest quote")
+                            }
+                    }
                     delay(BROKER_ACCOUNT_POLL_MS)
                 }
             }
