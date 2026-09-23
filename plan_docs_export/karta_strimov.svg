@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="780" viewBox="0 0 1400 780">
+<rect x="0" y="0" width="1400" height="780" rx="0" fill="#f7f8fa"/>
+<text x="40" y="42" text-anchor="start" font-size="26" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Карта стримов</text>
+<text x="40" y="68" text-anchor="start" font-size="14" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">Один лист. Слева — поток работ. Справа — общая цель. Жёлтый — фокус недели.</text>
+<rect x="1080" y="18" width="280" height="56" rx="10" fill="#f4c542"/>
+<text x="1220" y="40" text-anchor="middle" font-size="13" fill="#1a2744" font-family="DejaVu Sans, Arial, sans-serif">Цель проекта</text>
+<text x="1220" y="60" text-anchor="middle" font-size="16" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Опытная эксплуатация</text>
+<rect x="40" y="96" width="1020" height="110" rx="12" fill="#ffffff" stroke="#d8dee8" stroke-width="1"/>
+<rect x="40" y="96" width="168" height="110" rx="12" fill="#0e7c7b"/>
+<rect x="148" y="96" width="60" height="110" rx="0" fill="#0e7c7b"/>
+<text x="124" y="158" text-anchor="middle" font-size="15" fill="#ffffff" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Архитектура</text>
+<rect x="230" y="126" width="190" height="50" rx="8" fill="#e8f6f5" stroke="#0e7c7b" stroke-width="1"/>
+<text x="325" y="156" text-anchor="middle" font-size="14" fill="#0e7c7b" font-family="DejaVu Sans, Arial, sans-serif">Концепт.дизайн</text>
+<rect x="480" y="126" width="190" height="50" rx="8" fill="#e8f6f5" stroke="#0e7c7b" stroke-width="1"/>
+<text x="575" y="156" text-anchor="middle" font-size="14" fill="#0e7c7b" font-family="DejaVu Sans, Arial, sans-serif">Сетевые схемы</text>
+<rect x="730" y="126" width="190" height="50" rx="8" fill="#fff4c4" stroke="#d4a017" stroke-width="2"/>
+<text x="825" y="156" text-anchor="middle" font-size="14" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Сайзинг ★</text>
+<polygon points="430,151 448,151 448,145 468,156 448,167 448,161 430,161" fill="#1a2744"/>
+<polygon points="680,151 698,151 698,145 718,156 698,167 698,161 680,161" fill="#1a2744"/>
+<line x1="930" y1="151" x2="1078" y2="151" stroke="#c9a227" stroke-width="2" stroke-dasharray="6 4"/>
+<rect x="40" y="218" width="1020" height="110" rx="12" fill="#ffffff" stroke="#d8dee8" stroke-width="1"/>
+<rect x="40" y="218" width="168" height="110" rx="12" fill="#2b5aa0"/>
+<rect x="148" y="218" width="60" height="110" rx="0" fill="#2b5aa0"/>
+<text x="124" y="280" text-anchor="middle" font-size="15" fill="#ffffff" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Инфра</text>
+<rect x="230" y="248" width="190" height="50" rx="8" fill="#e8eef8" stroke="#2b5aa0" stroke-width="1"/>
+<text x="325" y="278" text-anchor="middle" font-size="14" fill="#2b5aa0" font-family="DejaVu Sans, Arial, sans-serif">Требования</text>
+<rect x="480" y="248" width="190" height="50" rx="8" fill="#e8eef8" stroke="#2b5aa0" stroke-width="1"/>
+<text x="575" y="278" text-anchor="middle" font-size="14" fill="#2b5aa0" font-family="DejaVu Sans, Arial, sans-serif">Контур / стенд</text>
+<rect x="730" y="248" width="190" height="50" rx="8" fill="#e8eef8" stroke="#2b5aa0" stroke-width="1"/>
+<text x="825" y="278" text-anchor="middle" font-size="14" fill="#2b5aa0" font-family="DejaVu Sans, Arial, sans-serif">Готовность к ОЭ</text>
+<polygon points="430,273 448,273 448,267 468,278 448,289 448,283 430,283" fill="#1a2744"/>
+<polygon points="680,273 698,273 698,267 718,278 698,289 698,283 680,283" fill="#1a2744"/>
+<line x1="930" y1="273" x2="1078" y2="273" stroke="#c9a227" stroke-width="2" stroke-dasharray="6 4"/>
+<rect x="40" y="340" width="1020" height="110" rx="12" fill="#ffffff" stroke="#d8dee8" stroke-width="1"/>
+<rect x="40" y="340" width="168" height="110" rx="12" fill="#b42318"/>
+<rect x="148" y="340" width="60" height="110" rx="0" fill="#b42318"/>
+<text x="124" y="402" text-anchor="middle" font-size="15" fill="#ffffff" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">ИБ</text>
+<rect x="230" y="370" width="190" height="50" rx="8" fill="#fdecea" stroke="#b42318" stroke-width="1"/>
+<text x="325" y="400" text-anchor="middle" font-size="14" fill="#b42318" font-family="DejaVu Sans, Arial, sans-serif">Задачи ИБ</text>
+<rect x="480" y="370" width="190" height="50" rx="8" fill="#fff4c4" stroke="#d4a017" stroke-width="2"/>
+<text x="575" y="400" text-anchor="middle" font-size="14" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Статусы ИБ ★</text>
+<rect x="730" y="370" width="190" height="50" rx="8" fill="#fdecea" stroke="#b42318" stroke-width="1"/>
+<text x="825" y="400" text-anchor="middle" font-size="14" fill="#b42318" font-family="DejaVu Sans, Arial, sans-serif">Допуск в ОЭ</text>
+<polygon points="430,395 448,395 448,389 468,400 448,411 448,405 430,405" fill="#1a2744"/>
+<polygon points="680,395 698,395 698,389 718,400 698,411 698,405 680,405" fill="#1a2744"/>
+<line x1="930" y1="395" x2="1078" y2="395" stroke="#c9a227" stroke-width="2" stroke-dasharray="6 4"/>
+<rect x="40" y="462" width="1020" height="90" rx="12" fill="#ffffff" stroke="#d8dee8" stroke-width="1"/>
+<rect x="40" y="462" width="168" height="90" rx="12" fill="#2f7d32"/>
+<rect x="148" y="462" width="60" height="90" rx="0" fill="#2f7d32"/>
+<text x="124" y="500" text-anchor="middle" font-size="14" fill="#ffffff" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Качество</text>
+<text x="124" y="520" text-anchor="middle" font-size="14" fill="#ffffff" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">данных</text>
+<rect x="230" y="482" width="280" height="50" rx="8" fill="#eaf6ea" stroke="#2f7d32" stroke-width="1"/>
+<text x="370" y="512" text-anchor="middle" font-size="14" fill="#2f7d32" font-family="DejaVu Sans, Arial, sans-serif">Проверки → исправления</text>
+<rect x="530" y="482" width="390" height="50" rx="8" fill="#f3f5f8" stroke="#d8dee8" stroke-width="1"/>
+<text x="725" y="512" text-anchor="middle" font-size="13" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">на карте только если блокирует ОЭ</text>
+<rect x="40" y="564" width="1020" height="90" rx="12" fill="#ffffff" stroke="#d8dee8" stroke-width="1"/>
+<rect x="40" y="564" width="168" height="90" rx="12" fill="#5b6578"/>
+<rect x="148" y="564" width="60" height="90" rx="0" fill="#5b6578"/>
+<text x="124" y="602" text-anchor="middle" font-size="14" fill="#ffffff" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Обще-</text>
+<text x="124" y="622" text-anchor="middle" font-size="14" fill="#ffffff" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">проектные</text>
+<rect x="230" y="584" width="690" height="50" rx="8" fill="#f3f5f8" stroke="#9aa3b2" stroke-width="1"/>
+<text x="575" y="614" text-anchor="middle" font-size="13" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">Финансы · Ресурсы · План · Обучение · Закупки · Scope · Отчётность · Регламенты</text>
+<rect x="1080" y="96" width="280" height="558" rx="12" fill="#fff8dc" stroke="#f4c542" stroke-width="2"/>
+<text x="1220" y="140" text-anchor="middle" font-size="18" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">ОЭ</text>
+<text x="1220" y="168" text-anchor="middle" font-size="13" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">сюда сходятся</text>
+<text x="1220" y="186" text-anchor="middle" font-size="13" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">критичные стримы</text>
+<rect x="1110" y="220" width="220" height="70" rx="8" fill="#ffffff" stroke="#d4a017" stroke-width="1"/>
+<text x="1220" y="250" text-anchor="middle" font-size="13" fill="#1a2744" font-family="DejaVu Sans, Arial, sans-serif">Вехи / КТ проекта</text>
+<text x="1220" y="270" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">даты на этой колонке</text>
+<rect x="1110" y="310" width="220" height="90" rx="8" fill="#ffffff" stroke="#d8dee8" stroke-width="1"/>
+<text x="1220" y="340" text-anchor="middle" font-size="13" fill="#1a2744" font-family="DejaVu Sans, Arial, sans-serif">Пакет в ОЭ</text>
+<text x="1220" y="360" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">арх + инфра + ИБ</text>
+<text x="1220" y="378" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">+ качество данных</text>
+<text x="1220" y="470" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">Общепроектные</text>
+<text x="1220" y="488" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">не рисуем 8 веток —</text>
+<text x="1220" y="506" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">только если есть</text>
+<text x="1220" y="524" text-anchor="middle" font-size="12" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">ваш срок / дэйли</text>
+<line x1="325" y1="176" x2="325" y2="248" stroke="#2b5aa0" stroke-width="1.5" stroke-dasharray="6 4"/>
+<line x1="575" y1="176" x2="575" y2="248" stroke="#0e7c7b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<line x1="825" y1="176" x2="825" y2="248" stroke="#0e7c7b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<line x1="325" y1="298" x2="325" y2="370" stroke="#b42318" stroke-width="1.5" stroke-dasharray="6 4"/>
+<rect x="40" y="672" width="1320" height="84" rx="10" fill="#ffffff" stroke="#d8dee8" stroke-width="1"/>
+<text x="60" y="702" text-anchor="start" font-size="13" fill="#1a2744" font-weight="700" font-family="DejaVu Sans, Arial, sans-serif">Как читать</text>
+<text x="60" y="726" text-anchor="start" font-size="13" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">стрелка — последовательность внутри стрима</text>
+<text x="420" y="726" text-anchor="start" font-size="13" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">пунктир — зависимость между стримами / к ОЭ</text>
+<text x="860" y="726" text-anchor="start" font-size="13" fill="#3b4454" font-family="DejaVu Sans, Arial, sans-serif">жёлтый блок — фокус этой недели</text>
+<text x="60" y="748" text-anchor="start" font-size="13" fill="#5b6578" font-family="DejaVu Sans, Arial, sans-serif">На карте нет почты, чата, протоколов и папок — они живут в реестре как «источник» у задачи.</text>
+</svg>
