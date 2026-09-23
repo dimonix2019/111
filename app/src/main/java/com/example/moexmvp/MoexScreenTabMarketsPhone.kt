@@ -33,7 +33,7 @@ import java.time.LocalDateTime
 import java.util.Locale
 
 internal const val MARKETS_PHONE_SPREAD_POLL_MS = 30_000L
-internal const val MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS = 20_000L
+internal const val MARKETS_PHONE_SPREAD_WEEK_TIMEOUT_MS = 30_000L
 internal const val MARKETS_PHONE_SPREAD_TAIL_TIMEOUT_MS = 8_000L
 /** После первой загрузки на выходных не дёргаем ISS каждые 30 с. */
 internal const val MARKETS_PHONE_CLOSED_IDLE_MS = 5L * 60_000L
@@ -206,8 +206,8 @@ internal fun MoexScreenTabMarketsPhone(
     }
 
     val markerPoints = remember(candles) { spreadCandlesToMarkerPoints(candles) }
-    val weekStartMs = remember {
-        currentWeekMondayMsk().atStartOfDay(moexZoneId).toInstant().toEpochMilli()
+    val historyStartMs = remember {
+        marketsPhoneHistoryStartMsk().atStartOfDay(moexZoneId).toInstant().toEpochMilli()
     }
     val chartState by produceState(
         initialValue = MarketsPhoneChartState(
@@ -240,23 +240,23 @@ internal fun MoexScreenTabMarketsPhone(
                 leverage = screen.portfolioLeverage,
                 commissionPercentPerSide = screen.portfolioCommissionPercent,
             )
-            val weekOpens = opens.filter {
-                it.barTimestampMillis >= weekStartMs ||
-                    (parsePortfolioExecutionTableMsk(it.entryTimeMsk) ?: 0L) >= weekStartMs
+            val historyOpens = opens.filter {
+                it.barTimestampMillis >= historyStartMs ||
+                    (parsePortfolioExecutionTableMsk(it.entryTimeMsk) ?: 0L) >= historyStartMs
             }
-            val weekClosed = closed.filter { row ->
+            val historyClosed = closed.filter { row ->
                 val entryMs = parsePortfolioExecutionTableMsk(row.entryTimeMsk) ?: 0L
                 val exitMs = parsePortfolioExecutionTableMsk(row.exitTimeMsk) ?: 0L
-                entryMs >= weekStartMs || exitMs >= weekStartMs
+                entryMs >= historyStartMs || exitMs >= historyStartMs
             }
             val spreadMarkers = zScoreChartMarkersFromPortfolioTrades(
                 markerPoints,
-                weekOpens,
-                weekClosed,
+                historyOpens,
+                historyClosed,
             ).map { marker ->
                 marker.copy(value = markerPoints.getOrNull(marker.index)?.zScore ?: marker.value)
             }
-            val openExec = weekOpens.firstOrNull {
+            val openExec = historyOpens.firstOrNull {
                 it.signalType == StrategySignalType.EnterLong ||
                     it.signalType == StrategySignalType.EnterShort
             }
@@ -264,11 +264,11 @@ internal fun MoexScreenTabMarketsPhone(
                 overlay = ZChartPortfolioOverlay(
                     markers = spreadMarkers,
                     tradeSegments = remapTradingViewTradeSegmentsToDisplayValues(
-                        buildTradingViewTradeSegments(weekOpens, weekClosed, markerPoints),
+                        buildTradingViewTradeSegments(historyOpens, historyClosed, markerPoints),
                         markerPoints,
                     ),
                 ),
-                openSide = resolveMarketsSpreadChartOpenSide(weekOpens, brokerSide),
+                openSide = resolveMarketsSpreadChartOpenSide(historyOpens, brokerSide),
                 openEntrySpread = openExec?.entrySpreadPercent,
                 openDepositRub = openExec?.entryPortfolioTotalRub?.takeIf { it > 0 }
                     ?: openExec?.entryPortfolioCashRub?.takeIf { it > 0 },
@@ -334,7 +334,7 @@ internal fun MoexScreenTabMarketsPhone(
 
         if (candles.isNotEmpty()) {
             TradingViewZScoreChartCard(
-                title = "Спред TATN/TATNP, % · 1м · неделя · " +
+                title = "Спред TATN/TATNP, % · 1м · 14 дней · " +
                     if (tinkoffOtcLive) "T‑Invest внебиржа" else "MOEX",
                 showOhlcLegend = true,
                 spreadChart = true,
@@ -350,7 +350,7 @@ internal fun MoexScreenTabMarketsPhone(
             )
         } else if (!loading) {
             Text(
-                "Нет 1м баров TATN/TATNP за эту неделю.",
+                "Нет 1м баров TATN/TATNP за последние 14 дней.",
                 color = Color(0xFF9E9E9E),
                 fontSize = 12.sp,
             )
@@ -358,7 +358,7 @@ internal fun MoexScreenTabMarketsPhone(
 
         Text(
             text = "Pinch — масштаб, drag — панорамирование, шкала справа — масштаб цены. " +
-                "Маркеры — входы/выходы сделок за неделю. В сессию — MOEX ~30 с; " +
+                "Маркеры — входы/выходы сделок за 14 дней. В сессию — MOEX ~30 с; " +
                 "вне сессии — индикативная середина дилерского стакана T‑Invest ~15 с.",
             color = Color(0xFF757575),
             fontSize = 11.sp,

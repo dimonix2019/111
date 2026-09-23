@@ -311,6 +311,14 @@ class MoexMarketsIntraday1mTest {
     }
 
     @Test
+    fun marketsPhoneHistoryStart_isRollingFourteenCalendarDays() {
+        val today = LocalDate.of(2026, 9, 23)
+        val start = marketsPhoneHistoryStartMsk(today)
+        assertEquals(LocalDate.of(2026, 9, 10), start)
+        assertEquals(MARKETS_PHONE_HISTORY_DAYS, java.time.temporal.ChronoUnit.DAYS.between(start, today) + 1L)
+    }
+
+    @Test
     fun rethrowIfCancelled_rethrowsCancellationAndPassesOther() {
         val cancel = CancellationException("The coroutine scope left the composition")
         try {
