@@ -24,6 +24,10 @@ internal const val FORMING_10M_MAX_AGE_MINUTES = 15L
 
 /** Возраст последнего бара, после которого в шапке пишем «без сделок N мин». */
 internal const val MARKETS_PHONE_STALE_PRINT_MINUTES = 15L
+/** Внебиржевая котировка должна обновляться чаще; после этого явно показываем возраст. */
+internal const val MARKETS_OTC_STALE_WARN_MINUTES = 3L
+/** Скользящее окно телефонного 1м графика: текущий день и 13 предыдущих. */
+internal const val MARKETS_PHONE_HISTORY_DAYS = 14L
 
 /** Не спамить предупреждением чаще раза в 5 минут. */
 private const val QUOTES_STALE_WARN_THROTTLE_MS = 5L * 60L * 1000L
@@ -96,11 +100,9 @@ internal fun candleBarsToWeekCandlePoints(bars: List<CandleBar>): List<CandlePoi
         )
     }
 
-/** Понедельник текущей календарной недели (МСК). */
-internal fun currentWeekMondayMsk(now: LocalDate = LocalDate.now(moexZoneId)): LocalDate {
-    val dow = now.dayOfWeek.value // Mon=1 … Sun=7
-    return now.minusDays((dow - 1).toLong())
-}
+internal fun marketsPhoneHistoryStartMsk(
+    today: LocalDate = LocalDate.now(moexZoneId),
+): LocalDate = today.minusDays(MARKETS_PHONE_HISTORY_DAYS - 1L)
 
 /** Все цены ноги > 0 и конечны (иначе спред из дыры/нуля даёт шип). */
 internal fun legBarPricesValid(bar: CandleBar): Boolean =
@@ -217,10 +219,10 @@ internal suspend fun fetchMarketsSpreadRange(
     }
 }
 
-/** 1м TATN/TATNP с понедельника недели до завтра (МСК) → свечи спреда %. */
+/** 1м TATN/TATNP за последние 14 календарных дней до завтра (МСК). */
 internal suspend fun fetchMarketsIntraday1mWeek(): MarketsSpreadWeekSnapshot {
     val today = LocalDate.now(moexZoneId)
-    return fetchMarketsSpreadRange(currentWeekMondayMsk(today), today.plusDays(1))
+    return fetchMarketsSpreadRange(marketsPhoneHistoryStartMsk(today), today.plusDays(1))
 }
 
 /** Хвост за сегодня (+10м со вчера) — для опроса без повторной загрузки всей недели. */
@@ -229,7 +231,7 @@ internal suspend fun fetchMarketsIntraday1mWeekTail(): MarketsSpreadWeekSnapshot
     return fetchMarketsSpreadRange(today, today.plusDays(1))
 }
 
-/** Подмешать свежий хвост в недельный снимок (новые/обновлённые метки перезаписывают старые). */
+/** Подмешать свежий хвост в 14-дневный снимок (новые/обновлённые метки перезаписывают старые). */
 internal fun mergeSpreadWeekSnapshots(
     cached: MarketsSpreadWeekSnapshot,
     tail: MarketsSpreadWeekSnapshot,
@@ -255,14 +257,60 @@ internal fun mergeSpreadWeekSnapshots(
 internal fun lastSpreadCandleMillis(candles: List<CandlePoint>): Long =
     candles.lastOrNull()?.let { parsePortfolioExecutionTableMsk(it.label) } ?: 0L
 
+/** Добавляет/обновляет текущую минуту по read-only дилерскому стакану T‑Invest. */
+internal fun mergeTinkoffOtcSpreadQuote(
+    cached: MarketsSpreadWeekSnapshot,
+    quote: TinkoffOtcSpreadQuote,
+    zone: ZoneId = moexZoneId,
+): MarketsSpreadWeekSnapshot {
+    val minute = Instant.ofEpochMilli(quote.fetchedAtMillis)
+        .atZone(zone)
+        .withSecond(0)
+        .withNano(0)
+    val label = minute.toLocalDateTime().format(portfolio15mLabelFormatter)
+    val existing = cached.spreadCandles.lastOrNull()?.takeIf { it.label == label }
+    val candle = if (existing == null) {
+        CandlePoint(
+            label = label,
+            open = quote.spreadPercent,
+            high = quote.spreadPercent,
+            low = quote.spreadPercent,
+            close = quote.spreadPercent,
+        )
+    } else {
+        existing.copy(
+            high = maxOf(existing.high, quote.spreadPercent),
+            low = minOf(existing.low, quote.spreadPercent),
+            close = quote.spreadPercent,
+        )
+    }
+    return mergeSpreadWeekSnapshots(
+        cached,
+        MarketsSpreadWeekSnapshot(
+            spreadCandles = listOf(candle),
+            lastBarMillis = minute.toInstant().toEpochMilli(),
+            lastSpreadPercent = quote.spreadPercent,
+            fetchedAtMillis = quote.fetchedAtMillis,
+        ),
+    )
+}
+
 /** Подпись в шапке «Рынок»: не маскируем простой выходных тикающей «текущей минутой». */
 internal fun marketsPhoneSpreadStatusSuffix(
     lastBarMillis: Long,
     now: ZonedDateTime = ZonedDateTime.now(moexZoneId),
+    tinkoffOtc: Boolean = false,
 ): String {
     if (lastBarMillis <= 0L) return ""
-    if (!isMoexQuotesSessionLikelyOpen(now)) return " · биржа закрыта"
     val age = intraday1mLastBarAgeMinutes(lastBarMillis, now.toInstant().toEpochMilli()) ?: return ""
+    if (tinkoffOtc) {
+        return if (age >= MARKETS_OTC_STALE_WARN_MINUTES) {
+            " · внебиржа T‑Invest · котировка $age мин назад"
+        } else {
+            " · внебиржа T‑Invest"
+        }
+    }
+    if (!isMoexQuotesSessionLikelyOpen(now)) return " · биржа закрыта"
     return if (age >= MARKETS_PHONE_STALE_PRINT_MINUTES) " · без сделок $age мин" else ""
 }
 

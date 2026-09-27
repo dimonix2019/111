@@ -82,7 +82,13 @@ internal object BrokerAccountPrefs {
     }
 
     fun markTakeProfitFired(context: Context, fingerprint: String) {
-        prefs(context).edit().putString(KEY_TP_FIRED_FP, fingerprint).apply()
+        // Должно пережить смерть процесса до отправки рыночных заявок.
+        prefs(context).edit().putString(KEY_TP_FIRED_FP, fingerprint).commit()
+    }
+
+    fun clearTakeProfitFired(context: Context, fingerprint: String) {
+        if (takeProfitFiredFingerprint(context) != fingerprint) return
+        prefs(context).edit().putString(KEY_TP_FIRED_FP, "").commit()
     }
 
     fun clearTakeProfitAtOpen(context: Context) {

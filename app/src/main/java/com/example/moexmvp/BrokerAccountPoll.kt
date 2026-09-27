@@ -1,7 +1,12 @@
 package com.example.moexmvp
 
 import android.content.Context
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
 import java.util.Locale
+import kotlin.math.abs
 
 internal const val BROKER_ACCOUNT_POLL_MS = 15_000L
 /** Опрос вкладки «Сделка» (PnL / портфель), только когда вкладка открыта. */
@@ -11,6 +16,7 @@ internal const val TRADE_SCREEN_LOAD_TIMEOUT_MS = 8_000L
 private const val BROKER_PUSH_BASE_ID = 43_100
 internal const val BROKER_PROFIT_ALERT_PCT_2 = 2.0
 internal const val BROKER_PROFIT_ALERT_PCT_3 = 3.0
+private val takeProfitFlattenMutex = Mutex()
 
 /**
  * Опрос портфеля T‑Invest (~15 с): push при открытии/закрытии пары
@@ -161,7 +167,7 @@ internal suspend fun pollBrokerAccountAndNotify(context: Context) {
 
     if (snap.side != ZStrategyPosition.Flat) {
         notifyBrokerProfitThresholds(app, snap)
-        maybeFlattenOnTakeProfit(app, snap)
+        maybeFlattenOnTakeProfit(app, snap, portfolio, token, accountId)
     }
 }
 
@@ -210,18 +216,48 @@ private fun notifyBrokerProfitThresholds(app: Context, snap: BrokerSpreadPositio
     maybeAlert(BROKER_PROFIT_ALERT_PCT_3, markPct = 3, nid = 4)
 }
 
-private suspend fun maybeFlattenOnTakeProfit(app: Context, snap: BrokerSpreadPositionSnap) {
+internal fun shouldCheckExecutableTakeProfit(
+    grossExpectedYieldRub: Double?,
+    depositRub: Double,
+    takeProfitPct: Double,
+): Boolean = shouldFireTakeProfit(grossExpectedYieldRub, depositRub, takeProfitPct)
+
+internal fun shouldFireExecutableTakeProfit(
+    closeNowNetRub: Double?,
+    depositRub: Double,
+    takeProfitPct: Double,
+): Boolean = shouldFireTakeProfit(closeNowNetRub, depositRub, takeProfitPct)
+
+private suspend fun maybeFlattenOnTakeProfit(
+    app: Context,
+    snap: BrokerSpreadPositionSnap,
+    portfolio: JSONObject,
+    token: String,
+    accountId: String,
+) {
     val tp = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(app)
     val deposit = BrokerAccountPrefs.equityAtOpenRub(app).takeIf { it > 0 }
         ?: snap.portfolioTotalRub?.takeIf { it > 0 }
         ?: return
-    if (!shouldFireTakeProfit(snap.expectedYieldRub, deposit, tp)) return
-    val fp = "${snap.fingerprint}|tp=$tp"
-    val already = BrokerAccountPrefs.takeProfitFiredFingerprint(app) == fp
-    if (!already) {
+    // GetPortfolio expectedYield — дешёвый gross gate. Стаканы читаем только около цели.
+    if (!shouldCheckExecutableTakeProfit(snap.expectedYieldRub, deposit, tp)) return
+
+    takeProfitFlattenMutex.withLock {
+        val fp = "${snap.fingerprint}|tp=$tp"
+        if (BrokerAccountPrefs.takeProfitFiredFingerprint(app) == fp) return@withLock
+        val closeNow = loadTakeProfitCloseNowConfirmation(
+            app = app,
+            snap = snap,
+            portfolio = portfolio,
+            token = token,
+            accountId = accountId,
+            depositRub = deposit,
+        ) ?: return@withLock
+        if (!shouldFireExecutableTakeProfit(closeNow.netRub, deposit, tp)) return@withLock
+
         BrokerAccountPrefs.markTakeProfitFired(app, fp)
-        val yield = snap.expectedYieldRub ?: 0.0
-        val pct = if (deposit > 0) (yield / deposit) * 100.0 else 0.0
+        val net = closeNow.netRub
+        val pct = if (deposit > 0) (net / deposit) * 100.0 else 0.0
         val sideRu = when (snap.side) {
             ZStrategyPosition.Long -> "Long"
             ZStrategyPosition.Short -> "Short"
@@ -234,7 +270,7 @@ private suspend fun maybeFlattenOnTakeProfit(app: Context, snap: BrokerSpreadPos
                 Locale.US,
                 "%s · %+.0f ₽ (%+.1f%% от вложения %.0f ₽)",
                 sideRu,
-                yield,
+                net,
                 pct,
                 deposit,
             ),
@@ -242,11 +278,58 @@ private suspend fun maybeFlattenOnTakeProfit(app: Context, snap: BrokerSpreadPos
             skipDuplicateCheck = true,
             correlationTag = "broker_tp_$fp",
         )
+        val result = runEmergencyFlattenFromTradeTab(app)
+        result.onSuccess { msg ->
+            MoexDiagnostics.log(
+                app,
+                "broker_poll",
+                "take_profit flatten ok tp=$tp net=${String.format(Locale.US, "%.2f", net)} $msg",
+            )
+        }.onFailure { e ->
+            BrokerAccountPrefs.clearTakeProfitFired(app, fp)
+            MoexDiagnostics.logError(app, "broker_poll", e, "take_profit flatten tp=$tp")
+        }
     }
-    val result = runEmergencyFlattenFromTradeTab(app)
-    result.onSuccess { msg ->
-        MoexDiagnostics.log(app, "broker_poll", "take_profit flatten ok tp=$tp $msg")
-    }.onFailure { e ->
-        MoexDiagnostics.logError(app, "broker_poll", e, "take_profit flatten tp=$tp")
+}
+
+private suspend fun loadTakeProfitCloseNowConfirmation(
+    app: Context,
+    snap: BrokerSpreadPositionSnap,
+    portfolio: JSONObject,
+    token: String,
+    accountId: String,
+    depositRub: Double,
+): CloseNowPnl? {
+    val avg = parseSpreadLegAveragePrices(portfolio)
+    val exec = TinkoffSandboxSpreadExecLog.loadRecent(app)
+        .lastOrNull { openExecMatchesBrokerSide(it, snap.side) }
+    val entryTimeMsk = resolveSpreadEntryTimeMsk(
+        context = app,
+        side = snap.side,
+        token = token,
+        accountId = accountId,
+        exec = exec,
+    )?.first
+    val lotsAbs = maxOf(abs(snap.tatnLots), abs(snap.tatnpLots)).toDouble()
+        .coerceAtLeast(1.0)
+    val quotes = withTimeoutOrNull(CLOSE_NOW_BOOK_FETCH_MS) {
+        fetchTinkoffPairQuotesForClose(
+            token = token,
+            tatnInstrumentId = TINKOFF_MOEX_TATN_FIGI,
+            tatnpInstrumentId = TINKOFF_MOEX_TATNP_FIGI,
+            lotsAbs = lotsAbs,
+        )
     }
+    return computeCloseNowPnl(
+        tatnLots = snap.tatnLots,
+        tatnpLots = snap.tatnpLots,
+        fillTatnRub = avg.tatnAvgPriceRub,
+        fillTatnpRub = avg.tatnpAvgPriceRub,
+        quotes = quotes,
+        fallbackTatnLast = snap.tatnPriceRub,
+        fallbackTatnpLast = snap.tatnpPriceRub,
+        depositRub = depositRub,
+        cashRub = parsePortfolioCashRubDouble(portfolio),
+        entryTimeMsk = entryTimeMsk,
+    )
 }
