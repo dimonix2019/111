@@ -13,38 +13,22 @@ internal const val PROD_COMMISSION_PCT_PER_SIDE = 0.04
 
 /** Прогноз чистой прибыли при выходе по Take Profit. */
 internal data class TakeProfitForecast(
+    /** Уровень для графика: текущий indicative spread + требуемое изменение executable spread. */
     val exitSpreadPercent: Double,
+    val executableExitSpreadPercent: Double,
+    val entrySpreadPercent: Double,
+    val targetTatnRub: Double,
+    val targetTatnpRub: Double,
     val netPnlRub: Double,
     val pnlPercentFromDeposit: Double,
     val depositRub: Double,
+    val entryCommissionRub: Double,
+    val exitCommissionRub: Double,
+    val overnightShortRub: Double,
+    val overnightMarginLoanRub: Double,
+    val overnightDays: Long,
     val takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
 )
-
-/**
- * Спред-цель ТП: net ≈ deposit×tp% после комиссии выхода и overnight.
- * Long: entry + Δп.п.; Short: entry − Δп.п.
- */
-internal fun takeProfitExitSpread(
-    side: ZStrategyPosition,
-    entrySpreadPercent: Double,
-    depositRub: Double,
-    effNotionalRub: Double,
-    takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
-    exitCommissionRub: Double = 0.0,
-    overnightRub: Double = 0.0,
-): Double? {
-    if (side == ZStrategyPosition.Flat) return null
-    if (!entrySpreadPercent.isFinite() || !(effNotionalRub > 0)) return null
-    val tp = takeProfitPct.takeIf { it > 0 } ?: return null
-    val dep = max(0.0, depositRub)
-    val needGross = dep * (tp / 100.0) + exitCommissionRub + overnightRub
-    val deltaPp = needGross / effNotionalRub * 100.0
-    return when (side) {
-        ZStrategyPosition.Long -> entrySpreadPercent + deltaPp
-        ZStrategyPosition.Short -> entrySpreadPercent - deltaPp
-        ZStrategyPosition.Flat -> null
-    }
-}
 
 /** Стоимость короткой ноги — база непокрытой позиции (parity overnight_fee.py). */
 internal fun shortLegUncoveredRub(
@@ -90,58 +74,131 @@ internal fun overnightFeePerDayRub(uncoveredRub: Double): Double {
 
 internal fun computeTakeProfitForecast(
     side: ZStrategyPosition,
-    entrySpreadPercent: Double?,
     depositRub: Double?,
-    notionalRub: Double?,
-    lots: Int,
+    cashRub: Double?,
+    tatnLots: Int,
+    tatnpLots: Int,
     fillTatnRub: Double?,
     fillTatnpRub: Double?,
+    closeTatnRub: Double?,
+    closeTatnpRub: Double?,
+    currentReferenceSpreadPercent: Double?,
     entryTimeMsk: String?,
     takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
+    nowMillis: Long = System.currentTimeMillis(),
 ): TakeProfitForecast? {
     if (side == ZStrategyPosition.Flat) return null
-    val entry = entrySpreadPercent?.takeIf { it.isFinite() } ?: return null
+    if (side == ZStrategyPosition.Long && (tatnLots <= 0 || tatnpLots >= 0)) return null
+    if (side == ZStrategyPosition.Short && (tatnLots >= 0 || tatnpLots <= 0)) return null
+    val fillTatn = fillTatnRub?.takeIf { it > 0.0 && it.isFinite() } ?: return null
+    val fillTatnp = fillTatnpRub?.takeIf { it > 0.0 && it.isFinite() } ?: return null
     val deposit = depositRub?.takeIf { it > 0 } ?: return null
-    val eff = notionalRub?.takeIf { it > 0 }
-        ?: deposit * SPREAD_LOT_PROD_DEFAULT_LEVERAGE
-    if (!(eff > 0)) return null
-
-    val exitComm = eff * (PROD_COMMISSION_PCT_PER_SIDE / 100.0)
-    val uncovered = shortLegUncoveredRub(side, lots, fillTatnRub, fillTatnpRub, eff)
-    val ovnPerDay = overnightFeePerDayRub(uncovered)
+    val tp = takeProfitPct.takeIf { it.isFinite() && it > 0.0 } ?: return null
+    val anchorTatnp = closeTatnpRub?.takeIf { it > 0.0 && it.isFinite() } ?: fillTatnp
+    val currentTatn = closeTatnRub?.takeIf { it > 0.0 && it.isFinite() } ?: fillTatn
+    val entrySpread = spreadPercentFromLegPrices(fillTatn, fillTatnp) ?: return null
+    val currentExecutableSpread = spreadPercentFromLegPrices(currentTatn, anchorTatnp) ?: return null
+    val entryNotional = pairNotionalFromPrices(tatnLots, fillTatn, tatnpLots, fillTatnp)
+    val entryCommission = premiumCommissionRub(entryNotional)
     val ovnDays = entryTimeMsk?.let { entryLabel ->
-        val end = formatPortfolioExecutionTableMsk(System.currentTimeMillis())
+        val end = formatPortfolioExecutionTableMsk(nowMillis)
         overnightDays(
             portfolioDateLabelFromMskTableTime(entryLabel),
             portfolioDateLabelFromMskTableTime(end),
         )
     } ?: 0L
-    val overnightRub = ovnPerDay * ovnDays
+    val overnightLoan = borrowedCashOvernightRub(cashRub, ovnDays)
+    val targetNet = deposit * (tp / 100.0)
 
-    val exitSpread = takeProfitExitSpread(
-        side = side,
-        entrySpreadPercent = entry,
-        depositRub = deposit,
-        effNotionalRub = eff,
-        takeProfitPct = takeProfitPct,
-        exitCommissionRub = exitComm,
-        overnightRub = overnightRub,
-    ) ?: return null
+    data class TargetResult(
+        val spread: Double,
+        val tatn: Double,
+        val tatnp: Double,
+        val net: Double,
+        val exitCommission: Double,
+        val overnightShort: Double,
+    )
 
-    val pnlPts = when (side) {
-        ZStrategyPosition.Long -> exitSpread - entry
-        ZStrategyPosition.Short -> entry - exitSpread
-        ZStrategyPosition.Flat -> return null
+    fun resultAt(spread: Double): TargetResult {
+        val targetTatnp = anchorTatnp
+        val targetTatn = targetTatnp * (1.0 + spread / 100.0)
+        val gross = signedLegsUnrealizedRub(
+            tatnLots = tatnLots,
+            tatnpLots = tatnpLots,
+            fillTatn = fillTatn,
+            fillTatnp = fillTatnp,
+            nowTatn = targetTatn,
+            nowTatnp = targetTatnp,
+        ) ?: Double.NaN
+        val exitNotional = pairNotionalFromPrices(tatnLots, targetTatn, tatnpLots, targetTatnp)
+        val exitCommission = premiumCommissionRub(exitNotional)
+        val uncovered = shortUncoveredNowRub(
+            tatnLots = tatnLots,
+            tatnpLots = tatnpLots,
+            closeTatn = targetTatn,
+            closeTatnp = targetTatnp,
+            fillTatn = fillTatn,
+            fillTatnp = fillTatnp,
+        )
+        val overnightShort = overnightFeePerDayRub(uncovered) * ovnDays
+        return TargetResult(
+            spread = spread,
+            tatn = targetTatn,
+            tatnp = targetTatnp,
+            net = gross - entryCommission - exitCommission - overnightShort - overnightLoan,
+            exitCommission = exitCommission,
+            overnightShort = overnightShort,
+        )
     }
-    val gross = spreadPnlToRubApprox(pnlPts, eff)
-    val net = gross - exitComm - overnightRub
-    val pct = (net / deposit) * 100.0
+
+    var nearSpread = currentExecutableSpread
+    var near = resultAt(nearSpread)
+    if (!near.net.isFinite()) return null
+    var farSpread = nearSpread
+    var far = near
+    if (near.net < targetNet) {
+        var steps = 0
+        while (far.net < targetNet && steps < 800) {
+            farSpread += if (side == ZStrategyPosition.Long) 0.25 else -0.25
+            if (farSpread <= -99.0 || farSpread >= 200.0) return null
+            far = resultAt(farSpread)
+            steps++
+        }
+        if (far.net < targetNet) return null
+    }
+
+    var low = minOf(nearSpread, farSpread)
+    var high = maxOf(nearSpread, farSpread)
+    repeat(80) {
+        val mid = (low + high) / 2.0
+        val value = resultAt(mid).net
+        if (side == ZStrategyPosition.Long) {
+            if (value < targetNet) low = mid else high = mid
+        } else {
+            if (value >= targetNet) low = mid else high = mid
+        }
+    }
+    val targetSpread = if (side == ZStrategyPosition.Long) high else low
+    val solved = resultAt(targetSpread)
+    val referenceNow = currentReferenceSpreadPercent?.takeIf { it.isFinite() }
+        ?: currentExecutableSpread
+    val chartSpread = referenceNow + (solved.spread - currentExecutableSpread)
+    val pct = (solved.net / deposit) * 100.0
     return TakeProfitForecast(
-        exitSpreadPercent = exitSpread,
-        netPnlRub = net,
+        exitSpreadPercent = chartSpread,
+        executableExitSpreadPercent = solved.spread,
+        entrySpreadPercent = entrySpread,
+        targetTatnRub = solved.tatn,
+        targetTatnpRub = solved.tatnp,
+        netPnlRub = solved.net,
         pnlPercentFromDeposit = pct,
         depositRub = deposit,
-        takeProfitPct = takeProfitPct,
+        entryCommissionRub = entryCommission,
+        exitCommissionRub = solved.exitCommission,
+        overnightShortRub = solved.overnightShort,
+        overnightMarginLoanRub = overnightLoan,
+        overnightDays = ovnDays,
+        takeProfitPct = tp,
     )
 }
 
@@ -238,12 +295,16 @@ internal fun shouldFireTakeProfit(
 }
 
 internal fun formatTakeProfitForecastLine(forecast: TakeProfitForecast): String {
-    val spreadTxt = String.format(Locale.US, "%.1f", forecast.exitSpreadPercent)
+    val spreadTxt = String.format(Locale.US, "%.2f", forecast.exitSpreadPercent)
         .replace('.', ',') + "%"
     val pnlRound = kotlin.math.round(forecast.netPnlRub).toDouble()
     val dep = kotlin.math.round(forecast.depositRub).toInt()
     val depFormatted = String.format(Locale.US, "%,d", dep).replace(',', ' ')
     val pctTxt = String.format(Locale.US, "%+.1f", forecast.pnlPercentFromDeposit)
         .replace('.', ',') + "%"
-    return "при выходе ТП $spreadTxt ≈ ${formatRubSigned(pnlRound)} ($pctTxt от вложения $depFormatted ₽)"
+    val commissions = kotlin.math.round(forecast.entryCommissionRub + forecast.exitCommissionRub)
+    val carry = kotlin.math.round(forecast.overnightShortRub + forecast.overnightMarginLoanRub)
+    return "при выходе ТП $spreadTxt ≈ ${formatRubSigned(pnlRound)} " +
+        "($pctTxt от вложения $depFormatted ₽)\n" +
+        "учтено: комиссии ${commissions.toLong()} ₽ · перенос ${forecast.overnightDays} д. ${carry.toLong()} ₽"
 }

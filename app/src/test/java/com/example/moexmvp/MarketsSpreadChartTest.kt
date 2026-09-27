@@ -5,6 +5,26 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+private fun chartTakeProfitForecast(
+    exitSpreadPercent: Double,
+    takeProfitPct: Double = 2.0,
+): TakeProfitForecast = TakeProfitForecast(
+    exitSpreadPercent = exitSpreadPercent,
+    executableExitSpreadPercent = exitSpreadPercent - 0.1,
+    entrySpreadPercent = 4.2,
+    targetTatnRub = 634.0,
+    targetTatnpRub = 603.0,
+    netPnlRub = 200.0,
+    pnlPercentFromDeposit = takeProfitPct,
+    depositRub = 10_000.0,
+    entryCommissionRub = 28.0,
+    exitCommissionRub = 28.0,
+    overnightShortRub = 35.0,
+    overnightMarginLoanRub = 0.0,
+    overnightDays = 1L,
+    takeProfitPct = takeProfitPct,
+)
+
 class MarketsSpreadChartTest {
 
     @Test
@@ -15,40 +35,37 @@ class MarketsSpreadChartTest {
     }
 
     @Test
-    fun buildMarketsSpreadChartReferenceLines_longOpen_addsTpLineAtExitNarrowWhenNoEntry() {
+    fun buildMarketsSpreadChartReferenceLines_longOpenWithoutForecast_omitsTpLine() {
         val lines = buildMarketsSpreadChartReferenceLines(openSide = ZStrategyPosition.Long)
-        assertEquals(5, lines.size)
-        val tp = lines.last()
-        assertEquals("ТП 2%", tp.label)
-        assertEquals(DEFAULT_SPREAD_EXIT_NARROW, tp.value, 1e-9)
+        assertEquals(4, lines.size)
+        assertTrue(lines.none { it.label.startsWith("ТП") })
     }
 
     @Test
-    fun buildMarketsSpreadChartReferenceLines_shortOpen_addsTpLineAtExitWideWhenNoEntry() {
+    fun buildMarketsSpreadChartReferenceLines_shortOpenWithoutForecast_omitsTpLine() {
         val lines = buildMarketsSpreadChartReferenceLines(openSide = ZStrategyPosition.Short)
-        assertEquals(5, lines.size)
-        assertEquals(DEFAULT_SPREAD_EXIT_WIDE, lines.last().value, 1e-9)
+        assertEquals(4, lines.size)
     }
 
     @Test
-    fun buildMarketsSpreadChartReferenceLines_longWithEntry_usesTakeProfitSpread() {
+    fun buildMarketsSpreadChartReferenceLines_usesExactSharedDynamicForecast() {
         val lines = buildMarketsSpreadChartReferenceLines(
             openSide = ZStrategyPosition.Long,
-            openEntrySpread = 3.2,
-            depositRub = 10_000.0,
-            notionalRub = 70_000.0,
+            takeProfitForecast = chartTakeProfitForecast(exitSpreadPercent = 5.17),
         )
         val tp = lines.last()
         assertEquals("ТП 2%", tp.label)
-        assertTrue(tp.value > 3.2)
-        assertTrue(tp.value < DEFAULT_SPREAD_EXIT_NARROW + 0.5)
+        assertEquals(5.17, tp.value, 1e-9)
     }
 
     @Test
     fun buildMarketsSpreadChartReferenceLines_customTakeProfitPctLabel() {
         val lines = buildMarketsSpreadChartReferenceLines(
             openSide = ZStrategyPosition.Long,
-            takeProfitPct = 3.5,
+            takeProfitForecast = chartTakeProfitForecast(
+                exitSpreadPercent = 5.3,
+                takeProfitPct = 3.5,
+            ),
         )
         assertEquals("ТП 3.5%", lines.last().label)
     }
@@ -57,7 +74,10 @@ class MarketsSpreadChartTest {
     fun buildMarketsSpreadChartReferenceLines_tpDisabledWhenPctZero() {
         val lines = buildMarketsSpreadChartReferenceLines(
             openSide = ZStrategyPosition.Long,
-            takeProfitPct = 0.0,
+            takeProfitForecast = chartTakeProfitForecast(
+                exitSpreadPercent = 5.3,
+                takeProfitPct = 0.0,
+            ),
         )
         assertEquals(4, lines.size)
     }

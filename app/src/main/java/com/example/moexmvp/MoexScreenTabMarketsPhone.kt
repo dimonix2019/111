@@ -44,10 +44,6 @@ private const val MARKETS_PHONE_CHART_HEIGHT_DP = 280
 private data class MarketsPhoneChartState(
     val overlay: ZChartPortfolioOverlay,
     val openSide: ZStrategyPosition?,
-    val openEntrySpread: Double?,
-    val openDepositRub: Double?,
-    val openNotionalRub: Double?,
-    val takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
 )
 
 /**
@@ -188,6 +184,10 @@ internal fun MoexScreenTabMarketsPhone(
                         }
                     }
                     brokerSide = BrokerAccountPrefs.lastSide(screen.context)
+                    screen.refreshTradeScreenFromBroker(
+                        includeClosedTrades = false,
+                        showLoading = false,
+                    )
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -213,9 +213,6 @@ internal fun MoexScreenTabMarketsPhone(
         initialValue = MarketsPhoneChartState(
             ZChartPortfolioOverlay(emptyList(), emptyList()),
             null,
-            null,
-            null,
-            null,
         ),
         markerPoints,
         screen.sandboxSpreadExecReload,
@@ -226,9 +223,6 @@ internal fun MoexScreenTabMarketsPhone(
         if (markerPoints.size < 2) {
             value = MarketsPhoneChartState(
                 ZChartPortfolioOverlay(emptyList(), emptyList()),
-                null,
-                null,
-                null,
                 null,
             )
             return@produceState
@@ -256,10 +250,6 @@ internal fun MoexScreenTabMarketsPhone(
             ).map { marker ->
                 marker.copy(value = markerPoints.getOrNull(marker.index)?.zScore ?: marker.value)
             }
-            val openExec = historyOpens.firstOrNull {
-                it.signalType == StrategySignalType.EnterLong ||
-                    it.signalType == StrategySignalType.EnterShort
-            }
             MarketsPhoneChartState(
                 overlay = ZChartPortfolioOverlay(
                     markers = spreadMarkers,
@@ -269,11 +259,6 @@ internal fun MoexScreenTabMarketsPhone(
                     ),
                 ),
                 openSide = resolveMarketsSpreadChartOpenSide(historyOpens, brokerSide),
-                openEntrySpread = openExec?.entrySpreadPercent,
-                openDepositRub = openExec?.entryPortfolioTotalRub?.takeIf { it > 0 }
-                    ?: openExec?.entryPortfolioCashRub?.takeIf { it > 0 },
-                openNotionalRub = openExec?.executionNotionalRub?.takeIf { it > 0 },
-                takeProfitPct = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(screen.context),
             )
         }
     }
@@ -291,19 +276,13 @@ internal fun MoexScreenTabMarketsPhone(
     val spreadText = lastSpread?.let {
         String.format(Locale("ru", "RU"), "%.2f%%", it)
     } ?: "—"
-    val spreadRefs = remember(
-        chartState.openSide,
-        chartState.openEntrySpread,
-        chartState.openDepositRub,
-        chartState.openNotionalRub,
-        chartState.takeProfitPct,
-    ) {
+    val takeProfitForecast = screen.tradeScreenSnapshot
+        ?.takeIf { it.isOpen && it.side == chartState.openSide }
+        ?.takeProfitForecast
+    val spreadRefs = remember(chartState.openSide, takeProfitForecast) {
         buildMarketsSpreadChartReferenceLines(
             openSide = chartState.openSide,
-            openEntrySpread = chartState.openEntrySpread,
-            depositRub = chartState.openDepositRub,
-            notionalRub = chartState.openNotionalRub,
-            takeProfitPct = chartState.takeProfitPct,
+            takeProfitForecast = takeProfitForecast,
         )
     }
     Column(

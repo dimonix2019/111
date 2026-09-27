@@ -134,10 +134,10 @@ internal suspend fun loadTradeScreenSnapshot(
         val exec = TinkoffSandboxSpreadExecLog.loadRecent(context)
             .lastOrNull { openExecMatchesBrokerSide(it, broker.side) }
         val entrySpread = when {
-            exec != null && exec.entrySpreadPercent.isFinite() && exec.entrySpreadPercent != 0.0 ->
-                exec.entrySpreadPercent
             avg.tatnAvgPriceRub != null && avg.tatnpAvgPriceRub != null ->
                 spreadPercentFromPrices(avg.tatnAvgPriceRub, avg.tatnpAvgPriceRub)
+            exec != null && exec.entrySpreadPercent.isFinite() && exec.entrySpreadPercent != 0.0 ->
+                exec.entrySpreadPercent
             else -> null
         }
         val lots = broker.lotsAbs
@@ -166,17 +166,6 @@ internal suspend fun loadTradeScreenSnapshot(
         val holdFromEntry = entryTimeMsk?.let { parsePortfolioExecutionTableMsk(it) }
             ?.let { now - it }?.takeIf { it >= 0 }
         val takeProfitPct = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(context)
-        val tpForecast = computeTakeProfitForecast(
-            side = broker.side,
-            entrySpreadPercent = entrySpread,
-            depositRub = deposit,
-            notionalRub = notional,
-            lots = lots,
-            fillTatnRub = avg.tatnAvgPriceRub,
-            fillTatnpRub = avg.tatnpAvgPriceRub,
-            entryTimeMsk = entryTimeMsk,
-            takeProfitPct = takeProfitPct,
-        )
         val closeLotsAbs = maxOf(abs(broker.tatnLots), abs(broker.tatnpLots)).toDouble()
             .coerceAtLeast(1.0)
         val tinkoffQuotes = if (broker.tatnLots != 0 || broker.tatnpLots != 0) {
@@ -223,6 +212,23 @@ internal suspend fun loadTradeScreenSnapshot(
             depositRub = deposit,
             cashRub = cash,
             entryTimeMsk = entryTimeMsk,
+            nowMillis = now,
+        )
+        val referenceSpread = tinkoffOtcSpreadFromPairQuotes(quotes)?.spreadPercent
+            ?: broker.spreadPercent
+        val tpForecast = computeTakeProfitForecast(
+            side = broker.side,
+            depositRub = deposit,
+            cashRub = cash,
+            tatnLots = broker.tatnLots,
+            tatnpLots = broker.tatnpLots,
+            fillTatnRub = avg.tatnAvgPriceRub,
+            fillTatnpRub = avg.tatnpAvgPriceRub,
+            closeTatnRub = closeNowPnl?.closeTatnRub,
+            closeTatnpRub = closeNowPnl?.closeTatnpRub,
+            currentReferenceSpreadPercent = referenceSpread,
+            entryTimeMsk = entryTimeMsk,
+            takeProfitPct = takeProfitPct,
             nowMillis = now,
         )
         TradeScreenSnapshot(
@@ -274,7 +280,7 @@ internal fun mergeCloseNowQuotes(tinkoff: PairQuotes?, iss: PairQuotes?): PairQu
     return PairQuotes(tatn = tn, tatnp = tp, source = src)
 }
 
-private fun openExecMatchesBrokerSide(exec: SandboxSpreadExecUi, side: ZStrategyPosition): Boolean =
+internal fun openExecMatchesBrokerSide(exec: SandboxSpreadExecUi, side: ZStrategyPosition): Boolean =
     when (side) {
         ZStrategyPosition.Long -> exec.signalType == StrategySignalType.EnterLong
         ZStrategyPosition.Short -> exec.signalType == StrategySignalType.EnterShort

@@ -7,6 +7,12 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+private fun mskMillis(year: Int, month: Int, day: Int, hour: Int, minute: Int): Long =
+    java.time.LocalDateTime.of(year, month, day, hour, minute)
+        .atZone(java.time.ZoneId.of("Europe/Moscow"))
+        .toInstant()
+        .toEpochMilli()
+
 class MoexTradeScreenTest {
     @Test
     fun detectBrokerSpreadPosition_figiOnlyWithoutTicker() {
@@ -285,50 +291,149 @@ class MoexTradeScreenTest {
     }
 
     @Test
-    fun takeProfitExitSpread_long_movesSpreadUp() {
-        val exit = takeProfitExitSpread(
+    fun computeTakeProfitForecast_longMovesSpreadUpAndHitsNetTarget() {
+        val forecast = computeTakeProfitForecast(
             side = ZStrategyPosition.Long,
-            entrySpreadPercent = 3.35,
             depositRub = 60_000.0,
-            effNotionalRub = 280_000.0,
+            cashRub = 10_000.0,
+            tatnLots = 246,
+            tatnpLots = -246,
+            fillTatnRub = 577.1,
+            fillTatnpRub = 558.4,
+            closeTatnRub = 577.0,
+            closeTatnpRub = 558.5,
+            currentReferenceSpreadPercent = 3.35,
+            entryTimeMsk = "2026-09-01 21:00",
             takeProfitPct = 2.0,
-            exitCommissionRub = 112.0,
-            overnightRub = 175.0,
+            nowMillis = mskMillis(2026, 9, 2, 12, 0),
         )!!
-        assertTrue(exit > 3.35)
+        assertTrue(forecast.exitSpreadPercent > 3.35)
+        assertEquals(1_200.0, forecast.netPnlRub, 0.01)
+        assertEquals(2.0, forecast.pnlPercentFromDeposit, 1e-6)
     }
 
     @Test
-    fun takeProfitExitSpread_short_movesSpreadDown() {
-        val exit = takeProfitExitSpread(
+    fun computeTakeProfitForecast_shortMovesSpreadDownAndHitsNetTarget() {
+        val forecast = computeTakeProfitForecast(
             side = ZStrategyPosition.Short,
-            entrySpreadPercent = 5.5,
-            depositRub = 60_000.0,
-            effNotionalRub = 280_000.0,
+            depositRub = 10_000.0,
+            cashRub = 5_000.0,
+            tatnLots = -50,
+            tatnpLots = 50,
+            fillTatnRub = 630.0,
+            fillTatnpRub = 600.0,
+            closeTatnRub = 631.0,
+            closeTatnpRub = 601.0,
+            currentReferenceSpreadPercent = 5.0,
+            entryTimeMsk = "2026-09-01 10:00",
             takeProfitPct = 2.0,
-            exitCommissionRub = 112.0,
-            overnightRub = 0.0,
+            nowMillis = mskMillis(2026, 9, 1, 12, 0),
         )!!
-        assertTrue(exit < 5.5)
+        assertTrue(forecast.exitSpreadPercent < 5.0)
+        assertEquals(200.0, forecast.netPnlRub, 0.01)
     }
 
     @Test
     fun computeTakeProfitForecast_netNearTwoPctOfDeposit() {
         val forecast = computeTakeProfitForecast(
             side = ZStrategyPosition.Long,
-            entrySpreadPercent = 3.35,
             depositRub = 60_000.0,
-            notionalRub = 280_000.0,
-            lots = 246,
+            cashRub = 10_000.0,
+            tatnLots = 246,
+            tatnpLots = -246,
             fillTatnRub = 577.1,
             fillTatnpRub = 558.4,
+            closeTatnRub = 577.0,
+            closeTatnpRub = 558.5,
+            currentReferenceSpreadPercent = 3.35,
             entryTimeMsk = "2026-09-01 21:00",
             takeProfitPct = 2.0,
+            nowMillis = mskMillis(2026, 9, 2, 12, 0),
         )!!
         assertTrue(forecast.exitSpreadPercent > 3.35)
         assertTrue(forecast.netPnlRub > 0)
         assertEquals(60_000.0, forecast.depositRub, 1.0)
-        assertTrue(forecast.pnlPercentFromDeposit in 1.0..2.5)
+        assertEquals(2.0, forecast.pnlPercentFromDeposit, 1e-6)
+    }
+
+    @Test
+    fun screenshotLong56_signedLegEconomicsAndDynamicForecast() {
+        val lots = 56
+        val fillTatn = 628.8
+        val fillTatnp = 603.3
+        val deposit = 9_973.0
+        val actualEntrySpread = spreadPercentFromLegPrices(fillTatn, fillTatnp)!!
+        val grossFromSevenBasisPoints = lots * fillTatnp * ((4.50 - 4.43) / 100.0)
+        assertEquals(4.22675, actualEntrySpread, 0.00001)
+        assertEquals(23.65, grossFromSevenBasisPoints, 0.01)
+        val tatnAtFourPointFive = fillTatnp * 1.045
+        val netAtFourPointFive = lots * (tatnAtFourPointFive - fillTatn) -
+            premiumCommissionRub(lots * (fillTatn + fillTatnp)) -
+            premiumCommissionRub(lots * (tatnAtFourPointFive + fillTatnp)) -
+            35.0
+        assertEquals(2.08, netAtFourPointFive, 0.01)
+        assertTrue(netAtFourPointFive < deposit * 0.02)
+
+        val forecast = computeTakeProfitForecast(
+            side = ZStrategyPosition.Long,
+            depositRub = deposit,
+            cashRub = 1_000.0,
+            tatnLots = lots,
+            tatnpLots = -lots,
+            fillTatnRub = fillTatn,
+            fillTatnpRub = fillTatnp,
+            closeTatnRub = 630.0,
+            closeTatnpRub = 603.3,
+            currentReferenceSpreadPercent = 4.43,
+            entryTimeMsk = "2026-09-18 10:00",
+            takeProfitPct = 2.0,
+            nowMillis = mskMillis(2026, 9, 19, 12, 0),
+        )!!
+        assertEquals(actualEntrySpread, forecast.entrySpreadPercent, 1e-9)
+        assertEquals(199.46, forecast.netPnlRub, 0.01)
+        val independentlyRecomputedNet = signedLegsUnrealizedRub(
+            tatnLots = lots,
+            tatnpLots = -lots,
+            fillTatn = fillTatn,
+            fillTatnp = fillTatnp,
+            nowTatn = forecast.targetTatnRub,
+            nowTatnp = forecast.targetTatnpRub,
+        )!! - forecast.entryCommissionRub - forecast.exitCommissionRub -
+            forecast.overnightShortRub - forecast.overnightMarginLoanRub
+        assertEquals(deposit * 0.02, independentlyRecomputedNet, 0.01)
+        assertTrue("cost-aware target must be materially above 4.50%", forecast.exitSpreadPercent > 4.9)
+        assertEquals(1L, forecast.overnightDays)
+        assertEquals(35.0, forecast.overnightShortRub, 0.01)
+        val label = formatTakeProfitForecastLine(forecast)
+        assertTrue(label.contains("комиссии"))
+        assertTrue(label.contains("перенос 1 д. 35 ₽"))
+    }
+
+    @Test
+    fun computeTakeProfitForecast_movesAfterEachOvernightAndIncludesNegativeCash() {
+        fun forecast(day: Int, cash: Double) = computeTakeProfitForecast(
+            side = ZStrategyPosition.Long,
+            depositRub = 9_973.0,
+            cashRub = cash,
+            tatnLots = 56,
+            tatnpLots = -56,
+            fillTatnRub = 628.8,
+            fillTatnpRub = 603.3,
+            closeTatnRub = 630.0,
+            closeTatnpRub = 603.3,
+            currentReferenceSpreadPercent = 4.43,
+            entryTimeMsk = "2026-09-18 10:00",
+            nowMillis = mskMillis(2026, 9, day, 12, 0),
+        )!!
+
+        val firstNight = forecast(day = 19, cash = 1_000.0)
+        val secondNight = forecast(day = 20, cash = 1_000.0)
+        val secondNightWithLoan = forecast(day = 20, cash = -10_000.0)
+        assertEquals(1L, firstNight.overnightDays)
+        assertEquals(2L, secondNight.overnightDays)
+        assertTrue(secondNight.exitSpreadPercent > firstNight.exitSpreadPercent)
+        assertEquals(6.6, secondNightWithLoan.overnightMarginLoanRub, 0.01)
+        assertTrue(secondNightWithLoan.exitSpreadPercent > secondNight.exitSpreadPercent)
     }
 
     @Test
@@ -378,6 +483,47 @@ class MoexTradeScreenTest {
         assertFalse(shouldFireTakeProfit(expectedYieldRub = 500.0, depositRub = 9_526.0, takeProfitPct = 0.0))
         assertFalse(shouldFireTakeProfit(expectedYieldRub = null, depositRub = 9_526.0, takeProfitPct = 2.0))
         assertFalse(shouldFireTakeProfit(expectedYieldRub = -10.0, depositRub = 9_526.0, takeProfitPct = 2.0))
+    }
+
+    @Test
+    fun automaticTakeProfit_grossGateThenExecutableNetConfirmation() {
+        val deposit = 9_973.0
+        val target = deposit * 0.02
+        assertFalse(shouldCheckExecutableTakeProfit(target - 0.01, deposit, 2.0))
+        assertTrue(shouldCheckExecutableTakeProfit(target, deposit, 2.0))
+
+        fun closeNowWithGross(gross: Double): CloseNowPnl {
+            val fillTatn = 628.8
+            val fillTatnp = 603.3
+            val lots = 56
+            val targetTatn = fillTatn + gross / lots
+            return computeCloseNowPnl(
+                tatnLots = lots,
+                tatnpLots = -lots,
+                fillTatnRub = fillTatn,
+                fillTatnpRub = fillTatnp,
+                quotes = PairQuotes(
+                    tatn = ShareQuote(last = targetTatn, bid = targetTatn, ask = targetTatn + 0.1),
+                    tatnp = ShareQuote(last = fillTatnp, bid = fillTatnp - 0.1, ask = fillTatnp),
+                    source = "tinkoff",
+                ),
+                fallbackTatnLast = targetTatn,
+                fallbackTatnpLast = fillTatnp,
+                depositRub = deposit,
+                cashRub = 1_000.0,
+                entryTimeMsk = "2026-09-18 10:00",
+                nowMillis = mskMillis(2026, 9, 19, 12, 0),
+            )!!
+        }
+
+        val premature = closeNowWithGross(220.0)
+        assertTrue(shouldCheckExecutableTakeProfit(premature.grossRub, deposit, 2.0))
+        assertTrue(premature.netRub < target)
+        assertFalse(shouldFireExecutableTakeProfit(premature.netRub, deposit, 2.0))
+
+        val ready = closeNowWithGross(310.0)
+        assertTrue(ready.netRub >= target)
+        assertTrue(shouldFireExecutableTakeProfit(ready.netRub, deposit, 2.0))
     }
 
     @Test
