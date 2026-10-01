@@ -37,6 +37,13 @@ internal data class OpenTradeRedRiskNotifyAction(
 internal fun isOpenTradeRedRiskZone(assessment: StrategyTestTradeRiskAssessment): Boolean =
     assessment.level >= StrategyTestTradeRiskLevel.High
 
+/** Локальный журнал не должен напоминать о риске, когда на брокере нет пары. */
+internal fun openGroupsEligibleForRedRisk(
+    openGroups: List<PortfolioTradeGroupRow>,
+    brokerSide: ZStrategyPosition,
+): List<PortfolioTradeGroupRow> =
+    if (brokerSide == ZStrategyPosition.Flat) emptyList() else openGroups.filter { it.isOpen }
+
 internal fun planOpenTradeRedRiskNotifications(
     openGroups: List<PortfolioTradeGroupRow>,
     assessments: List<StrategyTestTradeRiskAssessment>,
@@ -152,7 +159,17 @@ internal suspend fun processOpenTradeRedRiskNotifications(
     nowMillis: Long = System.currentTimeMillis(),
 ) {
     if (points.size < 2) return
-    val openGroups = loadOpenPortfolioTradeGroupsForRiskMonitor(context, points)
+    val brokerSide = BrokerAccountPrefs.lastSide(context)
+    val openGroups = openGroupsEligibleForRedRisk(
+        loadOpenPortfolioTradeGroupsForRiskMonitor(context, points),
+        brokerSide,
+    )
+    if (brokerSide == ZStrategyPosition.Flat) {
+        if (loadOpenTradeRedRiskNotifyStates(context).isNotEmpty()) {
+            saveOpenTradeRedRiskNotifyStates(context, emptyMap())
+        }
+        return
+    }
     val assessments = buildPortfolioTradeGroupRiskAssessments(
         groups = openGroups,
         entryThreshold = entryThreshold,
@@ -191,7 +208,7 @@ internal fun dispatchOpenTradeRedRiskNotifications(
                     context = context,
                     title = "Риск: всё ещё красная зона",
                     body = buildOpenTradeRedRiskReminderBody(action),
-                    notificationId = (System.currentTimeMillis() and 0x7FFFFFFF).toInt(),
+                    notificationId = openTradeRedRiskNotificationId(action.tradeId, "remind"),
                     correlationTag = openTradeRedRiskCorrelationTag(action.tradeId, "remind"),
                 )
 

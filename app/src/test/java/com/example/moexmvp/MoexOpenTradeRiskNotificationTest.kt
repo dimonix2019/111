@@ -114,6 +114,46 @@ class MoexOpenTradeRiskNotificationTest {
     }
 
     @Test
+    fun staleLocalOpenGroup_doesNotRemindWhenBrokerIsFlat() {
+        val broker = BrokerSpreadPositionSnap(
+            side = ZStrategyPosition.Flat,
+            tatnLots = 0,
+            tatnpLots = 0,
+            expectedYieldRub = null,
+            tatnPriceRub = null,
+            tatnpPriceRub = null,
+            portfolioTotalRub = 100_000.0,
+        )
+        val staleGroup = openGroup("stale-t1", "2 short")
+        val eligible = openGroupsEligibleForRedRisk(listOf(staleGroup), broker.side)
+        val (actions, next) = planOpenTradeRedRiskNotifications(
+            openGroups = eligible,
+            assessments = emptyList(),
+            previousStates = emptyMap(),
+            nowMillis = 2_000L,
+        )
+        assertTrue(eligible.isEmpty())
+        assertTrue(actions.isEmpty())
+        assertTrue(next.isEmpty())
+    }
+
+    @Test
+    fun realOpenPair_stillRemindsWhileRed() {
+        val group = openGroup("t1", "2 short")
+        val eligible = openGroupsEligibleForRedRisk(listOf(group), ZStrategyPosition.Short)
+        val red = assessment(StrategyTestTradeRiskLevel.High, score = 4)
+        val (actions, _) = planOpenTradeRedRiskNotifications(
+            openGroups = eligible,
+            assessments = listOf(red),
+            previousStates = mapOf(
+                group.tradeId to OpenTradeRedRiskNotifyState(inRedZone = true, lastReminderAtMillis = 1_000L),
+            ),
+            nowMillis = 1_000L + OPEN_TRADE_RED_RISK_REMINDER_INTERVAL_MS,
+        )
+        assertEquals(listOf(OpenTradeRedRiskNotifyKind.Reminder), actions.map { it.kind })
+    }
+
+    @Test
     fun planOpenTradeRedRiskNotifications_closedTradeTriggersExit() {
         val previous = mapOf("t1" to OpenTradeRedRiskNotifyState(inRedZone = true, lastReminderAtMillis = 1L))
         val (actions, next) = planOpenTradeRedRiskNotifications(
