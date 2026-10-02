@@ -20,6 +20,8 @@ import kotlin.math.roundToInt
 internal const val APP_UPDATE_MIN_APK_BYTES = 5_000_000L
 
 internal const val APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+/** Повтор после неудачной проверки GitHub, пока приложение работает в фоне. */
+internal const val APP_UPDATE_CHECK_RETRY_MS = 15 * 60 * 1000L
 internal const val APP_UPDATE_GITHUB_RELEASE_TAG = "moexmvp-debug-latest"
 internal const val APP_UPDATE_MANIFEST_URL =
     "https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/app-update.json"
@@ -32,6 +34,8 @@ internal const val APP_UPDATE_PUBLIC_APK_URL =
     "https://raw.githubusercontent.com/dimonix2019/111/gh-pages/moexmvp-debug.apk"
 internal const val PREF_APP_UPDATE_DISMISSED_VERSION_CODE = "app_update_dismissed_version_code"
 internal const val PREF_APP_UPDATE_NOTIFIED_VERSION_CODE = "app_update_notified_version_code"
+internal const val PREF_APP_UPDATE_LAST_CHECK_MS = "app_update_last_check_ms"
+internal const val PREF_APP_UPDATE_LAST_CHECK_OK = "app_update_last_check_ok"
 internal const val APP_UPDATE_PUSH_NOTIFICATION_ID = 12_002
 
 private val updateHttpClient: OkHttpClient = OkHttpClient.Builder()
@@ -106,15 +110,49 @@ internal fun shouldOfferAppUpdateUi(
  * Проверяет GitHub Release / app-update.json; при новой версии показывает push (один раз на versionCode).
  * @return remote, если есть более новая сборка и её можно предложить в UI
  */
+internal fun shouldRunAppUpdateCheck(
+    nowMs: Long,
+    lastCheckMs: Long,
+    lastCheckSucceeded: Boolean,
+): Boolean {
+    if (lastCheckMs <= 0L) return true
+    val interval = if (lastCheckSucceeded) APP_UPDATE_CHECK_INTERVAL_MS else APP_UPDATE_CHECK_RETRY_MS
+    return nowMs - lastCheckMs >= interval
+}
+
+internal fun appUpdateCheckDelayMs(lastCheckSucceeded: Boolean): Long =
+    if (lastCheckSucceeded) APP_UPDATE_CHECK_INTERVAL_MS else APP_UPDATE_CHECK_RETRY_MS
+
 internal fun checkRemoteAppUpdateAndNotify(context: Context): AppRemoteUpdate? {
     val app = context.applicationContext
     val remote = fetchRemoteAppUpdate() ?: return null
-    if (!shouldOfferAppUpdateUi(remote, app)) return null
-    val notified = loadNotifiedAppUpdateVersionCode(app)
-    if (remote.versionCode > notified) {
-        if (showAppUpdatePushNotification(app, remote)) {
-            saveNotifiedAppUpdateVersionCode(app, remote.versionCode)
-        }
+    return notifyNewerAppUpdate(app, remote)
+}
+
+/** Одна проверка из фонового монитора: push приходит и без открытого экрана. */
+internal fun pollBackgroundAppUpdate(context: Context, nowMs: Long = System.currentTimeMillis()): Long {
+    val app = context.applicationContext
+    val prefs = app.getSharedPreferences(ALERT_PREFS_NAME, Context.MODE_PRIVATE)
+    val lastCheckMs = prefs.getLong(PREF_APP_UPDATE_LAST_CHECK_MS, 0L)
+    val lastOk = prefs.getBoolean(PREF_APP_UPDATE_LAST_CHECK_OK, false)
+    if (!shouldRunAppUpdateCheck(nowMs, lastCheckMs, lastOk)) {
+        return (lastCheckMs + appUpdateCheckDelayMs(lastOk) - nowMs).coerceAtLeast(60_000L)
+    }
+    val diagnostics = fetchRemoteAppUpdateWithDiagnostics()
+    val succeeded = diagnostics.update != null
+    prefs.edit()
+        .putLong(PREF_APP_UPDATE_LAST_CHECK_MS, nowMs)
+        .putBoolean(PREF_APP_UPDATE_LAST_CHECK_OK, succeeded)
+        .apply()
+    diagnostics.update?.let { notifyNewerAppUpdate(app, it) }
+    return appUpdateCheckDelayMs(succeeded)
+}
+
+private fun notifyNewerAppUpdate(context: Context, remote: AppRemoteUpdate): AppRemoteUpdate? {
+    if (!shouldOfferAppUpdateUi(remote, context)) return null
+    val notified = loadNotifiedAppUpdateVersionCode(context)
+    if (remote.versionCode > notified && showAppUpdatePushNotification(context, remote)) {
+        saveNotifiedAppUpdateVersionCode(context, remote.versionCode)
     }
     return remote
 }

@@ -46,6 +46,7 @@ class SignalForegroundService : Service() {
     private var signalWorkJob: kotlinx.coroutines.Job? = null
     private var webDeskPollJob: kotlinx.coroutines.Job? = null
     private var brokerPollJob: kotlinx.coroutines.Job? = null
+    private var appUpdateJob: kotlinx.coroutines.Job? = null
     private var foregroundStarted = false
     private var signalWorkTickCount = 0
     private var lastForegroundSpreadPercent: Double? = null
@@ -143,6 +144,18 @@ class SignalForegroundService : Service() {
                 }
             }
         }
+        if (appUpdateJob?.isActive != true) {
+            appUpdateJob = scope.launch {
+                while (isActive) {
+                    val waitMs = runCatching {
+                        withContext(Dispatchers.IO) { pollBackgroundAppUpdate(applicationContext) }
+                    }.onFailure { e ->
+                        MoexDiagnostics.logError(applicationContext, "app_update", e, "background check")
+                    }.getOrDefault(APP_UPDATE_CHECK_RETRY_MS)
+                    delay(waitMs)
+                }
+            }
+        }
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -163,6 +176,8 @@ class SignalForegroundService : Service() {
         webDeskPollJob = null
         brokerPollJob?.cancel()
         brokerPollJob = null
+        appUpdateJob?.cancel()
+        appUpdateJob = null
         scope.cancel()
         super.onDestroy()
     }
