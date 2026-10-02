@@ -25,11 +25,13 @@ internal suspend fun resolveSpreadEntryTimeMsk(
 ): Pair<String, SpreadEntryTimeSource>? {
     if (side == ZStrategyPosition.Flat) return null
 
-    exec?.entryTimeMsk?.takeIf { it.isNotBlank() && it != "—" }?.let {
-        return it to SpreadEntryTimeSource.ExecLog
+    val fill = latestProdEntryFillTimeMsk(context, side)
+    val execTime = exec?.entryTimeMsk?.takeIf { it.isNotBlank() && it != "—" }
+    val newerThanFill = preferNewerEntryTime(fill?.first, execTime)
+    if (execTime != null && newerThanFill == execTime) {
+        return execTime to SpreadEntryTimeSource.ExecLog
     }
-
-    resolveEntryTimeFromTradeFillLog(context, side)?.let { return it }
+    fill?.let { return it }
 
     BrokerAccountPrefs.entryTimeMskAtOpen(context)?.takeIf { it.isNotBlank() }?.let {
         return it to SpreadEntryTimeSource.BrokerPrefs
@@ -43,7 +45,14 @@ internal suspend fun resolveSpreadEntryTimeMsk(
     return null
 }
 
-private fun resolveEntryTimeFromTradeFillLog(
+/** Более позднее время входа. Старый журнал не должен затирать сегодняшнее открытие. */
+internal fun preferNewerEntryTime(current: String?, candidate: String?): String? {
+    val candidateMs = candidate?.let { parsePortfolioExecutionTableMsk(it) } ?: return current?.takeIf { it.isNotBlank() }
+    val currentMs = current?.let { parsePortfolioExecutionTableMsk(it) }
+    return if (currentMs == null || candidateMs >= currentMs) candidate else current
+}
+
+internal fun latestProdEntryFillTimeMsk(
     context: Context,
     side: ZStrategyPosition,
 ): Pair<String, SpreadEntryTimeSource>? {

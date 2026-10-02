@@ -105,6 +105,11 @@ internal suspend fun pollBrokerAccountAndNotify(context: Context) {
                 equityAtOpen = equity,
                 clearProfitFlags = true,
             )
+            BrokerAccountPrefs.saveEntryTimeAtOpen(
+                app,
+                latestProdEntryFillTimeMsk(app, snap.side)?.first
+                    ?: formatPortfolioExecutionTableMsk(System.currentTimeMillis()),
+            )
             if (BrokerAccountPrefs.takeProfitPctAtOpen(app) == null) {
                 BrokerAccountPrefs.saveTakeProfitForOpen(app, BrokerAccountPrefs.lastTakeProfitPct(app))
             }
