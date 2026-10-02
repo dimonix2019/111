@@ -138,6 +138,27 @@ class MoexOpenTradeRiskNotificationTest {
     }
 
     @Test
+    fun todayBrokerEntry_replacesStaleFiveDayJournal() {
+        val stale = openGroup("old", "2 long").copy(
+            entryTimeMsk = "2026-09-26 20:31",
+            overnightRubApprox = 175.0,
+            isOpen = true,
+        )
+        val aligned = alignOpenRiskGroupToBrokerEntry(stale, "2026-10-02 09:15")
+        assertEquals("2026-10-02 09:15", aligned.entryTimeMsk)
+        assertEquals(0.0, aligned.overnightRubApprox, 0.0)
+        val risk = buildPortfolioTradeGroupRiskAssessment(
+            group = aligned,
+            entryThreshold = 0.8,
+            zoneId = zone,
+            nowMillis = ms("2026-10-02 11:00"),
+        )
+        assertFalse(risk.flags.contains(StrategyTestTradeRiskFlag.VeryLongHold))
+        assertEquals("2026-10-02 09:15", preferNewerEntryTime("2026-09-26 20:31", "2026-10-02 09:15"))
+        assertEquals("2026-10-02 09:15", preferNewerEntryTime("2026-10-02 09:15", "2026-09-26 20:31"))
+    }
+
+    @Test
     fun realOpenPair_stillRemindsWhileRed() {
         val group = openGroup("t1", "2 short")
         val eligible = openGroupsEligibleForRedRisk(listOf(group), ZStrategyPosition.Short)

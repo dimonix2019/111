@@ -160,8 +160,12 @@ internal suspend fun loadTradeScreenSnapshot(
         )
         val entryTimeMsk = entryResolved?.first
         val entrySource = entryResolved?.second
-        if (entryTimeMsk != null && entrySource == SpreadEntryTimeSource.ExecLog) {
-            BrokerAccountPrefs.saveEntryTimeAtOpen(context, entryTimeMsk)
+        val entryToStore = preferNewerEntryTime(
+            BrokerAccountPrefs.entryTimeMskAtOpen(context),
+            entryTimeMsk,
+        )
+        if (entryToStore != null) {
+            BrokerAccountPrefs.saveEntryTimeAtOpen(context, entryToStore)
         }
         val holdFromEntry = entryTimeMsk?.let { parsePortfolioExecutionTableMsk(it) }
             ?.let { now - it }?.takeIf { it >= 0 }

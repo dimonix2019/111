@@ -147,9 +147,27 @@ internal suspend fun loadOpenPortfolioTradeGroupsForRiskMonitor(
         executions = modeFiltered,
         points = points,
     )
+    val brokerEntry = preferNewerEntryTime(
+        BrokerAccountPrefs.entryTimeMskAtOpen(context),
+        latestProdEntryFillTimeMsk(context, BrokerAccountPrefs.lastSide(context))?.first,
+    )
     filterSandboxExecutionsForTradesTable(enriched, autoOnly = false)
         .asReversed()
-        .map { it.toTradeGroup() }
+        .map { alignOpenRiskGroupToBrokerEntry(it.toTradeGroup(), brokerEntry) }
+}
+
+/** Старая строка журнала не должна считаться многодневной, если брокер открыл пару позже. */
+internal fun alignOpenRiskGroupToBrokerEntry(
+    group: PortfolioTradeGroupRow,
+    brokerEntryTimeMsk: String?,
+): PortfolioTradeGroupRow {
+    val brokerMs = brokerEntryTimeMsk?.let { parsePortfolioExecutionTableMsk(it) } ?: return group
+    val groupMs = parsePortfolioExecutionTableMsk(group.entryTimeMsk) ?: 0L
+    if (brokerMs <= groupMs) return group
+    return group.copy(
+        entryTimeMsk = brokerEntryTimeMsk,
+        overnightRubApprox = 0.0,
+    )
 }
 
 internal suspend fun processOpenTradeRedRiskNotifications(
