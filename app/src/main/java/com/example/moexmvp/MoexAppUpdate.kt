@@ -19,9 +19,10 @@ import kotlin.math.roundToInt
 
 internal const val APP_UPDATE_MIN_APK_BYTES = 5_000_000L
 
-internal const val APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+/** Успешная проверка «уже последняя» не должна молчать полдня: новая сборка публикуется утром. */
+internal const val APP_UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000L
 /** Повтор после неудачной проверки GitHub, пока приложение работает в фоне. */
-internal const val APP_UPDATE_CHECK_RETRY_MS = 15 * 60 * 1000L
+internal const val APP_UPDATE_CHECK_RETRY_MS = 5 * 60 * 1000L
 internal const val APP_UPDATE_GITHUB_RELEASE_TAG = "moexmvp-debug-latest"
 internal const val APP_UPDATE_MANIFEST_URL =
     "https://github.com/dimonix2019/111/releases/download/moexmvp-debug-latest/app-update.json"
@@ -218,12 +219,15 @@ internal fun appUpdateManifestUrlCandidates(): List<String> = listOf(
     APP_UPDATE_PUBLIC_MANIFEST_URL,
 ).map { cacheBustUrl(it) }
 
-/** Анти-кэш для raw.githubusercontent / CDN: иначе app-update.json может отставать от APK. */
-internal fun cacheBustUrl(url: String): String {
+/**
+ * Анти-кэш на каждый запрос. Ключ `v=versionCode` один на всю установку:
+ * CDN отдавал старый app-update.json, и push о новой сборке не появлялся.
+ */
+internal fun cacheBustUrl(url: String, nonce: Long = System.currentTimeMillis()): String {
     val trimmed = url.trim()
     if (trimmed.isEmpty()) return trimmed
     val sep = if (trimmed.contains('?')) '&' else '?'
-    return "$trimmed${sep}v=${BuildConfig.VERSION_CODE}"
+    return "$trimmed${sep}v=$nonce"
 }
 
 /**

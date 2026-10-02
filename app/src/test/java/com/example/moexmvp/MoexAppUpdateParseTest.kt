@@ -11,7 +11,7 @@ class MoexAppUpdateParseTest {
 
     @Test
     fun inAppUpdateCheck_doesNotPollEveryFiveMinutes() {
-        assertEquals(6 * 60 * 60 * 1000L, APP_UPDATE_CHECK_INTERVAL_MS)
+        assertEquals(15 * 60 * 1000L, APP_UPDATE_CHECK_INTERVAL_MS)
         assertTrue(APP_UPDATE_CHECK_RETRY_MS < APP_UPDATE_CHECK_INTERVAL_MS)
     }
 
@@ -39,6 +39,14 @@ class MoexAppUpdateParseTest {
                 lastCheckSucceeded = true,
             ),
         )
+    }
+
+    @Test
+    fun cacheBustUrl_changesOnEveryCheck() {
+        val url = "https://example.com/app-update.json"
+        assertEquals("$url?v=1", cacheBustUrl(url, nonce = 1L))
+        assertEquals("$url?v=2", cacheBustUrl(url, nonce = 2L))
+        assertFalse(cacheBustUrl(url, nonce = 1L).contains("versionCode"))
     }
 
     @Test
