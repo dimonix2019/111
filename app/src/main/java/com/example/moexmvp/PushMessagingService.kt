@@ -19,6 +19,8 @@ import org.json.JSONObject
 import java.util.Locale
 
 internal const val PUSH_CHANNEL_ID = "moex_push_channel"
+/** Отдельный канал: важность уже созданного «MOEX Push» Android не повышает. */
+internal const val APP_UPDATE_PUSH_CHANNEL_ID = "moex_app_update_channel"
 internal const val PUSH_TOPIC = "moex_updates"
 internal const val PUSH_LOG_TAG = "MoexPush"
 /** PendingIntent → MainActivity: восстановить карточку «Принять» по данным из уведомления. */
@@ -287,6 +289,20 @@ internal fun createPushNotificationChannel(context: Context) {
     }
     val manager = context.getSystemService(NotificationManager::class.java)
     manager?.createNotificationChannel(channel)
+    createAppUpdateNotificationChannel(context)
+}
+
+internal fun createAppUpdateNotificationChannel(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val channel = NotificationChannel(
+        APP_UPDATE_PUSH_CHANNEL_ID,
+        "Обновление приложения",
+        NotificationManager.IMPORTANCE_HIGH
+    ).apply {
+        description = "Новая сборка MOEX MVP"
+        enableVibration(true)
+    }
+    context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
 }
 
 internal fun showPushNotification(
@@ -297,7 +313,9 @@ internal fun showPushNotification(
     virtualTradeTap: VirtualTradeTapIntent? = null,
     appUpdateTap: AppRemoteUpdate? = null,
     skipDuplicateCheck: Boolean = false,
-    correlationTag: String? = null
+    correlationTag: String? = null,
+    channelId: String = PUSH_CHANNEL_ID,
+    priority: Int = NotificationCompat.PRIORITY_DEFAULT,
 ): Boolean {
     val app = context.applicationContext
     val receivedAtMillis = System.currentTimeMillis()
@@ -359,12 +377,13 @@ internal fun showPushNotification(
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-    val notification = NotificationCompat.Builder(context, PUSH_CHANNEL_ID)
+    val notification = NotificationCompat.Builder(context, channelId)
         .setSmallIcon(android.R.drawable.ic_dialog_info)
         .setContentTitle(title)
         .setContentText(displayBody)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(displayBody))
         .setAutoCancel(true)
-        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .setPriority(priority)
         .setContentIntent(pendingIntent)
         .build()
 
@@ -780,6 +799,7 @@ internal fun showAppUpdatePushNotification(context: Context, update: AppRemoteUp
             append(notes)
         }
     }
+    createAppUpdateNotificationChannel(context)
     return showPushNotification(
         context = context,
         title = "Доступно обновление MOEX MVP",
@@ -787,7 +807,9 @@ internal fun showAppUpdatePushNotification(context: Context, update: AppRemoteUp
         notificationId = APP_UPDATE_PUSH_NOTIFICATION_ID,
         appUpdateTap = update,
         skipDuplicateCheck = true,
-        correlationTag = "appUpdate|${update.versionCode}"
+        correlationTag = "appUpdate|${update.versionCode}",
+        channelId = APP_UPDATE_PUSH_CHANNEL_ID,
+        priority = NotificationCompat.PRIORITY_HIGH,
     )
 }
 
