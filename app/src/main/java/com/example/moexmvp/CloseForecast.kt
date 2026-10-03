@@ -237,6 +237,113 @@ internal fun shouldFireTakeProfit(
     return y + 1e-6 >= depositRub * (takeProfitPct / 100.0)
 }
 
+/**
+ * Решение фонового тейка. Заявки нельзя слать по last/дилеру:
+ * лонг продаёт TATN по bid и покупает TATNP по ask.
+ */
+internal data class BackgroundTakeProfitDecision(
+    val allow: Boolean,
+    val reason: String,
+    val entrySpreadPercent: Double?,
+    val bookSpreadPercent: Double?,
+    val pnlPercent: Double?,
+)
+
+internal fun evaluateBackgroundTakeProfitClose(
+    sessionOpen: Boolean,
+    side: ZStrategyPosition,
+    tatnLots: Int,
+    tatnpLots: Int,
+    tatnBid: Double?,
+    tatnAsk: Double?,
+    tatnpBid: Double?,
+    tatnpAsk: Double?,
+    fillTatnRub: Double?,
+    fillTatnpRub: Double?,
+    depositRub: Double,
+    takeProfitPct: Double,
+    cashRub: Double? = null,
+    entryTimeMsk: String? = null,
+    nowMillis: Long = System.currentTimeMillis(),
+): BackgroundTakeProfitDecision {
+    val entrySpread = spreadPercentFromLegPrices(
+        fillTatnRub ?: Double.NaN,
+        fillTatnpRub ?: Double.NaN,
+    )
+    if (!sessionOpen) {
+        return BackgroundTakeProfitDecision(
+            allow = false,
+            reason = "session_closed",
+            entrySpreadPercent = entrySpread,
+            bookSpreadPercent = null,
+            pnlPercent = null,
+        )
+    }
+    val closeTatn = closePriceForSignedLots(tatnLots, tatnBid, tatnAsk)
+    val closeTatnp = closePriceForSignedLots(tatnpLots, tatnpBid, tatnpAsk)
+    val bookSpread = if (closeTatn != null && closeTatnp != null) {
+        spreadPercentFromLegPrices(closeTatn, closeTatnp)
+    } else {
+        null
+    }
+    fun deny(reason: String, pnl: Double? = null) = BackgroundTakeProfitDecision(
+        allow = false,
+        reason = reason,
+        entrySpreadPercent = entrySpread,
+        bookSpreadPercent = bookSpread,
+        pnlPercent = pnl,
+    )
+    if (closeTatn == null || closeTatnp == null || bookSpread == null) {
+        return deny("no_book")
+    }
+    if (entrySpread != null) {
+        val worseThanEntry = when (side) {
+            ZStrategyPosition.Long -> bookSpread + 1e-9 < entrySpread
+            ZStrategyPosition.Short -> bookSpread - 1e-9 > entrySpread
+            else -> true
+        }
+        if (worseThanEntry) return deny("exit_worse_than_entry")
+    } else {
+        return deny("no_entry")
+    }
+    val pnl = computeCloseNowPnl(
+        tatnLots = tatnLots,
+        tatnpLots = tatnpLots,
+        fillTatnRub = fillTatnRub,
+        fillTatnpRub = fillTatnpRub,
+        quotes = PairQuotes(
+            tatn = ShareQuote(bid = tatnBid, ask = tatnAsk),
+            tatnp = ShareQuote(bid = tatnpBid, ask = tatnpAsk),
+            source = "exchange",
+        ),
+        fallbackTatnLast = null,
+        fallbackTatnpLast = null,
+        depositRub = depositRub,
+        cashRub = cashRub,
+        entryTimeMsk = entryTimeMsk,
+        nowMillis = nowMillis,
+    )
+    val pct = pnl?.pctFromDeposit
+    if (pnl == null || pnl.quotesMode != "book" || pct == null || !pct.isFinite()) {
+        return deny("no_book", pct)
+    }
+    if (pct + 1e-6 < takeProfitPct) return deny("net_below_tp", pct)
+    return BackgroundTakeProfitDecision(
+        allow = true,
+        reason = "ok",
+        entrySpreadPercent = entrySpread,
+        bookSpreadPercent = bookSpread,
+        pnlPercent = pct,
+    )
+}
+
+internal fun formatBackgroundTakeProfitGate(decision: BackgroundTakeProfitDecision): String {
+    fun pct(v: Double?): String =
+        if (v == null || !v.isFinite()) "?" else String.format(Locale.US, "%.2f", v)
+    return "entry=${pct(decision.entrySpreadPercent)} book=${pct(decision.bookSpreadPercent)} " +
+        "pnlPct=${pct(decision.pnlPercent)} reason=${decision.reason}"
+}
+
 internal fun formatTakeProfitForecastLine(forecast: TakeProfitForecast): String {
     val spreadTxt = String.format(Locale.US, "%.1f", forecast.exitSpreadPercent)
         .replace('.', ',') + "%"

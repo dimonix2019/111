@@ -166,7 +166,7 @@ internal suspend fun pollBrokerAccountAndNotify(context: Context) {
 
     if (snap.side != ZStrategyPosition.Flat) {
         notifyBrokerProfitThresholds(app, snap)
-        maybeFlattenOnTakeProfit(app, snap)
+        maybeFlattenOnTakeProfit(app, snap, portfolio)
     }
 }
 
@@ -215,18 +215,42 @@ private fun notifyBrokerProfitThresholds(app: Context, snap: BrokerSpreadPositio
     maybeAlert(BROKER_PROFIT_ALERT_PCT_3, markPct = 3, nid = 4)
 }
 
-private suspend fun maybeFlattenOnTakeProfit(app: Context, snap: BrokerSpreadPositionSnap) {
+private suspend fun maybeFlattenOnTakeProfit(
+    app: Context,
+    snap: BrokerSpreadPositionSnap,
+    portfolio: org.json.JSONObject,
+) {
     val tp = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(app)
     val deposit = BrokerAccountPrefs.equityAtOpenRub(app).takeIf { it > 0 }
         ?: snap.portfolioTotalRub?.takeIf { it > 0 }
         ?: return
     if (!shouldFireTakeProfit(snap.expectedYieldRub, deposit, tp)) return
+    val sessionOpen = isMoexQuotesSessionLikelyOpen()
+    val avg = if (sessionOpen) parseSpreadLegAveragePrices(portfolio) else null
+    val fills = avg?.tatnAvgPriceRub to avg?.tatnpAvgPriceRub
+    val book = if (sessionOpen) loadBackgroundTakeProfitBook(app, snap) else null
+    val decision = evaluateBackgroundTakeProfitClose(
+        sessionOpen = sessionOpen,
+        side = snap.side,
+        tatnLots = snap.tatnLots,
+        tatnpLots = snap.tatnpLots,
+        tatnBid = book?.tatn?.bid,
+        tatnAsk = book?.tatn?.ask,
+        tatnpBid = book?.tatnp?.bid,
+        tatnpAsk = book?.tatnp?.ask,
+        fillTatnRub = fills.first,
+        fillTatnpRub = fills.second,
+        depositRub = deposit,
+        takeProfitPct = tp,
+    )
+    MoexDiagnostics.log(app, "broker_poll", "take_profit gate ${formatBackgroundTakeProfitGate(decision)}")
+    if (!decision.allow) return
     val fp = "${snap.fingerprint}|tp=$tp"
     val already = BrokerAccountPrefs.takeProfitFiredFingerprint(app) == fp
     if (!already) {
         BrokerAccountPrefs.markTakeProfitFired(app, fp)
         val yield = snap.expectedYieldRub ?: 0.0
-        val pct = if (deposit > 0) (yield / deposit) * 100.0 else 0.0
+        val pct = decision.pnlPercent ?: 0.0
         val sideRu = when (snap.side) {
             ZStrategyPosition.Long -> "Long"
             ZStrategyPosition.Short -> "Short"
@@ -237,11 +261,12 @@ private suspend fun maybeFlattenOnTakeProfit(app: Context, snap: BrokerSpreadPos
             title = "Take profit ${formatTakeProfitPctInput(tp)}% — закрываем пару",
             body = String.format(
                 Locale.US,
-                "%s · %+.0f ₽ (%+.1f%% от вложения %.0f ₽)",
+                "%s · стакан %.2f%% · %+.1f%% от вложения %.0f ₽ · брокер %+.0f ₽",
                 sideRu,
-                yield,
+                decision.bookSpreadPercent ?: 0.0,
                 pct,
                 deposit,
+                yield,
             ),
             notificationId = BROKER_PUSH_BASE_ID + 5,
             skipDuplicateCheck = true,
@@ -250,8 +275,33 @@ private suspend fun maybeFlattenOnTakeProfit(app: Context, snap: BrokerSpreadPos
     }
     val result = runEmergencyFlattenFromTradeTab(app)
     result.onSuccess { msg ->
-        MoexDiagnostics.log(app, "broker_poll", "take_profit flatten ok tp=$tp $msg")
+        MoexDiagnostics.log(
+            app,
+            "broker_poll",
+            "take_profit flatten ok tp=$tp ${formatBackgroundTakeProfitGate(decision)} $msg",
+        )
     }.onFailure { e ->
-        MoexDiagnostics.logError(app, "broker_poll", e, "take_profit flatten tp=$tp")
+        MoexDiagnostics.logError(
+            app,
+            "broker_poll",
+            e,
+            "take_profit flatten tp=$tp ${formatBackgroundTakeProfitGate(decision)}",
+        )
     }
+}
+
+/** Биржевой стакан. Дилерский на закрытой TQBR не используем. */
+private suspend fun loadBackgroundTakeProfitBook(
+    app: Context,
+    snap: BrokerSpreadPositionSnap,
+): PairQuotes? {
+    val token = TinkoffSandboxStorage.getActiveToken(app, TinkoffExecutionMode.Prod) ?: return null
+    val lots = snap.lotsAbs.coerceAtLeast(1).toDouble()
+    return fetchTinkoffPairQuotesForClose(
+        token = token,
+        tatnInstrumentId = TINKOFF_MOEX_TATN_FIGI,
+        tatnpInstrumentId = TINKOFF_MOEX_TATNP_FIGI,
+        lotsAbs = lots,
+        allowDealer = false,
+    )
 }

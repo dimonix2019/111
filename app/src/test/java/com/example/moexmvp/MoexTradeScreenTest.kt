@@ -381,6 +381,83 @@ class MoexTradeScreenTest {
     }
 
     @Test
+    fun backgroundTakeProfit_saturdayBookDoesNotFlattenLongBelowEntry() {
+        val closed = evaluateBackgroundTakeProfitClose(
+            sessionOpen = false,
+            side = ZStrategyPosition.Long,
+            tatnLots = 54,
+            tatnpLots = -54,
+            tatnBid = 641.9,
+            tatnAsk = 642.5,
+            tatnpBid = 614.0,
+            tatnpAsk = 614.5,
+            fillTatnRub = 630.0,
+            fillTatnpRub = 601.15,
+            depositRub = 10_000.0,
+            takeProfitPct = 2.0,
+        )
+        assertFalse(closed.allow)
+        assertEquals("session_closed", closed.reason)
+
+        val loss = evaluateBackgroundTakeProfitClose(
+            sessionOpen = true,
+            side = ZStrategyPosition.Long,
+            tatnLots = 54,
+            tatnpLots = -54,
+            tatnBid = 641.9,
+            tatnAsk = 642.5,
+            tatnpBid = 614.0,
+            tatnpAsk = 614.5,
+            fillTatnRub = 630.0,
+            fillTatnpRub = 601.15,
+            depositRub = 10_000.0,
+            takeProfitPct = 2.0,
+        )
+        assertFalse(loss.allow)
+        assertEquals("exit_worse_than_entry", loss.reason)
+        assertTrue(loss.bookSpreadPercent!! < loss.entrySpreadPercent!!)
+        assertTrue(formatBackgroundTakeProfitGate(loss).contains("reason=exit_worse_than_entry"))
+    }
+
+    @Test
+    fun backgroundTakeProfit_allowsOnlyBookNetAtLeastTwoPercent() {
+        val thin = evaluateBackgroundTakeProfitClose(
+            sessionOpen = true,
+            side = ZStrategyPosition.Long,
+            tatnLots = 54,
+            tatnpLots = -54,
+            tatnBid = 601.0,
+            tatnAsk = 601.5,
+            tatnpBid = 599.5,
+            tatnpAsk = 600.0,
+            fillTatnRub = 600.0,
+            fillTatnpRub = 600.0,
+            depositRub = 10_000.0,
+            takeProfitPct = 2.0,
+        )
+        assertFalse(thin.allow)
+        assertEquals("net_below_tp", thin.reason)
+
+        val ok = evaluateBackgroundTakeProfitClose(
+            sessionOpen = true,
+            side = ZStrategyPosition.Long,
+            tatnLots = 54,
+            tatnpLots = -54,
+            tatnBid = 700.0,
+            tatnAsk = 700.5,
+            tatnpBid = 599.5,
+            tatnpAsk = 600.0,
+            fillTatnRub = 600.0,
+            fillTatnpRub = 600.0,
+            depositRub = 10_000.0,
+            takeProfitPct = 2.0,
+        )
+        assertTrue(ok.allow)
+        assertEquals("ok", ok.reason)
+        assertTrue(ok.pnlPercent!! >= 2.0)
+    }
+
+    @Test
     fun takeProfitDepositRub_prefersPortfolioThenCash() {
         assertEquals(9_526.0, takeProfitDepositRub(9_526.0, 1_000.0, 8_000.0), 0.0)
         assertEquals(1_000.0, takeProfitDepositRub(null, 1_000.0, 8_000.0), 0.0)
