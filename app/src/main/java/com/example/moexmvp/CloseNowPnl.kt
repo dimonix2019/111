@@ -178,18 +178,25 @@ internal suspend fun fetchTinkoffOrderBookQuote(
     token: String,
     instrumentId: String,
     lotsAbs: Double,
+    allowDealer: Boolean = true,
 ): ShareQuote? {
     if (token.isBlank() || instrumentId.isBlank()) return null
     val figi = canonicalCloseNowFigi(instrumentId, instrumentId.contains("TATNP", ignoreCase = true))
-    val attempts = listOf(
-        org.json.JSONObject()
-            .put("instrumentId", figi)
-            .put("depth", CLOSE_NOW_BOOK_DEPTH)
-            .put("orderBookType", CLOSE_NOW_ORDERBOOK_TYPE_DEALER),
-        org.json.JSONObject()
-            .put("instrumentId", figi)
-            .put("depth", CLOSE_NOW_BOOK_DEPTH),
-    )
+    val attempts = buildList {
+        if (allowDealer) {
+            add(
+                org.json.JSONObject()
+                    .put("instrumentId", figi)
+                    .put("depth", CLOSE_NOW_BOOK_DEPTH)
+                    .put("orderBookType", CLOSE_NOW_ORDERBOOK_TYPE_DEALER),
+            )
+        }
+        add(
+            org.json.JSONObject()
+                .put("instrumentId", figi)
+                .put("depth", CLOSE_NOW_BOOK_DEPTH),
+        )
+    }
     for (body in attempts) {
         val quote = runCatching {
             parseTinkoffOrderBookQuote(
@@ -207,9 +214,10 @@ internal suspend fun fetchTinkoffPairQuotesForClose(
     tatnInstrumentId: String,
     tatnpInstrumentId: String,
     lotsAbs: Double,
+    allowDealer: Boolean = true,
 ): PairQuotes? = coroutineScope {
-    val tn = async { fetchTinkoffOrderBookQuote(token, tatnInstrumentId, lotsAbs) }
-    val tp = async { fetchTinkoffOrderBookQuote(token, tatnpInstrumentId, lotsAbs) }
+    val tn = async { fetchTinkoffOrderBookQuote(token, tatnInstrumentId, lotsAbs, allowDealer) }
+    val tp = async { fetchTinkoffOrderBookQuote(token, tatnpInstrumentId, lotsAbs, allowDealer) }
     val a = tn.await()
     val b = tp.await()
     if (a == null && b == null) return@coroutineScope null
