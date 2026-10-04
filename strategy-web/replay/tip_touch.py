@@ -2481,6 +2481,7 @@ def run_touch_1m_trades(
                 "status": "Закрыта",
                 "exitReason": reason,
                 "notional": round(pos_notional, 2),
+                "entry_deposit_rub": round(float(eff) / LEVERAGE, 2) if eff else round(pos_notional, 2),
                 "prodId": merged.get("prod_id"),
             }
         )
