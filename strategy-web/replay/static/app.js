@@ -4526,7 +4526,7 @@
         const pnlCls = pnlClass(profitRub) || pnlClass(profitPct);
         tipNote =
           `   ·   tip ${nTrades} сд.`
-          + ` · <span class="${pnlCls}" title="Чистая прибыль (закрытый net + MTM открытых), без депозита">${formatCapitalPct(profitPct)}</span>`
+          + ` · <span class="${pnlCls}" title="Прибыль к крупнейшему вложению в сделку. Поле «Капитал» — размер счёта, не база процента, если вложения меньше.">${formatCapitalPct(profitPct)}</span>`
           + ` · <span class="${pnlCls}">${rubText}</span>`;
       }
       if (!skipChartPaint) {

@@ -904,6 +904,20 @@ function buildTradeSimSummary(rows, notionalRub = getSimNotionalRub()) {
   }
   /** Чистая прибыль: закрытый net + MTM открытых. Без депозита и без тела вложений. */
   const profitRub = totalPnl + openMtm;
+  // Поле «Капитал» — весь счёт. Итог % — от крупнейшего вложения в сделку,
+  // если оно меньше этого поля (вложения ≤10 000 при капитале 110 000 → не 27% от 110 000).
+  let maxInvest = 0;
+  for (const t of closed) {
+    const direct = Number(t.investValue);
+    const inv = Number.isFinite(direct) && direct > 0
+      ? direct
+      : Number(resolveTradeInvestRub(t));
+    if (Number.isFinite(inv) && inv > 0 && inv > maxInvest) maxInvest = inv;
+  }
+  const pctBase = (maxInvest > 0 && (!(notionalRub > 0) || maxInvest < notionalRub * 0.99))
+    ? maxInvest
+    : notionalRub;
+  const retPct = pctBase > 0 ? (profitRub / pctBase) * 100 : 0;
   const longPnl = longs.reduce((s, r) => s + r.netValue, 0);
   const shortPnl = shorts.reduce((s, r) => s + r.netValue, 0);
   const grossWin = wins.reduce((s, r) => s + r.netValue, 0);
@@ -913,8 +927,6 @@ function buildTradeSimSummary(rows, notionalRub = getSimNotionalRub()) {
   const avgLoss = losses.length ? losses.reduce((s, r) => s + r.netValue, 0) / losses.length : 0;
   const winRate = closed.length ? (wins.length * 100) / closed.length : 0;
   const profitFactor = grossLossAbs > 0 ? grossWin / grossLossAbs : (grossWin > 0 ? Infinity : null);
-  const retPct = notionalRub > 0 ? (profitRub / notionalRub) * 100 : 0;
-
   const REF_ACCOUNT = 100000;
   const refClosed = closed.filter(
     (r) => r.netRef100kValue != null && Number.isFinite(r.netRef100kValue),
