@@ -22,23 +22,28 @@ internal fun buildMarketsSpreadChartReferenceLines(
     depositRub: Double? = null,
     notionalRub: Double? = null,
     takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
+    entryTimeMsk: String? = null,
+    lots: Int = 0,
+    fillTatnRub: Double? = null,
+    fillTatnpRub: Double? = null,
+    nowMillis: Long = System.currentTimeMillis(),
 ): List<ChartReferenceLine> {
     val lines = MARKETS_PHONE_SPREAD_LEVEL_LINES.toMutableList()
     if (openSide == null || openSide == ZStrategyPosition.Flat || takeProfitPct <= 0) {
         return lines
     }
-    val tpSpread = openEntrySpread?.takeIf { it.isFinite() }?.let { entry ->
-        val dep = depositRub?.takeIf { it > 0 } ?: return@let null
-        val eff = notionalRub?.takeIf { it > 0 }
-            ?: dep * SPREAD_LOT_PROD_DEFAULT_LEVERAGE
-        takeProfitExitSpread(
-            side = openSide,
-            entrySpreadPercent = entry,
-            depositRub = dep,
-            effNotionalRub = eff,
-            takeProfitPct = takeProfitPct,
-        )
-    }
+    val tpSpread = computeTakeProfitForecast(
+        side = openSide,
+        entrySpreadPercent = openEntrySpread,
+        depositRub = depositRub,
+        notionalRub = notionalRub,
+        lots = lots,
+        fillTatnRub = fillTatnRub,
+        fillTatnpRub = fillTatnpRub,
+        entryTimeMsk = entryTimeMsk,
+        takeProfitPct = takeProfitPct,
+        nowMillis = nowMillis,
+    )?.exitSpreadPercent
     val level = tpSpread ?: when (openSide) {
         ZStrategyPosition.Long -> DEFAULT_SPREAD_EXIT_NARROW
         ZStrategyPosition.Short -> DEFAULT_SPREAD_EXIT_WIDE

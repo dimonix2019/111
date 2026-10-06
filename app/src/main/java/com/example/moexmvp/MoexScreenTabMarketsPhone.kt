@@ -46,6 +46,8 @@ private data class MarketsPhoneChartState(
     val openDepositRub: Double?,
     val openNotionalRub: Double?,
     val takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
+    val entryTimeMsk: String? = null,
+    val lots: Int = 0,
 )
 
 /**
@@ -242,6 +244,8 @@ internal fun MoexScreenTabMarketsPhone(
                     ?: openExec?.entryPortfolioCashRub?.takeIf { it > 0 },
                 openNotionalRub = openExec?.executionNotionalRub?.takeIf { it > 0 },
                 takeProfitPct = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(screen.context),
+                entryTimeMsk = openExec?.entryTimeMsk,
+                lots = openExec?.quantityLots ?: 0,
             )
         }
     }
@@ -259,12 +263,16 @@ internal fun MoexScreenTabMarketsPhone(
     val spreadText = lastSpread?.let {
         String.format(Locale("ru", "RU"), "%.2f%%", it)
     } ?: "—"
+    val tpCalendarDay = java.time.LocalDate.now(moexZoneId).toString()
     val spreadRefs = remember(
         chartState.openSide,
         chartState.openEntrySpread,
         chartState.openDepositRub,
         chartState.openNotionalRub,
         chartState.takeProfitPct,
+        chartState.entryTimeMsk,
+        chartState.lots,
+        tpCalendarDay,
     ) {
         buildMarketsSpreadChartReferenceLines(
             openSide = chartState.openSide,
@@ -272,6 +280,8 @@ internal fun MoexScreenTabMarketsPhone(
             depositRub = chartState.openDepositRub,
             notionalRub = chartState.openNotionalRub,
             takeProfitPct = chartState.takeProfitPct,
+            entryTimeMsk = chartState.entryTimeMsk,
+            lots = chartState.lots,
         )
     }
     Column(
