@@ -98,6 +98,7 @@ internal fun computeTakeProfitForecast(
     fillTatnpRub: Double?,
     entryTimeMsk: String?,
     takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
+    nowMillis: Long = System.currentTimeMillis(),
 ): TakeProfitForecast? {
     if (side == ZStrategyPosition.Flat) return null
     val entry = entrySpreadPercent?.takeIf { it.isFinite() } ?: return null
@@ -110,7 +111,7 @@ internal fun computeTakeProfitForecast(
     val uncovered = shortLegUncoveredRub(side, lots, fillTatnRub, fillTatnpRub, eff)
     val ovnPerDay = overnightFeePerDayRub(uncovered)
     val ovnDays = entryTimeMsk?.let { entryLabel ->
-        val end = formatPortfolioExecutionTableMsk(System.currentTimeMillis())
+        val end = formatPortfolioExecutionTableMsk(nowMillis)
         overnightDays(
             portfolioDateLabelFromMskTableTime(entryLabel),
             portfolioDateLabelFromMskTableTime(end),

@@ -45,6 +45,31 @@ class MarketsSpreadChartTest {
     }
 
     @Test
+    fun buildMarketsSpreadChartReferenceLines_longTpMovesUpAfterOvernight() {
+        val base = buildMarketsSpreadChartReferenceLines(
+            openSide = ZStrategyPosition.Long,
+            openEntrySpread = 4.79,
+            depositRub = 10_000.0,
+            notionalRub = 70_000.0,
+            lots = 54,
+            entryTimeMsk = "2026-10-05 19:00",
+            nowMillis = java.time.LocalDateTime.of(2026, 10, 5, 21, 0)
+                .atZone(moexZoneId).toInstant().toEpochMilli(),
+        ).last().value
+        val nextMorning = buildMarketsSpreadChartReferenceLines(
+            openSide = ZStrategyPosition.Long,
+            openEntrySpread = 4.79,
+            depositRub = 10_000.0,
+            notionalRub = 70_000.0,
+            lots = 54,
+            entryTimeMsk = "2026-10-05 19:00",
+            nowMillis = java.time.LocalDateTime.of(2026, 10, 6, 7, 1)
+                .atZone(moexZoneId).toInstant().toEpochMilli(),
+        ).last().value
+        assertTrue(nextMorning > base + 0.01)
+    }
+
+    @Test
     fun buildMarketsSpreadChartReferenceLines_customTakeProfitPctLabel() {
         val lines = buildMarketsSpreadChartReferenceLines(
             openSide = ZStrategyPosition.Long,
