@@ -27,22 +27,55 @@ internal suspend fun resolveSpreadEntryTimeMsk(
 
     val fill = latestProdEntryFillTimeMsk(context, side)
     val execTime = exec?.entryTimeMsk?.takeIf { it.isNotBlank() && it != "—" }
-    val newerThanFill = preferNewerEntryTime(fill?.first, execTime)
-    if (execTime != null && newerThanFill == execTime) {
-        return execTime to SpreadEntryTimeSource.ExecLog
+    val prefsTime = BrokerAccountPrefs.entryTimeMskAtOpen(context)?.takeIf { it.isNotBlank() }
+    val local = chooseSpreadEntryTime(
+        execTime = execTime,
+        fillTime = fill?.first,
+        prefsTime = prefsTime,
+        operationsTime = null,
+    )
+    val operationsTime = if (entryTimeNeedsBrokerCheck(local?.first, System.currentTimeMillis())) {
+        fetchSpreadEntryTimeFromOperations(token, accountId, side)
+    } else {
+        null
     }
-    fill?.let { return it }
+    return chooseSpreadEntryTime(
+        execTime = execTime,
+        fillTime = fill?.first,
+        prefsTime = prefsTime,
+        operationsTime = operationsTime,
+    )
+}
 
-    BrokerAccountPrefs.entryTimeMskAtOpen(context)?.takeIf { it.isNotBlank() }?.let {
-        return it to SpreadEntryTimeSource.BrokerPrefs
+/**
+ * Журнал 5 октября не должен перебивать открытие сегодня.
+ * GetOperations спрашиваем, только если локальная дата раньше сегодняшнего дня.
+ */
+internal fun entryTimeNeedsBrokerCheck(localTime: String?, nowMillis: Long): Boolean {
+    val ms = localTime?.let { parsePortfolioExecutionTableMsk(it) } ?: return true
+    val localDate = Instant.ofEpochMilli(ms).atZone(moexZoneId).toLocalDate()
+    val today = Instant.ofEpochMilli(nowMillis).atZone(moexZoneId).toLocalDate()
+    return localDate.isBefore(today)
+}
+
+internal fun chooseSpreadEntryTime(
+    execTime: String?,
+    fillTime: String?,
+    prefsTime: String?,
+    operationsTime: String?,
+): Pair<String, SpreadEntryTimeSource>? {
+    val ranked = listOf(
+        execTime to SpreadEntryTimeSource.ExecLog,
+        fillTime to SpreadEntryTimeSource.TradeFillLog,
+        prefsTime to SpreadEntryTimeSource.BrokerPrefs,
+        operationsTime to SpreadEntryTimeSource.GetOperations,
+    )
+    var best: Pair<String, SpreadEntryTimeSource>? = null
+    for ((time, source) in ranked) {
+        val chosen = preferNewerEntryTime(best?.first, time) ?: continue
+        if (best == null || chosen == time) best = chosen to source
     }
-
-    fetchSpreadEntryTimeFromOperations(token, accountId, side)?.let {
-        BrokerAccountPrefs.saveEntryTimeAtOpen(context, it)
-        return it to SpreadEntryTimeSource.GetOperations
-    }
-
-    return null
+    return best
 }
 
 /** Более позднее время входа. Старый журнал не должен затирать сегодняшнее открытие. */
