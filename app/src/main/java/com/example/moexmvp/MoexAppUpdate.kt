@@ -151,8 +151,9 @@ internal fun pollBackgroundAppUpdate(context: Context, nowMs: Long = System.curr
 
 private fun notifyNewerAppUpdate(context: Context, remote: AppRemoteUpdate): AppRemoteUpdate? {
     if (!shouldOfferAppUpdateUi(remote, context)) return null
-    val notified = loadNotifiedAppUpdateVersionCode(context)
-    if (remote.versionCode > notified && showAppUpdatePushNotification(context, remote)) {
+    // Повтор на каждой проверке, пока пользователь не нажал «Позже».
+    // Один раз на versionCode терялся: шторка Xiaomi прятала канал, и повтор уже не приходил.
+    if (showAppUpdatePushNotification(context, remote)) {
         saveNotifiedAppUpdateVersionCode(context, remote.versionCode)
     }
     return remote
