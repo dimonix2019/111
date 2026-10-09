@@ -1,5 +1,6 @@
 package com.example.moexmvp
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -171,6 +172,20 @@ class MoexOpenTradeRiskNotificationTest {
         assertEquals(
             0L,
             overnightDays("2026-10-09", "2026-10-09"),
+        )
+        val root = JSONObject(
+            """
+            {"operations":[
+              {"date":"2026-10-05T17:51:00Z","operationType":"OPERATION_TYPE_BUY","figi":"BBG004RVFFC0","payment":{"units":"-1","nano":0}},
+              {"date":"2026-10-05T17:51:00Z","operationType":"OPERATION_TYPE_SELL","figi":"BBG004S68829","payment":{"units":"1","nano":0}},
+              {"date":"2026-10-09T08:45:00Z","operationType":"OPERATION_TYPE_BUY","figi":"BBG004RVFFC0","payment":{"units":"-1","nano":0}},
+              {"date":"2026-10-09T08:45:00Z","operationType":"OPERATION_TYPE_SELL","figi":"BBG004S68829","payment":{"units":"1","nano":0}}
+            ]}
+            """.trimIndent(),
+        )
+        assertEquals(
+            "2026-10-09 11:45",
+            spreadEntryTimeLabelFromOperationsRoot(root, ZStrategyPosition.Long),
         )
     }
 
