@@ -156,6 +156,22 @@ class MoexOpenTradeRiskNotificationTest {
         assertFalse(risk.flags.contains(StrategyTestTradeRiskFlag.VeryLongHold))
         assertEquals("2026-10-02 09:15", preferNewerEntryTime("2026-09-26 20:31", "2026-10-02 09:15"))
         assertEquals("2026-10-02 09:15", preferNewerEntryTime("2026-10-02 09:15", "2026-09-26 20:31"))
+        val chosen = chooseSpreadEntryTime(
+            execTime = "2026-10-05 20:51",
+            fillTime = null,
+            prefsTime = "2026-10-05 20:51",
+            operationsTime = "2026-10-09 11:45",
+        )
+        assertEquals("2026-10-09 11:45", chosen?.first)
+        assertEquals(SpreadEntryTimeSource.GetOperations, chosen?.second)
+        val oct9evening = java.time.LocalDateTime.of(2026, 10, 9, 23, 13)
+            .atZone(moexZoneId).toInstant().toEpochMilli()
+        assertTrue(entryTimeNeedsBrokerCheck("2026-10-05 20:51", oct9evening))
+        assertFalse(entryTimeNeedsBrokerCheck("2026-10-09 11:45", oct9evening))
+        assertEquals(
+            0L,
+            overnightDays("2026-10-09", "2026-10-09"),
+        )
     }
 
     @Test
