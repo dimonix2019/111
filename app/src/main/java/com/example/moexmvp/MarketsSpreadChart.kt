@@ -27,28 +27,26 @@ internal fun buildMarketsSpreadChartReferenceLines(
     fillTatnRub: Double? = null,
     fillTatnpRub: Double? = null,
     nowMillis: Long = System.currentTimeMillis(),
+    takeProfitSpread: Double? = null,
 ): List<ChartReferenceLine> {
     val lines = MARKETS_PHONE_SPREAD_LEVEL_LINES.toMutableList()
     if (openSide == null || openSide == ZStrategyPosition.Flat || takeProfitPct <= 0) {
         return lines
     }
-    val tpSpread = computeTakeProfitForecast(
-        side = openSide,
-        entrySpreadPercent = openEntrySpread,
-        depositRub = depositRub,
-        notionalRub = notionalRub,
-        lots = lots,
-        fillTatnRub = fillTatnRub,
-        fillTatnpRub = fillTatnpRub,
-        entryTimeMsk = entryTimeMsk,
-        takeProfitPct = takeProfitPct,
-        nowMillis = nowMillis,
-    )?.exitSpreadPercent
-    val level = tpSpread ?: when (openSide) {
-        ZStrategyPosition.Long -> DEFAULT_SPREAD_EXIT_NARROW
-        ZStrategyPosition.Short -> DEFAULT_SPREAD_EXIT_WIDE
-        ZStrategyPosition.Flat -> return lines
-    }
+    val tpSpread = takeProfitSpread?.takeIf { it.isFinite() }
+        ?: computeTakeProfitForecast(
+            side = openSide,
+            entrySpreadPercent = openEntrySpread,
+            depositRub = depositRub,
+            notionalRub = notionalRub,
+            lots = lots,
+            fillTatnRub = fillTatnRub,
+            fillTatnpRub = fillTatnpRub,
+            entryTimeMsk = entryTimeMsk,
+            takeProfitPct = takeProfitPct,
+            nowMillis = nowMillis,
+        )?.exitSpreadPercent
+    val level = tpSpread ?: return lines
     val tpLabel = if (takeProfitPct % 1.0 == 0.0) {
         "ТП ${takeProfitPct.toInt()}%"
     } else {

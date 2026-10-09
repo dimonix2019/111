@@ -264,6 +264,7 @@ internal fun MoexScreenTabMarketsPhone(
         String.format(Locale("ru", "RU"), "%.2f%%", it)
     } ?: "—"
     val tpCalendarDay = java.time.LocalDate.now(moexZoneId).toString()
+    val liveTp = screen.tradeScreenSnapshot?.takeProfitForecast
     val spreadRefs = remember(
         chartState.openSide,
         chartState.openEntrySpread,
@@ -273,15 +274,21 @@ internal fun MoexScreenTabMarketsPhone(
         chartState.entryTimeMsk,
         chartState.lots,
         tpCalendarDay,
+        liveTp?.exitSpreadPercent,
+        liveTp?.takeProfitPct,
     ) {
         buildMarketsSpreadChartReferenceLines(
-            openSide = chartState.openSide,
-            openEntrySpread = chartState.openEntrySpread,
-            depositRub = chartState.openDepositRub,
-            notionalRub = chartState.openNotionalRub,
-            takeProfitPct = chartState.takeProfitPct,
-            entryTimeMsk = chartState.entryTimeMsk,
-            lots = chartState.lots,
+            openSide = chartState.openSide ?: screen.tradeScreenSnapshot?.side,
+            openEntrySpread = screen.tradeScreenSnapshot?.spreadPercentEntry
+                ?: chartState.openEntrySpread,
+            depositRub = screen.tradeScreenSnapshot?.depositRub ?: chartState.openDepositRub,
+            notionalRub = screen.tradeScreenSnapshot?.notionalRub ?: chartState.openNotionalRub,
+            takeProfitPct = liveTp?.takeProfitPct ?: chartState.takeProfitPct,
+            entryTimeMsk = screen.tradeScreenSnapshot?.entryTimeMsk ?: chartState.entryTimeMsk,
+            lots = screen.tradeScreenSnapshot?.quantityLots ?: chartState.lots,
+            fillTatnRub = screen.tradeScreenSnapshot?.tatnAvgPriceRub,
+            fillTatnpRub = screen.tradeScreenSnapshot?.tatnpAvgPriceRub,
+            takeProfitSpread = liveTp?.exitSpreadPercent,
         )
     }
     Column(

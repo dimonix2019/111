@@ -15,19 +15,22 @@ class MarketsSpreadChartTest {
     }
 
     @Test
-    fun buildMarketsSpreadChartReferenceLines_longOpen_addsTpLineAtExitNarrowWhenNoEntry() {
+    fun buildMarketsSpreadChartReferenceLines_longOpen_doesNotUseExitLevelAsTp() {
         val lines = buildMarketsSpreadChartReferenceLines(openSide = ZStrategyPosition.Long)
-        assertEquals(5, lines.size)
-        val tp = lines.last()
-        assertEquals("ТП 2%", tp.label)
-        assertEquals(DEFAULT_SPREAD_EXIT_NARROW, tp.value, 1e-9)
+        assertTrue(lines.none { it.label.startsWith("ТП") })
+        assertEquals(DEFAULT_SPREAD_EXIT_NARROW, lines.first { it.label.startsWith("L вых") }.value, 1e-9)
     }
 
     @Test
-    fun buildMarketsSpreadChartReferenceLines_shortOpen_addsTpLineAtExitWideWhenNoEntry() {
-        val lines = buildMarketsSpreadChartReferenceLines(openSide = ZStrategyPosition.Short)
-        assertEquals(5, lines.size)
-        assertEquals(DEFAULT_SPREAD_EXIT_WIDE, lines.last().value, 1e-9)
+    fun buildMarketsSpreadChartReferenceLines_usesTradeTabTakeProfitLevel() {
+        val lines = buildMarketsSpreadChartReferenceLines(
+            openSide = ZStrategyPosition.Long,
+            takeProfitSpread = 5.7,
+        )
+        val tp = lines.last()
+        assertEquals("ТП 2%", tp.label)
+        assertEquals(5.7, tp.value, 1e-9)
+        assertTrue(lines.any { it.label.startsWith("L вых") && it.value == DEFAULT_SPREAD_EXIT_NARROW })
     }
 
     @Test
@@ -74,8 +77,10 @@ class MarketsSpreadChartTest {
         val lines = buildMarketsSpreadChartReferenceLines(
             openSide = ZStrategyPosition.Long,
             takeProfitPct = 3.5,
+            takeProfitSpread = 5.1,
         )
         assertEquals("ТП 3.5%", lines.last().label)
+        assertEquals(5.1, lines.last().value, 1e-9)
     }
 
     @Test
