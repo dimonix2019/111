@@ -34,11 +34,17 @@ internal suspend fun resolveSpreadEntryTimeMsk(
         prefsTime = prefsTime,
         operationsTime = null,
     )
-    val operationsTime = if (entryTimeNeedsBrokerCheck(local?.first, System.currentTimeMillis())) {
+    val fetched = if (entryTimeNeedsBrokerCheck(local?.first, System.currentTimeMillis())) {
         fetchSpreadEntryTimeFromOperations(token, accountId, side)
     } else {
         null
     }
+    val openEvent = lastUnmatchedOpenSpread
+    val openTime = openEvent?.takeIf { event ->
+        (side == ZStrategyPosition.Long && event.side == "LONG") ||
+            (side == ZStrategyPosition.Short && event.side == "SHORT")
+    }?.startMs?.let { formatPortfolioExecutionTableMsk(it) }
+    val operationsTime = preferNewerEntryTime(fetched, openTime)
     return chooseSpreadEntryTime(
         execTime = execTime,
         fillTime = fill?.first,
@@ -129,6 +135,15 @@ internal suspend fun fetchSpreadEntryTimeFromOperations(
         )
     }.getOrNull() ?: return null
 
+    return spreadEntryTimeLabelFromOperationsRoot(root, side)
+}
+
+/** Время входа из уже загруженного GetOperations (figi без ticker тоже подходит). */
+internal fun spreadEntryTimeLabelFromOperationsRoot(
+    root: JSONObject,
+    side: ZStrategyPosition,
+): String? {
+    if (side == ZStrategyPosition.Flat) return null
     val ops = collectSpreadOperations(root)
         .mapNotNull { op ->
             val ticker = resolveSpreadOperationTicker(op) ?: return@mapNotNull null
@@ -189,15 +204,11 @@ private fun operationIsBuy(op: JSONObject): Boolean? {
     return payment < 0
 }
 
-private fun resolveSpreadOperationTicker(op: JSONObject): String? {
-    val inst = op.optJSONObject("instrument")
-    jsonFirstNonBlankOp(inst ?: op, "ticker", "Ticker")?.uppercase(Locale.US)?.let { return it }
-    val figi = jsonFirstNonBlankOp(inst ?: op, "figi", "FIGI").orEmpty().uppercase(Locale.US)
-    return when {
-        "TATNP" in figi -> "TATNP"
-        "TATN" in figi -> "TATN"
-        else -> null
-    }
+/** GetOperations часто отдаёт figi BBG… без поля ticker. */
+internal fun resolveSpreadOperationTicker(op: JSONObject): String? {
+    resolveTatnTatnpTicker(op)?.let { return it }
+    val inst = op.optJSONObject("instrument") ?: return null
+    return resolveTatnTatnpTicker(inst)
 }
 
 private fun jsonFirstNonBlankOp(o: JSONObject, vararg keys: String): String? {
