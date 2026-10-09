@@ -20,7 +20,8 @@ import java.util.Locale
 
 internal const val PUSH_CHANNEL_ID = "moex_push_channel"
 /** Отдельный канал: важность уже созданного «MOEX Push» Android не повышает. */
-internal const val APP_UPDATE_PUSH_CHANNEL_ID = "moex_app_update_channel"
+/** Новый id: старый канал на Xiaomi остаётся тихим, importance не повышается. */
+internal const val APP_UPDATE_PUSH_CHANNEL_ID = "moex_app_update_channel_v2"
 internal const val PUSH_TOPIC = "moex_updates"
 internal const val PUSH_LOG_TAG = "MoexPush"
 /** PendingIntent → MainActivity: восстановить карточку «Принять» по данным из уведомления. */
@@ -383,11 +384,16 @@ internal fun showPushNotification(
         .setContentText(displayBody)
         .setStyle(NotificationCompat.BigTextStyle().bigText(displayBody))
         .setAutoCancel(true)
+        .setOnlyAlertOnce(false)
         .setPriority(priority)
         .setContentIntent(pendingIntent)
         .build()
 
-    NotificationManagerCompat.from(context).notify(notificationId, notification)
+    val notifier = NotificationManagerCompat.from(context)
+    if (appUpdateTap != null) {
+        notifier.cancel(notificationId)
+    }
+    notifier.notify(notificationId, notification)
     trace(true, null, notificationId)
     return true
 }

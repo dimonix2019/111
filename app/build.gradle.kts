@@ -24,8 +24,8 @@ android {
         applicationId = "com.example.moexmvp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 497
-        versionName = "2.0.68"
+        versionCode = 498
+        versionName = "2.0.69"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
