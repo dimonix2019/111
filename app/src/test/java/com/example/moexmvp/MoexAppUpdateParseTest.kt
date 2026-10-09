@@ -10,8 +10,8 @@ import java.io.File
 class MoexAppUpdateParseTest {
 
     @Test
-    fun inAppUpdateCheck_doesNotPollEveryFiveMinutes() {
-        assertEquals(15 * 60 * 1000L, APP_UPDATE_CHECK_INTERVAL_MS)
+    fun inAppUpdateCheck_pollsWithinAMinute() {
+        assertEquals(60 * 1000L, APP_UPDATE_CHECK_INTERVAL_MS)
         assertTrue(APP_UPDATE_CHECK_RETRY_MS < APP_UPDATE_CHECK_INTERVAL_MS)
     }
 
