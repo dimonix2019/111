@@ -71,6 +71,8 @@
     let series = null;
     let zoneSeries = [];
     let highlightSeries = null;
+    let dynamicFloorSeries = null;
+    let dynamicCeilingSeries = null;
     let markersPlugin = null;
     let priceLines = [];
     let fitted = false;
@@ -823,6 +825,20 @@
       });
       highlightSeries.setData([]);
 
+      const dynamicRangeOpts = {
+        color: '#38bdf8',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+        autoscaleInfoProvider: () => null,
+      };
+      dynamicFloorSeries = chart.addSeries(LightweightCharts.LineSeries, dynamicRangeOpts);
+      dynamicCeilingSeries = chart.addSeries(LightweightCharts.LineSeries, dynamicRangeOpts);
+      dynamicFloorSeries.setData([]);
+      dynamicCeilingSeries.setData([]);
+
       if (!clickBound) {
         chart.subscribeClick(onChartClick);
         clickBound = true;
@@ -997,6 +1013,9 @@
         markersPlugin = null;
       }
       bindViewportMarkerRefresh();
+
+      if (dynamicFloorSeries) dynamicFloorSeries.setData(data.dynamicRangeFloor || []);
+      if (dynamicCeilingSeries) dynamicCeilingSeries.setData(data.dynamicRangeCeiling || []);
 
       for (const pl of priceLines) series.removePriceLine(pl);
       priceLines = [];
