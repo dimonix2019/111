@@ -259,6 +259,9 @@ internal fun MoexScreenTabMarketsPhone(
     val spreadText = lastSpread?.let {
         String.format(Locale("ru", "RU"), "%.2f%%", it)
     } ?: "—"
+    val dynamicRange = remember(candles) {
+        buildDynamicSpreadRangeSegments(dynamicRangeSamplesFromSpreadCandles(candles))
+    }
     val spreadRefs = remember(
         chartState.openSide,
         chartState.openEntrySpread,
@@ -308,6 +311,7 @@ internal fun MoexScreenTabMarketsPhone(
                 displayPoints = markerPoints,
                 chartHeightDp = MARKETS_PHONE_CHART_HEIGHT_DP,
                 referenceLines = spreadRefs,
+                dynamicRange = dynamicRange,
                 zoneFills = MARKETS_PHONE_SPREAD_ZONE_FILLS,
                 pointMarkers = chartOverlay.markers,
                 tradeSegments = chartOverlay.tradeSegments,
@@ -323,7 +327,8 @@ internal fun MoexScreenTabMarketsPhone(
         }
 
         Text(
-            text = "Pinch — масштаб, drag — панорамирование, шкала справа — масштаб цены. " +
+            text = "Динамический диапазон — пунктир. " +
+                "Pinch — масштаб, drag — панорамирование, шкала справа — масштаб цены. " +
                 "Маркеры — входы/выходы сделок за неделю. График обновляется ~30 с (хвост дня, не вся неделя).",
             color = Color(0xFF757575),
             fontSize = 11.sp,

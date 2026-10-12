@@ -315,6 +315,7 @@ internal fun buildTradingViewChartPayloadJson(
     areaFillColor: String? = null,
     formingBar: MarketsFormingBarHint? = null,
     spreadChart: Boolean = false,
+    dynamicRange: List<DynamicRangeSegment> = emptyList(),
 ): String {
     val candleArr = JSONArray()
     val seenTimes = linkedSetOf<Long>()
@@ -475,7 +476,31 @@ internal fun buildTradingViewChartPayloadJson(
         root.put("spreadChart", true)
         root.put("lastPriceLineColor", "#FACC15")
     }
+    root.put("dynamicRangeFloor", dynamicRangeLineJson(dynamicRange, floor = true))
+    root.put("dynamicRangeCeiling", dynamicRangeLineJson(dynamicRange, floor = false))
     return root.toString()
+}
+
+/** Ступеньки пола/потолка. Разрыв между сегментами — точка без value, ось по ним не строится. */
+internal fun dynamicRangeLineJson(segments: List<DynamicRangeSegment>, floor: Boolean): JSONArray {
+    val arr = JSONArray()
+    var previousEndSec: Long? = null
+    for (segment in segments) {
+        if (segment.toMillis <= segment.fromMillis) continue
+        val fromSec = segment.fromMillis / 1000L
+        val toSec = (segment.toMillis / 1000L) - 1L
+        if (toSec <= fromSec) continue
+        val value = if (floor) segment.floor else segment.ceiling
+        val prev = previousEndSec
+        if (prev != null && fromSec > prev) {
+            val gap = prev + 1L
+            if (gap < fromSec) arr.put(JSONObject().put("time", gap))
+        }
+        arr.put(JSONObject().put("time", fromSec).put("value", value))
+        arr.put(JSONObject().put("time", toSec).put("value", value))
+        previousEndSec = toSec
+    }
+    return arr
 }
 
 /** Пустой зазор справа на Z-score (parity CHART_RIGHT_PLOT_PADDING_FRACTION / 1м график). */
@@ -735,6 +760,7 @@ internal fun TradingViewZScoreChartCard(
     formingBarHintText: String? = null,
     showOhlcLegend: Boolean = false,
     spreadChart: Boolean = false,
+    dynamicRange: List<DynamicRangeSegment> = emptyList(),
 ) {
     if (candles.isEmpty()) return
     var ohlcLegendText by remember {
@@ -763,6 +789,7 @@ internal fun TradingViewZScoreChartCard(
         areaFillColor,
         formingBarHint,
         spreadChart,
+        dynamicRange,
     ) {
         buildTradingViewChartPayloadJson(
             candles = candles,
@@ -778,6 +805,7 @@ internal fun TradingViewZScoreChartCard(
             areaFillColor = areaFillColor,
             formingBar = formingBarHint,
             spreadChart = spreadChart,
+            dynamicRange = dynamicRange,
         )
     }
     Column(
