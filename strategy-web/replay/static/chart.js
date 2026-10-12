@@ -642,10 +642,13 @@ class ReplayChart {
     }
 
     const isWide = String(corridor && corridor.kind || '') === 'wide';
+    const wideHasBounds = isWide && Number.isFinite(liveLo) && Number.isFinite(liveHi);
+    // Вынос (broken) и пустая история не должны стирать уже известные пол и потолок.
+    if (!currentActive && !sourceHistory.length && !wideHasBounds) return;
     const segments = this._splitCorridorHistory(
       isWide ? rows : this._corridorRowsForChart(rows),
     );
-    if (!segments.length) return;
+    if (!segments.length && !wideHasBounds) return;
 
     const paint = (style, data) => {
       if (!data || data.length < 2) return null;
@@ -672,6 +675,18 @@ class ReplayChart {
     };
 
     let anyOk = false;
+    if (!segments.length && wideHasBounds) {
+      const flat = [
+        { time: firstSec, value: liveLo },
+        { time: lastSec, value: liveLo },
+      ];
+      const flatHi = [
+        { time: firstSec, value: liveHi },
+        { time: lastSec, value: liveHi },
+      ];
+      if (paint(styles.wide, this._sanitizeCorridorPoints(flat))) anyOk = true;
+      if (paint(styles.wide, this._sanitizeCorridorPoints(flatHi))) anyOk = true;
+    }
     segments.forEach((seg, idx) => {
       const style = isWide ? styles.wide : styles[seg.phase];
       if (!style) return;
@@ -685,6 +700,18 @@ class ReplayChart {
       const loS = paint(style, loData);
       const hiS = paint(style, hiData);
       if (loS || hiS) anyOk = true;
+      if (isWide && wideHasBounds && !loS && !hiS && isLast) {
+        const spanLo = this._sanitizeCorridorPoints([
+          { time: firstSec, value: liveLo },
+          { time: lastSec, value: liveLo },
+        ]);
+        const spanHi = this._sanitizeCorridorPoints([
+          { time: firstSec, value: liveHi },
+          { time: lastSec, value: liveHi },
+        ]);
+        if (paint(styles.wide, spanLo)) anyOk = true;
+        if (paint(styles.wide, spanHi)) anyOk = true;
+      }
       if (loS && loData[0] && idx === 0) {
         try {
           loS.setMarkers([{
