@@ -29,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.Locale
 
@@ -94,6 +95,24 @@ internal fun MoexScreenTabMarketsPhone(
     var loadError by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var brokerSide by remember { mutableStateOf(BrokerAccountPrefs.lastSide(screen.context)) }
+    var historySamples by remember { mutableStateOf<List<MinuteSpreadSample>>(emptyList()) }
+
+    LaunchedEffect(screen.selectedTab) {
+        if (screen.selectedTab != MainTab.Markets) return@LaunchedEffect
+        val today = LocalDate.now(moexZoneId)
+        val oldest = today.minusDays(70)
+        var chunkTill = today.plusDays(1)
+        while (chunkTill.isAfter(oldest)) {
+            val chunkFrom = maxOf(oldest, chunkTill.minusDays(7))
+            val part = withContext(Dispatchers.IO) {
+                runCatching { fetchDynamicRangeHistorySamples(chunkFrom, chunkTill) }.getOrElse { emptyList() }
+            }
+            if (part.isNotEmpty()) {
+                historySamples = mergeMinuteSpreadSamples(historySamples, part)
+            }
+            chunkTill = chunkFrom
+        }
+    }
 
     LaunchedEffect(screen.selectedTab) {
         if (screen.selectedTab != MainTab.Markets) return@LaunchedEffect
@@ -259,8 +278,10 @@ internal fun MoexScreenTabMarketsPhone(
     val spreadText = lastSpread?.let {
         String.format(Locale("ru", "RU"), "%.2f%%", it)
     } ?: "—"
-    val dynamicRange = remember(candles) {
-        buildDynamicSpreadRangeSegments(dynamicRangeSamplesFromSpreadCandles(candles))
+    val dynamicRange = remember(candles, historySamples) {
+        buildDynamicSpreadRangeSegments(
+            mergeMinuteSpreadSamples(historySamples, dynamicRangeSamplesFromSpreadCandles(candles)),
+        )
     }
     val spreadRefs = remember(
         chartState.openSide,

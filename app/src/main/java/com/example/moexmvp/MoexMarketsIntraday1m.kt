@@ -217,6 +217,24 @@ internal suspend fun fetchMarketsSpreadRange(
     }
 }
 
+/**
+ * Минутные спреды для динамического диапазона, без 10м «формирующейся» свечи.
+ * График недели в понедельник не содержит прошлых будней, а коробка считается только по ним.
+ */
+internal suspend fun fetchDynamicRangeHistorySamples(
+    from: LocalDate,
+    till: LocalDate,
+): List<MinuteSpreadSample> = withContext(Dispatchers.IO) {
+    if (!till.isAfter(from)) return@withContext emptyList()
+    coroutineScope {
+        val tatn = async { loadCandleBars("TATN", from, till, interval = 1) }
+        val tatnp = async { loadCandleBars("TATNP", from, till, interval = 1) }
+        dynamicRangeSamplesFromSpreadCandles(
+            buildSpreadPercentCandlesFromLegs(tatn.await(), tatnp.await()),
+        )
+    }
+}
+
 /** 1м TATN/TATNP с понедельника недели до завтра (МСК) → свечи спреда %. */
 internal suspend fun fetchMarketsIntraday1mWeek(): MarketsSpreadWeekSnapshot {
     val today = LocalDate.now(moexZoneId)

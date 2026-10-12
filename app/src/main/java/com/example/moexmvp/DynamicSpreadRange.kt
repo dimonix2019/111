@@ -164,6 +164,22 @@ internal fun buildDynamicSpreadRangeSegments(
     return out
 }
 
+internal fun mergeMinuteSpreadSamples(
+    first: List<MinuteSpreadSample>,
+    second: List<MinuteSpreadSample>,
+): List<MinuteSpreadSample> {
+    if (first.isEmpty()) return second
+    if (second.isEmpty()) return first
+    val byTime = LinkedHashMap<LocalDateTime, Double>(first.size + second.size)
+    for (sample in first) {
+        if (sample.spreadPercent.isFinite()) byTime[sample.time] = sample.spreadPercent
+    }
+    for (sample in second) {
+        if (sample.spreadPercent.isFinite()) byTime[sample.time] = sample.spreadPercent
+    }
+    return byTime.map { (time, spread) -> MinuteSpreadSample(time, spread) }
+}
+
 internal fun dynamicRangeSamplesFromSpreadCandles(candles: List<CandlePoint>): List<MinuteSpreadSample> =
     candles.mapNotNull { candle ->
         val time = runCatching { LocalDateTime.parse(candle.label.trim(), portfolio15mLabelFormatter) }
