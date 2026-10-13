@@ -286,6 +286,7 @@ class MoexTradeScreenTest {
 
     @Test
     fun takeProfitExitSpread_long_movesSpreadUp() {
+        val delta = 2.0 / 7.0 + 0.08
         val exit = takeProfitExitSpread(
             side = ZStrategyPosition.Long,
             entrySpreadPercent = 3.35,
@@ -295,11 +296,21 @@ class MoexTradeScreenTest {
             exitCommissionRub = 112.0,
             overnightRub = 175.0,
         )!!
-        assertTrue(exit > 3.35)
+        assertEquals(3.35 + delta, exit, 1e-9)
+        val noNight = takeProfitExitSpread(
+            side = ZStrategyPosition.Long,
+            entrySpreadPercent = 3.35,
+            depositRub = 60_000.0,
+            effNotionalRub = 280_000.0,
+            takeProfitPct = 2.0,
+            overnightRub = 0.0,
+        )!!
+        assertEquals(exit, noNight, 1e-9)
     }
 
     @Test
     fun takeProfitExitSpread_short_movesSpreadDown() {
+        val delta = 2.0 / 7.0 + 0.08
         val exit = takeProfitExitSpread(
             side = ZStrategyPosition.Short,
             entrySpreadPercent = 5.5,
@@ -309,7 +320,34 @@ class MoexTradeScreenTest {
             exitCommissionRub = 112.0,
             overnightRub = 0.0,
         )!!
-        assertTrue(exit < 5.5)
+        assertEquals(5.5 - delta, exit, 1e-9)
+    }
+
+    @Test
+    fun takeProfitSpreadPoints_twoPercentLeverageSeven() {
+        val points = takeProfitSpreadPointsRequired(2.0, 7.0)!!
+        assertEquals(2.56 / 7.0, points, 1e-12)
+        assertEquals(0.365714285714, points, 1e-9)
+        assertTrue(
+            takeProfitSpreadReached(
+                ZStrategyPosition.Long, 3.35, 3.35 + points, 2.0, 7.0,
+            ),
+        )
+        assertFalse(
+            takeProfitSpreadReached(
+                ZStrategyPosition.Long, 3.35, 3.35 + 2.0 / 7.0, 2.0, 7.0,
+            ),
+        )
+        assertTrue(
+            takeProfitSpreadReached(
+                ZStrategyPosition.Short, 5.5, 5.5 - points, 2.0, 7.0,
+            ),
+        )
+        assertFalse(
+            takeProfitSpreadReached(
+                ZStrategyPosition.Short, 5.5, 5.5 - points + 0.01, 2.0, 7.0,
+            ),
+        )
     }
 
     @Test
@@ -325,10 +363,9 @@ class MoexTradeScreenTest {
             entryTimeMsk = "2026-09-01 21:00",
             takeProfitPct = 2.0,
         )!!
-        assertTrue(forecast.exitSpreadPercent > 3.35)
-        assertTrue(forecast.netPnlRub > 0)
+        val delta = 2.0 / 7.0 + 0.08
+        assertEquals(3.35 + delta, forecast.exitSpreadPercent, 1e-9)
         assertEquals(60_000.0, forecast.depositRub, 1.0)
-        assertTrue(forecast.pnlPercentFromDeposit in 1.0..2.5)
     }
 
     @Test

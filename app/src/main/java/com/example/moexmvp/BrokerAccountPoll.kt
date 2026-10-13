@@ -161,7 +161,7 @@ internal suspend fun pollBrokerAccountAndNotify(context: Context) {
 
     if (snap.side != ZStrategyPosition.Flat) {
         notifyBrokerProfitThresholds(app, snap)
-        maybeFlattenOnTakeProfit(app, snap)
+        maybeNotifyTakeProfit(app, token, snap)
     }
 }
 
@@ -210,43 +210,84 @@ private fun notifyBrokerProfitThresholds(app: Context, snap: BrokerSpreadPositio
     maybeAlert(BROKER_PROFIT_ALERT_PCT_3, markPct = 3, nid = 4)
 }
 
-private suspend fun maybeFlattenOnTakeProfit(app: Context, snap: BrokerSpreadPositionSnap) {
+private suspend fun maybeNotifyTakeProfit(
+    app: Context,
+    token: String,
+    snap: BrokerSpreadPositionSnap,
+) {
+    if (snap.side == ZStrategyPosition.Flat) return
     val tp = BrokerAccountPrefs.takeProfitPctForOpenOrDefault(app)
-    val deposit = BrokerAccountPrefs.equityAtOpenRub(app).takeIf { it > 0 }
-        ?: snap.portfolioTotalRub?.takeIf { it > 0 }
-        ?: return
-    if (!shouldFireTakeProfit(snap.expectedYieldRub, deposit, tp)) return
-    val fp = "${snap.fingerprint}|tp=$tp"
-    val already = BrokerAccountPrefs.takeProfitFiredFingerprint(app) == fp
-    if (!already) {
-        BrokerAccountPrefs.markTakeProfitFired(app, fp)
-        val yield = snap.expectedYieldRub ?: 0.0
-        val pct = if (deposit > 0) (yield / deposit) * 100.0 else 0.0
-        val sideRu = when (snap.side) {
-            ZStrategyPosition.Long -> "Long"
-            ZStrategyPosition.Short -> "Short"
-            else -> "?"
-        }
-        showPushNotification(
-            app,
-            title = "Take profit ${formatTakeProfitPctInput(tp)}% — закрываем пару",
-            body = String.format(
-                Locale.US,
-                "%s · %+.0f ₽ (%+.1f%% от вложения %.0f ₽)",
-                sideRu,
-                yield,
-                pct,
-                deposit,
-            ),
-            notificationId = BROKER_PUSH_BASE_ID + 5,
-            skipDuplicateCheck = true,
-            correlationTag = "broker_tp_$fp",
+    val open = TinkoffSandboxSpreadExecLog.loadRecent(app).firstOrNull { exec ->
+        exec.entrySpreadPercent.isFinite() && execMatchesBrokerSide(exec.signalType, snap.side)
+    } ?: return
+    val entry = open.entrySpreadPercent
+    val bookSpread = snap.spreadPercent ?: return
+    val leverage = SPREAD_LOT_PROD_DEFAULT_LEVERAGE
+    if (!takeProfitSpreadReached(snap.side, entry, bookSpread, tp, leverage)) return
+    val quotes = runCatching {
+        fetchTinkoffPairQuotesForClose(
+            token,
+            TINKOFF_MOEX_TATN_FIGI,
+            TINKOFF_MOEX_TATNP_FIGI,
+            snap.lotsAbs.toDouble().coerceAtLeast(1.0),
         )
+    }.getOrNull() ?: return
+    val live = spreadPercentFromPairQuotes(quotes) ?: return
+    if (!takeProfitSpreadReached(snap.side, entry, live, tp, leverage)) {
+        MoexDiagnostics.log(app, "broker_poll", "take_profit live recheck miss entry=$entry live=$live")
+        return
     }
-    val result = runEmergencyFlattenFromTradeTab(app)
-    result.onSuccess { msg ->
-        MoexDiagnostics.log(app, "broker_poll", "take_profit flatten ok tp=$tp $msg")
-    }.onFailure { e ->
-        MoexDiagnostics.logError(app, "broker_poll", e, "take_profit flatten tp=$tp")
+    val fp = "${snap.fingerprint}|tp=$tp|entry=$entry"
+    if (BrokerAccountPrefs.takeProfitFiredFingerprint(app) == fp) return
+    val points = when (snap.side) {
+        ZStrategyPosition.Long -> live - entry
+        ZStrategyPosition.Short -> entry - live
+        ZStrategyPosition.Flat -> return
     }
+    val grossPct = leverage * points
+    val netPct = grossPct - 2.0 * PROD_COMMISSION_PCT_PER_SIDE * leverage
+    val ovnDays = open.entryTimeMsk.takeIf { it.isNotBlank() }?.let { entryLabel ->
+        val end = formatPortfolioExecutionTableMsk(System.currentTimeMillis())
+        overnightDays(
+            portfolioDateLabelFromMskTableTime(entryLabel),
+            portfolioDateLabelFromMskTableTime(end),
+        )
+    } ?: 0L
+    val sideRu = when (snap.side) {
+        ZStrategyPosition.Long -> "Long"
+        ZStrategyPosition.Short -> "Short"
+        ZStrategyPosition.Flat -> return
+    }
+    val ovnNote = if (ovnDays > 0) {
+        " Перенос $ovnDays дн. в порог не входит."
+    } else {
+        ""
+    }
+    BrokerAccountPrefs.markTakeProfitFired(app, fp)
+    showPushNotification(
+        app,
+        title = "Take profit ${formatTakeProfitPctInput(tp)}%",
+        body = String.format(
+            Locale.US,
+            "%s · вход %.2f%% · сейчас %.2f%% · ход %+.2f п. · до комиссии %+.2f%% депозита · после комиссии %+.2f%%.%s",
+            sideRu,
+            entry,
+            live,
+            points,
+            grossPct,
+            netPct,
+            ovnNote,
+        ),
+        notificationId = BROKER_PUSH_BASE_ID + 5,
+        skipDuplicateCheck = true,
+        correlationTag = "broker_tp_$fp",
+    )
+    MoexDiagnostics.log(app, "broker_poll", "take_profit notify tp=$tp entry=$entry live=$live")
 }
+
+private fun execMatchesBrokerSide(signal: StrategySignalType, side: ZStrategyPosition): Boolean =
+    when (side) {
+        ZStrategyPosition.Long -> signal == StrategySignalType.EnterLong
+        ZStrategyPosition.Short -> signal == StrategySignalType.EnterShort
+        ZStrategyPosition.Flat -> false
+    }
