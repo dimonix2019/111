@@ -3,6 +3,7 @@ package com.example.moexmvp
 import android.content.Context
 import org.json.JSONObject
 import java.time.Instant
+import java.time.ZoneId
 import java.util.Locale
 
 /** Источник времени входа для UI. */
@@ -25,22 +26,50 @@ internal suspend fun resolveSpreadEntryTimeMsk(
 ): Pair<String, SpreadEntryTimeSource>? {
     if (side == ZStrategyPosition.Flat) return null
 
+    var best: Pair<String, SpreadEntryTimeSource>? = null
     exec?.entryTimeMsk?.takeIf { it.isNotBlank() && it != "—" }?.let {
-        return it to SpreadEntryTimeSource.ExecLog
+        best = it to SpreadEntryTimeSource.ExecLog
     }
-
-    resolveEntryTimeFromTradeFillLog(context, side)?.let { return it }
-
+    best = preferNewerSpreadEntryTime(best, resolveEntryTimeFromTradeFillLog(context, side))
     BrokerAccountPrefs.entryTimeMskAtOpen(context)?.takeIf { it.isNotBlank() }?.let {
-        return it to SpreadEntryTimeSource.BrokerPrefs
+        best = preferNewerSpreadEntryTime(best, it to SpreadEntryTimeSource.BrokerPrefs)
     }
 
-    fetchSpreadEntryTimeFromOperations(token, accountId, side)?.let {
-        BrokerAccountPrefs.saveEntryTimeAtOpen(context, it)
-        return it to SpreadEntryTimeSource.GetOperations
+    val label = best?.first
+    if (label == null || entryTimeNeedsBrokerCheck(label)) {
+        fetchSpreadEntryTimeFromOperations(token, accountId, side)?.let { fromBroker ->
+            val broker = fromBroker to SpreadEntryTimeSource.GetOperations
+            val picked = preferNewerSpreadEntryTime(best, broker)
+            if (picked?.second == SpreadEntryTimeSource.GetOperations) {
+                BrokerAccountPrefs.saveEntryTimeAtOpen(context, picked.first)
+            }
+            best = picked
+        }
     }
+    return best
+}
 
-    return null
+/** Журнал старше сегодняшнего дня МСК — сверяем с брокером. */
+internal fun entryTimeNeedsBrokerCheck(
+    label: String,
+    nowMillis: Long = System.currentTimeMillis(),
+): Boolean {
+    val ms = parsePortfolioExecutionTableMsk(label) ?: return true
+    val zone = ZoneId.of("Europe/Moscow")
+    val entryDay = Instant.ofEpochMilli(ms).atZone(zone).toLocalDate()
+    val today = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
+    return entryDay.isBefore(today)
+}
+
+internal fun preferNewerSpreadEntryTime(
+    current: Pair<String, SpreadEntryTimeSource>?,
+    candidate: Pair<String, SpreadEntryTimeSource>?,
+): Pair<String, SpreadEntryTimeSource>? {
+    if (candidate == null) return current
+    if (current == null) return candidate
+    val currentMs = parsePortfolioExecutionTableMsk(current.first) ?: return candidate
+    val candidateMs = parsePortfolioExecutionTableMsk(candidate.first) ?: return current
+    return if (candidateMs > currentMs) candidate else current
 }
 
 private fun resolveEntryTimeFromTradeFillLog(
@@ -147,15 +176,10 @@ private fun operationIsBuy(op: JSONObject): Boolean? {
     return payment < 0
 }
 
-private fun resolveSpreadOperationTicker(op: JSONObject): String? {
-    val inst = op.optJSONObject("instrument")
-    jsonFirstNonBlankOp(inst ?: op, "ticker", "Ticker")?.uppercase(Locale.US)?.let { return it }
-    val figi = jsonFirstNonBlankOp(inst ?: op, "figi", "FIGI").orEmpty().uppercase(Locale.US)
-    return when {
-        "TATNP" in figi -> "TATNP"
-        "TATN" in figi -> "TATN"
-        else -> null
-    }
+internal fun resolveSpreadOperationTicker(op: JSONObject): String? {
+    resolveOperationTicker(op)?.let { return it }
+    val inst = op.optJSONObject("instrument") ?: return null
+    return resolveOperationTicker(inst)
 }
 
 private fun jsonFirstNonBlankOp(o: JSONObject, vararg keys: String): String? {

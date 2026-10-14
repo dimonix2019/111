@@ -946,4 +946,29 @@ class MoexTradeScreenTest {
         assertTrue(formatCloseNowHeroRub(1234.4).startsWith("+"))
         assertTrue(formatCloseNowHeroRub(-50.2).startsWith("-"))
     }
+
+    @Test
+    fun staleJournalEntry_isReplacedByNewerBrokerTime() {
+        val now = parsePortfolioExecutionTableMsk("2026-10-14 07:09")!!
+        assertTrue(entryTimeNeedsBrokerCheck("2026-10-05 20:51", now))
+        assertFalse(entryTimeNeedsBrokerCheck("2026-10-14 07:06", now))
+        val picked = preferNewerSpreadEntryTime(
+            "2026-10-05 20:51" to SpreadEntryTimeSource.ExecLog,
+            "2026-10-14 07:06" to SpreadEntryTimeSource.GetOperations,
+        )
+        assertEquals("2026-10-14 07:06", picked?.first)
+        assertEquals(SpreadEntryTimeSource.GetOperations, picked?.second)
+        assertEquals(0L, overnightDays("2026-10-14", "2026-10-14"))
+        assertEquals(9L, overnightDays("2026-10-05", "2026-10-14"))
+    }
+
+    @Test
+    fun resolveSpreadOperationTicker_readsFigiWithoutTicker() {
+        val tatn = JSONObject().put("figi", "BBG004RVFFC0")
+        val tatnp = JSONObject().put("instrumentUid", "BBG004S68829")
+        val nested = JSONObject().put("instrument", JSONObject().put("figi", "BBG004RVFFC0"))
+        assertEquals("TATN", resolveSpreadOperationTicker(tatn))
+        assertEquals("TATNP", resolveSpreadOperationTicker(tatnp))
+        assertEquals("TATN", resolveSpreadOperationTicker(nested))
+    }
 }
