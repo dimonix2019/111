@@ -28,14 +28,11 @@ internal fun buildMarketsSpreadChartReferenceLines(
         return lines
     }
     val tpSpread = openEntrySpread?.takeIf { it.isFinite() }?.let { entry ->
-        val dep = depositRub?.takeIf { it > 0 } ?: return@let null
-        val eff = notionalRub?.takeIf { it > 0 }
-            ?: dep * SPREAD_LOT_PROD_DEFAULT_LEVERAGE
         takeProfitExitSpread(
             side = openSide,
             entrySpreadPercent = entry,
-            depositRub = dep,
-            effNotionalRub = eff,
+            depositRub = depositRub ?: 0.0,
+            effNotionalRub = notionalRub ?: 0.0,
             takeProfitPct = takeProfitPct,
         )
     }
@@ -57,6 +54,19 @@ internal fun buildMarketsSpreadChartReferenceLines(
         dashOffPx = 4f,
     )
     return lines
+}
+
+/** Спред входа живой пары: средние цены ног из GetPortfolio, как строка «Спред» на вкладке «Сделка». */
+internal suspend fun brokerOpenFillSpreadPercent(context: android.content.Context): Double? {
+    val mode = TinkoffExecutionMode.Prod
+    val token = TinkoffSandboxStorage.getActiveToken(context, mode) ?: return null
+    val accountId = TinkoffSandboxStorage.getActiveAccountId(context, mode) ?: return null
+    val portfolio = tinkoffGetPortfolio(mode, token, accountId)
+    val avg = parseSpreadLegAveragePrices(portfolio)
+    val tatn = avg.tatnAvgPriceRub ?: return null
+    val tatnp = avg.tatnpAvgPriceRub ?: return null
+    if (tatnp <= 0.0) return null
+    return (tatn / tatnp - 1.0) * 100.0
 }
 
 internal fun resolveMarketsSpreadChartOpenSide(

@@ -243,10 +243,18 @@ internal fun MoexScreenTabMarketsPhone(
             ).map { marker ->
                 marker.copy(value = markerPoints.getOrNull(marker.index)?.zScore ?: marker.value)
             }
-            val openExec = weekOpens.firstOrNull {
-                it.signalType == StrategySignalType.EnterLong ||
-                    it.signalType == StrategySignalType.EnterShort
+            val sideForTp = brokerSide.takeUnless { it == ZStrategyPosition.Flat }
+                ?: resolveMarketsSpreadChartOpenSide(weekOpens, brokerSide)
+            val openExec = weekOpens.firstOrNull { exec ->
+                when (sideForTp) {
+                    ZStrategyPosition.Long -> exec.signalType == StrategySignalType.EnterLong
+                    ZStrategyPosition.Short -> exec.signalType == StrategySignalType.EnterShort
+                    else -> false
+                }
             }
+            val fillSpread = runCatching {
+                brokerOpenFillSpreadPercent(screen.context.applicationContext)
+            }.getOrNull()
             MarketsPhoneChartState(
                 overlay = ZChartPortfolioOverlay(
                     markers = spreadMarkers,
@@ -255,8 +263,8 @@ internal fun MoexScreenTabMarketsPhone(
                         markerPoints,
                     ),
                 ),
-                openSide = resolveMarketsSpreadChartOpenSide(weekOpens, brokerSide),
-                openEntrySpread = openExec?.entrySpreadPercent,
+                openSide = sideForTp,
+                openEntrySpread = fillSpread ?: openExec?.entrySpreadPercent,
                 openDepositRub = openExec?.entryPortfolioTotalRub?.takeIf { it > 0 }
                     ?: openExec?.entryPortfolioCashRub?.takeIf { it > 0 },
                 openNotionalRub = openExec?.executionNotionalRub?.takeIf { it > 0 },

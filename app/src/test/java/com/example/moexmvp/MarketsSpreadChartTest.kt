@@ -40,8 +40,16 @@ class MarketsSpreadChartTest {
         )
         val tp = lines.last()
         assertEquals("ТП 2%", tp.label)
-        assertTrue(tp.value > 3.2)
-        assertTrue(tp.value < DEFAULT_SPREAD_EXIT_NARROW + 0.5)
+        assertEquals(3.2 + 2.0 / 7.0 + 0.08, tp.value, 1e-9)
+    }
+
+    @Test
+    fun buildMarketsSpreadChartReferenceLines_usesFillEntryWithoutDeposit() {
+        val lines = buildMarketsSpreadChartReferenceLines(
+            openSide = ZStrategyPosition.Long,
+            openEntrySpread = 4.16,
+        )
+        assertEquals(4.16 + 2.0 / 7.0 + 0.08, lines.last().value, 1e-9)
     }
 
     @Test
