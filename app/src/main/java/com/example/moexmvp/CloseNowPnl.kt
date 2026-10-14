@@ -29,6 +29,25 @@ internal data class BookLevel(
     val lots: Double,
 )
 
+/** Спред (TATN/TATNP − 1)×100 по last, иначе по середине bid/ask. */
+internal fun spreadPercentFromPairQuotes(quotes: PairQuotes): Double? {
+    fun px(q: ShareQuote): Double? {
+        q.last?.takeIf { it > 0.0 }?.let { return it }
+        val bid = q.bid?.takeIf { it > 0.0 }
+        val ask = q.ask?.takeIf { it > 0.0 }
+        return when {
+            bid != null && ask != null -> (bid + ask) / 2.0
+            bid != null -> bid
+            ask != null -> ask
+            else -> null
+        }
+    }
+    val tatn = px(quotes.tatn) ?: return null
+    val tatnp = px(quotes.tatnp) ?: return null
+    if (tatnp <= 0.0) return null
+    return (tatn / tatnp - 1.0) * 100.0
+}
+
 internal data class PairQuotes(
     val tatn: ShareQuote = ShareQuote(),
     val tatnp: ShareQuote = ShareQuote(),

@@ -66,6 +66,8 @@
     const MARKER_ENTRY_HIT_RADIUS_X_PX = 56;
     const MAX_ZONE_SERIES = 6;
     const FOLLOW_LIVE_TOLERANCE_BARS = 3;
+    /** Дальше сжимать нельзя: вся неделя 1м + зоны роняют рендер WebView, график гаснет. */
+    const MAX_VISIBLE_BARS = 720;
 
     let chart = null;
     let series = null;
@@ -288,7 +290,10 @@
       if (!chart || viewportBound) return;
       viewportBound = true;
       const ts = chart.timeScale();
-      ts.subscribeVisibleLogicalRangeChange(scheduleRefreshMarkers);
+      ts.subscribeVisibleLogicalRangeChange(() => {
+        clampHorizontalZoom();
+        scheduleRefreshMarkers();
+      });
       if (typeof ts.subscribeVisibleTimeRangeChange === 'function') {
         ts.subscribeVisibleTimeRangeChange(scheduleRefreshMarkers);
       }
@@ -857,6 +862,8 @@
         if (userInteracting) return;
         lastChartSize = { w: rw, h: rh };
         chart.resize(rw, rh);
+        applyMinBarSpacing();
+        clampHorizontalZoom();
         layoutPriceAxisZoom(el);
         scheduleRefreshMarkers();
       });
@@ -894,6 +901,41 @@
         if (c && typeof c.time === 'number') byTime.set(c.time, c);
       }
       return [...byTime.entries()].sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+    }
+
+    function maxVisibleSpan() {
+      const n = lastCandles.length;
+      return Math.max(40, Math.min(Math.max(n, 1) + RIGHT_OFFSET_BARS, MAX_VISIBLE_BARS));
+    }
+
+    function applyMinBarSpacing() {
+      if (!chart) return;
+      let width = 0;
+      try { width = chart.timeScale().width(); } catch (e) {}
+      if (!(width > 0)) return;
+      const min = Math.max(0.5, width / maxVisibleSpan());
+      try { chart.timeScale().applyOptions({ minBarSpacing: min }); } catch (e) {}
+    }
+
+    let clampingHorizontalZoom = false;
+    function clampHorizontalZoom() {
+      if (!chart || clampingHorizontalZoom) return;
+      let range = null;
+      try { range = chart.timeScale().getVisibleLogicalRange(); } catch (e) { return; }
+      const limit = maxVisibleSpan();
+      if (!range || !Number.isFinite(range.from) || !Number.isFinite(range.to) || range.to <= range.from) {
+        clampingHorizontalZoom = true;
+        try { chart.timeScale().fitContent(); } catch (e) {}
+        clampingHorizontalZoom = false;
+        return;
+      }
+      const span = range.to - range.from;
+      if (span <= limit + 0.25) return;
+      clampingHorizontalZoom = true;
+      try {
+        chart.timeScale().setVisibleLogicalRange({ from: range.to - limit, to: range.to });
+      } catch (e) {}
+      clampingHorizontalZoom = false;
     }
 
     function applyInitialWindow(n, startFrac, widthFrac) {
@@ -988,6 +1030,7 @@
       }
 
       applyCandleData(candles);
+      applyMinBarSpacing();
       pushOhlc(lastCandle());
       updateFormingBarHint(data);
       if (data.spreadChart) {

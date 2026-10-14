@@ -21,9 +21,37 @@ internal data class TakeProfitForecast(
 )
 
 /**
- * Спред-цель ТП: net ≈ deposit×tp% после комиссии выхода и overnight.
- * Long: entry + Δп.п.; Short: entry − Δп.п.
+ * Выгодный ход спреда в пунктах, чтобы тейк из настройки остался после двух комиссий.
+ * Комиссия 0,04 пункта за сторону не зависит от плеча: +0,08.
+ * Перенос в порог не входит. [depositRub], [effNotionalRub], [exitCommissionRub], [overnightRub]
+ * на Δ не влияют — плечо берётся из настройки (по умолчанию 7).
  */
+internal fun takeProfitSpreadPointsRequired(
+    takeProfitPct: Double,
+    leverage: Double = SPREAD_LOT_PROD_DEFAULT_LEVERAGE,
+): Double? {
+    if (!takeProfitPct.isFinite() || takeProfitPct <= 0.0) return null
+    if (!leverage.isFinite() || leverage <= 0.0) return null
+    return takeProfitPct / leverage + 2.0 * PROD_COMMISSION_PCT_PER_SIDE
+}
+
+/** Long: live ≥ entry + Δ. Short: live ≤ entry − Δ. */
+internal fun takeProfitSpreadReached(
+    side: ZStrategyPosition,
+    entrySpreadPercent: Double,
+    liveSpreadPercent: Double,
+    takeProfitPct: Double,
+    leverage: Double = SPREAD_LOT_PROD_DEFAULT_LEVERAGE,
+): Boolean {
+    val need = takeProfitSpreadPointsRequired(takeProfitPct, leverage) ?: return false
+    if (!entrySpreadPercent.isFinite() || !liveSpreadPercent.isFinite()) return false
+    return when (side) {
+        ZStrategyPosition.Long -> liveSpreadPercent + 1e-9 >= entrySpreadPercent + need
+        ZStrategyPosition.Short -> liveSpreadPercent - 1e-9 <= entrySpreadPercent - need
+        ZStrategyPosition.Flat -> false
+    }
+}
+
 internal fun takeProfitExitSpread(
     side: ZStrategyPosition,
     entrySpreadPercent: Double,
@@ -32,13 +60,15 @@ internal fun takeProfitExitSpread(
     takeProfitPct: Double = DEFAULT_TAKE_PROFIT_PCT,
     exitCommissionRub: Double = 0.0,
     overnightRub: Double = 0.0,
+    leverage: Double = SPREAD_LOT_PROD_DEFAULT_LEVERAGE,
 ): Double? {
     if (side == ZStrategyPosition.Flat) return null
-    if (!entrySpreadPercent.isFinite() || !(effNotionalRub > 0)) return null
-    val tp = takeProfitPct.takeIf { it > 0 } ?: return null
-    val dep = max(0.0, depositRub)
-    val needGross = dep * (tp / 100.0) + exitCommissionRub + overnightRub
-    val deltaPp = needGross / effNotionalRub * 100.0
+    if (!entrySpreadPercent.isFinite()) return null
+    // Рублёвая комиссия и перенос порог не сдвигают — сигнатура сохранена для графика и прогноза.
+    if (exitCommissionRub.isNaN() || overnightRub.isNaN() || depositRub.isNaN() || effNotionalRub.isNaN()) {
+        return null
+    }
+    val deltaPp = takeProfitSpreadPointsRequired(takeProfitPct, leverage) ?: return null
     return when (side) {
         ZStrategyPosition.Long -> entrySpreadPercent + deltaPp
         ZStrategyPosition.Short -> entrySpreadPercent - deltaPp
