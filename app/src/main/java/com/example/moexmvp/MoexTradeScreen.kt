@@ -436,6 +436,19 @@ internal fun MoexScreenTabTrade(
             return@Column
         }
 
+        unevenSpreadLegsLabel(snap.tatnLots, snap.tatnpLots)?.let { label ->
+            Text(
+                text = label,
+                color = Color(0xFFFFF8E1),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF8D2B0B), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+
         if (!snap.isOpen) {
             TradeInfoCard(title = "Позиция") {
                 Text("Нет открытой сделки", color = Color(0xFFE0E0E0), fontSize = 14.sp)
@@ -737,6 +750,20 @@ private fun TradeMetricRow(
         )
     }
 }
+
+/** Ровная пара: оба количества не нулевые, модули равны, знаки противоположные. Иначе текст предупреждения. */
+internal fun unevenSpreadLegsLabel(tatnQty: Int, tatnpQty: Int): String? {
+    if (tatnQty == 0 && tatnpQty == 0) return null
+    val oppositeSigns = (tatnQty > 0 && tatnpQty < 0) || (tatnQty < 0 && tatnpQty > 0)
+    val even = tatnQty != 0 && tatnpQty != 0 &&
+        kotlin.math.abs(tatnQty) == kotlin.math.abs(tatnpQty) &&
+        oppositeSigns
+    if (even) return null
+    return "Неравные ноги: TATN ${formatSignedQty(tatnQty)} · TATNP ${formatSignedQty(tatnpQty)}"
+}
+
+internal fun formatSignedQty(qty: Int): String =
+    if (qty < 0) "−${-qty}" else qty.toString()
 
 internal fun tradeOpenLegsTitle(sideLabel: String, tatnLots: Int, tatnpLots: Int): String {
     val a = kotlin.math.abs(tatnLots)
