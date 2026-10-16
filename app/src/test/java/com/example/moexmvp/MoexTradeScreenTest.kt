@@ -941,6 +941,29 @@ class MoexTradeScreenTest {
     }
 
     @Test
+    fun unevenSpreadLegsLabel_onlyWhenPairIsNotBalanced() {
+        assertNull(unevenSpreadLegsLabel(0, 0))
+        assertNull(unevenSpreadLegsLabel(11, -11))
+        assertNull(unevenSpreadLegsLabel(-11, 11))
+        assertEquals(
+            "Неравные ноги: TATN 18 · TATNP −11",
+            unevenSpreadLegsLabel(18, -11),
+        )
+        assertEquals(
+            "Неравные ноги: TATN 11 · TATNP 0",
+            unevenSpreadLegsLabel(11, 0),
+        )
+        assertEquals(
+            "Неравные ноги: TATN 5 · TATNP 5",
+            unevenSpreadLegsLabel(5, 5),
+        )
+        assertEquals(
+            "Неравные ноги: TATN −3 · TATNP −3",
+            unevenSpreadLegsLabel(-3, -3),
+        )
+    }
+
+    @Test
     fun formatCloseNowHeroRub_usesSignedSpaces() {
         assertTrue(formatCloseNowHeroRub(1234.4).contains("1 234"))
         assertTrue(formatCloseNowHeroRub(1234.4).startsWith("+"))
