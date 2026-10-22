@@ -14,6 +14,7 @@ private const val KEY_LAST_YIELD = "last_yield_rub"
 private const val KEY_LAST_TP_PCT = "last_take_profit_pct"
 private const val KEY_OPEN_TP_PCT = "open_take_profit_pct"
 private const val KEY_TP_FIRED_FP = "take_profit_fired_fp"
+private const val KEY_OPEN_SPREADS_SHADE = "open_spreads_shade"
 
 /** Состояние опроса T‑Invest (~15 с) для push open/close/2%/3%. */
 internal object BrokerAccountPrefs {
@@ -124,6 +125,13 @@ internal object BrokerAccountPrefs {
         }
         ed.apply()
     }
+
+    fun saveOpenSpreadsShade(context: Context, text: String) {
+        prefs(context).edit().putString(KEY_OPEN_SPREADS_SHADE, text).apply()
+    }
+
+    fun openSpreadsShade(context: Context): String =
+        prefs(context).getString(KEY_OPEN_SPREADS_SHADE, "").orEmpty()
 
     fun markProfitAlert(context: Context, pct: Int, fingerprint: String) {
         val key = when (pct) {

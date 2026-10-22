@@ -78,6 +78,7 @@ internal data class TradeScreenSnapshot(
     val closeNowPnl: CloseNowPnl? = null,
     val execSourceLabel: String? = null,
     val quantityLots: Int = 0,
+    val openCards: List<OpenSpreadCard> = emptyList(),
 ) {
     val isOpen: Boolean
         get() = tatnLots != 0 || tatnpLots != 0
@@ -215,6 +216,38 @@ internal suspend fun loadTradeScreenSnapshot(
             null
         }
         val quotes = mergeCloseNowQuotes(tinkoffQuotes, issQuotes)
+        val openCards = runCatching {
+            val slices = fetchOpenSpreadSlices(token, accountId)
+            val quoteByLots = linkedMapOf<Int, PairQuotes?>()
+            for (slice in slices) {
+                val lots = abs(slice.tatnLots).coerceAtLeast(1)
+                if (lots.toDouble() == closeLotsAbs || quoteByLots.containsKey(lots)) continue
+                quoteByLots[lots] = withTimeoutOrNull(CLOSE_NOW_BOOK_FETCH_MS) {
+                    fetchTinkoffPairQuotesForClose(
+                        token,
+                        TINKOFF_MOEX_TATN_FIGI,
+                        TINKOFF_MOEX_TATNP_FIGI,
+                        lots.toDouble(),
+                    )
+                } ?: quotes
+            }
+            openSpreadCards(
+                slices = slices,
+                quotesFor = { slice ->
+                    val lots = abs(slice.tatnLots).coerceAtLeast(1)
+                    if (lots.toDouble() == closeLotsAbs) quotes else quoteByLots[lots] ?: quotes
+                },
+                fallbackTatn = broker.tatnPriceRub,
+                fallbackTatnp = broker.tatnpPriceRub,
+                cashRub = cash,
+                nowMillis = now,
+            )
+        }.getOrDefault(emptyList())
+        if (!broker.hasBrokerLegs) {
+            BrokerAccountPrefs.saveOpenSpreadsShade(context, "")
+        } else if (openCards.isNotEmpty()) {
+            BrokerAccountPrefs.saveOpenSpreadsShade(context, formatShadeFromCards(openCards).orEmpty())
+        }
         val closeNowPnl = computeCloseNowPnl(
             tatnLots = broker.tatnLots,
             tatnpLots = broker.tatnpLots,
@@ -253,6 +286,7 @@ internal suspend fun loadTradeScreenSnapshot(
             closeNowPnl = closeNowPnl,
             execSourceLabel = exec?.let { portfolioExecSourceLabel(it.source) },
             quantityLots = lots,
+            openCards = openCards,
         )
     } catch (err: CancellationException) {
         throw err
@@ -371,7 +405,10 @@ internal fun MoexScreenTabTrade(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        snap?.closeNowPnl?.let { TradeCloseNowHero(it) }
+        val several = (snap?.openCards?.size ?: 0) >= 2
+        if (!several) {
+            snap?.closeNowPnl?.let { TradeCloseNowHero(it) }
+        }
         if (snap?.isOpen == true && snap.closeNowPnl == null && !loading) {
             Text(
                 text = "PnL при закрытии недоступен — нет средней входа или котировок.",
@@ -447,6 +484,32 @@ internal fun MoexScreenTabTrade(
                     .background(Color(0xFF8D2B0B), RoundedCornerShape(8.dp))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             )
+        }
+
+        if (snap.openCards.size >= 2) {
+            snap.openCards.forEach { card ->
+                TradeOpenSliceCard(card)
+            }
+            val sum = formatOpenSpreadsSumLine(
+                snap.openCards.map { it.closeNow?.netRub ?: 0.0 },
+                snap.openCards.map { it.depositRub },
+            )
+            if (sum != null && snap.openCards.all { it.closeNow != null }) {
+                Text(
+                    text = sum,
+                    color = Color(0xFFFFF8E1),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF1B3A2F), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                )
+            }
+            snap.margin?.let { TradeMarginCard(it) }
+            TradeClosedTradesCard(screen.tradeTabClosedTrades, screen.tradeTabTradesSource)
+            TradeFooterNote(snap.loadedAtMillis, loading)
+            return@Column
         }
 
         if (!snap.isOpen) {
@@ -566,6 +629,39 @@ internal fun MoexScreenTabTrade(
         }
 
         TradeFooterNote(snap.loadedAtMillis, loading)
+    }
+}
+
+@Composable
+private fun TradeOpenSliceCard(card: OpenSpreadCard) {
+    val slice = card.slice
+    val side = if (slice.tatnLots > 0) "Long" else "Short"
+    TradeInfoCard(
+        title = "$side ${abs(slice.tatnLots)}+${abs(slice.tatnpLots)} · ${spreadTradeBookLabel(slice.book)}",
+        accent = if (slice.tatnLots > 0) Color(0xFF26A69A) else Color(0xFFEF5350),
+    ) {
+        Text(
+            text = spreadTradeBookLabel(slice.book),
+            color = Color(0xFFFFF8E1),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .background(Color(0xFF37474F), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+        TradeMetricRow("Вход", card.entryTimeMsk)
+        TradeMetricRow(
+            "Лоты TATN / TATNP",
+            "${formatSignedQty(slice.tatnLots)} / ${formatSignedQty(slice.tatnpLots)}",
+        )
+        TradeMetricRow(
+            "Вход TATN / TATNP",
+            formatPricePair(slice.fillTatn, slice.fillTatnp),
+        )
+        card.closeNow?.let { pnl ->
+            TradeCloseNowHero(pnl)
+            TradeMetricRow("Депозит сделки", formatRubPlain(card.depositRub))
+        }
     }
 }
 

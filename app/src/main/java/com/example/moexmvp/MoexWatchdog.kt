@@ -257,9 +257,11 @@ internal fun formatSignalMonitorForegroundText(
     spreadPercent: Double?,
     openTrade: SignalMonitorOpenTradeSnapshot? = null,
     deskShade: WebDeskShadeSnapshot? = null,
+    openSpreadsShade: String? = null,
 ): String = when {
     !monitorEnabled -> "Монитор выключен"
     serviceLastTickMs <= 0L -> "Ожидание данных…"
+    !openSpreadsShade.isNullOrBlank() -> openSpreadsShade.lineSequence().first()
     deskShade != null && deskShade.briefLine.isNotBlank() -> {
         val ico = deskShade.icon.takeIf { it.isNotBlank() }?.let { "$it " }.orEmpty()
         "$ico${deskShade.briefLine}"
@@ -286,7 +288,12 @@ internal fun formatSignalMonitorForegroundBigText(
     spreadPercent: Double?,
     openTrade: SignalMonitorOpenTradeSnapshot?,
     deskShade: WebDeskShadeSnapshot? = null,
+    openSpreadsShade: String? = null,
 ): String {
+    if (!openSpreadsShade.isNullOrBlank()) {
+        val spread = spreadPercent?.let { formatSignalMonitorSpreadPart(it) }
+        return listOfNotNull(spread, openSpreadsShade).joinToString("\n")
+    }
     if (!monitorEnabled || serviceLastTickMs <= 0L) {
         return formatSignalMonitorForegroundText(
             monitorEnabled,
