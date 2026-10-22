@@ -108,6 +108,44 @@ class MoexTradeTabActionsTest {
     }
 
     @Test
+    fun matchSpreadTrades_ignoresCashThatContradictsPrices() {
+        val t0 = 1_700_000_000_000L
+        val entry = SpreadPairEvent(
+            startMs = t0,
+            endMs = t0 + 1_000,
+            tatnQty = 10.0,
+            tatnpQty = -10.0,
+            cashRub = -262.0,
+            priceTatn = 666.0,
+            priceTatnp = 640.0,
+        )
+        val exit = SpreadPairEvent(
+            startMs = t0 + 3_600_000,
+            endMs = t0 + 3_601_000,
+            tatnQty = -10.0,
+            tatnpQty = 10.0,
+            cashRub = 220.0 + 4_308.0,
+            priceTatn = 662.0,
+            priceTatnp = 640.0,
+        )
+        // 4,06% → 3,44%: лонг в минусе. Чужие +4308 в кассе выхода не принимаем.
+        val pnl = matchSpreadTrades(listOf(entry, exit), emptyList()).single().pnlRub
+        assertEquals(10.0 * ((662.0 - 666.0) - (640.0 - 640.0)), pnl, 1e-6)
+        assertTrue(pnl < 0.0)
+    }
+
+    @Test
+    fun marginTradeIsNotAFee() {
+        assertTrue(isSpreadTradeOperation("OPERATION_TYPE_BUY_MARGIN"))
+        assertTrue(isSpreadTradeOperation("OPERATION_TYPE_SELL_MARGIN"))
+        assertFalse(isSpreadFeeOperation("OPERATION_TYPE_BUY_MARGIN"))
+        assertFalse(isSpreadFeeOperation("OPERATION_TYPE_ACCRUING_VARMARGIN"))
+        assertTrue(isSpreadFeeOperation("OPERATION_TYPE_BROKER_FEE"))
+        assertTrue(isSpreadFeeOperation("OPERATION_TYPE_MARGIN_FEE"))
+        assertTrue(isSpreadFeeOperation("OPERATION_TYPE_OVERNIGHT"))
+    }
+
+    @Test
     fun matchSpreadTrades_openTradeNotReturned() {
         val t0 = 1_700_000_000_000L
         val events = pairSpreadLegs(

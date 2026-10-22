@@ -330,6 +330,22 @@ internal data class SpreadMatchedTrade(
 
 internal const val LEG_PAIR_WINDOW_MS = 60_000L
 
+/**
+ * Сделка, а не комиссия. BUY_MARGIN / SELL_MARGIN / DELIVERY_* содержат
+ * «MARGIN», но это исполнение ноги, его нельзя прибавлять к PnL как сбор.
+ */
+internal fun isSpreadTradeOperation(type: String): Boolean {
+    val t = type.uppercase(Locale.US)
+    return "BUY" in t || "SELL" in t || "SALE" in t
+}
+
+/** Брокерская комиссия, маржинальная плата и овернайт. Не сделки. */
+internal fun isSpreadFeeOperation(type: String): Boolean {
+    if (isSpreadTradeOperation(type)) return false
+    val t = type.uppercase(Locale.US)
+    return "FEE" in t || "COMMISSION" in t || "OVERNIGHT" in t || "MARGIN_FEE" in t
+}
+
 /** Последняя непарная (ещё открытая) сделка с GetOperations — для вкладки «Сделка». */
 @Volatile
 internal var lastUnmatchedOpenSpread: SpreadPairEvent? = null
@@ -387,6 +403,15 @@ internal fun unmatchedOpenSpread(events: List<SpreadPairEvent>): SpreadPairEvent
 }
 
 /**
+ * Касса и ход цен одной пары. Чужой платёж в окне комиссии даёт тысячи рублей
+ * при ходе спреда в десятки — такой PnL не показываем.
+ */
+internal fun cashDisagreesWithPrices(cashPnl: Double, pricePnl: Double): Boolean {
+    val gap = kotlin.math.abs(cashPnl - pricePnl)
+    return gap > 150.0 && gap > kotlin.math.abs(pricePnl) * 3.0
+}
+
+/**
  * Матчинг событий в сделки: LONG-событие открывает лонг, следующее SHORT-событие
  * его закрывает (и наоборот). PnL: если лоты входа и выхода совпали — по реальным
  * платежам + комиссии за удержание; при частичном fill — по ценам на лоты входа
@@ -417,18 +442,23 @@ internal fun matchSpreadTrades(
         }
         val lotsEntry = minOf(kotlin.math.abs(cur.tatnQty), kotlin.math.abs(cur.tatnpQty))
         val lotsExit = minOf(kotlin.math.abs(ev.tatnQty), kotlin.math.abs(ev.tatnpQty))
-        val pnl = if (kotlin.math.abs(lotsEntry - lotsExit) < 1.0) {
-            cur.cashRub + ev.cashRub + feesBetween(cur.startMs - 60_000L, ev.endMs + 5 * 60_000L)
-        } else {
+        val fees = feesBetween(cur.startMs - 60_000L, ev.endMs + 5 * 60_000L)
+        val en = cur.priceTatn; val ep = cur.priceTatnp
+        val xn = ev.priceTatn; val xp = ev.priceTatnp
+        val pricePnl = if (en != null && ep != null && xn != null && xp != null) {
             val lots = lotsEntry
-            val en = cur.priceTatn; val ep = cur.priceTatnp
-            val xn = ev.priceTatn; val xp = ev.priceTatnp
-            if (en != null && ep != null && xn != null && xp != null) {
-                if (openSide == "LONG") lots * ((xn - en) - (xp - ep))
-                else lots * ((en - xn) - (ep - xp))
-            } else {
-                cur.cashRub + ev.cashRub
-            }
+            if (openSide == "LONG") lots * ((xn - en) - (xp - ep))
+            else lots * ((en - xn) - (ep - xp))
+        } else {
+            null
+        }
+        val cashPnl = cur.cashRub + ev.cashRub + fees
+        // Полный круг: платежи ног. Если касса расходится с ценами (в окно
+        // попал чужой плюс — маржинальное исполнение, вармаржа), берём ход цен.
+        val pnl = if (kotlin.math.abs(lotsEntry - lotsExit) < 1.0) {
+            if (pricePnl != null && cashDisagreesWithPrices(cashPnl, pricePnl)) pricePnl else cashPnl
+        } else {
+            pricePnl ?: (cur.cashRub + ev.cashRub)
         }
         trades += SpreadMatchedTrade(
             direction = if (openSide == "SHORT") "Short" else "Long",
@@ -535,12 +565,12 @@ internal suspend fun fetchSpreadTradesFromTInvest(
         val ms = parseOperationDateMillis(op) ?: continue
         val type = op.optString("operationType", op.optString("type", "")).uppercase(Locale.US)
         val payment = parseOperationMoneyField(op, "payment") ?: 0.0
-        if ("FEE" in type || "COMMISSION" in type || "OVERNIGHT" in type || "MARGIN" in type) {
+        if (isSpreadFeeOperation(type)) {
             if (payment != 0.0) feePayments += ms to payment
             continue
         }
         val isBuy = "BUY" in type
-        val isSell = "SELL" in type || ("SALE" in type)
+        val isSell = "SELL" in type || "SALE" in type
         if (!isBuy && !isSell) {
             skippedType++
             continue
