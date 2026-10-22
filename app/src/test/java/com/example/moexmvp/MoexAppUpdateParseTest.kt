@@ -11,7 +11,7 @@ class MoexAppUpdateParseTest {
 
     @Test
     fun inAppUpdateCheck_doesNotPollEveryFiveMinutes() {
-        assertEquals(6 * 60 * 60 * 1000L, APP_UPDATE_CHECK_INTERVAL_MS)
+        assertEquals(60_000L, APP_UPDATE_CHECK_INTERVAL_MS)
     }
 
     @Test

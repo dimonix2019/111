@@ -89,6 +89,34 @@ internal fun openSpreadSlices(fills: List<SpreadFillLot>): List<OpenSpreadSlice>
     val closeShortTatnp = LotBook()
     val open = mutableListOf<OpenSpreadSlice>()
 
+    fun reduce(sideLong: Boolean, lots: Int) {
+        var left = lots
+        val matches = open.indices.filter { i ->
+            val s = open[i]
+            val size = abs(s.tatnLots)
+            (s.tatnLots > 0) == sideLong && size > 0
+        }.sortedBy { i ->
+            val size = abs(open[i].tatnLots)
+            if (size == lots) 0 else 1
+        }
+        for (i in matches) {
+            if (left <= 0) break
+            val s = open[i]
+            val size = abs(s.tatnLots)
+            val use = minOf(left, size)
+            val next = size - use
+            open[i] = if (next <= 0) {
+                s.copy(tatnLots = 0, tatnpLots = 0)
+            } else if (s.tatnLots > 0) {
+                s.copy(tatnLots = next, tatnpLots = -next)
+            } else {
+                s.copy(tatnLots = -next, tatnpLots = next)
+            }
+            left -= use
+            if (use == size) break
+        }
+    }
+
     fun finishCloseLong() {
         while (closeLongTatn.total() > 0 && closeLongTatnp.total() > 0 && openLongLots(open, long = true) > 0) {
             val n = minOf(closeLongTatn.total(), closeLongTatnp.total(), openLongLots(open, long = true))
@@ -140,34 +168,6 @@ internal fun openSpreadSlices(fills: List<SpreadFillLot>): List<OpenSpreadSlice>
                 fillTatn = tatn.first,
                 fillTatnp = tatnp.first,
             )
-        }
-    }
-
-    fun reduce(sideLong: Boolean, lots: Int) {
-        var left = lots
-        val matches = open.indices.filter { i ->
-            val s = open[i]
-            val size = abs(s.tatnLots)
-            (s.tatnLots > 0) == sideLong && size > 0
-        }.sortedBy { i ->
-            val size = abs(open[i].tatnLots)
-            if (size == lots) 0 else 1
-        }
-        for (i in matches) {
-            if (left <= 0) break
-            val s = open[i]
-            val size = abs(s.tatnLots)
-            val use = minOf(left, size)
-            val next = size - use
-            open[i] = if (next <= 0) {
-                s.copy(tatnLots = 0, tatnpLots = 0)
-            } else if (s.tatnLots > 0) {
-                s.copy(tatnLots = next, tatnpLots = -next)
-            } else {
-                s.copy(tatnLots = -next, tatnpLots = next)
-            }
-            left -= use
-            if (use == size) break
         }
     }
 

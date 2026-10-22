@@ -219,24 +219,23 @@ internal suspend fun loadTradeScreenSnapshot(
         val openCards = runCatching {
             val slices = fetchOpenSpreadSlices(token, accountId)
             val quoteByLots = linkedMapOf<Int, PairQuotes?>()
+            for (slice in slices) {
+                val lots = abs(slice.tatnLots).coerceAtLeast(1)
+                if (lots.toDouble() == closeLotsAbs || quoteByLots.containsKey(lots)) continue
+                quoteByLots[lots] = withTimeoutOrNull(CLOSE_NOW_BOOK_FETCH_MS) {
+                    fetchTinkoffPairQuotesForClose(
+                        token,
+                        TINKOFF_MOEX_TATN_FIGI,
+                        TINKOFF_MOEX_TATNP_FIGI,
+                        lots.toDouble(),
+                    )
+                } ?: quotes
+            }
             openSpreadCards(
                 slices = slices,
                 quotesFor = { slice ->
                     val lots = abs(slice.tatnLots).coerceAtLeast(1)
-                    if (lots.toDouble() == closeLotsAbs) {
-                        quotes
-                    } else {
-                        quoteByLots.getOrPut(lots) {
-                            withTimeoutOrNull(CLOSE_NOW_BOOK_FETCH_MS) {
-                                fetchTinkoffPairQuotesForClose(
-                                    token,
-                                    TINKOFF_MOEX_TATN_FIGI,
-                                    TINKOFF_MOEX_TATNP_FIGI,
-                                    lots.toDouble(),
-                                )
-                            } ?: quotes
-                        }
-                    }
+                    if (lots.toDouble() == closeLotsAbs) quotes else quoteByLots[lots] ?: quotes
                 },
                 fallbackTatn = broker.tatnPriceRub,
                 fallbackTatnp = broker.tatnpPriceRub,
