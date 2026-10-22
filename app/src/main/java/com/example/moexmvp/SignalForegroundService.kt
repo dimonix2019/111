@@ -185,6 +185,7 @@ class SignalForegroundService : Service() {
             spreadPercent = lastForegroundSpreadPercent,
             openTrade = lastForegroundOpenTrade,
             deskShade = lastForegroundDeskShade,
+            openSpreadsShade = BrokerAccountPrefs.openSpreadsShade(this).ifBlank { null },
         )
         val bigText = formatSignalMonitorForegroundBigText(
             monitorEnabled = status.monitorEnabled,
@@ -193,6 +194,7 @@ class SignalForegroundService : Service() {
             spreadPercent = lastForegroundSpreadPercent,
             openTrade = lastForegroundOpenTrade,
             deskShade = lastForegroundDeskShade,
+            openSpreadsShade = BrokerAccountPrefs.openSpreadsShade(this).ifBlank { null },
         )
         return NotificationCompat.Builder(this, SIGNAL_MONITOR_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
